@@ -20,6 +20,8 @@ IUPAC_COMP = str.maketrans({
     'a': 't', 't': 'a', 'g': 'c', 'c': 'g',
 })
 
+DNA_COMP = str.maketrans("ATGCatgc", "TACGtacg")
+
 
 class EnzymeEnginePlugin(PluginProtocol):
     def __init__(self):
@@ -63,59 +65,41 @@ class EnzymeEnginePlugin(PluginProtocol):
             site = str(enz.site)
             rec_len = len(site)
             top_off, bot_off = _parse_elucidate(enz.elucidate(), site)
-            enz_idx = 0
 
-            for ci_1b in cuts:
-                # cut_index: 0-based — cut separates bases (cut_index-1) and cut_index.
-                # The cut line is drawn at getX(cut_index) = left edge of column cut_index.
+            for enz_idx, ci_1b in enumerate(cuts):
+                # cut_index: 0-based — cut separates bases (cut_index-1) and cut_index
                 cut_index = ci_1b - 1
 
                 # Locate recognition in template (±30 bp window)
                 ctx_s = max(0, cut_index - 30)
                 ctx_e = min(len(seq), cut_index + 30)
-                ctx = seq[ctx_s:ctx_e]
                 rel_cut = cut_index - ctx_s
 
-                rec_start_rel, matched_seq, is_bottom = _locate(ctx, site, rel_cut, top_off)
+                rec_start_rel, matched_seq, is_bottom = _locate(
+                    seq[ctx_s:ctx_e], site, rel_cut, top_off,
+                )
                 rec_start = ctx_s + rec_start_rel
                 rec_end = rec_start + rec_len - 1
 
-                # Compute bot_cut_index with signed stagger (same convention as cut_index)
+                # Compute bot_cut_index with signed stagger
                 bot_cut_index = cut_index + (bot_off - top_off)
 
-                # Display bounds: cover recognition + both sides of every cut.
-                # A cut separating bases (p-1) and p needs both shown.
-                disp_start = rec_start
-                disp_end = rec_end
+                # Display bounds: cover rec + both sides of every cut.
+                # A cut at position p separates bases (p-1) and p; min/max
+                # naturally only extend the bounds when a cut falls outside rec.
+                disp_start = min(rec_start, cut_index - 1, bot_cut_index - 1)
+                disp_end = max(rec_end, cut_index, bot_cut_index)
 
-                # Top cut
-                if cut_index - 1 < rec_start:
-                    disp_start = min(disp_start, cut_index - 1)
-                if cut_index > rec_end:
-                    disp_end = max(disp_end, cut_index)
+                # rec_seq_pattern as it applies to the template strand
+                rec_pattern = _complement_iupac(site) if is_bottom else site
 
-                # Bottom cut
-                if bot_cut_index - 1 < rec_start:
-                    disp_start = min(disp_start, bot_cut_index - 1)
-                if bot_cut_index > rec_end:
-                    disp_end = max(disp_end, bot_cut_index)
-
-                # rec_seq_pattern: recognition pattern as it applies to the template strand
-                if is_bottom:
-                    rec_pattern = _complement_iupac(site)
-                else:
-                    rec_pattern = site
-
-                # Spacers: non-recognition regions within [disp_start, disp_end]
+                # Spacers: non-recognition regions within the display (half-open)
                 spacers = []
                 if disp_start < rec_start:
                     spacers.append({"start": 0, "end": rec_start - disp_start})
-                rec_offset = rec_start - disp_start
-                if rec_offset + rec_len < disp_end - disp_start + 1:
-                    spacers.append({
-                        "start": rec_offset + rec_len,
-                        "end": disp_end - disp_start + 1,
-                    })
+                ro = rec_start - disp_start
+                if ro + rec_len < disp_end - disp_start + 1:
+                    spacers.append({"start": ro + rec_len, "end": disp_end - disp_start + 1})
 
                 result.append(Enzyme(
                     id=f"{enz}_{cut_index}_{enz_idx}",
@@ -134,7 +118,6 @@ class EnzymeEnginePlugin(PluginProtocol):
                     spacers=spacers or None,
                     is_unique=is_unique,
                 ))
-                enz_idx += 1
 
         project.enzymes[:] = result
 
@@ -204,8 +187,7 @@ def _closest(positions: list[int], target: int, cut_pos: int, top_off: int) -> i
 
 
 def _complement(seq: str) -> str:
-    table = str.maketrans("ATGCatgc", "TACGtacg")
-    return seq.translate(table)[::-1]
+    return seq.translate(DNA_COMP)[::-1]
 
 
 def _complement_iupac(seq: str) -> str:
