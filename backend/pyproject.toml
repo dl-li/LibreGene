@@ -1,0 +1,21 @@
+[project]
+name = "geneie-backend"
+version = "0.1.0"
+description = "Geneie plasmid editor backend — CLI + file parsing + plugin system"
+requires-python = ">=3.12"
+dependencies = [
+    "biopython>=1.84",
+    "click>=8.1",
+    "snapgene-reader>=0.1",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+geneie = "geneie_core.cli:main"
