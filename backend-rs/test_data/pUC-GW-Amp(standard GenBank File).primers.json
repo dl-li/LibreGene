@@ -1,0 +1,34 @@
+[
+  {
+    "id": "M13F(-47)",
+    "name": "M13F(-47)",
+    "type": "fwd",
+    "mismatchStr": "",
+    "mismatchFeatures": [],
+    "color": "#166534",
+    "bindingSites": [
+      {
+        "matchStart": 351,
+        "matchEnd": 374,
+        "matchStr": "",
+        "tm": 0.0
+      }
+    ]
+  },
+  {
+    "id": "M13R",
+    "name": "M13R",
+    "type": "fwd",
+    "mismatchStr": "",
+    "mismatchFeatures": [],
+    "color": "#166534",
+    "bindingSites": [
+      {
+        "matchStart": 449,
+        "matchEnd": 465,
+        "matchStr": "",
+        "tm": 0.0
+      }
+    ]
+  }
+]

@@ -1,0 +1,326 @@
+[
+  {
+    "id": "dna_V20-R",
+    "name": "V20-R",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 11199,
+        "match_end": 11218,
+        "match_str": "GCTCCAGCTTTTGTTCCCTT",
+        "tm": 58.0
+      },
+      {
+        "match_start": 1390,
+        "match_end": 1400,
+        "match_str": "AAAGATGGAGC",
+        "tm": 20.0
+      }
+    ]
+  },
+  {
+    "id": "dna_V20p-R1",
+    "name": "V20p-R1",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 3882,
+        "match_end": 3901,
+        "match_str": "TAGTGTTCTGCGTATGGTTT",
+        "tm": 55.0
+      },
+      {
+        "match_start": 10193,
+        "match_end": 10202,
+        "match_str": "CAGAAGACTA",
+        "tm": 14.0
+      }
+    ]
+  },
+  {
+    "id": "dna_U-F",
+    "name": "U-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 3795,
+        "match_end": 3814,
+        "match_str": "GCTGAGAGCATCAGTTGTGA",
+        "tm": 56.0
+      }
+    ]
+  },
+  {
+    "id": "dna_V20-Fs",
+    "name": "V20-Fs",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 637,
+        "match_end": 656,
+        "match_str": "CTCACTATAGGGCGAATTGG",
+        "tm": 54.0
+      }
+    ]
+  },
+  {
+    "id": "dna_attB-R",
+    "name": "attB-R",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 2924,
+        "match_end": 2943,
+        "match_str": "GGTGATCTTCCGGATTAAGC",
+        "tm": 54.0
+      }
+    ]
+  },
+  {
+    "id": "dna_P2A-F",
+    "name": "P2A-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 8233,
+        "match_end": 8295,
+        "match_str": "GGTCGGGGGCCACCAACTTCAGTCTGCTCAAGCAGGCGGGAGATGTAGAGGAGAACCCAGGAC",
+        "tm": 79.0
+      }
+    ]
+  },
+  {
+    "id": "dna_P2A-R",
+    "name": "P2A-R",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 8217,
+        "match_end": 8282,
+        "match_str": "CGATTCTTCTTCTTTCCCAGCCCCCGGTGGTTGAAGTCAGACGAGTTCGTCCGCCCTCTACATCTC",
+        "tm": 76.0
+      }
+    ]
+  },
+  {
+    "id": "dna_VP64-F",
+    "name": "VP64-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 8150,
+        "match_end": 8171,
+        "match_str": "CGATTTTGATCTCGACATGTTG",
+        "tm": 54.0
+      }
+    ]
+  },
+  {
+    "id": "dna_SV40-F2",
+    "name": "SV40-F2",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 9806,
+        "match_end": 9877,
+        "match_str": "AATTTCACAAATAAAGCATTTTTTTCACTGCATTCTAGTTGTGGTTTGTCCAAACTCATCAATGTATCTTAA",
+        "tm": 67.0
+      }
+    ]
+  },
+  {
+    "id": "dna_SV40-R2",
+    "name": "SV40-R2",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 9826,
+        "match_end": 9881,
+        "match_str": "AAAAAGTGACGTAAGATCAACACCAAACAGGTTTGAGTAGTTACATAGAATTGATC",
+        "tm": 66.0
+      }
+    ]
+  },
+  {
+    "id": "dna_HSF1-F",
+    "name": "HSF1-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 9656,
+        "match_end": 9674,
+        "match_str": "CAAAGATCCCACCGTCAGC",
+        "tm": 57.0
+      }
+    ]
+  },
+  {
+    "id": "dna_U63-R",
+    "name": "U63-R",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 10729,
+        "match_end": 10746,
+        "match_str": "CTCGTTAGTGTCCACTCG",
+        "tm": 56.0
+      },
+      {
+        "match_start": 5499,
+        "match_end": 5511,
+        "match_str": "CTCGTTAATGTCC",
+        "tm": 37.0
+      }
+    ]
+  },
+  {
+    "id": "dna_Spacer-R",
+    "name": "Spacer-R",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 10156,
+        "match_end": 10176,
+        "match_str": "CTACGGGACACCCGGATATCG",
+        "tm": 61.0
+      }
+    ]
+  },
+  {
+    "id": "dna_p65-F",
+    "name": "p65-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 9171,
+        "match_end": 9193,
+        "match_str": "CCAACACCACTAGGTACTAGCGG",
+        "tm": 60.0
+      },
+      {
+        "match_start": 1754,
+        "match_end": 1765,
+        "match_str": "AGGTACTTGCGG",
+        "tm": 34.0
+      }
+    ]
+  },
+  {
+    "id": "dna_swarm-HR-F",
+    "name": "swarm-HR-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 3884,
+        "match_end": 3925,
+        "match_str": "CACAAGACGCATACCAAAGTCTAGAGGTACCGCCACCATGGC",
+        "tm": 72.0
+      }
+    ]
+  },
+  {
+    "id": "dna_swarm-HR-R",
+    "name": "swarm-HR-R",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 9731,
+        "match_end": 9779,
+        "match_str": "CCCGAGTCCAACTTGGCCACCATGTTGAACAAATAACGTCGAATATTAC",
+        "tm": 64.0
+      }
+    ]
+  },
+  {
+    "id": "dna_SwarmVec-HR-F",
+    "name": "SwarmVec-HR-F",
+    "type": "fwd",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 9725,
+        "match_end": 9793,
+        "match_str": "GAAGAAGGGCTCAGGTTGAACCGGTGGTACAACTTGTTTATTGCAGCTTATAATGGTTACAAATAAAGC",
+        "tm": 67.0
+      },
+      {
+        "match_start": 9755,
+        "match_end": 9822,
+        "match_str": "AACTTGTTTATTGCAGCTTATAATGGTTACAAATAAAGCAATAGCATCACAAATTTCACAAATAAAGC",
+        "tm": 53.0
+      },
+      {
+        "match_start": 8199,
+        "match_end": 8209,
+        "match_str": "ACAAAGAAAGC",
+        "tm": 18.0
+      }
+    ]
+  },
+  {
+    "id": "dna_SwarmVec-HR-R",
+    "name": "SwarmVec-HR-R",
+    "type": "rev",
+    "mismatch_str": "",
+    "mismatch_features": [],
+    "color": "#166534",
+    "binding_sites": [
+      {
+        "match_start": 3891,
+        "match_end": 3939,
+        "match_str": "GCGTATGGTTTCAGATCTCCATGGCGGTGGTACCGGTTCTCTTGTCGGC",
+        "tm": 75.0
+      }
+    ]
+  }
+]
