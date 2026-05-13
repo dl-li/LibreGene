@@ -14,7 +14,8 @@ async function request(method, path, body) {
 
 // ── Project ───────────────────────────────────────────────────
 
-export function getProject()       { return request("GET", "/project"); }
+export function getProject(filter = '', cpl = 60) { return request("GET", `/project?enzyme_filter=${filter}&cpl=${cpl}`); }
+export function getProjectAll(cpl = 60) { return getProject('all', cpl); }
 export function openFile(p)        { return request("POST", `/open?path=${encodeURIComponent(p)}`); }
 export function saveFile(p)        { return request("POST", `/save?path=${encodeURIComponent(p)}`); }
 
@@ -38,6 +39,12 @@ export function deleteFeature(id)  { return request("DELETE", `/features/${encod
 export function getPrimers()       { return request("GET", "/primers"); }
 export function addPrimer(p)       { return request("POST", "/primers", p); }
 export function deletePrimer(id)   { return request("DELETE", `/primers/${encodeURIComponent(id)}`); }
+
+// ── Methylation ──────────────────────────────────────────────
+
+export function setMethylation(systems, overlap = 2) {
+  return request("POST", `/methylation?systems=${systems.join(',')}&overlap=${overlap}`);
+}
 
 // ── WebSocket (real-time push) ────────────────────────────────
 

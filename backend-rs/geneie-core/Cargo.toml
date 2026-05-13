@@ -1,0 +1,22 @@
+[package]
+name = "geneie-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+gb-io = "0.9"
+quick-xml = { version = "0.37", features = ["serialize"] }
+csv = "1"
+chrono = { version = "0.4", features = ["serde"] }
+serde-aux = "4"
+bincode = "2"
+bio = "2"
+ureq = "3"
+thiserror = "2"
+strum = { version = "0.27", features = ["derive"] }
+itertools = "0.14"
+rayon = "1"
+log = "0.4"
