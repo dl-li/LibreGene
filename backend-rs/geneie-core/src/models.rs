@@ -1,0 +1,243 @@
+use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Helper structs
+// ---------------------------------------------------------------------------
+
+/// A simple start/end segment, used for feature segments and enzyme spacers.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Segment {
+    pub start: i64,
+    pub end: i64,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Primer types
+// ---------------------------------------------------------------------------
+
+/// Per-template-column alignment status for a primer binding site.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignedColumn {
+    /// Absolute template column (0-based).
+    pub template_col: i64,
+    /// "match" | "mismatch" | "gap"
+    pub kind: String,
+    /// Primer base at this position, or "-" for gap.
+    pub primer_base: String,
+    /// Template base at this position.
+    pub template_base: String,
+    /// Primer insertion bases after this template column (5'→3'), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insertion_after: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindingSite {
+    /// inclusive
+    pub match_start: i64,
+    /// inclusive
+    pub match_end: i64,
+    /// annealing temperature (Celsius)
+    #[serde(default)]
+    pub tm: f64,
+    /// 5' tail bases in primer (primer 5'→3').
+    #[serde(default)]
+    pub five_prime_tail: String,
+    /// 3' tail bases in primer (primer 5'→3').
+    #[serde(default)]
+    pub three_prime_tail: String,
+    /// Per-template-column alignment.
+    #[serde(default)]
+    pub alignment: Vec<AlignedColumn>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Primer {
+    pub id: String,
+    pub name: String,
+    /// "fwd" | "rev"
+    #[serde(rename = "type")]
+    pub r#type: String,
+    /// Full primer sequence 5'→3'.
+    #[serde(default)]
+    pub primer_seq: String,
+    #[serde(default = "default_primer_color")]
+    pub color: String,
+    /// Computed binding sites, sorted by Tm descending (best first).
+    #[serde(default)]
+    pub binding_sites: Vec<BindingSite>,
+}
+
+fn default_primer_color() -> String {
+    "#166534".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Feature
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Feature {
+    pub id: String,
+    pub name: String,
+    /// overall min (inclusive)
+    pub start: i64,
+    /// overall max (inclusive)
+    pub end: i64,
+    #[serde(default = "default_feature_color")]
+    pub color: String,
+    /// CDS, promoter, terminator, etc.
+    #[serde(default)]
+    pub ftype: String,
+    #[serde(default)]
+    pub segments: Vec<Segment>,
+    /// "+" forward, "-" reverse, "." unknown
+    #[serde(default = "default_strand")]
+    pub strand: String,
+    #[serde(default)]
+    pub notes: String,
+    /// AA sequence (CDS only)
+    #[serde(default)]
+    pub translation: String,
+}
+
+fn default_feature_color() -> String {
+    "#60A5FA".to_string()
+}
+
+fn default_strand() -> String {
+    ".".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Enzyme
+// ---------------------------------------------------------------------------
+
+/// A pair of top/bottom strand cut positions (absolute template coordinates).
+/// For standard enzymes, one pair per recognition site.
+/// For cut-twice enzymes, two pairs per recognition site.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CutPair {
+    /// absolute top-strand cut on template (cut between cut_index and cut_index+1)
+    pub top_cut_index: i64,
+    /// absolute bottom-strand cut on template (cut between bot_cut_index and bot_cut_index+1)
+    pub bot_cut_index: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Enzyme {
+    pub id: String,
+    pub name: String,
+    /// recognition sequence (actual template)
+    pub rec_seq: String,
+    /// absolute start of recognition (inclusive, 0-based)
+    pub rec_start: i64,
+    /// absolute end of recognition (inclusive, 0-based)
+    pub rec_end: i64,
+    /// absolute start of tooltip display window
+    pub display_start: i64,
+    /// absolute end of tooltip display window
+    pub display_end: i64,
+    /// absolute top-strand cut position of first cut pair (backwards compat)
+    pub cut_index: i64,
+    /// absolute bottom-strand cut position of first cut pair (backwards compat)
+    pub bot_cut_index: i64,
+    /// all cut pairs for this recognition site (1 for standard, 2 for cut-twice)
+    #[serde(default)]
+    pub cut_pairs: Vec<CutPair>,
+    /// "top" if recognition is on the template strand, "bottom" if on complement
+    #[serde(default = "default_recognition_strand")]
+    pub recognition_strand: String,
+    #[serde(default)]
+    pub comp_seq: String,
+    /// enzyme recognition pattern (may include IUPAC codes)
+    #[serde(default)]
+    pub rec_seq_pattern: String,
+    /// non-recognition regions in display window (relative); None or list of segments
+    #[serde(default)]
+    pub spacers: Option<Vec<Segment>>,
+    #[serde(default = "default_true")]
+    pub is_unique: bool,
+    /// Whether this enzyme is methylation-sensitive (true) or methylation-unaffected (false).
+    #[serde(default)]
+    pub is_methylation_sensitive: bool,
+    #[serde(default)]
+    pub methylation_blocked: bool,
+    /// relative positions within rec (0-indexed)
+    #[serde(default)]
+    pub methylated_offsets: Vec<i64>,
+    /// ["Dam","Dcm","EcoKI"]
+    #[serde(default)]
+    pub methylation_sources: Vec<String>,
+    #[serde(default)]
+    pub methylation_required: bool,
+    /// positions needing methylation (0-indexed within rec)
+    #[serde(default)]
+    pub methyl_required_offsets: Vec<i64>,
+    /// ["Dam"]
+    #[serde(default)]
+    pub methyl_required_sources: Vec<String>,
+    /// "blunt" | "5overhang" | "3overhang"
+    #[serde(default)]
+    pub cut_type: String,
+    /// this recognition site has two cut pairs (cut-twice enzyme)
+    #[serde(default)]
+    pub cut_twice: bool,
+    /// the enzyme definition is palindromic (site equals its reverse complement)
+    #[serde(default = "default_true")]
+    pub is_palindromic: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_recognition_strand() -> String {
+    "top".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// ProjectData
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectData {
+    pub sequence: String,
+    pub length: i64,
+    /// "circular" | "linear"
+    #[serde(default = "default_topology")]
+    pub topology: String,
+    #[serde(default)]
+    pub features: Vec<Feature>,
+    #[serde(default)]
+    pub primers: Vec<Primer>,
+    #[serde(default)]
+    pub enzymes: Vec<Enzyme>,
+    /// ["dam","dcm","ecoki"]
+    #[serde(default)]
+    pub methylation_systems: Vec<String>,
+    /// +/- bp extension beyond recognition site
+    #[serde(default = "default_methylation_overlap")]
+    pub methylation_overlap: i64,
+    /// current region-of-interest; serialized as [start, end] array or omitted when None
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roi: Option<(i64, i64)>,
+}
+
+fn default_topology() -> String {
+    "circular".to_string()
+}
+
+fn default_methylation_overlap() -> i64 {
+    2
+}
