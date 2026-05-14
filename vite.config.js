@@ -8,6 +8,15 @@ export default defineConfig({
       '@': new URL('./src', import.meta.url).pathname,
     },
   },
+  // Tauri-specific: prevent Vite from obscuring Rust errors
+  clearScreen: false,
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: {
+      ignored: ['**/src-tauri/**'],
+    },
+  },
   build: {
     target: 'es2022',
     minify: 'esbuild',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, openFile, setMethylation } from './api';
+import { getProject, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates } from './tauriApi';
 
 const baseSeq = "TACGAATTCGCCACCATGGCCATGAAGCTTGAGCTCGGATCCTCTAGAGCTGATCGATCGTAGCTAGCTAGCTGATCGATCGTAGCTAGCTAGCTAGCTACGATCGATCGATCGTAGCTAGCTAGCTGATCCTAGCTAGCTAGCTGATCGATCGTAGCATCGTAGC" +
   "ACGTGTGCTAGCTAGCGCTATATATATAGCGCGCGCGTATATAGCTAGCTAGCTCGATCGATCGTAGCTAGCTGCATCGATCGTAGCTGATCGTAGCTGATCGATCGTAGCTAGCTAGCTGATCATATCATGATCGATCGTATGCGCGCGCTATTAGCTAGCTGAT" +
@@ -134,11 +134,11 @@ export default function App() {
   const setPP = (key, value) => setPrimerParams(prev => ({ ...prev, [key]: value }));
 
   useEffect(() => {
-    let ws = null;
+    let listener = null;
     let cancelled = false;
 
     async function connect() {
-      setBackendStatus('connecting');
+      setBackendStatus(isTauri ? 'online' : 'connecting');
       try {
         const needsAll = ['blunt', 'overhang5', 'overhang3', 'iis', 'rec4', 'rec5', 'rec6', 'rec8p'].includes(enzymeFilter);
         const filter = needsAll ? 'all' : enzymeFilter === 'all' ? 'all' : 'unique';
@@ -153,33 +153,27 @@ export default function App() {
           setProjectVersion(v => v + 1);
         }
       } catch {
-        if (!cancelled) setBackendStatus('offline');
+        if (!cancelled) setBackendStatus(isTauri ? 'online' : 'offline');
       }
     }
 
     connect();
 
-    try {
-      ws = new WebSocket('ws://127.0.0.1:8765/ws');
-      ws.onopen = () => { if (!cancelled) setBackendStatus('online'); };
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.type === 'project' && msg.data && !cancelled) {
-            const newSeq = msg.data.sequence || baseSeq;
-            const isNewFile = newSeq !== sequenceRef.current;
-            setSequence(newSeq);
-            setFeatures(msg.data.features || defaultFeatures);
-            setEnzymes(msg.data.enzymes || defaultEnzymes);
-            setPrimers(msg.data.primers || defaultPrimers);
-            if (isNewFile) setProjectVersion(v => v + 1);
-          }
-        } catch {}
-      };
-      ws.onclose = () => { if (!cancelled) setBackendStatus('offline'); };
-    } catch {}
+    // Listen for real-time project updates (Tauri events or WebSocket fallback)
+    listener = listenProjectUpdates((msg) => {
+      if (cancelled) return;
+      if (msg.type === 'project' && msg.data) {
+        const newSeq = msg.data.sequence || baseSeq;
+        const isNewFile = newSeq !== sequenceRef.current;
+        setSequence(newSeq);
+        setFeatures(msg.data.features || defaultFeatures);
+        setEnzymes(msg.data.enzymes || defaultEnzymes);
+        setPrimers(msg.data.primers || defaultPrimers);
+        if (isNewFile) setProjectVersion(v => v + 1);
+      }
+    });
 
-    return () => { cancelled = true; if (ws) ws.close(); };
+    return () => { cancelled = true; if (listener) listener.close(); };
   }, []);
 
   // Sync methylation systems with backend
@@ -270,15 +264,18 @@ export default function App() {
             {/* ── File loader ── */}
             <div>
               <div className="font-medium mb-1">Open file</div>
-              <input className="w-full text-xs border rounded p-1 mb-1 font-mono" type="text"
-                value={openPath} onChange={e => setOpenPath(e.target.value)}
-                placeholder="/path/to/file.gbk" />
-              <button className="w-full text-xs bg-gray-800 text-white rounded p-1 hover:bg-gray-700"
+              <button className="w-full text-xs bg-gray-800 text-white rounded p-1 hover:bg-gray-700 mb-1"
                 onClick={async () => {
+                  let filePath;
+                  if (isTauri) {
+                    filePath = await openFileDialog();
+                    if (!filePath) return;
+                  } else {
+                    filePath = openPath;
+                  }
                   setFileStatus('loading...');
                   try {
-                    await openFile(openPath);
-                    // Fetch project data as fallback (WebSocket may also deliver)
+                    await openFile(filePath);
                     const needsAll = ['blunt', 'overhang5', 'overhang3', 'iis', 'rec4', 'rec5', 'rec6', 'rec8p'].includes(enzymeFilter);
                     const filter = needsAll ? 'all' : enzymeFilter === 'all' ? 'all' : 'unique';
                     const data = await getProject(filter);
@@ -287,19 +284,28 @@ export default function App() {
                       setFeatures(data.features || []);
                       setEnzymes(data.enzymes || []);
                       setPrimers(data.primers || []);
+                      // Trigger methylation sync for the newly loaded project
+                      setProjectVersion(v => v + 1);
                     }
                     setFileStatus('ok');
                   } catch (e) {
                     setFileStatus('error: ' + e.message);
                   }
-                }}>Open</button>
+                }}>Open File</button>
+              {!isTauri && (
+                <>
+                  <input className="w-full text-xs border rounded p-1 mb-1 font-mono" type="text"
+                    value={openPath} onChange={e => setOpenPath(e.target.value)}
+                    placeholder="/path/to/file.gbk" />
+                  <div className="flex flex-wrap gap-1">
+                    {['test/pUC-GW-Amp.gb', 'test/flySWARM.dna'].map(f => (
+                      <button key={f} className="text-xs bg-gray-100 rounded px-1 hover:bg-gray-200"
+                        onClick={() => setOpenPath('/Users/lidonglin/Documents/Geneie/' + f)}>{f}</button>
+                    ))}
+                  </div>
+                </>
+              )}
               {fileStatus && <div className="text-xs mt-1 text-gray-500">{fileStatus}</div>}
-              <div className="flex flex-wrap gap-1 mt-1">
-                {['test/pUC-GW-Amp.gb', 'test/flySWARM.dna'].map(f => (
-                  <button key={f} className="text-xs bg-gray-100 rounded px-1 hover:bg-gray-200"
-                    onClick={() => setOpenPath('/Users/lidonglin/Documents/Geneie/' + f)}>{f}</button>
-                ))}
-              </div>
             </div>
 
             <div>
@@ -347,8 +353,8 @@ export default function App() {
 
       <div
         className="fixed bottom-3 right-3 w-2.5 h-2.5 rounded-full z-50 opacity-60"
-        style={{ background: backendStatus === 'online' ? '#22c55e' : backendStatus === 'connecting' ? '#f59e0b' : '#9ca3af' }}
-        title={backendStatus === 'online' ? 'Backend connected' : backendStatus === 'connecting' ? 'Connecting...' : 'Offline (demo data)'}
+        style={{ background: backendStatus === 'online' || isTauri ? '#22c55e' : backendStatus === 'connecting' ? '#f59e0b' : '#9ca3af' }}
+        title={isTauri ? 'Desktop mode' : backendStatus === 'online' ? 'Backend connected' : backendStatus === 'connecting' ? 'Connecting...' : 'Offline (demo data)'}
       />
     </div>
   );

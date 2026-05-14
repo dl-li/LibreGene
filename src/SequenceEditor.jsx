@@ -50,6 +50,9 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
   const scrollTickingRef = useRef(false);
+  const lastVisibleStartRef = useRef(-1);
+  const lastVisibleEndRef = useRef(-1);
+  const numRowsRef = useRef(1);
 
   const pp = useMemo(() => ({
     fwdMatchY: 30, revMatchY: 26, misYDelta: 4,
@@ -72,7 +75,21 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     const handleScroll = () => {
       if (!scrollTickingRef.current) {
         scrollTickingRef.current = true;
-        requestAnimationFrame(() => { setScrollY(window.scrollY); scrollTickingRef.current = false; });
+        requestAnimationFrame(() => {
+          const sy = window.scrollY;
+          const vh = window.innerHeight || 900;
+          const nr = numRowsRef.current;
+          const estRowH = 60; // rough row height incl spacing; scroll updates trigger precise visibleRows calc
+          const buf = 8;
+          const estStart = Math.max(0, Math.floor(sy / estRowH) - buf - 1);
+          const estEnd = Math.min(nr - 1, Math.floor((sy + vh) / estRowH) + buf + 1);
+          if (estStart !== lastVisibleStartRef.current || estEnd !== lastVisibleEndRef.current) {
+            lastVisibleStartRef.current = estStart;
+            lastVisibleEndRef.current = estEnd;
+            setScrollY(sy);
+          }
+          scrollTickingRef.current = false;
+        });
       }
     };
     handleResize();
@@ -104,6 +121,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
   }), [primers, cleanSeq]);
 
   const numRows = Math.max(1, Math.ceil(cleanSeq.length / charsPerLine));
+  numRowsRef.current = numRows;
   const svgWidth = startX + charsPerLine * cw + startX;
 
   const sp = useCallback((s, e) => splitRange(s, e, charsPerLine), [charsPerLine]);
@@ -984,10 +1002,9 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     for (let r = vs; r <= ve; r++) {
       const chunk = cleanSeq.substring(r * charsPerLine, (r + 1) * charsPerLine);
       rows.push(
-        <text key={r} y={getSeqY(r)} fontFamily={monoFont} fontSize="16px" fontWeight="bold" fill="#1f2937"
-          style={{ userSelect: 'text', cursor: 'text' }}>
-          {chunk.split('').map((char, i) => <tspan key={i} x={getX(i) + cw / 2} textAnchor="middle">{char}</tspan>)}
-        </text>
+        <text key={r} x={startX} y={getSeqY(r)} fontFamily={monoFont} fontSize="16px" fontWeight="bold" fill="#1f2937"
+          textLength={chunk.length * cw} lengthAdjust="spacing"
+          style={{ userSelect: 'text', cursor: 'text' }}>{chunk}</text>
       );
     }
     return rows;
