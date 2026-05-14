@@ -49,13 +49,35 @@ export function setMethylation(systems, overlap = 2) {
 // ── WebSocket (real-time push) ────────────────────────────────
 
 export function connectWS(onProject) {
-  const ws = new WebSocket(`ws://127.0.0.1:8765/ws`);
-  ws.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "project" && onProject) onProject(msg.data);
-    } catch {}
+  let retryCount = 0;
+  let retryTimeout = null;
+  const MAX_RETRIES = 10;
+
+  function connect() {
+    if (retryCount >= MAX_RETRIES) return null;
+    const ws = new WebSocket(`ws://127.0.0.1:8765/ws`);
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "project" && onProject) onProject(msg.data);
+        retryCount = 0; // reset on successful message
+      } catch {}
+    };
+    ws.onclose = () => {
+      retryCount++;
+      if (retryCount < MAX_RETRIES) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 30000);
+        retryTimeout = setTimeout(connect, delay);
+      }
+    };
+    return ws;
+  }
+
+  const ws = connect();
+  return {
+    close: () => {
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (ws) ws.close();
+    },
   };
-  ws.onclose = () => { /* auto-reconnect after 2s */ setTimeout(() => connectWS(onProject), 2000); };
-  return ws;
 }

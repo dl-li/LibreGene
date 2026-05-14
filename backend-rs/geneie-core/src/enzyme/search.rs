@@ -1,73 +1,8 @@
 //! Enzyme database loading and IUPAC tables.
 
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use crate::enzyme::data::{EnzymeDb, EnzymeRecord};
-
-/// IUPAC → regex pattern mapping.
-static IUPAC: OnceLock<HashMap<char, &'static str>> = OnceLock::new();
-
-fn iupac_table() -> &'static HashMap<char, &'static str> {
-    IUPAC.get_or_init(|| {
-        HashMap::from([
-            ('N', "."),
-            ('R', "[AG]"),
-            ('Y', "[CT]"),
-            ('W', "[AT]"),
-            ('S', "[CG]"),
-            ('K', "[GT]"),
-            ('M', "[AC]"),
-            ('B', "[CGT]"),
-            ('D', "[AGT]"),
-            ('H', "[ACT]"),
-            ('V', "[ACG]"),
-        ])
-    })
-}
-
-/// DNA complement table (upper+lower).
-static DNA_COMP: OnceLock<HashMap<u8, u8>> = OnceLock::new();
-
-fn dna_comp_table() -> &'static HashMap<u8, u8> {
-    DNA_COMP.get_or_init(|| {
-        HashMap::from([
-            (b'A', b'T'),
-            (b'T', b'A'),
-            (b'G', b'C'),
-            (b'C', b'G'),
-            (b'a', b't'),
-            (b't', b'a'),
-            (b'g', b'c'),
-            (b'c', b'g'),
-        ])
-    })
-}
-
-/// IUPAC complement table (includes ambiguity codes).
-static IUPAC_COMP_TABLE: OnceLock<HashMap<u8, u8>> = OnceLock::new();
-
-fn iupac_comp_table() -> &'static HashMap<u8, u8> {
-    IUPAC_COMP_TABLE.get_or_init(|| {
-        HashMap::from([
-            (b'A', b'T'),
-            (b'T', b'A'),
-            (b'G', b'C'),
-            (b'C', b'G'),
-            (b'R', b'Y'),
-            (b'Y', b'R'),
-            (b'W', b'W'),
-            (b'S', b'S'),
-            (b'K', b'M'),
-            (b'M', b'K'),
-            (b'B', b'V'),
-            (b'D', b'H'),
-            (b'H', b'D'),
-            (b'V', b'B'),
-            (b'N', b'N'),
-        ])
-    })
-}
 
 /// Global enzyme database, loaded once.
 static DB: OnceLock<EnzymeDb> = OnceLock::new();
@@ -81,33 +16,78 @@ pub fn get_db() -> &'static EnzymeDb {
     })
 }
 
+/// DNA complement (reverse complement) — `match`-based, no HashMap.
 pub fn dna_complement(seq: &str) -> String {
-    let table = dna_comp_table();
     let bytes: Vec<u8> = seq
         .bytes()
         .rev()
-        .map(|b| table.get(&b).copied().unwrap_or(b))
+        .map(dna_complement_byte)
         .collect();
     String::from_utf8(bytes).unwrap_or_default()
 }
 
+fn dna_complement_byte(b: u8) -> u8 {
+    match b {
+        b'A' => b'T',
+        b'T' => b'A',
+        b'G' => b'C',
+        b'C' => b'G',
+        b'a' => b't',
+        b't' => b'a',
+        b'g' => b'c',
+        b'c' => b'g',
+        _ => b,
+    }
+}
+
+/// IUPAC complement — handles ambiguity codes, `match`-based.
 pub fn iupac_complement(seq: &str) -> String {
-    let table = iupac_comp_table();
     let bytes: Vec<u8> = seq
         .bytes()
         .rev()
-        .map(|b| table.get(&b).copied().unwrap_or(b))
+        .map(iupac_complement_byte)
         .collect();
     String::from_utf8(bytes).unwrap_or_default()
 }
 
+fn iupac_complement_byte(b: u8) -> u8 {
+    match b {
+        b'A' => b'T',
+        b'T' => b'A',
+        b'G' => b'C',
+        b'C' => b'G',
+        b'R' => b'Y',
+        b'Y' => b'R',
+        b'W' => b'W',
+        b'S' => b'S',
+        b'K' => b'M',
+        b'M' => b'K',
+        b'B' => b'V',
+        b'D' => b'H',
+        b'H' => b'D',
+        b'V' => b'B',
+        b'N' => b'N',
+        _ => b,
+    }
+}
+
+/// IUPAC → regex pattern mapping, `match`-based.
 pub fn iupac_to_regex(site: &str) -> String {
-    let table = iupac_table();
     let mut pat = String::with_capacity(site.len() * 3);
     for c in site.chars() {
-        match table.get(&c) {
-            Some(re) => pat.push_str(re),
-            None => pat.push(c),
+        match c {
+            'N' => pat.push_str("."),
+            'R' => pat.push_str("[AG]"),
+            'Y' => pat.push_str("[CT]"),
+            'W' => pat.push_str("[AT]"),
+            'S' => pat.push_str("[CG]"),
+            'K' => pat.push_str("[GT]"),
+            'M' => pat.push_str("[AC]"),
+            'B' => pat.push_str("[CGT]"),
+            'D' => pat.push_str("[AGT]"),
+            'H' => pat.push_str("[ACT]"),
+            'V' => pat.push_str("[ACG]"),
+            other => pat.push(other),
         }
     }
     pat

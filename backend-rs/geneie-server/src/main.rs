@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::http::HeaderValue;
 use axum::Router;
 use clap::Parser;
 use tokio::net::TcpListener;
@@ -19,6 +21,10 @@ mod ws;
 struct Args {
     #[arg(long, default_value = "8765")]
     port: u16,
+    /// Base directory for file open/save operations.
+    /// Defaults to the current directory (or its parent if inside a backend-rs dir).
+    #[arg(long)]
+    data_dir: Option<String>,
 }
 
 #[tokio::main]
@@ -29,13 +35,25 @@ async fn main() {
 
     let args = Args::parse();
 
+    let base_dir = if let Some(ref dir) = args.data_dir {
+        PathBuf::from(dir)
+    } else {
+        let cwd = std::env::current_dir().expect("cannot get current dir");
+        // If the server is started from backend-rs, use the parent (project root)
+        if cwd.file_name().map_or(false, |n| n == "backend-rs") {
+            cwd.parent().map(PathBuf::from).unwrap_or(cwd)
+        } else {
+            cwd
+        }
+    };
+
     let pm = Arc::new(RwLock::new(ProjectManager::new()));
     let (ws_tx, _) = broadcast::channel::<String>(256);
 
-    let state = Arc::new(routes::AppState { pm, ws_tx });
+    let state = Arc::new(routes::AppState { pm, ws_tx, base_dir });
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(HeaderValue::from_static("http://localhost:5173"))
         .allow_methods(Any)
         .allow_headers(Any);
 

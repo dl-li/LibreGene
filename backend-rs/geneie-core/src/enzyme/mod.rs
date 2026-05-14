@@ -19,9 +19,7 @@
 //!   top_cut = rec_start - fst3
 //!   bot_cut = rec_start + rec_len - fst5
 
-pub mod cut;
 pub mod data;
-pub mod elucidate;
 pub mod matching;
 pub mod methylation;
 pub mod search;
@@ -51,16 +49,25 @@ pub fn recompute(project: &mut ProjectData) {
     let is_circular = project.topology == "circular";
     let seq_len = seq.len() as i64;
 
-    let results: Vec<Vec<Enzyme>> = db
+    // Precompute extended sequence for circular search (avoids O(N) allocations).
+    let max_site_len = db.enzymes.iter().map(|e| e.site.len()).max().unwrap_or(0);
+    let ext_seq: Option<Vec<u8>> = if is_circular && max_site_len > 1 {
+        let wrap = max_site_len - 1;
+        let mut ext = Vec::with_capacity(seq.len() + wrap);
+        ext.extend_from_slice(seq);
+        ext.extend_from_slice(&seq[..wrap.min(seq.len())]);
+        Some(ext)
+    } else {
+        None
+    };
+
+    let mut result: Vec<Enzyme> = db
         .enzymes
         .par_iter()
-        .map(|record| process_enzyme(record, seq, seq_str, is_circular, seq_len))
+        .flat_map(|record| {
+            process_enzyme(record, seq, seq_str, is_circular, seq_len, &ext_seq)
+        })
         .collect();
-
-    let mut result: Vec<Enzyme> = Vec::new();
-    for r in results {
-        result.extend(r);
-    }
 
     // Apply methylation filtering (always, to also mark dependent enzymes like DpnI).
     let systems = project.methylation_systems.clone();
@@ -83,12 +90,13 @@ fn process_enzyme(
     seq_str: &str,
     is_circular: bool,
     seq_len: i64,
+    ext_seq: &Option<Vec<u8>>,
 ) -> Vec<Enzyme> {
     let site = &record.site;
     let rec_len = site.len() as i64;
     let fst5 = record.fst5;
     let fst3 = record.fst3;
-    let hits = find_recognition_sites(seq, site, is_circular);
+    let hits = find_recognition_sites(seq, site, is_circular, ext_seq);
     if hits.is_empty() {
         return Vec::new();
     }
@@ -106,8 +114,17 @@ fn process_enzyme(
         .map(|(enz_idx, hit)| {
             let rec_start = hit.rec_start as i64;
             let rec_end = rec_start + rec_len - 1;
-            let end = (hit.rec_start + rec_len as usize).min(seq.len());
-            let matched_seq = &seq_str[hit.rec_start..end];
+            let matched_seq: String = if is_circular
+                && hit.rec_start + rec_len as usize > seq.len()
+            {
+                // Recognition site spans the origin: manually concatenate wrapped sequence.
+                let mut s = String::with_capacity(rec_len as usize);
+                s.push_str(&seq_str[hit.rec_start..]);
+                s.push_str(&seq_str[..(hit.rec_start + rec_len as usize) % seq.len()]);
+                s
+            } else {
+                seq_str[hit.rec_start..hit.rec_start + rec_len as usize].to_string()
+            };
 
             // Compute cut pairs.
             let mut pairs: Vec<CutPair> = Vec::new();
@@ -159,9 +176,12 @@ fn process_enzyme(
             }
             // Add 1bp left buffer when a cut falls at the display left edge,
             // so the cut line isn't flush against the tooltip edge.
-            for p in &pairs {
-                if p.top_cut_index == disp_start || p.bot_cut_index == disp_start {
-                    disp_start -= 1;
+            if disp_start > 0 {
+                for p in &pairs {
+                    if p.top_cut_index == disp_start || p.bot_cut_index == disp_start {
+                        disp_start -= 1;
+                        break;
+                    }
                 }
             }
             // Build spacers: segments in the display window that are NOT part of the recognition.
@@ -175,7 +195,7 @@ fn process_enzyme(
             };
 
             // Complement sequence.
-            let comp = search::dna_complement(matched_seq);
+            let comp = search::dna_complement(&matched_seq);
 
             Enzyme {
                 id: format!("{}_{}_{}", record.name, hit.rec_start, enz_idx),
@@ -246,18 +266,20 @@ fn normalize_rec(
         return (rec_start, rec_end);
     }
 
-    // Check if any cut pair straddles the origin in a way that would break display.
-    // If all positions are already in a contiguous window, keep as-is.
     let rec_start_n = ((rec_start % seq_len) + seq_len) % seq_len;
-    let rec_end_n = ((rec_end % seq_len) + seq_len) % seq_len;
-
-    if rec_start_n <= rec_end_n {
-        // Recognition doesn't span origin.
-        return (rec_start_n, rec_end_n);
+    let rec_len = rec_end - rec_start + 1;
+    let mut norm_rec_end = (rec_start + rec_len - 1) % seq_len;
+    if norm_rec_end < 0 {
+        norm_rec_end += seq_len;
     }
 
-    // Recognition spans origin. Keep raw coordinates for display.
-    (rec_start, rec_end)
+    if rec_start_n <= norm_rec_end {
+        // Recognition doesn't span origin.
+        return (rec_start_n, norm_rec_end);
+    }
+
+    // Recognition spans origin: shift the wrapped end to preserve total length.
+    (rec_start_n, norm_rec_end + seq_len)
 }
 
 /// Build spacer segments: portions of the display window outside the recognition site.
@@ -295,7 +317,12 @@ fn build_spacers(
 
 /// Find all recognition site starts on both strands.
 /// Compiled regexes are cached globally — never recompiled.
-fn find_recognition_sites(seq: &[u8], site: &str, is_circular: bool) -> Vec<SiteHit> {
+fn find_recognition_sites(
+    seq: &[u8],
+    site: &str,
+    is_circular: bool,
+    ext_seq: &Option<Vec<u8>>,
+) -> Vec<SiteHit> {
     use std::collections::HashMap;
     use std::sync::OnceLock;
 
@@ -328,22 +355,21 @@ fn find_recognition_sites(seq: &[u8], site: &str, is_circular: bool) -> Vec<Site
 
     let mut hits: Vec<SiteHit> = Vec::new();
 
-    // For circular sequences, extend the search region to catch sites that
-    // span the origin. We wrap the sequence by appending the first (site_len - 1)
-    // bases to the end.
+    // For circular sequences, use the precomputed extended sequence to catch
+    // sites that span the origin.
     if is_circular && site.len() > 1 {
-        let wrap = site.len() - 1;
-        let mut ext = Vec::with_capacity(seq.len() + wrap);
-        ext.extend_from_slice(seq);
-        ext.extend_from_slice(&seq[..wrap.min(seq.len())]);
+        let ext = match ext_seq {
+            Some(e) => e.as_slice(),
+            None => seq,
+        };
 
-        for m in fwd_re.find_iter(&ext) {
+        for m in fwd_re.find_iter(ext) {
             let start = m.start();
             if start < seq.len() {
                 hits.push(SiteHit { rec_start: start, is_bottom: false });
             }
         }
-        for m in rc_re.find_iter(&ext) {
+        for m in rc_re.find_iter(ext) {
             let start = m.start();
             if start < seq.len() {
                 hits.push(SiteHit { rec_start: start, is_bottom: true });

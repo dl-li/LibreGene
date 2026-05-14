@@ -30,7 +30,7 @@ pub fn parse_fasta(path: &Path) -> io::Result<ProjectData> {
         }
 
         if in_seq {
-            sequence.push_str(&trimmed.to_uppercase());
+            sequence.extend(trimmed.chars().flat_map(|c| c.to_uppercase()));
         }
     }
 

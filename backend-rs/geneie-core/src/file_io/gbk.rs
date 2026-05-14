@@ -22,6 +22,36 @@ use crate::file_io::color::{adjust_color_readability, default_color, normalize_c
 use crate::models::{Feature, Primer, ProjectData, Segment};
 
 // ---------------------------------------------------------------------------
+// Shared helper: build a Primer from individual qualifier values
+// ---------------------------------------------------------------------------
+
+/// Create a [`Primer`] from individual qualifier values.
+///
+/// Shared by [`parse_primer_feature_fallback`] and
+/// `crate::primer::gbk::parse_gbk_feature` to avoid duplicating the
+/// Primer construction logic.
+pub(crate) fn primer_from_qualifier_values(
+    label: &str,
+    primer_id: &str,
+    ptype: &str,
+    color: &str,
+    primer_seq: &str,
+) -> Primer {
+    Primer {
+        id: primer_id.to_string(),
+        name: label.to_string(),
+        r#type: ptype.to_string(),
+        primer_seq: primer_seq.to_string(),
+        color: if color.is_empty() {
+            "#166534".to_string()
+        } else {
+            color.to_string()
+        },
+        binding_sites: Vec::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Parse
 // ---------------------------------------------------------------------------
 
@@ -301,9 +331,21 @@ fn extract_location_bounds(loc: &Location) -> (Vec<Segment>, i64, i64) {
             let mut start = i64::MAX;
             let mut end = i64::MIN;
             for p in parts {
-                if let Location::Range((s, _), (e, _)) = p {
-                    let seg_start = *s; // 0-based
-                    let seg_end = e - 1; // 0-based inclusive
+                let range = match p {
+                    Location::Range((s, _), (e, _)) => Some((*s, *e)),
+                    Location::Complement(inner) => {
+                        if let Location::Range((s, _), (e, _)) = inner.as_ref() {
+                            // Complement's coordinates are the same — only the
+                            // strand is affected, which is handled by strand_from_gb_location.
+                            Some((*s, *e))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some((seg_start, seg_end_raw)) = range {
+                    let seg_end = seg_end_raw - 1; // 0-based inclusive
                     segs.push(Segment {
                         start: seg_start,
                         end: seg_end,
@@ -375,6 +417,39 @@ fn model_range_to_gb_location(f: &Feature) -> Location {
 //  Fallback primer parser / serializer
 // ---------------------------------------------------------------------------
 
+/// Build the core qualifier pairs for a primer (geneie format).
+///
+/// Shared between [`serialize_primers_fallback`] and
+/// `crate::primer::gbk::serialize_primers_gbk` to avoid duplicating
+/// the qualifier-building logic.
+///
+/// Returns `(match_start, match_end, qualifier_pairs)`.
+pub(crate) fn build_primer_qualifier_pairs(
+    p: &Primer,
+) -> (i64, i64, Vec<(String, String)>) {
+    let best = p.binding_sites.first();
+    let match_start = best.map(|b| b.match_start).unwrap_or(0);
+    let match_end = best.map(|b| b.match_end).unwrap_or(0);
+
+    let mut qualifiers: Vec<(String, String)> = Vec::new();
+    qualifiers.push(("label".to_string(), p.name.clone()));
+    qualifiers.push(("geneie_primer_id".to_string(), p.id.clone()));
+    qualifiers.push(("geneie_primer_type".to_string(), p.r#type.clone()));
+    qualifiers.push(("geneie_primer_seq".to_string(), p.primer_seq.clone()));
+    qualifiers.push(("geneie_color".to_string(), p.color.clone()));
+
+    if !p.binding_sites.is_empty() {
+        let parts: Vec<String> = p
+            .binding_sites
+            .iter()
+            .map(|bs| format!("{},{},{:.1}", bs.match_start, bs.match_end, bs.tm))
+            .collect();
+        qualifiers.push(("geneie_bindings".to_string(), parts.join(";")));
+    }
+
+    (match_start, match_end, qualifiers)
+}
+
 /// Fallback `.gbk` primer parser — only extracts name, type, primer_seq, and color.
 /// Binding sites are recomputed by the alignment engine after loading.
 fn parse_primer_feature_fallback(f: &GbFeature, _seq: &str) -> Option<Primer> {
@@ -402,43 +477,20 @@ fn parse_primer_feature_fallback(f: &GbFeature, _seq: &str) -> Option<Primer> {
         })
         .unwrap_or_default();
 
-    Some(Primer {
-        id: primer_id.to_string(),
-        name: label.to_string(),
-        r#type: ptype.to_string(),
-        primer_seq,
-        color: color.to_string(),
-        binding_sites: Vec::new(),
-    })
+    Some(primer_from_qualifier_values(
+        label, primer_id, ptype, color, &primer_seq,
+    ))
 }
 
 /// Fallback `.gbk` primer serializer.
 #[allow(dead_code)]
 fn serialize_primers_fallback(project: &ProjectData, record: &mut Seq) {
     for p in &project.primers {
-        let best = p.binding_sites.first();
-        let ms = best.map(|b| b.match_start).unwrap_or(0);
-        let me = best.map(|b| b.match_end).unwrap_or(0);
-
-        let mut qualifiers: Vec<(Cow<'static, str>, Option<String>)> = vec![
-            (Cow::Borrowed("label"), Some(p.name.clone())),
-            (Cow::Borrowed("geneie_primer_id"), Some(p.id.clone())),
-            (Cow::Borrowed("geneie_primer_type"), Some(p.r#type.clone())),
-            (Cow::Borrowed("geneie_primer_seq"), Some(p.primer_seq.clone())),
-            (Cow::Borrowed("geneie_color"), Some(p.color.clone())),
-        ];
-
-        if !p.binding_sites.is_empty() {
-            let parts: Vec<String> = p
-                .binding_sites
-                .iter()
-                .map(|bs| format!("{},{},{:.1}", bs.match_start, bs.match_end, bs.tm))
-                .collect();
-            qualifiers.push((
-                Cow::Borrowed("geneie_bindings"),
-                Some(parts.join(";")),
-            ));
-        }
+        let (ms, me, qualifier_pairs) = build_primer_qualifier_pairs(p);
+        let qualifiers: Vec<(Cow<'static, str>, Option<String>)> = qualifier_pairs
+            .into_iter()
+            .map(|(k, v)| (Cow::Owned(k), Some(v)))
+            .collect();
 
         let loc = Location::Range((ms, Before(false)), (me + 1, After(false)));
         let loc = if p.r#type == "rev" {

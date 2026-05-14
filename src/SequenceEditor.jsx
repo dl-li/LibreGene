@@ -1,28 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange } from './editorConstants';
 
-const cw = 14;
-const startX = 220;
-const baseSeqY = 100;
-const bgColor = '#fdfbf7';
-const monoFont = '"Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-
-// Canvas-based text measurement cache — replaces name.length * N approximations
-const _ctx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
-const _wCache = {};
-const measureWidth = (text, font) => {
-  if (!_ctx) return text.length * 8; // SSR fallback
-  const key = `${font}|${text}`;
-  if (_wCache[key] !== undefined) return _wCache[key];
-  _ctx.font = font;
-  return (_wCache[key] = _ctx.measureText(text).width);
-};
-const enzLabelW = (name, isUnique) => measureWidth(name, `${isUnique ? '700 ' : '350 '}14px Cascadia Code`) + 4;
-const primerLabelW = (name) => measureWidth(name, 'italic 600 12px TeX Gyre Heros');
-const sansFont = 'sans-serif';
-const springAnim = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-
-const getX = (col) => startX + col * cw;
-const complement = (c) => c === 'A' ? 'T' : c === 'T' ? 'A' : c === 'G' ? 'C' : c === 'C' ? 'G' : c;
 const complementStr = (s) => s.split('').map(c => complement(c)).join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 
@@ -64,24 +42,6 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-function splitRange(start, end, charsPerLine) {
-  const segments = [];
-  let curr = start;
-  while (curr <= end) {
-    const row = Math.floor(curr / charsPerLine);
-    const rowEnd = Math.min(end, (row + 1) * charsPerLine - 1);
-    segments.push({
-      row,
-      colStart: curr % charsPerLine,
-      colEnd: rowEnd % charsPerLine,
-      strOffset: curr - start,
-      len: rowEnd - curr + 1,
-    });
-    curr = rowEnd + 1;
-  }
-  return segments;
-}
-
 export default function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, primerParams }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
@@ -89,18 +49,19 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
+  const scrollTickingRef = useRef(false);
 
-  const pp = {
+  const pp = useMemo(() => ({
     fwdMatchY: 30, revMatchY: 26, misYDelta: 4,
     fwdBaseTextY: 8, revBaseTextY: 18,
     fwdLabelY: 8, revLabelY: 20,
-    primerTrackGap: 36,
+    trackGap: 36,
     fwdAboveBase: 30, fwdAboveExtra: 23, fwdAboveNonTailExtra: 5,
     revBelowBase: 26, revBelowExtra: 25, revBelowNonTailExtra: 5,
     hoverExpand: 26, arrowHeadLen: 7, arrowHeadHeight: 5,
     highestYBase: 26, highestYFwdTail: 42, highestYFwdNoTail: 38, highestYExtra: 24,
     ...primerParams,
-  };
+  }), [primerParams]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -108,7 +69,12 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         setCharsPerLine(Math.max(20, Math.floor((containerRef.current.clientWidth - startX * 2) / cw)));
       }
     };
-    const handleScroll = () => setScrollY(window.scrollY);
+    const handleScroll = () => {
+      if (!scrollTickingRef.current) {
+        scrollTickingRef.current = true;
+        requestAnimationFrame(() => { setScrollY(window.scrollY); scrollTickingRef.current = false; });
+      }
+    };
     handleResize();
     window.addEventListener('resize', handleResize);
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -357,13 +323,14 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         let maxEnzTrack = 0;
         for (const e of sorted) {
           const cs = e.cutIndex % charsPerLine;
-          const ce = cs + Math.ceil(measureWidth(e.name, '350 14px Cascadia Code') / cw) + 1;
+          const ce = cs + Math.ceil(enzLabelW(e.name, e.isUnique) / cw);
           let t = 0;
           while (occupied.some(o => o.track === t && !(ce < o.cs || cs > o.ce))) t++;
           occupied.push({ track: t, cs, ce });
           maxEnzTrack = Math.max(maxEnzTrack, t);
         }
-        ae = Math.max(ae, 58 + maxEnzTrack * 16);
+        // Label top = getSeqY(row) - 61 - track*18
+        ae = Math.max(ae, 61 + maxEnzTrack * 18);
       }
 
       const rowPrimers = primersByRow[r];
@@ -373,12 +340,12 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           if (p.type === 'fwd') {
             const hasTail = r === Math.floor(p.matchStart / charsPerLine);
             const extra = hasTail ? pp.fwdAboveExtra : pp.fwdAboveNonTailExtra;
-            ae = Math.max(ae, pp.fwdAboveBase + t * pp.primerTrackGap + extra);
+            ae = Math.max(ae, pp.fwdAboveBase + t * pp.trackGap + extra);
           } else {
             const hasTail = r === Math.floor(p.matchEnd / charsPerLine);
             const extra = hasTail ? pp.revBelowExtra : pp.revBelowNonTailExtra;
             const featOff = (revPrimerFeatOffsets[p.id] || {})[r] || 0;
-            be = Math.max(be, pp.revBelowBase + t * pp.primerTrackGap + extra + featOff);
+            be = Math.max(be, pp.revBelowBase + t * pp.trackGap + extra + featOff);
           }
         }
       }
@@ -396,7 +363,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     }
 
     return { rowAbove: above, rowBelow: below };
-  }, [numRows, enzymesByRow, primersByRow, featuresByRow, primerTracks, featureRowTracks, revPrimerFeatOffsets, charsPerLine]);
+  }, [numRows, enzymesByRow, primersByRow, featuresByRow, primerTracks, featureRowTracks, revPrimerFeatOffsets, charsPerLine, pp]);
 
   const rowY = useMemo(() => {
     const y = [Math.max(baseSeqY, rowAbove[0] + 18)];
@@ -482,14 +449,14 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           const nameW = primerLabelW(p.name);
           const nameX = (isTail && drawMisLen > 0) ? getX(seg.colStart - drawMisLen) : getX(seg.colStart) + cw / 2;
           if (cutX < nameX + nameW + 4 && cutX + enzNameW > nameX) {
-            const to = ((primerTracks[p.id] || {})[row] || 0) * pp.primerTrackGap;
+            const to = ((primerTracks[p.id] || {})[row] || 0) * pp.trackGap;
             hy = Math.min(hy, (isTail && ml > 0 ? getSeqY(row) - pp.highestYFwdTail - to : getSeqY(row) - pp.highestYFwdNoTail - to) - pp.highestYExtra);
           }
         }
       }
     }
     return hy;
-  }, [primersByRow, primerTracks, charsPerLine, sp, getSeqY]);
+  }, [primersByRow, primerTracks, charsPerLine, sp, getSeqY, pp]);
 
   // --- enzyme track assignment ---
   // Group enzymes by their first cut pair's row (cutIndex row) to compute tracks.
@@ -505,7 +472,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
       const occupied = [];
       for (const e of sorted) {
         const cs = e.cutIndex % charsPerLine;
-        const ce = cs + Math.ceil(measureWidth(e.name, '350 14px Cascadia Code') / cw) + 1;
+        const ce = cs + Math.ceil(enzLabelW(e.name, e.isUnique) / cw);
         let t = 0;
         while (occupied.some(o => o.track === t && !(ce < o.cs || cs > o.ce))) t++;
         occupied.push({ track: t, cs, ce });
@@ -690,7 +657,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
             const isTail = seg === tailSeg, isArrow = seg === arrowSeg;
             const sy = getSeqY(seg.row);
             const featOff = isFwd ? 0 : ((revPrimerFeatOffsets[p.id] || {})[seg.row] || 0);
-            const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.primerTrackGap + featOff;
+            const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.trackGap + featOff;
             const matchY = (isFwd ? sy - pp.fwdMatchY : sy + pp.revMatchY) + (isFwd ? -trackOff : trackOff);
             const misY = matchY + (isFwd ? -pp.misYDelta : pp.misYDelta);
             const x1 = getX(seg.colStart), x2 = getX(seg.colEnd);
@@ -793,14 +760,17 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         const cutX = getX(cp.topCutIndex % charsPerLine);
         const sy = getSeqY(row);
         const hy = computeHighestY(row, cutX, enzLabelW(e.name, e.isUnique));
-        const to = (enzymeTracks[e.id] || 0) * 16;
+        const to = (enzymeTracks[e.id] || 0) * 18;
+        // Clamp label top so it never overlaps the sequence text of the row above
+        const minTop = row > 0 ? getSeqY(row - 1) + 8 : -Infinity;
+        const yTop = Math.max(hy - 25 - to, minTop);
         entries.push({
           id: `${e.id}_p${pi}`,
-          groupId: e.id,        // hover linkage — all pairs of same enzyme share groupId
+          groupId: e.id,
           pairIndex: pi,
           name: e.name,
           cutX, sy,
-          yTop: hy - 25 - to,
+          yTop,
           isUnique: e.isUnique,
           enzW: enzLabelW(e.name, e.isUnique),
         });
@@ -1024,7 +994,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
   };
 
   return (
-    <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '2rem 2rem 4rem 2rem', overflowX: 'auto', userSelect: 'none' }} className="select-none">
+    <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '2rem 2rem 4rem 2rem', overflowX: 'auto', userSelect: 'none' }} className="">
       <div style={{ width: svgWidth }}>
         <svg width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible' }}>
           {renderFeatures()}

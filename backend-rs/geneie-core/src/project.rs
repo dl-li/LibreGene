@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use crate::models::ProjectData;
 
+/// Maximum number of projects that can be open simultaneously.
+const MAX_PROJECTS: usize = 24;
+
 /// In-memory project manager — supports multiple open projects.
 #[derive(Default)]
 pub struct ProjectManager {
@@ -14,12 +17,36 @@ impl ProjectManager {
         Self::default()
     }
 
+    /// Evict the oldest non-active project to stay under the limit.
+    /// No-op if already within capacity, or the only project is the active one.
+    fn evict_one(&mut self) {
+        if self.projects.len() < MAX_PROJECTS || self.projects.is_empty() {
+            return;
+        }
+        // Evict the first non-active project
+        let keys: Vec<String> = self.projects.keys().cloned().collect();
+        for k in &keys {
+            if Some(k.as_str()) != self.active.as_deref() {
+                self.projects.remove(k);
+                return;
+            }
+        }
+    }
+
     pub fn load(&mut self, id: &str, project: ProjectData) {
+        // Only evict when adding a genuinely new entry
+        if !self.projects.contains_key(id) {
+            self.evict_one();
+        }
         self.projects.insert(id.to_string(), project.clone());
         self.active = Some(id.to_string());
     }
 
     pub fn open_project(&mut self, id: String, project: ProjectData) {
+        // Only evict when adding a genuinely new entry
+        if !self.projects.contains_key(&id) {
+            self.evict_one();
+        }
         self.projects.insert(id.clone(), project);
         self.active = Some(id);
     }
@@ -64,11 +91,11 @@ impl ProjectManager {
     }
 
     pub fn close_project(&mut self, id: &str) -> bool {
-        self.projects.remove(id);
+        let existed = self.projects.remove(id).is_some();
         if self.active.as_deref() == Some(id) {
             self.active = self.projects.keys().next().cloned();
         }
-        true
+        existed
     }
 
     pub fn set_roi(&mut self, start: i64, end: i64) {

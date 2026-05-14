@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { getX, cw, bgColor, springAnim, monoFont } from './editorConstants';
 import { computePrimerSegments, mismatchOffset, buildSegmentPath, buildSegmentHoverPath } from './primerRenderer';
 
@@ -70,9 +70,10 @@ export default function PrimerSegmentRenderer({
   const textYTail = isFwd ? tailTextYFwd : tailTextYRev;
   const textYLabel = isFwd ? labelTextYFwd : labelTextYRev;
 
-  // Row Y cache
-  const rowCache = {};
+  // Row Y cache (persisted via useRef across renders)
+  const rowCacheRef = useRef({});
   const getRowYs = (row) => {
+    const rowCache = rowCacheRef.current;
     if (rowCache[row]) return rowCache[row];
     const sy = rowYGetter(row);
     const trackOff = ((primerTracks?.[primer.id] || {})[row] || 0) * primerGap;

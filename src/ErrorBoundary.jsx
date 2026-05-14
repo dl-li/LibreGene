@@ -18,9 +18,14 @@ export default class ErrorBoundary extends React.Component {
           <pre style={{ color: '#ef4444', whiteSpace: 'pre-wrap' }}>
             {this.state.error?.message}
           </pre>
-          <button onClick={() => this.setState({ hasError: false, error: null })}>
-            Try again
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => this.setState({ hasError: false, error: null })}>
+              Try again
+            </button>
+            <button onClick={() => window.location.reload()}>
+              Reload page
+            </button>
+          </div>
         </div>
       );
     }

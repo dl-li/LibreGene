@@ -20,6 +20,9 @@ export const measureWidth = (text, font) => {
   if (!_ctx) return text.length * 8;
   const key = `${font}|${text}`;
   if (_wCache[key] !== undefined) return _wCache[key];
+  if (Object.keys(_wCache).length > 5000) {
+    for (const k in _wCache) delete _wCache[k];
+  }
   _ctx.font = font;
   return (_wCache[key] = _ctx.measureText(text).width);
 };

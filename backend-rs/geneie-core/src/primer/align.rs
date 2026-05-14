@@ -264,10 +264,13 @@ fn parse_overlap_alignment(
                 let mut insertion_after: Option<String> = None;
                 let mut peek = op_idx + 1;
                 while peek < ops.len() && ops[peek] == Op::Ins {
-                    let ins_base = primer[primer_pos + 1 + (peek - op_idx - 1)] as char;
-                    insertion_after
-                        .get_or_insert_with(String::new)
-                        .push(ins_base);
+                    let ins_idx = primer_pos + 1 + (peek - op_idx - 1);
+                    if ins_idx < primer.len() {
+                        let ins_base = primer[ins_idx] as char;
+                        insertion_after
+                            .get_or_insert_with(String::new)
+                            .push(ins_base);
+                    }
                     peek += 1;
                 }
 
@@ -440,11 +443,14 @@ pub fn compute_binding_sites(
             }
             seen.insert(key);
 
-            // For reverse-complement search, complement the displayed bases.
+            // For reverse-complement search, the tails from the rc(primer) alignment
+            // need to be reverse-complemented back to the original primer's 5'->3'
+            // orientation. Critically, rc(primer)'s 5' corresponds to original's 3',
+            // and rc(primer)'s 3' corresponds to original's 5', so we swap them.
             let (five_prime_tail, three_prime_tail, alignment) = if is_rc {
                 (
-                    utils::complement(&parsed.five_prime_tail),
-                    utils::complement(&parsed.three_prime_tail),
+                    utils::reverse_complement(&parsed.three_prime_tail),
+                    utils::reverse_complement(&parsed.five_prime_tail),
                     complement_alignment_columns(&parsed.alignment),
                 )
             } else {
@@ -543,7 +549,7 @@ fn seeds_to_candidates(
 
         // Merge with previous if overlapping.
         if let Some(last) = merged.last_mut() {
-            if !is_circular && start <= last.1 + plen {
+            if start <= last.1 + plen {
                 last.1 = last.1.max(end);
                 continue;
             }
