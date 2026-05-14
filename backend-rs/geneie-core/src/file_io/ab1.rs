@@ -14,9 +14,9 @@ pub fn parse_ab1(path: &Path) -> io::Result<ProjectData> {
     let _data = fs::read(path)?;
 
     // AB1 is a binary format with basecalls at known offsets.
-    // Full parser is not yet implemented — return an empty project for now.
-    Ok(ProjectData {
-        topology: "linear".to_string(),
-        ..Default::default()
-    })
+    // Full parser is not yet implemented — return an error.
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "AB1 file parsing is not yet implemented",
+    ))
 }

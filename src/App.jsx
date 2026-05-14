@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import SequenceEditor from './SequenceEditor';
 import { getProject, openFile, setMethylation } from './api';
 
 const baseSeq = "TACGAATTCGCCACCATGGCCATGAAGCTTGAGCTCGGATCCTCTAGAGCTGATCGATCGTAGCTAGCTAGCTGATCGATCGTAGCTAGCTAGCTAGCTACGATCGATCGATCGTAGCTAGCTAGCTGATCCTAGCTAGCTAGCTGATCGATCGTAGCATCGTAGC" +
   "ACGTGTGCTAGCTAGCGCTATATATATAGCGCGCGCGTATATAGCTAGCTAGCTCGATCGATCGTAGCTAGCTGCATCGATCGTAGCTGATCGTAGCTGATCGATCGTAGCTAGCTAGCTGATCATATCATGATCGATCGTATGCGCGCGCTATTAGCTAGCTGAT" +
   "CCGGAATTCCTCGAGAAGCTTTTCTAGAGGATCCTAGCCTAGCCTTAGCTAGCTAGCTGATCGATCGTCTAGAGCTCGAATTC";
+
+const EMPTY_ARRAY = [];
 
 const defaultFeatures = [
   { id: 'Promoter', name: 'T7 Promoter', start: 10, end: 40, color: '#34d399' },
@@ -115,6 +117,8 @@ export default function App() {
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [openPath, setOpenPath] = useState('/Users/lidonglin/Documents/Geneie/test/pUC-GW-Amp.gb');
   const [fileStatus, setFileStatus] = useState('');
+  const [projectVersion, setProjectVersion] = useState(0);
+  const sequenceRef = useRef(baseSeq);
 
   // Primer layout parameters — all magic numbers exposed for debugging
   const [primerParams, setPrimerParams] = useState({
@@ -146,13 +150,7 @@ export default function App() {
           setEnzymes(data.enzymes || []);
           setPrimers(data.primers || []);
           setBackendStatus('online');
-          // Sync methylation right away (the effect also fires via backendStatus change,
-          // but this avoids a flash of un-methylated data).
-          setMethylation(methylationSystems, methylationOverlap).then(() => {
-            return getProject(filter);
-          }).then(d2 => {
-            if (d2 && !d2.error) setEnzymes(d2.enzymes || []);
-          }).catch(() => {});
+          setProjectVersion(v => v + 1);
         }
       } catch {
         if (!cancelled) setBackendStatus('offline');
@@ -168,10 +166,13 @@ export default function App() {
         try {
           const msg = JSON.parse(e.data);
           if (msg.type === 'project' && msg.data && !cancelled) {
-            setSequence(msg.data.sequence || baseSeq);
+            const newSeq = msg.data.sequence || baseSeq;
+            const isNewFile = newSeq !== sequenceRef.current;
+            setSequence(newSeq);
             setFeatures(msg.data.features || defaultFeatures);
             setEnzymes(msg.data.enzymes || defaultEnzymes);
             setPrimers(msg.data.primers || defaultPrimers);
+            if (isNewFile) setProjectVersion(v => v + 1);
           }
         } catch {}
       };
@@ -191,7 +192,10 @@ export default function App() {
     }).then(data => {
       if (data && !data.error) setEnzymes(data.enzymes || []);
     }).catch(e => console.error('methylation sync error:', e));
-  }, [methylationSystems, methylationOverlap, backendStatus]);
+  }, [methylationSystems, methylationOverlap, backendStatus, projectVersion]);
+
+  // Keep sequenceRef in sync so the WS handler can compare
+  useEffect(() => { sequenceRef.current = sequence; }, [sequence]);
 
   // Refetch when enzyme filter changes (switching unique ↔ all)
   useEffect(() => {
@@ -232,9 +236,9 @@ export default function App() {
     <div className="w-full min-h-screen bg-[#fdfbf7] relative">
       <SequenceEditor
         sequence={sequence}
-        features={showFeatures ? features : []}
+        features={showFeatures ? features : EMPTY_ARRAY}
         enzymes={displayEnzymes}
-        primers={showPrimers ? primers : []}
+        primers={showPrimers ? primers : EMPTY_ARRAY}
         charsPerLine={60}
         primerParams={primerParams}
       />

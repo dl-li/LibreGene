@@ -30,6 +30,9 @@ pub struct PrimerGbEntry {
 /// `geneie_primer_seq`, and `geneie_color`. All binding site
 /// information is recomputed by the alignment engine — stored values
 /// are ignored.
+///
+/// This delegates to the shared [`crate::file_io::gbk::primer_from_qualifier_values`]
+/// helper to avoid duplicating Primer construction logic.
 pub fn parse_gbk_feature(
     qualifiers: &HashMap<String, String>,
     _start: i64,
@@ -52,24 +55,14 @@ pub fn parse_gbk_feature(
         .get("geneie_color")
         .map(|s| s.as_str())
         .unwrap_or("#166534");
-
-    // Read primer_seq from qualifier if present (otherwise empty — caller
-    // will need to set it). For SnapGene GBK, the sequence is extracted
-    // from the note field by the file_io layer before calling here.
     let primer_seq = qualifiers
         .get("geneie_primer_seq")
         .map(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
 
-    Some(Primer {
-        id: primer_id.to_string(),
-        name: label.to_string(),
-        r#type: ptype.to_string(),
-        primer_seq,
-        color: color.to_string(),
-        binding_sites: Vec::new(),
-    })
+    Some(crate::file_io::gbk::primer_from_qualifier_values(
+        label, primer_id, ptype, color, primer_seq,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -78,33 +71,19 @@ pub fn parse_gbk_feature(
 
 /// Serialize all primers in a project to [`PrimerGbEntry`] records suitable
 /// for the GenBank writer.
+///
+/// Delegates to [`crate::file_io::gbk::build_primer_qualifier_pairs`] to
+/// share qualifier-building logic with the file_io layer.
 pub fn serialize_primers_gbk(project: &ProjectData) -> Vec<PrimerGbEntry> {
     project
         .primers
         .iter()
         .map(|p| {
-            let mut qualifiers: Vec<(String, String)> = Vec::new();
-
-            qualifiers.push(("label".to_string(), p.name.clone()));
-            qualifiers.push(("geneie_primer_id".to_string(), p.id.clone()));
-            qualifiers.push(("geneie_primer_type".to_string(), p.r#type.clone()));
-            qualifiers.push(("geneie_primer_seq".to_string(), p.primer_seq.clone()));
-            qualifiers.push(("geneie_color".to_string(), p.color.clone()));
-
-            if !p.binding_sites.is_empty() {
-                let parts: Vec<String> = p
-                    .binding_sites
-                    .iter()
-                    .map(|bs| format!("{},{},{:.1}", bs.match_start, bs.match_end, bs.tm))
-                    .collect();
-                qualifiers.push(("geneie_bindings".to_string(), parts.join(";")));
-            }
-
-            // match_start/end from best binding site, or default.
-            let best = p.binding_sites.first();
+            let (match_start, match_end, qualifiers) =
+                crate::file_io::gbk::build_primer_qualifier_pairs(p);
             PrimerGbEntry {
-                match_start: best.map(|b| b.match_start).unwrap_or(0),
-                match_end: best.map(|b| b.match_end).unwrap_or(0),
+                match_start,
+                match_end,
                 qualifiers,
             }
         })

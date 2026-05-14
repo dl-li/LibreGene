@@ -26,8 +26,6 @@ Geneie/
 │   ├── demoData.js          # Demo 模式数据（baseSeq, features, enzymes, primers）
 │   ├── editorConstants.js   # 共享常量与工具函数（cw, getX, measureWidth, splitRange）
 │   ├── ErrorBoundary.jsx    # React Error Boundary
-│   ├── useEditorLayout.js   # 布局计算 hook（track 分配、行高、碰撞避让）
-│   ├── useEditorInteraction.js  # 交互 hook（鼠标/键盘、选择、拖拽配对、复制）
 │   ├── primerRenderer.jsx   # 引物几何计算（segment path, hover background）
 │   └── PrimerSegmentRenderer.jsx  # 引物 segment 渲染组件
 ├── backend-rs/              # Rust 后端

@@ -10,6 +10,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
@@ -29,6 +30,7 @@ use crate::ws;
 pub struct AppState {
     pub pm: Arc<RwLock<ProjectManager>>,
     pub ws_tx: broadcast::Sender<String>,
+    pub base_dir: PathBuf,
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,41 @@ pub fn build_router() -> Router<Arc<AppState>> {
 }
 
 // ---------------------------------------------------------------------------
+// Path validation (anti path-traversal)
+// ---------------------------------------------------------------------------
+
+/// Validate that a file path is safe — allows only absolute paths within the
+/// current working directory, or relative paths (which are resolved relative
+/// to the cwd at the time of the call).  Rejects paths containing `..`.
+fn validate_path(path_str: &str, base_dir: &std::path::PathBuf) -> Result<std::path::PathBuf, String> {
+    let path = std::path::Path::new(path_str);
+
+    // Reject explicit parent-dir traversal
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err("Path traversal detected: '..' is not allowed".to_string());
+    }
+
+    // Resolve relative paths against the base_dir; absolute paths are used as-is
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base_dir.join(path)
+    };
+
+    let canonical = resolved
+        .canonicalize()
+        .map_err(|e| format!("Invalid path '{}': {}", path_str, e))?;
+    if !canonical.starts_with(base_dir) {
+        return Err(format!(
+            "Path is outside base directory: {}",
+            path_str
+        ));
+    }
+
+    Ok(canonical)
+}
+
+// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
@@ -122,10 +159,13 @@ async fn get_project(
 fn filter_project(project: &geneie_core::models::ProjectData, params: &ProjectParams) -> serde_json::Value {
     let filter = params.enzyme_filter.as_deref().unwrap_or("unique");
     let cpl = params.cpl.unwrap_or(DEFAULT_CPL);
+    // Clamp row_start/row_end to non-negative
+    let row_start = params.row_start.map(|rs| rs.max(0));
+    let row_end = params.row_end.map(|re| re.max(0));
 
     let enzymes: Vec<&geneie_core::models::Enzyme> = if filter == "all" {
         let all: Vec<_> = project.enzymes.iter().collect();
-        if let (Some(rs), Some(re)) = (params.row_start, params.row_end) {
+        if let (Some(rs), Some(re)) = (row_start, row_end) {
             let idx_s = rs * cpl;
             let idx_e = (re + 1) * cpl - 1;
             all.into_iter().filter(|e| e.cut_index >= idx_s && e.cut_index <= idx_e).collect()
@@ -143,7 +183,7 @@ fn filter_project(project: &geneie_core::models::ProjectData, params: &ProjectPa
             .filter(|v| v.len() == 1)
             .map(|v| v[0])
             .collect();
-        if let (Some(rs), Some(re)) = (params.row_start, params.row_end) {
+        if let (Some(rs), Some(re)) = (row_start, row_end) {
             let idx_s = rs * cpl;
             let idx_e = (re + 1) * cpl - 1;
             unique.retain(|e| e.cut_index >= idx_s && e.cut_index <= idx_e);
@@ -152,12 +192,13 @@ fn filter_project(project: &geneie_core::models::ProjectData, params: &ProjectPa
         unique
     };
 
-    let base = serde_json::to_value(project).unwrap_or(serde_json::json!({}));
-    let mut map = base.as_object().cloned().unwrap_or_default();
-    map.insert("enzymeCount".to_string(), serde_json::Value::Number(project.enzymes.len().into()));
-    map.insert("enzymeFilter".to_string(), serde_json::Value::String(filter.to_string()));
-    map.insert("enzymes".to_string(), serde_json::to_value(&enzymes).unwrap_or(serde_json::json!([])));
-    serde_json::Value::Object(map)
+    let mut base = serde_json::to_value(project).unwrap_or(serde_json::json!({}));
+    if let Some(ref mut map) = base.as_object_mut() {
+        map.insert("enzymeCount".to_string(), serde_json::Value::Number(project.enzymes.len().into()));
+        map.insert("enzymeFilter".to_string(), serde_json::Value::String(filter.to_string()));
+        map.insert("enzymes".to_string(), serde_json::to_value(&enzymes).unwrap_or(serde_json::json!([])));
+    }
+    base
 }
 
 /// POST /open?path=... — load a file (.gbk, .dna, .fasta).
@@ -165,8 +206,11 @@ async fn post_open(
     Query(params): Query<OpenParams>,
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
+    let path = match validate_path(&params.path, &state.base_dir) {
+        Err(e) => return Json(serde_json::json!({"error": e})),
+        Ok(p) => p,
+    };
     let id = params.path.clone();
-    let path = std::path::Path::new(&params.path).to_path_buf();
     let result = tokio::task::spawn_blocking(move || {
         let mut project = file_io::parse_file(&path)?;
         enzyme::recompute(&mut project);
@@ -193,10 +237,14 @@ async fn post_save(
     Query(params): Query<SaveParams>,
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
+    let save_path = match validate_path(&params.path, &state.base_dir) {
+        Err(e) => return Json(serde_json::json!({"error": e})),
+        Ok(p) => p,
+    };
     let pm = state.pm.read().await;
     match pm.get_project() {
         Some(project) => {
-            match file_io::gbk::write_gbk(project, std::path::Path::new(&params.path)) {
+            match file_io::gbk::write_gbk(project, &save_path) {
                 Ok(()) => Json(serde_json::json!({"status": "ok"})),
                 Err(e) => Json(serde_json::json!({"error": e.to_string()})),
             }
@@ -212,16 +260,14 @@ async fn put_sequence(
 ) -> Json<serde_json::Value> {
     let seq = body["sequence"].as_str().unwrap_or("").to_string();
 
-    {
+    // Capture project clone + active_id atomically while holding the write lock
+    let (project, active_id) = {
         let mut pm = state.pm.write().await;
         pm.update_sequence(seq);
-    }
+        (pm.get_project().cloned(), pm.active_id().map(|s| s.to_string()))
+    };
 
     // Recompute enzymes and primers on the active project outside the lock
-    let project = {
-        let pm = state.pm.read().await;
-        pm.get_project().cloned()
-    };
     if let Some(mut p) = project {
         let computed = tokio::task::spawn_blocking(move || {
             enzyme::recompute(&mut p);
@@ -230,8 +276,8 @@ async fn put_sequence(
         }).await;
         if let Ok(new_p) = computed {
             let mut pm = state.pm.write().await;
-            if let Some(id) = pm.active_id().map(|s| s.to_string()) {
-                pm.open_project(id, new_p);
+            if let Some(ref id) = active_id {
+                pm.open_project(id.clone(), new_p);
             }
         }
     }
@@ -283,6 +329,7 @@ async fn post_feature(
         feats.push(body);
     }
     pm.update_features(feats);
+    drop(pm);
     broadcast(&state).await;
     Json(serde_json::json!({"status": "ok"}))
 }
@@ -298,6 +345,7 @@ async fn delete_feature(
         .map(|p| p.features.iter().filter(|f| f.id != fid).cloned().collect())
         .unwrap_or_default();
     pm.update_features(feats);
+    drop(pm);
     broadcast(&state).await;
     Json(serde_json::json!({"status": "ok"}))
 }
@@ -344,7 +392,7 @@ async fn post_primer(
     } else {
         pm.update_primers(primers);
     }
-
+    drop(pm);
     broadcast(&state).await;
     Json(serde_json::json!({"status": "ok"}))
 }
@@ -360,6 +408,7 @@ async fn delete_primer(
         .map(|p| p.primers.iter().filter(|pr| pr.id != pid).cloned().collect())
         .unwrap_or_default();
     pm.update_primers(primers);
+    drop(pm);
     broadcast(&state).await;
     Json(serde_json::json!({"status": "ok"}))
 }
@@ -427,8 +476,11 @@ async fn post_activate(
     Query(params): Query<ActivateParams>,
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    let mut pm = state.pm.write().await;
-    if pm.activate_project(&params.id) {
+    let activated = {
+        let mut pm = state.pm.write().await;
+        pm.activate_project(&params.id)
+    };
+    if activated {
         broadcast(&state).await;
         Json(serde_json::json!({"status": "ok"}))
     } else {
@@ -446,8 +498,11 @@ async fn delete_project(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    let mut pm = state.pm.write().await;
-    if pm.close_project(&id) {
+    let closed = {
+        let mut pm = state.pm.write().await;
+        pm.close_project(&id)
+    };
+    if closed {
         broadcast(&state).await;
         Json(serde_json::json!({"status": "ok"}))
     } else {
@@ -462,6 +517,10 @@ async fn delete_project(
 /// Broadcast the current project state + project list to all WebSocket clients.
 /// Uses default filtering (unique enzymes only) to keep payload small.
 pub async fn broadcast(state: &Arc<AppState>) {
+    // Skip if no WebSocket clients are connected
+    if state.ws_tx.receiver_count() == 0 {
+        return;
+    }
     let pm = state.pm.read().await;
     if let Some(project) = pm.get_project() {
         let projects = pm.list_projects();
