@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#0f1f3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="80" fill="url(#bg)"/>
+  <!-- DNA double helix simplified -->
+  <g transform="translate(256,256)" fill="none" stroke-linecap="round">
+    <!-- Strand 1 -->
+    <path d="M-120,-80 C-120,0 120,0 120,-80" stroke="#34d399" stroke-width="12"/>
+    <path d="M-120,-30 C-120,50 120,50 120,-30" stroke="#34d399" stroke-width="12"/>
+    <path d="M-120,20 C-120,100 120,100 120,20" stroke="#34d399" stroke-width="12"/>
+    <path d="M-120,70 C-120,150 120,150 120,70" stroke="#34d399" stroke-width="12"/>
+    <!-- Strand 2 -->
+    <path d="M-120,-80 C-120,-160 120,-160 120,-80" stroke="#60a5fa" stroke-width="12"/>
+    <path d="M-120,-30 C-120,-110 120,-110 120,-30" stroke="#60a5fa" stroke-width="12"/>
+    <path d="M-120,20 C-120,-60 120,-60 120,20" stroke="#60a5fa" stroke-width="12"/>
+    <path d="M-120,70 C-120,-10 120,-10 120,70" stroke="#60a5fa" stroke-width="12"/>
+    <!-- Cross-bars -->
+    <line x1="-90" y1="-80" x2="-90" y2="-80" stroke="#c084fc" stroke-width="8"/>
+    <line x1="-30" y1="-80" x2="-30" y2="-30" stroke="#c084fc" stroke-width="8"/>
+    <line x1="30" y1="-30" x2="30" y2="-80" stroke="#c084fc" stroke-width="8"/>
+    <line x1="90" y1="-30" x2="90" y2="-30" stroke="#c084fc" stroke-width="8"/>
+    <line x1="-90" y1="20" x2="-90" y2="-30" stroke="#c084fc" stroke-width="8"/>
+    <line x1="-30" y1="-30" x2="-30" y2="20" stroke="#c084fc" stroke-width="8"/>
+    <line x1="30" y1="-30" x2="30" y2="20" stroke="#c084fc" stroke-width="8"/>
+    <line x1="90" y1="20" x2="90" y2="-30" stroke="#c084fc" stroke-width="8"/>
+    <line x1="-90" y1="20" x2="-90" y2="70" stroke="#c084fc" stroke-width="8"/>
+    <line x1="-30" y1="20" x2="-30" y2="70" stroke="#c084fc" stroke-width="8"/>
+    <line x1="30" y1="70" x2="30" y2="20" stroke="#c084fc" stroke-width="8"/>
+    <line x1="90" y1="70" x2="90" y2="20" stroke="#c084fc" stroke-width="8"/>
+  </g>
+</svg>
