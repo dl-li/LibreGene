@@ -157,13 +157,21 @@ async fn open_file(
 
     match result {
         Ok(project) => {
+            // Serialize before moving into pm.load() so the frontend can cache it
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            let return_data = filter_project(&project, &params);
+
             {
                 let mut pm = state.pm.write().await;
                 pm.load(&id, project);
             }
-            // Don't broadcast here — the frontend calls get_project() right after
-            // with its own filter, so a second full-data broadcast is wasted work.
-            Ok(serde_json::json!({"status": "ok"}))
+
+            Ok(return_data)
         }
         Err(e) => Ok(serde_json::json!({"error": e})),
     }
@@ -423,6 +431,30 @@ async fn get_projects(state: State<'_, AppState>) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
+async fn get_project_by_id(
+    state: State<'_, AppState>,
+    id: String,
+    enzyme_filter: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&id) {
+        Some(p) => {
+            let filter = enzyme_filter.as_deref().unwrap_or("all");
+            let needs_all = ["blunt", "overhang5", "overhang3", "iis", "rec4", "rec5", "rec6", "rec8p"]
+                .contains(&filter);
+            let params = ProjectParams {
+                enzyme_filter: Some(if needs_all || filter == "all" { "all" } else { "unique" }.to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "project not found"})),
+    }
+}
+
+#[tauri::command]
 async fn activate_project(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -432,12 +464,66 @@ async fn activate_project(
         let mut pm = state.pm.write().await;
         pm.activate_project(&id)
     };
-    if activated {
-        broadcast_project(&app_handle, &state).await;
-        Ok(serde_json::json!({"status": "ok"}))
-    } else {
-        Ok(serde_json::json!({"error": format!("project not found: {}", id)}))
+    if !activated {
+        return Ok(serde_json::json!({"error": format!("project not found: {}", id)}));
     }
+
+    // Return full project data immediately; broadcast async so it doesn't delay the response
+    let result = {
+        let pm = state.pm.read().await;
+        match pm.get_project() {
+            Some(p) => {
+                let projects = pm.list_projects();
+                let active_id = pm.active_id().map(|s| s.to_string());
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                let mut filtered = filter_project(p, &params);
+                if let Some(ref mut map) = filtered.as_object_mut() {
+                    map.insert(
+                        "projects".to_string(),
+                        serde_json::to_value(&projects).unwrap_or_default(),
+                    );
+                    map.insert(
+                        "activeId".to_string(),
+                        serde_json::to_value(&active_id).unwrap_or_default(),
+                    );
+                }
+                filtered
+            }
+            None => serde_json::json!({"error": "project not found"}),
+        }
+    };
+
+    // Broadcast asynchronously to avoid delaying the response
+    let pm_arc = state.pm.clone();
+    let app_clone = app_handle.clone();
+    tokio::spawn(async move {
+        let pm = pm_arc.read().await;
+        if let Some(project) = pm.get_project() {
+            let projects = pm.list_projects();
+            let active_id = pm.active_id().map(|s| s.to_string());
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            let filtered = filter_project(project, &params);
+            let payload = serde_json::json!({
+                "type": "project",
+                "data": filtered,
+                "projects": projects,
+                "activeId": active_id,
+            });
+            let _ = app_clone.emit("project-update", payload);
+        }
+    });
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -472,6 +558,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_project,
+            get_project_by_id,
             open_file,
             save_file,
             update_sequence,
