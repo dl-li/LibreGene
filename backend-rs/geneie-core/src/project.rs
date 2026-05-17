@@ -57,6 +57,10 @@ impl ProjectManager {
             .and_then(|id| self.projects.get(id))
     }
 
+    pub fn get_project_by_id(&self, id: &str) -> Option<&ProjectData> {
+        self.projects.get(id)
+    }
+
     pub fn get_project_mut(&mut self) -> Option<&mut ProjectData> {
         self.active
             .as_ref()

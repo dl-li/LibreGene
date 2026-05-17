@@ -174,6 +174,11 @@ export async function getProjects() {
   return request("GET", "/projects");
 }
 
+export async function getProjectById(id, filter = 'all') {
+  if (isTauri) return tauriInvoke('get_project_by_id', { id, enzymeFilter: filter });
+  return request("GET", `/project/${encodeURIComponent(id)}?enzyme_filter=${filter}`);
+}
+
 export async function activateProject(id) {
   if (isTauri) return tauriInvoke('activate_project', { id });
   return request("POST", `/projects/activate?id=${encodeURIComponent(id)}`);
@@ -190,14 +195,16 @@ export async function deleteProject(id) {
 
 export async function openFileDialog() {
   if (!isTauri) return null;
-  return tauriOpen({
-    title: 'Open GenBank/DNA/FASTA file',
+  const result = await tauriOpen({
+    title: 'Open GenBank/DNA/FASTA files',
     filters: [
       { name: 'DNA Files', extensions: ['gbk', 'gb', 'dna', 'fasta', 'fa', 'fna', 'ab1'] },
       { name: 'All Files', extensions: ['*'] },
     ],
-    multiple: false,
+    multiple: true,
   });
+  if (!result) return null;
+  return Array.isArray(result) ? result : [result];
 }
 
 export async function saveFileDialog(defaultName = 'project.gbk') {

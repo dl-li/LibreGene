@@ -42,10 +42,11 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-export default function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, primerParams }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
+  const featureLeaveRef = useRef(null);
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
@@ -53,6 +54,28 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
   const lastVisibleStartRef = useRef(-1);
   const lastVisibleEndRef = useRef(-1);
   const numRowsRef = useRef(1);
+  const svgRef = useRef(null);
+
+  // --- selection state ---
+  const [cursorIndex, setCursorIndex] = useState(null);
+  const [selStart, setSelStart] = useState(null);
+  const [selEnd, setSelEnd] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startIdx: null, active: false });
+  const isDraggingRef = useRef(false);
+  const cursorTimerRef = useRef(null);
+  const selColor = '#3E2723';
+
+  const resetCursorTimer = useCallback(() => {
+    if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
+    cursorTimerRef.current = setTimeout(() => setCursorIndex(null), 5000);
+  }, []);
+
+  const clearCursorTimer = useCallback(() => {
+    if (cursorTimerRef.current) { clearTimeout(cursorTimerRef.current); cursorTimerRef.current = null; }
+  }, []);
+
+  const hasSelection = selStart !== null && selEnd !== null && selStart <= selEnd;
 
   const pp = useMemo(() => ({
     fwdMatchY: 30, revMatchY: 26, misYDelta: 4,
@@ -62,9 +85,23 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     fwdAboveBase: 30, fwdAboveExtra: 23, fwdAboveNonTailExtra: 5,
     revBelowBase: 26, revBelowExtra: 25, revBelowNonTailExtra: 5,
     hoverExpand: 26, arrowHeadLen: 7, arrowHeadHeight: 5,
-    highestYBase: 26, highestYFwdTail: 42, highestYFwdNoTail: 38, highestYExtra: 24,
-    ...primerParams,
-  }), [primerParams]);
+    ...layoutParams,
+  }), [layoutParams]);
+
+  const lp = useMemo(() => ({
+    minRowGap: 27,
+    rowContentGap: 12,
+    featTrackHeight: 18,
+    featBaseOffset: 14,
+    featLabelPad: 12,
+    enzTrackHeight: 18,
+    enzLineGap: 18,
+    enzLabelBase: 51,
+    enzAbovePad: 10,
+    minAboveSpace: 24,
+    minBelowSpace: 14,
+    ...layoutParams,
+  }), [layoutParams]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -79,7 +116,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           const sy = window.scrollY;
           const vh = window.innerHeight || 900;
           const nr = numRowsRef.current;
-          const estRowH = 60; // rough row height incl spacing; scroll updates trigger precise visibleRows calc
+          const estRowH = 60;
           const buf = 8;
           const estStart = Math.max(0, Math.floor(sy / estRowH) - buf - 1);
           const estEnd = Math.min(nr - 1, Math.floor((sy + vh) / estRowH) + buf + 1);
@@ -100,6 +137,14 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
+
+  // Recalculate layout when parent padding changes (e.g. sidebar pin)
+  useEffect(() => {
+    if (layoutKey === undefined) return;
+    if (containerRef.current) {
+      setCharsPerLine(Math.max(20, Math.floor((containerRef.current.clientWidth - startX * 2) / cw)));
+    }
+  }, [layoutKey]);
 
   const cleanSeq = sequence || '';
 
@@ -273,14 +318,14 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           const er = Math.floor(fseg.end / charsPerLine);
           for (let r = sr; r <= er; r++) {
             const ft = (fRowTracks[f.id] || {})[r] || 0;
-            revFeatOff[p.id][r] = Math.max(revFeatOff[p.id][r] || 0, (ft + 1) * 18);
+            revFeatOff[p.id][r] = Math.max(revFeatOff[p.id][r] || 0, (ft + 1) * lp.featTrackHeight);
           }
         }
       }
     }
 
     return { processedFeatures: resultFeatures, primerTracks: pTracks, featureRowTracks: fRowTracks, revPrimerFeatOffsets: revFeatOff };
-  }, [features, enrichedPrimers, numRows, charsPerLine]);
+  }, [features, enrichedPrimers, numRows, charsPerLine, lp]);
 
   // --- adaptive row spacing (memoized with pre-indexed lookups) ---
   const enzymesByRow = useMemo(() => {
@@ -327,38 +372,43 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     return map;
   }, [processedFeatures, charsPerLine]);
 
-  const { rowAbove, rowBelow } = useMemo(() => {
+  const { rowAbove, rowBelow, enzymeRowTracks } = useMemo(() => {
+    // Per-row enzyme track assignment (per (enzymeId, row) — not global per enzymeId)
+    const eTracks = {};
+    for (let r = 0; r < numRows; r++) {
+      const rEnz = enzymesByRow[r];
+      if (!rEnz || !rEnz.length) continue;
+      const sorted = [...rEnz].sort((a, b) => b.cutIndex - a.cutIndex || b.name.length - a.name.length);
+      const occupied = [];
+      for (const e of sorted) {
+        const cs = e.cutIndex % charsPerLine;
+        const ce = cs + Math.ceil(enzLabelW(e.name, e.isUnique) / cw);
+        let t = 0;
+        while (occupied.some(o => o.track === t && !(ce < o.cs || cs > o.ce))) t++;
+        occupied.push({ track: t, cs, ce });
+        if (!eTracks[e.id]) eTracks[e.id] = {};
+        eTracks[e.id][r] = t;
+      }
+    }
+
     const above = new Array(numRows).fill(0);
     const below = new Array(numRows).fill(0);
 
     for (let r = 0; r < numRows; r++) {
-      let ae = 12, be = 14;
-
-      const rowEnz = enzymesByRow[r];
-      if (rowEnz) {
-        const sorted = [...rowEnz].sort((a, b) => b.cutIndex - a.cutIndex || b.name.length - a.name.length);
-        const occupied = [];
-        let maxEnzTrack = 0;
-        for (const e of sorted) {
-          const cs = e.cutIndex % charsPerLine;
-          const ce = cs + Math.ceil(enzLabelW(e.name, e.isUnique) / cw);
-          let t = 0;
-          while (occupied.some(o => o.track === t && !(ce < o.cs || cs > o.ce))) t++;
-          occupied.push({ track: t, cs, ce });
-          maxEnzTrack = Math.max(maxEnzTrack, t);
-        }
-        // Label top = getSeqY(row) - 61 - track*18
-        ae = Math.max(ae, 61 + maxEnzTrack * 18);
-      }
+      let ae = lp.minAboveSpace, be = lp.minBelowSpace;
 
       const rowPrimers = primersByRow[r];
+      let maxFwdPrimerH = 0;
+
       if (rowPrimers) {
         for (const p of rowPrimers) {
           const t = (primerTracks[p.id] || {})[r] || 0;
           if (p.type === 'fwd') {
             const hasTail = r === Math.floor(p.matchStart / charsPerLine);
             const extra = hasTail ? pp.fwdAboveExtra : pp.fwdAboveNonTailExtra;
-            ae = Math.max(ae, pp.fwdAboveBase + t * pp.trackGap + extra);
+            const h = pp.fwdAboveBase + t * pp.trackGap + extra;
+            maxFwdPrimerH = Math.max(maxFwdPrimerH, h);
+            ae = Math.max(ae, h);
           } else {
             const hasTail = r === Math.floor(p.matchEnd / charsPerLine);
             const extra = hasTail ? pp.revBelowExtra : pp.revBelowNonTailExtra;
@@ -368,11 +418,25 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         }
       }
 
+      // Enzymes: above fwd primers; per-row tracks from eTracks
+      const rowEnz = enzymesByRow[r];
+      if (rowEnz && rowEnz.length > 0) {
+        let maxEnzTrack = 0;
+        for (const e of rowEnz) {
+          const t = (eTracks[e.id] || {})[r] || 0;
+          maxEnzTrack = Math.max(maxEnzTrack, t);
+        }
+        const enzDefaultAbove = lp.enzLabelBase + lp.enzAbovePad;
+        const enzBase = maxFwdPrimerH > 0 ? Math.max(enzDefaultAbove, maxFwdPrimerH + 38) : enzDefaultAbove;
+        ae = Math.max(ae, enzBase + maxEnzTrack * lp.enzTrackHeight);
+      }
+
+      // Features: below sequence
       const rowFeats = featuresByRow[r];
       if (rowFeats) {
         for (const { feature: f } of rowFeats) {
           const t = (featureRowTracks[f.id] || {})[r] || 0;
-          be = Math.max(be, 14 + t * 18 + 12);
+          be = Math.max(be, lp.featBaseOffset + t * lp.featTrackHeight + lp.featLabelPad);
         }
       }
 
@@ -380,17 +444,136 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
       below[r] = be;
     }
 
-    return { rowAbove: above, rowBelow: below };
-  }, [numRows, enzymesByRow, primersByRow, featuresByRow, primerTracks, featureRowTracks, revPrimerFeatOffsets, charsPerLine, pp]);
+    return { rowAbove: above, rowBelow: below, enzymeRowTracks: eTracks };
+  }, [numRows, enzymesByRow, primersByRow, featuresByRow, primerTracks, featureRowTracks, revPrimerFeatOffsets, charsPerLine, pp, lp]);
 
   const rowY = useMemo(() => {
-    const y = [Math.max(baseSeqY, rowAbove[0] + 18)];
+    const y = [Math.max(baseSeqY, rowAbove[0] + lp.minRowGap)];
     for (let r = 0; r < numRows - 1; r++) {
-      y.push(y[r] + Math.max(18, rowBelow[r] + rowAbove[r + 1] + 12));
+      y.push(y[r] + Math.max(lp.minRowGap, rowBelow[r] + rowAbove[r + 1] + lp.rowContentGap));
     }
     return y;
-  }, [numRows, rowAbove, rowBelow]);
+  }, [numRows, rowAbove, rowBelow, lp.minRowGap, lp.rowContentGap]);
   const getSeqY = useCallback((row) => rowY[Math.min(row, rowY.length - 1)], [rowY]);
+
+  // --- selection: coordinate conversion & event handlers ---
+  const clientToSeqIndex = useCallback((clientX, clientY) => {
+    if (!svgRef.current) return null;
+    const pt = svgRef.current.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svgRef.current.getScreenCTM();
+    if (!ctm) return null;
+    const svgPt = pt.matrixTransform(ctm.inverse());
+    const xRel = svgPt.x - startX;
+    if (xRel < -cw / 2 || xRel > charsPerLine * cw + cw / 2) return null;
+    const xInCell = (xRel % cw + cw) % cw;
+    const colBase = Math.floor(xRel / cw);
+    const side = xInCell < cw / 2 ? 0 : 1;
+    const col = Math.max(0, Math.min(charsPerLine, colBase + side));
+    // Content-based row boundaries: top of current row → top of next row
+    // Row spacing already ensures a gap between row content areas
+    let row = -1;
+    for (let r = 0; r < numRows; r++) {
+      const sy = getSeqY(r);
+      const top = sy - rowAbove[r];
+      const bottom = r < numRows - 1 ? getSeqY(r + 1) - rowAbove[r + 1] : Infinity;
+      if (svgPt.y >= top && svgPt.y < bottom) { row = r; break; }
+    }
+    if (row < 0) return null;
+    const idx = row * charsPerLine + col;
+    return Math.max(0, Math.min(cleanSeq.length, idx));
+  }, [charsPerLine, numRows, getSeqY, cleanSeq]);
+
+  const handleSvgMouseDown = useCallback((e) => {
+    if (e.button !== 0) return;
+    const idx = clientToSeqIndex(e.clientX, e.clientY);
+    if (idx === null) return;
+    if (e.shiftKey && cursorIndex !== null) {
+      // Shift+click: select from cursor to click position
+      const s = Math.min(cursorIndex, idx);
+      const e = Math.max(cursorIndex, idx) - 1;
+      if (s <= e) {
+        setSelStart(s);
+        setSelEnd(e);
+      }
+      setCursorIndex(idx);
+      dragRef.current = { startIdx: idx, active: false };
+      clearCursorTimer();
+      return;
+    }
+    dragRef.current = { startIdx: idx, active: false };
+    setIsDragging(false);
+    setCursorIndex(idx);
+    setSelStart(null);
+    setSelEnd(null);
+    resetCursorTimer();
+  }, [clientToSeqIndex, resetCursorTimer, clearCursorTimer, cursorIndex]);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (dragRef.current.startIdx === null) return;
+      const idx = clientToSeqIndex(e.clientX, e.clientY);
+      if (idx === null) return;
+      const dist = Math.abs(idx - dragRef.current.startIdx);
+      if (dist > 0) {
+        dragRef.current.active = true;
+        setIsDragging(true);
+        // Cursor is at insertion point idx; selected chars are from min to max-1
+        setSelStart(Math.min(dragRef.current.startIdx, idx));
+        setSelEnd(Math.max(dragRef.current.startIdx, idx) - 1);
+        setCursorIndex(idx);
+        resetCursorTimer();
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, [clientToSeqIndex, resetCursorTimer]);
+
+  useEffect(() => {
+    const onUp = () => {
+      if (dragRef.current.startIdx === null) return;
+      if (dragRef.current.active) {
+        setCursorIndex(null);
+        clearCursorTimer();
+      }
+      setIsDragging(false);
+      dragRef.current = { startIdx: null, active: false };
+    };
+    window.addEventListener('mouseup', onUp);
+    return () => window.removeEventListener('mouseup', onUp);
+  }, [clearCursorTimer]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (cursorIndex === null) return;
+        e.preventDefault();
+        let ni = cursorIndex;
+        if (e.key === 'ArrowLeft') ni = Math.max(0, cursorIndex - 1);
+        else if (e.key === 'ArrowRight') ni = Math.min(cleanSeq.length, cursorIndex + 1);
+        else if (e.key === 'ArrowUp') ni = Math.max(0, cursorIndex - charsPerLine);
+        else if (e.key === 'ArrowDown') ni = Math.min(cleanSeq.length, cursorIndex + charsPerLine);
+        if (ni !== cursorIndex) {
+          setCursorIndex(ni);
+          setSelStart(null);
+          setSelEnd(null);
+          resetCursorTimer();
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        if (hasSelection) {
+          e.preventDefault();
+          navigator.clipboard.writeText(cleanSeq.substring(selStart, selEnd + 1)).catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cursorIndex, selStart, selEnd, hasSelection, cleanSeq, charsPerLine, resetCursorTimer]);
+
+  useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
+  useEffect(() => () => { clearCursorTimer(); clearTimeout(featureLeaveRef.current); }, [clearCursorTimer]);
 
   // Visible row range for enzyme virtualization
   const visibleRows = useMemo(() => {
@@ -451,54 +634,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     });
   }, [enrichedPrimers, visibleRows, numRows, charsPerLine]);
 
-  // --- shared: highest obstacle Y for enzyme label ---
-  const computeHighestY = useCallback((row, cutX, enzNameW) => {
-    let hy = getSeqY(row) - pp.highestYBase;
-    const rowPrimers = primersByRow[row];
-    if (rowPrimers) {
-      for (const p of rowPrimers) {
-        if (p.type !== 'fwd') continue;
-        const segs = sp(p.matchStart, p.matchEnd);
-        for (const seg of segs) {
-          if (seg.row !== row) continue;
-          const ml = p.mismatchStr?.length || 0;
-          const isTail = seg === segs[0];
-          const drawMisLen = isTail ? Math.min(ml, seg.colStart + 5) : 0;
-          const nameW = primerLabelW(p.name);
-          const nameX = (isTail && drawMisLen > 0) ? getX(seg.colStart - drawMisLen) : getX(seg.colStart) + cw / 2;
-          if (cutX < nameX + nameW + 4 && cutX + enzNameW > nameX) {
-            const to = ((primerTracks[p.id] || {})[row] || 0) * pp.trackGap;
-            hy = Math.min(hy, (isTail && ml > 0 ? getSeqY(row) - pp.highestYFwdTail - to : getSeqY(row) - pp.highestYFwdNoTail - to) - pp.highestYExtra);
-          }
-        }
-      }
-    }
-    return hy;
-  }, [primersByRow, primerTracks, charsPerLine, sp, getSeqY, pp]);
-
-  // --- enzyme track assignment ---
-  // Group enzymes by their first cut pair's row (cutIndex row) to compute tracks.
-  const enzymeTracks = useMemo(() => {
-    const byRow = {};
-    for (const e of enzymes) {
-      const r = Math.floor(e.cutIndex / charsPerLine);
-      (byRow[r] || (byRow[r] = [])).push(e);
-    }
-    const tracks = {};
-    for (const rowEnz of Object.values(byRow)) {
-      const sorted = [...rowEnz].sort((a, b) => b.cutIndex - a.cutIndex || b.name.length - a.name.length);
-      const occupied = [];
-      for (const e of sorted) {
-        const cs = e.cutIndex % charsPerLine;
-        const ce = cs + Math.ceil(enzLabelW(e.name, e.isUnique) / cw);
-        let t = 0;
-        while (occupied.some(o => o.track === t && !(ce < o.cs || cs > o.ce))) t++;
-        occupied.push({ track: t, cs, ce });
-        tracks[e.id] = t;
-      }
-    }
-    return tracks;
-  }, [enzymes, charsPerLine]);
+  // --- enzyme track assignment is now in the spacing memo (enzymeRowTracks) ---
 
   // --- render helpers ---
   const computeDominantColor = (f) => {
@@ -514,19 +650,16 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     return best;
   };
 
-  const renderFeatures = () => {
+  const renderedFeatures = useMemo(() => {
     if (!visibleFeatures.length) return null;
     return visibleFeatures.map(f => {
       const isHovered = hoveredFeature === f.id;
       const dataSegs = f.segments;
 
-      // Build ordered visual elements: real segments + gap segments between them
-      const visuals = []; // { type: 'solid'|'gap', row, colStart, colEnd, showLabel }
+      const visuals = [];
       const seenRows = new Set();
       for (let di = 0; di < dataSegs.length; di++) {
         const ds = dataSegs[di];
-
-        // Gap between previous data segment and this one
         if (di > 0) {
           const prevEnd = dataSegs[di - 1].end;
           if (ds.start > prevEnd + 1) {
@@ -537,8 +670,6 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
             }
           }
         }
-
-        // Solid segment
         for (const vs of sp(ds.start, ds.end)) {
           const showLabel = !seenRows.has(vs.row);
           seenRows.add(vs.row);
@@ -547,25 +678,30 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         }
       }
 
-      // Sort by absolute index
       visuals.sort((a, b) => (a.row * charsPerLine + a.colStart) - (b.row * charsPerLine + b.colStart));
-
       if (!visuals.length) return null;
 
       return (
         <g key={f.id}>
-          {visuals.map((v, vi) => {
+          {visuals.map((v) => {
             const x = getX(v.colStart);
             const w = (v.colEnd - v.colStart + 1) * cw;
             const sy = getSeqY(v.row);
-            const rowTo = ((featureRowTracks[f.id] || {})[v.row] || 0) * 18;
-            const y = sy + 14 + rowTo;
+            const rowTo = ((featureRowTracks[f.id] || {})[v.row] || 0) * lp.featTrackHeight;
+            const y = sy + lp.featBaseOffset + rowTo;
             const isGap = v.type === 'gap';
 
             return (
               <g key={`${v.type}-${v.row}-${v.colStart}`}
-                onMouseEnter={() => setHoveredFeature(f.id)}
-                onMouseLeave={() => setHoveredFeature(null)}
+                onMouseEnter={() => { if (isDraggingRef.current) return; clearTimeout(featureLeaveRef.current); setHoveredFeature(f.id); }}
+                onMouseLeave={() => { featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250); }}
+                onMouseDown={(e) => {
+                  e.stopPropagation(); e.preventDefault();
+                  const fStart = Math.min(...f.segments.map(s => s.start));
+                  const fEnd = Math.max(...f.segments.map(s => s.end));
+                  setSelStart(fStart); setSelEnd(fEnd);
+                  setCursorIndex(fEnd + 1); clearCursorTimer();
+                }}
                 className="cursor-pointer">
                 <rect x={x} y={(isHovered && !isGap) ? sy - 18 : y} width={w}
                   height={(isHovered && !isGap) ? y - (sy - 18) : 0} fill={v.color}
@@ -580,20 +716,26 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         </g>
       );
     });
-  };
+  }, [visibleFeatures, hoveredFeature, featureRowTracks, getSeqY, sp, charsPerLine, clearCursorTimer, lp]);
 
-  // Feature labels rendered on top of all feature color blocks
-  const renderFeatureLabels = () => {
+  const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
+    const full = isRev ? `< ${name}` : isFwd ? `${name} >` : name;
+    if (name.length <= maxLen) return { full, short: full };
+    const short = isRev ? `< ${name.slice(0, maxLen)}··` : isFwd ? `${name.slice(0, maxLen)}·· >` : `${name.slice(0, maxLen)}··`;
+    return { full, short };
+  }, []);
+
+  const renderedFeatureLabels = useMemo(() => {
     if (!visibleFeatures.length) return null;
     const seen = new Set();
     return visibleFeatures.flatMap(f => {
       const isRev = f.strand === '-';
       const isFwd = f.strand === '+';
       const labelColor = computeDominantColor(f);
-      const labelText = isRev ? `< ${f.name}` : isFwd ? `${f.name} >` : f.name;
+      const isHovered = hoveredFeature === f.id;
+      const { full: fullText, short: shortText } = truncatedLabel(f.name, isRev, isFwd);
+      const labelText = isHovered ? fullText : shortText;
 
-      // Per row: collect the label position.
-      // Forward/unknown → keep the first visual; reverse → keep overwriting to get the last.
       const rowLabels = {};
       const seenRows = new Set();
 
@@ -617,15 +759,22 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         if (seen.has(key)) return null;
         seen.add(key);
         const sy = getSeqY(vs.row);
-        const rowTo = ((featureRowTracks[f.id] || {})[vs.row] || 0) * 18;
-        const y = sy + 14 + rowTo;
+        const rowTo = ((featureRowTracks[f.id] || {})[vs.row] || 0) * lp.featTrackHeight;
+        const y = sy + lp.featBaseOffset + rowTo;
         const textProps = { y: y + 4, fontSize: "12px", fontFamily: "TeX Gyre Heros", fontWeight: "600" };
         if (isRev) {
           const xr = getX(vs.colEnd + 1);
           return (
             <g key={key}
-              onMouseEnter={() => setHoveredFeature(f.id)}
-              onMouseLeave={() => setHoveredFeature(null)}
+              onMouseEnter={() => { if (isDraggingRef.current) return; clearTimeout(featureLeaveRef.current); setHoveredFeature(f.id); }}
+              onMouseLeave={() => { featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250); }}
+              onMouseDown={(e) => {
+                e.stopPropagation(); e.preventDefault();
+                const fStart = Math.min(...f.segments.map(s => s.start));
+                const fEnd = Math.max(...f.segments.map(s => s.end));
+                setSelStart(fStart); setSelEnd(fEnd);
+                setCursorIndex(fEnd + 1); clearCursorTimer();
+              }}
               className="cursor-pointer">
               <text x={xr + 8} {...textProps} textAnchor="start" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
               <text x={xr + 8} {...textProps} textAnchor="start" fill={labelColor} stroke="none">{labelText}</text>
@@ -637,6 +786,13 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           <g key={key}
             onMouseEnter={() => setHoveredFeature(f.id)}
             onMouseLeave={() => setHoveredFeature(null)}
+            onMouseDown={(e) => {
+              e.stopPropagation(); e.preventDefault();
+              const fStart = Math.min(...f.segments.map(s => s.start));
+              const fEnd = Math.max(...f.segments.map(s => s.end));
+              setSelStart(fStart); setSelEnd(fEnd);
+              setCursorIndex(fEnd + 1); clearCursorTimer();
+            }}
             className="cursor-pointer">
             <text x={x - 8} {...textProps} textAnchor="end" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
             <text x={x - 8} {...textProps} textAnchor="end" fill={labelColor} stroke="none">{labelText}</text>
@@ -644,11 +800,11 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         );
       });
     });
-  };
+  }, [visibleFeatures, hoveredFeature, featureRowTracks, getSeqY, sp, clearCursorTimer, truncatedLabel, lp]);
 
-  const renderPrimers = () => {
+  const renderedPrimers = useMemo(() => {
     if (!visiblePrimers.length) return null;
-    return visiblePrimers.map((p, idx) => {
+    return visiblePrimers.map((p) => {
       const isFwd = p.type === 'fwd';
       const isHovered = hoveredPrimer === p.id;
       const misLen = p.mismatchStr?.length || 0;
@@ -670,7 +826,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
       }
 
       return (
-        <g key={`${p.id}-${idx}`}>
+        <g key={p.id}>
           {segs.map(seg => {
             const isTail = seg === tailSeg, isArrow = seg === arrowSeg;
             const sy = getSeqY(seg.row);
@@ -757,7 +913,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
                   width={Math.max(...pts.map(p => p[0])) - Math.min(...pts.map(p => p[0])) + 8}
                   height={Math.max(...pts.map(p => p[1])) - Math.min(...pts.map(p => p[1])) + 40}
                   fill="transparent"
-                  onMouseEnter={() => setHoveredPrimer(p.id)}
+                  onMouseEnter={() => { if (isDraggingRef.current) return; setHoveredPrimer(p.id); }}
                   onMouseLeave={() => setHoveredPrimer(null)}
                   className="cursor-pointer" />
               </g>
@@ -766,7 +922,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         </g>
       );
     });
-  };
+  }, [visiblePrimers, hoveredPrimer, charsPerLine, pp, primerTracks, revPrimerFeatOffsets, getSeqY, sp]);
 
   // Pre-compute enzyme geometry — one entry per cut pair (cut-twice enzymes get 2 entries)
   const enzymeLayout = useMemo(() => {
@@ -777,11 +933,35 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         const row = Math.floor(cp.topCutIndex / charsPerLine);
         const cutX = getX(cp.topCutIndex % charsPerLine);
         const sy = getSeqY(row);
-        const hy = computeHighestY(row, cutX, enzLabelW(e.name, e.isUnique));
-        const to = (enzymeTracks[e.id] || 0) * 18;
+        const enzTrack = (enzymeRowTracks[e.id] || {})[row] || 0;
+
+        // Push enzyme label up to avoid overlapping fwd primers on the same row
+        let avoidOff = 0;
+        const enzW = enzLabelW(e.name, e.isUnique);
+        const rp = primersByRow[row];
+        if (rp) {
+          for (const p of rp) {
+            if (p.type !== 'fwd') continue;
+            const segs = sp(p.matchStart, p.matchEnd);
+            for (const seg of segs) {
+              if (seg.row !== row) continue;
+              const ml = p.mismatchStr?.length || 0;
+              const isTail = seg === segs[0];
+              const drawMisLen = isTail ? Math.min(ml, seg.colStart + 5) : 0;
+              const nameW = primerLabelW(p.name);
+              const nameX = (isTail && drawMisLen > 0) ? getX(seg.colStart - drawMisLen) : getX(seg.colStart) + cw / 2;
+              if (cutX < nameX + nameW + 4 && cutX + enzW > nameX) {
+                const pt = (primerTracks[p.id] || {})[row] || 0;
+                const hasTail = isTail && ml > 0;
+                avoidOff = Math.max(avoidOff, (hasTail ? 40 : 36) + pt * pp.trackGap);
+              }
+            }
+          }
+        }
+
         // Clamp label top so it never overlaps the sequence text of the row above
         const minTop = row > 0 ? getSeqY(row - 1) + 8 : -Infinity;
-        const yTop = Math.max(hy - 25 - to, minTop);
+        const yTop = Math.max(sy - lp.enzLabelBase - avoidOff - enzTrack * lp.enzTrackHeight, minTop);
         entries.push({
           id: `${e.id}_p${pi}`,
           groupId: e.id,
@@ -790,45 +970,44 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           cutX, sy,
           yTop,
           isUnique: e.isUnique,
-          enzW: enzLabelW(e.name, e.isUnique),
+          enzW,
         });
       });
     }
     return entries;
-  }, [visibleEnzymes, enzymeTracks, charsPerLine, getSeqY, computeHighestY]);
+  }, [visibleEnzymes, enzymeRowTracks, lp, charsPerLine, getSeqY, primersByRow, primerTracks, sp, pp.trackGap]);
 
   // Batched enzyme lines
   const enzymeLinesPath = useMemo(() => {
     let d = '';
     for (const l of enzymeLayout) {
-      const yBot = l.sy - 18;
+      const yBot = l.sy - lp.enzLineGap;
       d += `M${l.cutX} ${l.yTop} L${l.cutX} ${yBot}`;
     }
     return d;
-  }, [enzymeLayout]);
+  }, [enzymeLayout, lp.enzLineGap]);
 
-  const renderEnzymes = () => {
+  const renderedEnzymes = useMemo(() => {
     if (!enzymeLayout.length) return null;
     return (
       <g>
         <path d={enzymeLinesPath} fill="none" stroke="#333" strokeWidth="0.8"
           style={{ pointerEvents: 'none' }} />
         {enzymeLayout.filter(l => l.isUnique).map(l => (
-          <line key={`u-${l.id}`} x1={l.cutX} x2={l.cutX} y1={l.yTop} y2={l.sy - 18}
+          <line key={`u-${l.id}`} x1={l.cutX} x2={l.cutX} y1={l.yTop} y2={l.sy - lp.enzLineGap}
             stroke="#333" strokeWidth="1" style={{ pointerEvents: 'none' }} />
         ))}
       </g>
     );
-  };
+  }, [enzymeLayout, enzymeLinesPath, lp.enzLineGap]);
 
-  // Enzyme label backgrounds + hit areas — hover stores entry id, overlay/tooltip resolve groupId from it
-  const renderEnzymeLabels = () => {
+  const renderedEnzymeLabels = useMemo(() => {
     return enzymeLayout.map(l => {
       const e = enzymes.find(x => x.id === l.groupId);
       const isGray = e && (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length));
       const labelColor = isGray ? '#9CA3AF' : '#333';
       return (
-        <g key={l.id} onMouseEnter={() => setHoveredEnzyme(l.id)} onMouseLeave={() => setHoveredEnzyme(null)}>
+        <g key={l.id} onMouseEnter={() => { if (isDraggingRef.current) return; setHoveredEnzyme(l.id); }} onMouseLeave={() => setHoveredEnzyme(null)}>
           <rect x={l.cutX + 3} y={l.yTop - 10} width={l.enzW + 2} height={18} fill="transparent" />
           {(() => {
             const enzText = { x: l.cutX + 6, y: l.yTop + 5, fontSize: "14px", fontFamily: "Cascadia Code", fontWeight: l.isUnique ? '700' : '350', style: { pointerEvents: 'none' } };
@@ -841,10 +1020,9 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         </g>
       );
     });
-  };
+  }, [enzymeLayout, enzymes]);
 
-  // Hover overlay — resolve groupId from hovered entry, highlight ALL cut lines of that enzyme
-  const renderEnzymeOverlay = () => {
+  const renderedEnzymeOverlay = useMemo(() => {
     if (!hoveredEnzyme) return null;
     const hoveredEntry = enzymeLayout.find(l => l.id === hoveredEnzyme);
     if (!hoveredEntry) return null;
@@ -865,7 +1043,6 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
             </React.Fragment>
           );
         })}
-        {/* Overlay label on hovered entry's position */}
         {(() => {
           const methParts = [];
           if (e.methylationBlocked && e.methylationSources?.length) {
@@ -877,13 +1054,11 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           const methText = methParts.length ? '  ' + methParts.join(' ') : '';
           return (
             <React.Fragment>
-              {/* Background stroke */}
               <text x={hoveredEntry.cutX + 6} y={hoveredEntry.yTop + 5} fill="none" stroke={bgColor} strokeWidth="5"
                 fontSize="14px" fontFamily="Cascadia Code" fontWeight="700">
                 {(() => { const s = splitEnzName(e.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : e.name; })()}
                 {methText}
               </text>
-              {/* Foreground text */}
               <text x={hoveredEntry.cutX + 6} y={hoveredEntry.yTop + 5} fill={ovColor} stroke="none"
                 fontSize="14px" fontFamily="Cascadia Code" fontWeight="700">
                 {(() => { const s = splitEnzName(e.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : e.name; })()}
@@ -894,9 +1069,9 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         })()}
       </g>
     );
-  };
+  }, [hoveredEnzyme, enzymeLayout, enzymes]);
 
-  const renderTooltips = () => {
+  const renderedTooltips = useMemo(() => {
     if (!hoveredEnzyme) return null;
     const hoveredEntry = enzymeLayout.find(l => l.id === hoveredEnzyme);
     if (!hoveredEntry) return null;
@@ -905,7 +1080,6 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
     const isGray = e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
     const ttColor = isGray ? '#9CA3AF' : '#2563EB';
 
-    // Tooltip shared data
     const dispLen = e.displayEnd - e.displayStart + 1;
     const sw = e.isUnique ? '2' : '1';
     const swM = e.isUnique ? '3' : '1.5';
@@ -923,10 +1097,8 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
       return pi < pattern.length && pattern[pi] !== 'N' && pattern[pi] !== 'n';
     };
 
-    // All layout entries for this enzyme (one per cut pair)
     const groupEntries = enzymeLayout.filter(l => l.groupId === hoveredEntry.groupId);
 
-    // Render one tooltip per cut pair, anchored at its row
     return (
       <g style={{ pointerEvents: 'none' }}>
         {groupEntries.map((entry) => {
@@ -938,9 +1110,6 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
           const leftX = baseX - pad;
           const ttW = dispLen * cw + pad * 2;
 
-          // Polylines for all cut pairs relative to this tooltip's row.
-          // The "local" pair (matching this entry) extends above tooltip + gets a notch.
-          // Other pairs retract to the tooltip top edge.
           const polyEntries = cutPairs.map((cp, i) => {
             const tGapX = baseX + (cp.topCutIndex - e.displayStart) * cw;
             const bGapX = baseX + (cp.botCutIndex - e.displayStart) * cw;
@@ -958,18 +1127,14 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
 
           return (
             <g key={`tt-${entry.id}`}>
-              {/* Tooltip box */}
               <rect x={leftX} y={ttY} width={ttW} height={ttH} rx={8} fill="#FFFFFF" stroke={ttColor} strokeWidth={sw} />
-              {/* White notch only for the local pair */}
               {polyEntries.filter(pe => pe.isLocal).map(pe => (
                 <line key={`notch-${pe.tGapX}`} x1={pe.tGapX - 3} x2={pe.tGapX + 3} y1={ttY} y2={ttY} stroke="#FFFFFF" strokeWidth={swM} />
               ))}
-              {/* Cut polylines */}
               {polyEntries.map((pe, i) => (
                 <path key={`poly-${i}`} d={pe.path} fill="none" stroke={ttColor} strokeWidth={sw} strokeLinejoin="round" strokeLinecap="round" />
               ))}
-              {/* Template sequence */}
-              <text y={sy} fontFamily={monoFont} fontSize="16px">
+              <text y={sy} fontFamily={monoFont} fontSize="14px">
                 {sub.split('').map((c, i) => {
                   const bold = isRecBold(i);
                   return (
@@ -978,8 +1143,7 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
                   );
                 })}
               </text>
-              {/* Complement sequence */}
-              <text y={sy + 18} fontFamily={monoFont} fontSize="16px">
+              <text y={sy + 18} fontFamily={monoFont} fontSize="14px">
                 {comp.split('').map((c, i) => {
                   const bold = isRecBold(i);
                   return (
@@ -993,37 +1157,87 @@ export default function SequenceEditor({ sequence, features = [], enzymes = [], 
         })}
       </g>
     );
-  };
+  }, [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine]);
 
-  const renderSeq = () => {
+  // --- cursor & selection renderers ---
+  const renderedCursor = useMemo(() => {
+    if (cursorIndex === null) return null;
+    if (hasSelection && !isDragging) return null;
+    const row = Math.floor(cursorIndex / charsPerLine);
+    const col = cursorIndex % charsPerLine;
+    const x = getX(col);
+    const sy = getSeqY(row);
+    const topY = sy - rowAbove[row];
+    const botY = row === numRows - 1 ? sy + rowBelow[row] + 24 : getSeqY(row + 1) - rowAbove[row + 1];
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        <line x1={x} x2={x} y1={topY} y2={botY} stroke={bgColor} strokeWidth="3" />
+        <line x1={x} x2={x} y1={topY} y2={botY} stroke={selColor} strokeWidth="1.5" />
+      </g>
+    );
+  }, [cursorIndex, hasSelection, isDragging, charsPerLine, numRows, getSeqY, rowBelow]);
+
+  const renderedSelection = useMemo(() => {
+    if (!hasSelection) return null;
+    const segs = sp(selStart, selEnd);
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {segs.map(seg => (
+          <rect key={`selbg-${seg.row}-${seg.colStart}`}
+            x={getX(seg.colStart)} y={getSeqY(seg.row) - 19}
+            width={(seg.colEnd - seg.colStart + 1) * cw} height={24}
+            fill={selColor} rx="1" />
+        ))}
+      </g>
+    );
+  }, [hasSelection, selStart, selEnd, getSeqY, sp]);
+
+  const renderedSeq = useMemo(() => {
     const vs = Math.max(0, visibleRows.start - ROW_BUF);
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     const rows = [];
     for (let r = vs; r <= ve; r++) {
-      const chunk = cleanSeq.substring(r * charsPerLine, (r + 1) * charsPerLine);
+      const rowStart = r * charsPerLine;
+      const rowEnd = Math.min(cleanSeq.length, (r + 1) * charsPerLine);
+      const chunk = cleanSeq.substring(rowStart, rowEnd);
+      const sy = getSeqY(r);
+      const chars = chunk.split('');
+      const selInRow = hasSelection
+        ? { s: Math.max(selStart, rowStart) - rowStart, e: Math.min(selEnd, rowEnd - 1) - rowStart }
+        : null;
+      const inSel = (i) => selInRow && i >= selInRow.s && i <= selInRow.e;
       rows.push(
-        <text key={r} x={startX} y={getSeqY(r)} fontFamily={monoFont} fontSize="16px" fontWeight="bold" fill="#1f2937"
-          textLength={chunk.length * cw} lengthAdjust="spacing"
-          style={{ userSelect: 'text', cursor: 'text' }}>{chunk}</text>
+        <text key={r} y={sy} fontFamily={monoFont} fontSize="14px" fontWeight="bold"
+          style={{ userSelect: 'none', cursor: 'text' }}>
+          {chars.map((c, i) => (
+            <tspan key={i} x={getX(i) + cw / 2} textAnchor="middle"
+              fill={inSel(i) ? bgColor : '#1f2937'}>{c}</tspan>
+          ))}
+        </text>
       );
     }
     return rows;
-  };
+  }, [visibleRows, charsPerLine, numRows, cleanSeq, hasSelection, selStart, selEnd, getSeqY]);
 
   return (
-    <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '2rem 2rem 4rem 2rem', overflowX: 'auto', userSelect: 'none' }} className="">
+    <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
       <div style={{ width: svgWidth }}>
-        <svg width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible' }}>
-          {renderFeatures()}
-          {renderFeatureLabels()}
-          {renderEnzymes()}
-          {renderPrimers()}
-          {renderEnzymeLabels()}
-          {renderEnzymeOverlay()}
-          {renderSeq()}
-          {renderTooltips()}
+        <svg ref={svgRef} width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible', willChange: 'transform', transform: 'translateZ(0)' }}
+          onMouseDown={handleSvgMouseDown}>
+          {renderedCursor}
+          {renderedSelection}
+          {renderedFeatures}
+          {renderedFeatureLabels}
+          {renderedEnzymes}
+          {renderedPrimers}
+          {renderedEnzymeLabels}
+          {renderedEnzymeOverlay}
+          {renderedSeq}
+          {renderedTooltips}
         </svg>
       </div>
     </div>
   );
-}
+});
+
+export default SequenceEditor;
