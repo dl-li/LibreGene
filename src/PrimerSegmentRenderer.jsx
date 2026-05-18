@@ -195,13 +195,16 @@ export default function PrimerSegmentRenderer({
               <text fill={style.text(pColor)} fontSize="14px" fontFamily={monoFont} fontWeight="bold"
                 style={{ pointerEvents: 'none' }}>
                 {alignmentCols.map((ac) => {
-                  const isOffset = ac.kind === 'mismatch' || ac.kind === 'gap';
+                  const isOffset = ac.kind === 'mismatch' || ac.kind === 'gap' || ac.kind === 'insertion';
                   const y = isOffset ? mismatchY + textYMismatch : matchY + textYMatch;
                   const isGap = ac.kind === 'gap';
+                  const isInsertion = ac.kind === 'insertion';
                   return (
                     <tspan key={`aln-${ac.templateCol}`} x={colX(ac.templateCol)} y={y} textAnchor="middle"
-                      fill={isGap ? '#9ca3af' : undefined} fontWeight={isGap ? '200' : undefined}>
-                      {ac.primerBase}
+                      fill={isGap ? '#9ca3af' : isInsertion ? pColor : undefined}
+                      fontWeight={isGap ? '200' : undefined}
+                      fontSize={isInsertion ? '10px' : undefined}>
+                      {isInsertion ? (ac.insertionAfter || '') : ac.primerBase}
                     </tspan>
                   );
                 })}

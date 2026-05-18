@@ -3,13 +3,17 @@
 //! Handles:
 //! - `.gbk` `primer_bind` features
 //! - `.dna` primer XML blocks (SnapGene)
-//! - Melting temperature computation (Wallace rule)
-//! - Semi-global alignment and binding-site search
+//! - Smith-Waterman alignment with 3' asymmetry (alignment)
+//! - SantaLucia 1998 nearest-neighbour Tm (thermodynamics)
+//! - Compact render-data formatting (formatter)
 
 pub mod align;
-pub mod tm;
-pub mod gbk;
+pub mod alignment;
 pub mod dna;
+pub mod formatter;
+pub mod gbk;
+pub mod thermodynamics;
+pub mod tm;
 
 use crate::models::ProjectData;
 use crate::project::ProjectManager;

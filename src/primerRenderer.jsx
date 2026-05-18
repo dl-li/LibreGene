@@ -4,46 +4,69 @@ import { getX, cw } from './editorConstants';
 
 export const mismatchOffset = 4; // px offset away from main chain for mismatches/gaps/tails
 
-// Normalize alignment column to new format (supports both old {col,op,disp,tmpl} and new {templateCol,kind,primerBase,templateBase}).
-export const normCol = (ac) => ({
-  templateCol: ac.templateCol ?? ac.col ?? 0,
-  kind: ac.kind || (ac.op === 'M' ? 'match' : ac.op === 'X' ? 'mismatch' : ac.op === 'D' || ac.op === 'Del' ? 'gap' : 'mismatch'),
-  primerBase: ac.primerBase ?? ac.disp ?? '',
-  templateBase: ac.templateBase ?? ac.tmpl ?? '',
-  insertionAfter: ac.insertionAfter ?? null,
-});
-
 /**
- * Compute rendering segments for a primer's best binding site.
+ * Convert an AlignmentRenderData `displaySequence` position to render column info.
  *
- * New data model (from backend):
+ * New data model (v2):
  *   primer.bindingSites[0] = {
- *     matchStart, matchEnd, tm,
+ *     templateStart, templateEnd, tm, strand,
  *     fivePrimeTail, threePrimeTail,
- *     alignment: [{ templateCol, kind: "match"|"mismatch"|"gap",
- *                   primerBase, templateBase, insertionAfter }]
+ *     alignment: {
+ *       displaySequence,    // one char per template column
+ *       insertionMap,       // { "0": { baseChar, insertedBases, fullString }, ... }
+ *       mismatchIndices,    // indices within displaySequence
+ *     }
  *   }
  */
 export function computePrimerSegments(primer, charsPerLine) {
   const isFwd = primer.type === 'fwd';
   const bs = primer.bindingSites?.[0];
-  if (!bs || !bs.alignment?.length) return null;
+  if (!bs || !bs.alignment?.displaySequence) return null;
 
-  const { fivePrimeTail, threePrimeTail, alignment } = bs;
+  const { templateStart, fivePrimeTail, threePrimeTail } = bs;
+  const { displaySequence, insertionMap, mismatchIndices } = bs.alignment;
+  const mismatchSet = new Set(mismatchIndices || []);
 
-  // Normalize all columns to new format (supports old-format data).
-  const normAlign = alignment.map(normCol);
+  // Build per-column data from displaySequence.
+  const cols = [];
+  for (let i = 0; i < displaySequence.length; i++) {
+    const ch = displaySequence[i];
+    const templateCol = templateStart + i;
+    let kind, primerBase, insertionAfter;
 
-  // Group alignment columns by row.
+    if (ch === '-') {
+      kind = 'gap';
+      primerBase = '-';
+      insertionAfter = null;
+    } else if (ch >= '0' && ch <= '9') {
+      // Insertion placeholder.
+      const detail = insertionMap?.[ch];
+      kind = 'insertion';
+      primerBase = ch;
+      insertionAfter = detail?.insertedBases || null;
+    } else if (mismatchSet.has(i)) {
+      kind = 'mismatch';
+      primerBase = ch;
+      insertionAfter = null;
+    } else {
+      kind = 'match';
+      primerBase = ch;
+      insertionAfter = null;
+    }
+
+    cols.push({ templateCol, kind, primerBase, insertionAfter, displayIdx: i });
+  }
+
+  // Group columns by display row.
   const segs = [];
   let i = 0;
-  while (i < normAlign.length) {
-    const col = normAlign[i].templateCol;
+  while (i < cols.length) {
+    const col = cols[i].templateCol;
     const row = Math.floor(col / charsPerLine);
     const rowEndCol = (row + 1) * charsPerLine - 1;
     const segCols = [];
-    while (i < normAlign.length && normAlign[i].templateCol <= rowEndCol) {
-      segCols.push(normAlign[i]);
+    while (i < cols.length && cols[i].templateCol <= rowEndCol) {
+      segCols.push(cols[i]);
       i++;
     }
     if (!segCols.length) { i++; continue; }
@@ -74,6 +97,8 @@ export function computePrimerSegments(primer, charsPerLine) {
     hasThreePrimeTail,
     threePrimeSeg,
     fivePrimeSeg,
+    templateStart,
+    insertionMap: insertionMap || {},
   };
 }
 
@@ -81,7 +106,7 @@ export function computePrimerSegments(primer, charsPerLine) {
  * Build the SVG path for a single primer segment.
  *
  * Path order:
- *   5'edge → column centers (matchY for matches, mismatchY for mismatches/gaps) →
+ *   5'edge → column centers (matchY for matches, mismatchY for mismatches/gaps/insertions) →
  *   3'edge → [arrow tip] → [3' tail]
  *
  * For rev primers, columns are traversed right-to-left.
@@ -103,7 +128,7 @@ export function buildSegmentPath(
   const cx = order.map(k => getX(alignmentCols[k].templateCol % charsPerLine) + cw / 2);
   const cy = order.map(k => {
     const kind = alignmentCols[k].kind;
-    return (kind === 'mismatch' || kind === 'gap') ? mismatchY : matchY;
+    return (kind === 'mismatch' || kind === 'gap' || kind === 'insertion') ? mismatchY : matchY;
   });
 
   const firstK = order[0];
@@ -165,7 +190,7 @@ export function buildSegmentHoverPath(
   const cx = order.map(k => getX(alignmentCols[k].templateCol % charsPerLine) + cw / 2);
   const cy = order.map(k => {
     const kind = alignmentCols[k].kind;
-    return (kind === 'mismatch' || kind === 'gap') ? mismatchY : matchY;
+    return (kind === 'mismatch' || kind === 'gap' || kind === 'insertion') ? mismatchY : matchY;
   });
 
   const firstK = order[0];
@@ -179,7 +204,6 @@ export function buildSegmentHoverPath(
     : getX(alignmentCols[lastK].templateCol % charsPerLine);
 
   // Expanded edge: away from main chain
-  const expD = isFwd ? -primerExpand : primerExpand;
   const topCy = isFwd ? cy.map(y => y - primerExpand) : cy;
   const botCy = isFwd ? cy : cy.map(y => y + primerExpand);
 
