@@ -148,20 +148,50 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   const cleanSeq = sequence || '';
 
-  // Enrich primers with flat fields from new nested bindingSites data model.
+  // Enrich primers with flat fields from bindingSites data model (v2).
   const enrichedPrimers = useMemo(() => (primers || []).map(p => {
+    // Already enriched (legacy flat fields or pre-computed).
     if (p.matchStart !== undefined && p.matchEnd !== undefined) return p;
     const bs = p.bindingSites?.[0];
     if (!bs) return p;
-    const ms = bs.matchStart, me = bs.matchEnd;
+    // templateStart (inclusive), templateEnd (exclusive) — convert to legacy inclusive matchEnd
+    const ms = bs.templateStart ?? bs.matchStart ?? 0;
+    const me = (bs.templateEnd != null) ? bs.templateEnd - 1 : (bs.matchEnd ?? 0);
+    const aln = bs.alignment || {};
+    const ds = aln.displaySequence || '';
+    const misSet = new Set(aln.mismatchIndices || []);
+    // Build per-column render data for the binding region
+    const renderCols = [];
+    for (let i = 0; i < ds.length; i++) {
+      const ch = ds[i];
+      const tcol = ms + i;
+      let kind, primerBase, insDetail;
+      if (ch === '-') {
+        kind = 'gap'; primerBase = '-';
+      } else if (ch >= '0' && ch <= '9') {
+        kind = 'insertion'; primerBase = ch; insDetail = aln.insertionMap?.[ch];
+      } else if (misSet.has(i)) {
+        kind = 'mismatch'; primerBase = ch;
+      } else {
+        kind = 'match'; primerBase = ch;
+      }
+      renderCols.push({ templateCol: tcol, kind, primerBase, insDetail, displayIdx: i });
+    }
+    const isFwd = (bs.strand ?? 1) === 1;
     return {
       ...p,
       matchStart: ms,
       matchEnd: me,
-      mismatchStr: bs.fivePrimeTail || '',
-      matchStr: p.type === 'fwd'
+      isFwd, // actual binding direction (NOT declared type)
+      matchStr: isFwd
         ? cleanSeq.substring(ms, me + 1)
         : complementStr(cleanSeq.substring(ms, me + 1)),
+      // tails for rendering
+      mismatchStr: bs.fivePrimeTail || '',
+      threePrimeTail: bs.threePrimeTail || '',
+      // rich alignment data
+      renderCols,
+      displaySequence: ds,
     };
   }), [primers, cleanSeq]);
 
@@ -227,8 +257,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
     // Per-row primer track assignment — primers on different rows can share tracks.
     const pTracks = {}; // { [primerId]: { [row]: trackIndex } }
-    for (const type of ['fwd', 'rev']) {
-      const ofType = (enrichedPrimers || []).filter(p => p.type === type);
+    for (const isFwd of [true, false]) {
+      const ofType = (enrichedPrimers || []).filter(p => p.isFwd === isFwd);
       if (!ofType.length) continue;
       const sorted = [...ofType].sort((a, b) => {
         const la = (a.matchEnd - a.matchStart) + (a.mismatchStr?.length || 0);
@@ -240,8 +270,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         const rowTracks = [];
         for (const p of sorted) {
           const ml = p.mismatchStr?.length || 0;
-          const vs = p.type === 'fwd' ? p.matchStart - ml : p.matchStart;
-          const ve = p.type === 'rev' ? p.matchEnd + ml : p.matchEnd;
+          const vs = isFwd ? p.matchStart - ml : p.matchStart;
+          const ve = !isFwd ? p.matchEnd + ml : p.matchEnd;
           if (ve < rs || vs > re) continue;
           if (!pTracks[p.id]) pTracks[p.id] = {};
           let placed = false;
@@ -302,7 +332,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
     // Rev primer offset when overlapping with features on the same row
     const revFeatOff = {};
-    for (const p of (enrichedPrimers || []).filter(p => p.type === 'rev')) {
+    for (const p of (enrichedPrimers || []).filter(p => !p.isFwd)) {
       if (p.matchStart === undefined) continue;
       const ml = p.mismatchStr?.length || 0;
       const vs = p.matchStart, ve = p.matchEnd + ml;
@@ -403,7 +433,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       if (rowPrimers) {
         for (const p of rowPrimers) {
           const t = (primerTracks[p.id] || {})[r] || 0;
-          if (p.type === 'fwd') {
+          if (p.isFwd) {
             const hasTail = r === Math.floor(p.matchStart / charsPerLine);
             const extra = hasTail ? pp.fwdAboveExtra : pp.fwdAboveNonTailExtra;
             const h = pp.fwdAboveBase + t * pp.trackGap + extra;
@@ -805,12 +835,25 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const renderedPrimers = useMemo(() => {
     if (!visiblePrimers.length) return null;
     return visiblePrimers.map((p) => {
-      const isFwd = p.type === 'fwd';
+      const isFwd = p.isFwd;
       const isHovered = hoveredPrimer === p.id;
       const misLen = p.mismatchStr?.length || 0;
       const hasMis = misLen > 0;
       const pColor = p.color || '#166534';
       const segs = sp(p.matchStart, p.matchEnd);
+      if (p.renderCols) {
+        let ci = 0;
+        const rowEndOf = (s) => s.row * charsPerLine + s.colEnd;
+        for (const seg of segs) {
+          seg.renderCols = [];
+          while (ci < p.renderCols.length && p.renderCols[ci].templateCol <= rowEndOf(seg)) {
+            if (p.renderCols[ci].templateCol >= seg.colStart + seg.row * charsPerLine) {
+              seg.renderCols.push(p.renderCols[ci]);
+            }
+            ci++;
+          }
+        }
+      }
       const tailSeg = isFwd ? segs[0] : segs[segs.length - 1];
       const arrowSeg = isFwd ? segs[segs.length - 1] : segs[0];
 
@@ -836,13 +879,41 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
             const misY = matchY + (isFwd ? -pp.misYDelta : pp.misYDelta);
             const x1 = getX(seg.colStart), x2 = getX(seg.colEnd);
 
-            const pts = [];
-            if (isTail && hasMis && drawMisLen > 0) {
-              if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-              else pts.push([getX(seg.colEnd + drawMisLen + 1), misY], [x2 + cw * 1.5, misY]);
+            // Build per-column path points from renderCols
+            let pts = [];
+            let edge3x, edge5x;
+            const hasRenderCols = seg.renderCols && seg.renderCols.length > 0;
+            if (hasRenderCols) {
+              // Per-column zigzag path
+              const cols = isFwd ? seg.renderCols : [...seg.renderCols].reverse();
+              const firstCol = cols[0], lastCol = cols[cols.length - 1];
+              edge5x = isFwd
+                ? getX(firstCol.templateCol % charsPerLine)               // fwd: left edge of leftmost
+                : getX(firstCol.templateCol % charsPerLine) + cw;         // rev: right edge of rightmost
+              edge3x = isFwd
+                ? getX(lastCol.templateCol % charsPerLine) + cw            // fwd: right edge of rightmost
+                : getX(lastCol.templateCol % charsPerLine);               // rev: left edge of leftmost
+              // 5' tail
+              if (isTail && hasMis && drawMisLen > 0) {
+                if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
+                else pts.push([getX(seg.colEnd + drawMisLen + 1), misY], [x2 + cw * 1.5, misY]);
+              }
+              pts.push([edge5x, cols[0].kind === 'match' ? matchY : misY]);
+              for (const rc of cols) {
+                const cx = getX(rc.templateCol % charsPerLine) + cw / 2;
+                const cy = rc.kind === 'match' ? matchY : misY;
+                pts.push([cx, cy]);
+              }
+              pts.push([edge3x, cols[cols.length - 1].kind === 'match' ? matchY : misY]);
+            } else {
+              // Fallback: straight line
+              if (isTail && hasMis && drawMisLen > 0) {
+                if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
+                else pts.push([getX(seg.colEnd + drawMisLen + 1), misY], [x2 + cw * 1.5, misY]);
+              }
+              if (isFwd) pts.push([x1 + cw / 2, matchY], [x2 + cw, matchY]);
+              else pts.push([x2 + cw, matchY], [x1, matchY]);
             }
-            if (isFwd) pts.push([x1 + cw / 2, matchY], [x2 + cw, matchY]);
-            else pts.push([x2 + cw, matchY], [x1, matchY]);
             if (pts.length < 2) return null;
 
             const pathStr = `M ${pts.map(p => `${p[0]} ${p[1]}`).join(' L ')}`;
@@ -853,8 +924,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               ` L ${last[0]} ${last[1] + expD * curExp} ` +
               [...pts].reverse().map(p => `L ${p[0]} ${p[1] + expD * curExp}`).join(' ') + ' Z';
 
+            const arrowTipY = (hasRenderCols && seg.renderCols.length > 0)
+              ? (seg.renderCols[seg.renderCols.length - 1].kind === 'match' ? matchY : misY)
+              : matchY;
+            const arrowBaseX = hasRenderCols ? edge3x : (isFwd ? x2 + cw : x1);
             const arrowPath = isArrow
-              ? `M ${isFwd ? x2 + cw : x1} ${matchY} L ${isFwd ? x2 + cw - pp.arrowHeadLen : x1 + pp.arrowHeadLen} ${matchY + expD * pp.arrowHeadHeight}` : '';
+              ? `M ${arrowBaseX} ${arrowTipY} L ${isFwd ? arrowBaseX - pp.arrowHeadLen : arrowBaseX + pp.arrowHeadLen} ${arrowTipY + expD * pp.arrowHeadHeight}` : '';
 
             const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
 
@@ -865,6 +940,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
                 <text fill={pColor} fontSize="14px" fontFamily={monoFont} fontWeight="bold"
                   style={{ opacity: isHovered ? 1 : 0, transition: 'opacity 0.2s ease-in-out', pointerEvents: 'none' }}>
+                  {/* 5' tail */}
                   {isTail && hasMis && drawMisLen > 0 && (
                     <>
                       {showMisDots && <tspan
@@ -877,16 +953,33 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                       ))}
                     </>
                   )}
-                  {isFwd
-                    ? p.matchStr?.substring(seg.strOffset, seg.strOffset + seg.len).split('').map((c, k) => (
-                      <tspan key={`mat-${k}`} x={getX(seg.colStart + k) + cw / 2} y={matchY - pp.fwdBaseTextY} textAnchor="middle">{c}</tspan>
-                    ))
-                    : p.matchStr && Array.from({ length: seg.len }, (_, k) => {
-                      const ci = seg.colEnd + seg.row * charsPerLine - k - p.matchStart;
-                      return <tspan key={`mat-${k}`} x={getX(seg.colEnd - k) + cw / 2} y={matchY + pp.revBaseTextY} textAnchor="middle">
-                        {p.matchStr[ci] || ''}</tspan>;
-                    })
-                  }
+                  {/* Per-column alignment rendering */}
+                  {seg.renderCols && seg.renderCols.map((rc) => {
+                    const isOffset = rc.kind === 'mismatch' || rc.kind === 'gap' || rc.kind === 'insertion';
+                    const y = (isOffset ? misY : matchY) + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY);
+                    const x = getX(rc.templateCol % charsPerLine) + cw / 2;
+                    const isGap = rc.kind === 'gap';
+                    const isIns = rc.kind === 'insertion';
+                    return (
+                      <tspan key={`aln-${rc.templateCol}`} x={x} y={y} textAnchor="middle"
+                        fill={isGap ? '#9ca3af' : undefined} fontWeight={isGap ? '200' : undefined}
+                        fontSize={isIns ? '10px' : undefined}>
+                        {isIns ? (rc.insDetail?.insertedBases || rc.primerBase) : rc.primerBase}
+                      </tspan>
+                    );
+                  })}
+                  {/* 3' tail */}
+                  {isArrow && p.threePrimeTail && (
+                    (() => {
+                      const tail3 = p.threePrimeTail;
+                      const tailLen = tail3.length;
+                      return tail3.split('').map((c, k) => (
+                        <tspan key={`3t-${k}`}
+                          x={(isFwd ? getX(seg.colEnd + k + 1) : getX(seg.colStart - tailLen + k)) + cw / 2}
+                          y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)} textAnchor="middle">{c}</tspan>
+                      ));
+                    })()
+                  )}
                 </text>
 
                 <path d={pathStr} fill="none" stroke={bgColor} strokeWidth="6" strokeLinejoin="round" />
@@ -941,7 +1034,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         const rp = primersByRow[row];
         if (rp) {
           for (const p of rp) {
-            if (p.type !== 'fwd') continue;
+            if (!p.isFwd) continue;
             const segs = sp(p.matchStart, p.matchEnd);
             for (const seg of segs) {
               if (seg.row !== row) continue;
@@ -1117,10 +1210,10 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
             return {
               tGapX, bGapX, isLocal,
               path: [
-                `M ${tGapX} ${isLocal ? ttY - 2 : ttY + 6}`,
+                `M ${tGapX} ${ttY - 2}`,
                 `L ${tGapX} ${sy + 3}`,
                 `L ${bGapX} ${sy + 3}`,
-                `L ${bGapX} ${sy + 24}`,
+                `L ${bGapX} ${sy + 28}`,
               ].join(' '),
             };
           });
@@ -1185,7 +1278,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         {segs.map(seg => (
           <rect key={`selbg-${seg.row}-${seg.colStart}`}
             x={getX(seg.colStart)} y={getSeqY(seg.row) - 19}
-            width={(seg.colEnd - seg.colStart + 1) * cw} height={24}
+            width={(seg.colEnd - seg.colStart + 1) * cw} height={28}
             fill={selColor} rx="1" />
         ))}
       </g>

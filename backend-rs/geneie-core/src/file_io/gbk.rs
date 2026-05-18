@@ -287,8 +287,8 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
     for p in &project.primers {
         let best = p.binding_sites.first();
-        let ms = best.map(|b| b.match_start).unwrap_or(0);
-        let me = best.map(|b| b.match_end).unwrap_or(0);
+        let ms = best.map(|b| b.template_start).unwrap_or(0);
+        let me = best.map(|b| b.template_end).unwrap_or(0);
 
         let color = if p.color.is_empty() {
             "#166534"
@@ -428,8 +428,8 @@ pub(crate) fn build_primer_qualifier_pairs(
     p: &Primer,
 ) -> (i64, i64, Vec<(String, String)>) {
     let best = p.binding_sites.first();
-    let match_start = best.map(|b| b.match_start).unwrap_or(0);
-    let match_end = best.map(|b| b.match_end).unwrap_or(0);
+    let match_start = best.map(|b| b.template_start).unwrap_or(0);
+    let match_end = best.map(|b| b.template_end).unwrap_or(0);
 
     let mut qualifiers: Vec<(String, String)> = Vec::new();
     qualifiers.push(("label".to_string(), p.name.clone()));
@@ -442,7 +442,7 @@ pub(crate) fn build_primer_qualifier_pairs(
         let parts: Vec<String> = p
             .binding_sites
             .iter()
-            .map(|bs| format!("{},{},{:.1}", bs.match_start, bs.match_end, bs.tm))
+            .map(|bs| format!("{},{},{:.1}", bs.template_start, bs.template_end, bs.tm))
             .collect();
         qualifiers.push(("geneie_bindings".to_string(), parts.join(";")));
     }

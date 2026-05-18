@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -56,6 +58,68 @@ pub struct BindingSite {
     pub alignment: Vec<AlignedColumn>,
 }
 
+// ---------------------------------------------------------------------------
+// New primer binding site types (v2 — compact render-oriented format)
+// ---------------------------------------------------------------------------
+
+/// Detail for a single insertion event within an alignment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertionDetail {
+    /// Template base at this position.
+    pub base_char: String,
+    /// Inserted primer bases (5'→3').
+    pub inserted_bases: String,
+    /// Full display string, e.g. "A[TGA]".
+    pub full_string: String,
+}
+
+/// Compact alignment data for frontend per-column rendering.
+///
+/// `display_sequence` has exactly `template_end - template_start` characters,
+/// one per template position. Gaps in the primer are `-`; insertions are
+/// collapsed into numeric placeholders (e.g. `1`) detailed in `insertion_map`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentRenderData {
+    pub display_sequence: String,
+    #[serde(default)]
+    pub insertion_map: HashMap<String, InsertionDetail>,
+    /// Indices within `display_sequence` where primer base ≠ template base.
+    #[serde(default)]
+    pub mismatch_indices: Vec<usize>,
+}
+
+/// A single primer binding site with compact render data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimerBindingSite {
+    pub primer_id: String,
+    /// 1 = forward (top) strand, -1 = reverse (bottom) strand.
+    pub strand: i8,
+    /// 0-based start on template.
+    pub template_start: i64,
+    /// 0-based end on template (exclusive).
+    pub template_end: i64,
+    /// Melting temperature in °C.
+    pub tm: f64,
+    /// GC content ratio (0–1).
+    pub gc_content: f64,
+    /// Raw alignment score.
+    pub match_score: i32,
+    /// Whether the 3'-most 5 bases contain a mismatch or gap.
+    #[serde(default)]
+    pub has_3_prime_mismatch: bool,
+    /// Unaligned primer bases at the 5' end (primer 5'→3').
+    #[serde(default)]
+    pub five_prime_tail: String,
+    /// Unaligned primer bases at the 3' end (primer 5'→3').
+    #[serde(default)]
+    pub three_prime_tail: String,
+    /// Compact render data for the frontend.
+    pub alignment: AlignmentRenderData,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Primer {
@@ -71,7 +135,7 @@ pub struct Primer {
     pub color: String,
     /// Computed binding sites, sorted by Tm descending (best first).
     #[serde(default)]
-    pub binding_sites: Vec<BindingSite>,
+    pub binding_sites: Vec<PrimerBindingSite>,
 }
 
 fn default_primer_color() -> String {

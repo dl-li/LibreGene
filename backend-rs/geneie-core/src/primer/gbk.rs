@@ -93,7 +93,8 @@ pub fn serialize_primers_gbk(project: &ProjectData) -> Vec<PrimerGbEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::BindingSite;
+    use crate::models::PrimerBindingSite;
+    use crate::models::AlignmentRenderData;
 
     fn qualifiers_from_pairs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -136,11 +137,21 @@ mod tests {
                 r#type: "fwd".to_string(),
                 primer_seq: "AAAACGTACGCTAG".to_string(),
                 color: "#166534".to_string(),
-                binding_sites: vec![BindingSite {
-                    match_start: 10,
-                    match_end: 19,
+                binding_sites: vec![PrimerBindingSite {
+                    primer_id: "P1".to_string(),
+                    strand: 1,
+                    template_start: 10,
+                    template_end: 19,
                     tm: 32.0,
-                    ..Default::default()
+                    gc_content: 0.5,
+                    match_score: 20,
+                    has_3_prime_mismatch: false,
+                    five_prime_tail: String::new(),
+                    three_prime_tail: String::new(),
+                    alignment: AlignmentRenderData {
+                        display_sequence: "CGTACGCTA".to_string(),
+                        ..Default::default()
+                    },
                 }],
             }],
             ..Default::default()
