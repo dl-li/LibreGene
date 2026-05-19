@@ -4,7 +4,8 @@
 //! - `.gbk` `primer_bind` features
 //! - `.dna` primer XML blocks (SnapGene)
 //! - Smith-Waterman alignment with 3' asymmetry (alignment)
-//! - SantaLucia 1998 nearest-neighbour Tm (thermodynamics)
+//! - SantaLucia 2004 nearest-neighbour Tm (thermodynamics)
+//! - IUPAC ambiguous base support (iupac)
 //! - Compact render-data formatting (formatter)
 
 pub mod align;
@@ -12,6 +13,9 @@ pub mod alignment;
 pub mod dna;
 pub mod formatter;
 pub mod gbk;
+pub mod iupac;
+pub mod matcher;
+pub mod screening;
 pub mod thermodynamics;
 pub mod tm;
 

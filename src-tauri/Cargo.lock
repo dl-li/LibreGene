@@ -1454,6 +1454,7 @@ dependencies = [
 name = "geneie-core"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "bincode",
  "bio",
  "chrono",

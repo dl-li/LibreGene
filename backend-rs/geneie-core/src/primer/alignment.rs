@@ -4,8 +4,14 @@
 //! semi-global (overlap) alignment on each candidate. The 3' end of the primer
 //! receives a heavy non-linear mismatch penalty because polymerase extension
 //! depends critically on 3' complementarity.
+//!
+//! IUPAC ambiguous bases are handled via the [`super::iupac`] module:
+//! exact matches score fully, ambiguous matches (e.g. R-Y) score partially,
+//! and only non-pairing bases receive the full mismatch penalty.
 
 use std::collections::HashSet;
+
+use super::iupac;
 
 // ---------------------------------------------------------------------------
 // Scoring constants
@@ -101,14 +107,21 @@ fn find_kmer_seeds(query: &[u8], template: &[u8], k: usize) -> Vec<usize> {
         return Vec::new();
     }
 
-    let mut seeds: HashSet<&[u8]> = HashSet::new();
+    // Build seed set: for each k-mer in query, expand IUPAC codes into all
+    // possible unambiguous DNA sequences so that degenerate primers match
+    // all compatible template regions.
+    let mut seeds: HashSet<Vec<u8>> = HashSet::new();
     for i in 0..=query.len().saturating_sub(k) {
-        seeds.insert(&query[i..i + k]);
+        let kmer = &query[i..i + k];
+        let expanded = iupac::expand_iupac_sequence(kmer);
+        for e in expanded {
+            seeds.insert(e);
+        }
     }
 
     let mut hits: Vec<usize> = Vec::new();
     for i in 0..=template.len().saturating_sub(k) {
-        if seeds.contains(&template[i..i + k]) {
+        if seeds.contains(&template[i..i + k].to_vec()) {
             hits.push(i);
         }
     }
@@ -233,9 +246,15 @@ pub fn align(primer: &[u8], template_region: &[u8]) -> Option<AlignmentResult> {
             gt[i][j] = (dp[i - 1][j] + GAP_OPEN)
                 .max(gt[i - 1][j] + GAP_EXTEND);
 
-            // Match/mismatch.
-            let s = if primer[i - 1] == template_region[j - 1] {
-                MATCH_SCORE
+            // Match/mismatch — IUPAC-aware: ambiguous overlaps score partially.
+            // N in template + specific primer base → weight 0.25 → score 0 (ignored).
+            let w = if iupac::bases_overlap(primer[i - 1], template_region[j - 1]) {
+                iupac::overlap_weight(primer[i - 1], template_region[j - 1])
+            } else {
+                0.0
+            };
+            let s = if w > 0.0 {
+                (MATCH_SCORE as f64 * w) as i32
             } else {
                 mismatch_penalty(i - 1, n)
             };
@@ -275,20 +294,23 @@ pub fn align(primer: &[u8], template_region: &[u8]) -> Option<AlignmentResult> {
 
     while i > 0 || j > 0 {
         if i > 0 && j > 0 {
-            // Check match/mismatch.
-            if dp[i][j] == dp[i - 1][j - 1]
-                + if primer[i - 1] == template_region[j - 1] {
-                    MATCH_SCORE
-                } else {
-                    mismatch_penalty(i - 1, n)
-                }
-            {
+            // Check match/mismatch — IUPAC-aware direct overlap.
+            let bases_ov = iupac::bases_overlap(primer[i - 1], template_region[j - 1]);
+            let weight = if bases_ov {
+                iupac::overlap_weight(primer[i - 1], template_region[j - 1])
+            } else {
+                0.0
+            };
+            let step_score = if weight > 0.0 {
+                (MATCH_SCORE as f64 * weight) as i32
+            } else {
+                mismatch_penalty(i - 1, n)
+            };
+
+            if dp[i][j] == dp[i - 1][j - 1] + step_score {
                 ops.push(AlignedPair {
-                    op: if primer[i - 1] == template_region[j - 1] {
-                        Op::Match
-                    } else {
-                        Op::Mismatch
-                    },
+                    // Only classify as Match if at least 50% confidence.
+                    op: if weight >= 0.5 { Op::Match } else { Op::Mismatch },
                     primer_pos: Some(i - 1),
                     template_pos: Some(j - 1),
                 });

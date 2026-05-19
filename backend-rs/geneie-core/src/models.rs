@@ -142,6 +142,23 @@ fn default_primer_color() -> String {
     "#166534".to_string()
 }
 
+/// A predicted primer pair (one fwd + one rev) that could form a PCR product.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimerPair {
+    pub fwd_primer_id: String,
+    pub rev_primer_id: String,
+    /// 0-based template start (inclusive).
+    pub fwd_position: i64,
+    /// 0-based template end (inclusive).
+    pub rev_position: i64,
+    /// Expected PCR product size in bp (including primers).
+    pub product_size: usize,
+    /// Optimal annealing temperature in °C (Taq).
+    #[serde(default)]
+    pub ta: f64,
+}
+
 // ---------------------------------------------------------------------------
 // Feature
 // ---------------------------------------------------------------------------
