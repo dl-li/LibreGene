@@ -192,13 +192,20 @@ fn filter_project(project: &geneie_core::models::ProjectData, params: &ProjectPa
         unique
     };
 
-    let mut base = serde_json::to_value(project).unwrap_or(serde_json::json!({}));
-    if let Some(ref mut map) = base.as_object_mut() {
-        map.insert("enzymeCount".to_string(), serde_json::Value::Number(project.enzymes.len().into()));
-        map.insert("enzymeFilter".to_string(), serde_json::Value::String(filter.to_string()));
-        map.insert("enzymes".to_string(), serde_json::to_value(&enzymes).unwrap_or(serde_json::json!([])));
-    }
-    base
+    // Build JSON directly — avoid serializing full enzyme list just to overwrite it
+    serde_json::json!({
+        "sequence": &project.sequence,
+        "length": project.length,
+        "topology": &project.topology,
+        "features": &project.features,
+        "primers": &project.primers,
+        "methylation_systems": &project.methylation_systems,
+        "methylation_overlap": project.methylation_overlap,
+        "roi": &project.roi,
+        "enzymeCount": project.enzymes.len(),
+        "enzymeFilter": filter,
+        "enzymes": &enzymes,
+    })
 }
 
 /// POST /open?path=... — load a file (.gbk, .dna, .fasta).
@@ -439,7 +446,7 @@ async fn post_methylation(
     // Recompute enzymes in a blocking task, without holding the lock
     if let Some(mut p) = project_data {
         let computed = tokio::task::spawn_blocking(move || {
-            enzyme::recompute(&mut p);
+            enzyme::recompute_methylation_only(&mut p);
             p
         })
         .await;

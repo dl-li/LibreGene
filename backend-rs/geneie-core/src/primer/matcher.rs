@@ -96,7 +96,8 @@ pub fn find_annealing_positions(
         Err(_) => return vec![],
     };
 
-    let template_str = String::from_utf8_lossy(template).to_ascii_uppercase();
+    // Template is guaranteed ASCII DNA — use zero-alloc str conversion
+    let template_str = std::str::from_utf8(template).unwrap_or("");
     let primer_upper: Vec<u8> = primer.iter().map(|&b| b.to_ascii_uppercase()).collect();
 
     let mut results: Vec<AnnealingSite> = Vec::new();
