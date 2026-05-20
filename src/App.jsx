@@ -157,8 +157,8 @@ export default function App() {
               setFeatures(msg.data.features || EMPTY_ARRAY);
               setEnzymes(msg.data.enzymes || EMPTY_ARRAY);
               setPrimers(msg.data.primers || EMPTY_ARRAY);
+              setProjectVersion(v => v + 1);
             });
-            setProjectVersion(v => v + 1);
           }
         }
       }
