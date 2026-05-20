@@ -4,6 +4,7 @@ export const baseSeqY = 100;
 export const bgColor = '#fdfbf7';
 export const selBgColor = '#fef3c7';
 export const enzymeSelColor = '#e0f2fe';
+export const enzymeActiveBlue = '#1E40AF';
 export const charHeight = cw;
 export const monoFont = '"Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 export const sansFont = 'sans-serif';
