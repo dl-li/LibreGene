@@ -5,6 +5,7 @@
 //! Only matched/aligned base pairs participate — tails and overhangs are excluded.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use super::iupac;
 
@@ -126,13 +127,17 @@ pub fn na_equivalent(params: &TmParams) -> f64 {
 // NN parameter lookup with IUPAC support
 // ---------------------------------------------------------------------------
 
-/// Build a HashMap for fast NN parameter lookup.
-fn build_nn_map() -> HashMap<[u8; 2], (f64, f64)> {
-    let mut m = HashMap::with_capacity(16);
-    for &(k, dh, ds) in NN_TABLE {
-        m.insert(*k, (dh, ds));
-    }
-    m
+/// Cached NN parameter lookup map — built once, shared globally.
+static NN_MAP: OnceLock<HashMap<[u8; 2], (f64, f64)>> = OnceLock::new();
+
+fn get_nn_map() -> &'static HashMap<[u8; 2], (f64, f64)> {
+    NN_MAP.get_or_init(|| {
+        let mut m = HashMap::with_capacity(16);
+        for &(k, dh, ds) in NN_TABLE {
+            m.insert(*k, (dh, ds));
+        }
+        m
+    })
 }
 
 /// Look up NN parameters for a dinucleotide pair, averaging over IUPAC
@@ -176,12 +181,12 @@ fn sum_nn_params(seq: &[u8]) -> (f64, f64) {
         return (0.0, DS_INIT);
     }
 
-    let nn_map = build_nn_map();
+    let nn_map = get_nn_map();
     let mut dh = 0.0;
     let mut ds = DS_INIT;
 
     for w in seq.windows(2) {
-        if let Some((h, s)) = lookup_nn(w[0], w[1], &nn_map) {
+        if let Some((h, s)) = lookup_nn(w[0], w[1], nn_map) {
             dh += h;
             ds += s;
         } else {
@@ -455,7 +460,7 @@ mod tests {
     fn test_tm_all_16_dinucleotides_have_params() {
         // Every combination of A/T/G/C should have NN parameters.
         let bases = [b'A', b'C', b'G', b'T'];
-        let nn_map = build_nn_map();
+        let nn_map = get_nn_map();
         for &b1 in &bases {
             for &b2 in &bases {
                 assert!(

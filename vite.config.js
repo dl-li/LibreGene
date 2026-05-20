@@ -15,12 +15,9 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    hmr: {
-      host: '127.0.0.1',
-      port: 1420,
-    },
+    hmr: false,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      ignored: ['**/src-tauri/**', '**/backend-rs/**', '**/target/**', '**/assets/Fonts/**'],
     },
   },
   build: {

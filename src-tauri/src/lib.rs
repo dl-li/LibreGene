@@ -69,22 +69,20 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
         unique
     };
 
-    let mut base = serde_json::to_value(project).unwrap_or_default();
-    if let Some(ref mut map) = base.as_object_mut() {
-        map.insert(
-            "enzymeCount".to_string(),
-            serde_json::Value::Number(project.enzymes.len().into()),
-        );
-        map.insert(
-            "enzymeFilter".to_string(),
-            serde_json::Value::String(filter.to_string()),
-        );
-        map.insert(
-            "enzymes".to_string(),
-            serde_json::to_value(&enzymes).unwrap_or(serde_json::json!([])),
-        );
-    }
-    base
+    // Build JSON directly — avoid serializing full enzyme list just to overwrite it
+    serde_json::json!({
+        "sequence": &project.sequence,
+        "length": project.length,
+        "topology": &project.topology,
+        "features": &project.features,
+        "primers": &project.primers,
+        "methylation_systems": &project.methylation_systems,
+        "methylation_overlap": project.methylation_overlap,
+        "roi": &project.roi,
+        "enzymeCount": project.enzymes.len(),
+        "enzymeFilter": filter,
+        "enzymes": &enzymes,
+    })
 }
 
 /// Emit the current project state + project list as a Tauri event.
@@ -399,7 +397,7 @@ async fn set_methylation(
     if let Some(mut p) = project_data {
         let computed =
             tokio::task::spawn_blocking(move || {
-                enzyme::recompute(&mut p);
+                enzyme::recompute_methylation_only(&mut p);
                 p
             })
             .await
@@ -456,7 +454,7 @@ async fn get_project_by_id(
 
 #[tauri::command]
 async fn activate_project(
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
@@ -468,7 +466,7 @@ async fn activate_project(
         return Ok(serde_json::json!({"error": format!("project not found: {}", id)}));
     }
 
-    // Return full project data immediately; broadcast async so it doesn't delay the response
+    // Return full project data; no separate broadcast needed (single-window app)
     let result = {
         let pm = state.pm.read().await;
         match pm.get_project() {
@@ -497,31 +495,6 @@ async fn activate_project(
             None => serde_json::json!({"error": "project not found"}),
         }
     };
-
-    // Broadcast asynchronously to avoid delaying the response
-    let pm_arc = state.pm.clone();
-    let app_clone = app_handle.clone();
-    tokio::spawn(async move {
-        let pm = pm_arc.read().await;
-        if let Some(project) = pm.get_project() {
-            let projects = pm.list_projects();
-            let active_id = pm.active_id().map(|s| s.to_string());
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            let filtered = filter_project(project, &params);
-            let payload = serde_json::json!({
-                "type": "project",
-                "data": filtered,
-                "projects": projects,
-                "activeId": active_id,
-            });
-            let _ = app_clone.emit("project-update", payload);
-        }
-    });
 
     Ok(result)
 }

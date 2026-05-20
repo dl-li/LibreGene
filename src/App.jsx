@@ -31,11 +31,9 @@ export default function App() {
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [openPath, setOpenPath] = useState('/Users/lidonglin/Documents/Geneie/test/pUC-GW-Amp.gb');
   const [fileStatus, setFileStatus] = useState('');
-  const [projectVersion, setProjectVersion] = useState(0);
   const sequenceRef = useRef(sequence);
   const projectCacheRef = useRef({}); // { [id]: { sequence, features, enzymes, primers, methKey } }
   const switchGenRef = useRef(0);      // generation counter to cancel stale async responses
-  const lastSetSeqRef = useRef('');    // skip redundant event updates
 
   // Cache methylation settings key — used to detect stale cache entries
   const methKey = useMemo(() => methylationSystems.join(',') + '|' + methylationOverlap, [methylationSystems, methylationOverlap]);
@@ -113,18 +111,14 @@ export default function App() {
     async function connect() {
       setBackendStatus(isTauri ? 'online' : 'connecting');
       try {
-        const needsAll = ['blunt', 'overhang5', 'overhang3', 'iis', 'rec4', 'rec5', 'rec6', 'rec8p'].includes(enzymeFilter);
-        const filter = needsAll ? 'all' : enzymeFilter === 'all' ? 'all' : 'unique';
-        const data = await getProject(filter);
+        const data = await getProject('all');
         if (cancelled) return;
         if (data && !data.error && data.sequence) {
           setSequence(data.sequence);
           setFeatures(data.features || []);
           setEnzymes(data.enzymes || []);
           setPrimers(data.primers || []);
-          lastSetSeqRef.current = data.sequence;
           setBackendStatus('online');
-          setProjectVersion(v => v + 1);
         }
         await refreshProjects();
       } catch {
@@ -139,7 +133,6 @@ export default function App() {
       if (msg.type === 'project' && msg.data) {
         const newSeq = msg.data.sequence;
         if (newSeq) {
-          // Always cache latest data for every project
           if (msg.activeId) {
             projectCacheRef.current[msg.activeId] = {
               sequence: newSeq,
@@ -149,17 +142,12 @@ export default function App() {
               methKey: methKeyRef.current,
             };
           }
-          // Skip if this matches what we last set (avoid redundant render after activateProject)
-          if (newSeq !== lastSetSeqRef.current) {
-            lastSetSeqRef.current = newSeq;
-            startTransition(() => {
-              setSequence(newSeq);
-              setFeatures(msg.data.features || EMPTY_ARRAY);
-              setEnzymes(msg.data.enzymes || EMPTY_ARRAY);
-              setPrimers(msg.data.primers || EMPTY_ARRAY);
-              setProjectVersion(v => v + 1);
-            });
-          }
+          startTransition(() => {
+            setSequence(newSeq);
+            setFeatures(msg.data.features || EMPTY_ARRAY);
+            setEnzymes(msg.data.enzymes || EMPTY_ARRAY);
+            setPrimers(msg.data.primers || EMPTY_ARRAY);
+          });
         }
       }
       if (msg.projects) setProjects(msg.projects);
@@ -169,28 +157,26 @@ export default function App() {
     return () => { cancelled = true; if (listener) listener.close(); };
   }, []);
 
-  // Sync methylation systems with backend
-  useEffect(() => {
+  // Sync methylation systems with backend, then fetch updated enzymes.
+  // Only fires when methylation settings change (NOT on every project load).
+  const syncMethylation = useCallback(async () => {
     if (backendStatus !== 'online') return;
-    setMethylation(methylationSystems, methylationOverlap).then(() => {
-      const needsAll = ['blunt', 'overhang5', 'overhang3', 'iis', 'rec4', 'rec5', 'rec6', 'rec8p'].includes(enzymeFilter);
-      const filter = needsAll ? 'all' : enzymeFilter === 'all' ? 'all' : 'unique';
-      return getProject(filter);
-    }).then(data => {
+    try {
+      await setMethylation(methylationSystems, methylationOverlap);
+      const data = await getProject('all');
       if (data && !data.error) setEnzymes(data.enzymes || []);
-    }).catch(e => console.error('methylation sync error:', e));
-  }, [methylationSystems, methylationOverlap, backendStatus, projectVersion]);
+    } catch (e) {
+      console.error('methylation sync error:', e);
+    }
+  }, [methylationSystems, methylationOverlap, backendStatus]);
+
+  // Re-sync enzymes when methylation settings change
+  useEffect(() => {
+    if (backendStatus !== 'online' || !sequence) return;
+    syncMethylation();
+  }, [methylationSystems, methylationOverlap]);
 
   useEffect(() => { sequenceRef.current = sequence; }, [sequence]);
-
-  useEffect(() => {
-    if (backendStatus !== 'online') return;
-    const needsAll = ['blunt', 'overhang5', 'overhang3', 'iis', 'rec4', 'rec5', 'rec6', 'rec8p'].includes(enzymeFilter);
-    const filter = needsAll ? 'all' : enzymeFilter === 'all' ? 'all' : 'unique';
-    getProject(filter).then(data => {
-      if (data && !data.error) setEnzymes(data.enzymes || []);
-    }).catch(() => {});
-  }, [enzymeFilter]);
 
   const displayEnzymes = useMemo(() => {
     const all = enzymes || [];
@@ -202,8 +188,11 @@ export default function App() {
     if (enzymeFilter === 'overhang5') return all.filter(e => cutType(e) === '5overhang');
     if (enzymeFilter === 'overhang3') return all.filter(e => cutType(e) === '3overhang');
     if (enzymeFilter === 'iis') return all.filter(e => {
-      const outside = pos => pos < e.recStart || pos > e.recEnd;
-      return outside(e.cutIndex) || outside(e.botCutIndex);
+      const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
+      return pairs.some(cp => {
+        const d = [cp.topCutIndex - e.recEnd, e.recStart - cp.topCutIndex, cp.botCutIndex - e.recEnd, e.recStart - cp.botCutIndex];
+        return d.some(v => v >= 2);
+      });
     });
     if (enzymeFilter === 'rec4') return all.filter(e => e.recSeq?.length === 4);
     if (enzymeFilter === 'rec5') return all.filter(e => e.recSeq?.length === 5);
@@ -239,20 +228,19 @@ export default function App() {
       }
       await refreshProjects();
 
-      // Use the last opened file's data directly (already returned by openFile)
       if (lastData && lastData.sequence) {
         setSequence(lastData.sequence);
         setFeatures(lastData.features || EMPTY_ARRAY);
         setEnzymes(lastData.enzymes || EMPTY_ARRAY);
         setPrimers(lastData.primers || EMPTY_ARRAY);
-        lastSetSeqRef.current = lastData.sequence;
-        setProjectVersion(v => v + 1);
+        // Apply methylation to newly opened file
+        syncMethylation();
       }
       setFileStatus('ok');
     } catch (e) {
       setFileStatus('error: ' + e.message);
     }
-  }, [isTauri, openPath, methKey, refreshProjects]);
+  }, [isTauri, openPath, methKey, refreshProjects, syncMethylation]);
 
   const handleActivateProject = useCallback(async (id) => {
     const gen = ++switchGenRef.current;
@@ -260,26 +248,23 @@ export default function App() {
     // Instant switch from cache for perceived speed
     const cached = projectCacheRef.current[id];
     if (cached) {
-      // Only re-apply methylation if settings changed since cache was written
       const methFresh = cached.methKey === methKey;
-      lastSetSeqRef.current = cached.sequence;
       setActiveId(id);
       setSequence(cached.sequence);
       setFeatures(cached.features);
       setEnzymes(cached.enzymes);
       setPrimers(cached.primers);
       if (!methFresh) {
-        setProjectVersion(v => v + 1);
+        syncMethylation();
       }
     }
 
     try {
       const data = await activateProject(id);
-      if (switchGenRef.current !== gen) return; // stale — a newer switch happened
+      if (switchGenRef.current !== gen) return;
 
       if (data && !data.error && data.sequence) {
         if (!cached) {
-          // First-time switch: cache and apply the returned data
           projectCacheRef.current[id] = {
             sequence: data.sequence,
             features: data.features || EMPTY_ARRAY,
@@ -287,22 +272,20 @@ export default function App() {
             primers: data.primers || EMPTY_ARRAY,
             methKey,
           };
-          lastSetSeqRef.current = data.sequence;
           setActiveId(id);
           setSequence(data.sequence);
           setFeatures(data.features || EMPTY_ARRAY);
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
-          setProjectVersion(v => v + 1); // triggers methylation for first visit
+          syncMethylation();
         }
-        // For cached switches: don't overwrite cache — the sync effect keeps it fresh
 
         if (data.projects) setProjects(data.projects);
       }
     } catch (e) {
       console.error('activate project error:', e);
     }
-  }, [methKey]);
+  }, [methKey, syncMethylation]);
 
   // Extract filename from path
   const fileName = (p) => {

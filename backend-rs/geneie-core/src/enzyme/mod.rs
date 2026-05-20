@@ -83,6 +83,25 @@ pub fn recompute(project: &mut ProjectData) {
     project.enzymes = result;
 }
 
+/// Re-apply methylation filtering only — avoids full enzyme search when only methylation changes.
+pub fn recompute_methylation_only(project: &mut ProjectData) {
+    let systems = project.methylation_systems.clone();
+    for enz in &mut project.enzymes {
+        // Reset methylation state before re-applying
+        enz.methylation_blocked = false;
+        enz.methylated_offsets.clear();
+        enz.methylation_sources.clear();
+        enz.methyl_required_offsets.clear();
+        enz.methyl_required_sources.clear();
+        methylation::apply_methylation(
+            enz,
+            &project.sequence,
+            &systems,
+            project.methylation_overlap,
+        );
+    }
+}
+
 /// Process a single enzyme record: find recognition sites and compute enzyme entries.
 fn process_enzyme(
     record: &data::EnzymeRecord,
