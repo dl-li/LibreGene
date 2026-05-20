@@ -1060,7 +1060,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           groupId: e.id,
           pairIndex: pi,
           name: e.name,
-          cutX, sy,
+          cutX, sy, row,
           yTop,
           isUnique: e.isUnique,
           enzW,
@@ -1095,16 +1095,30 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   }, [enzymeLayout, enzymeLinesPath, lp.enzLineGap]);
 
   const renderedEnzymeLabels = useMemo(() => {
+    const hoveredName = hoveredEnzyme ? enzymeLayout.find(l => l.id === hoveredEnzyme)?.name : null;
+    const nameCounts = new Map();
+    for (const l of enzymeLayout) {
+      nameCounts.set(l.name, (nameCounts.get(l.name) || 0) + 1);
+    }
     return enzymeLayout.map(l => {
       const e = enzymes.find(x => x.id === l.groupId);
       const isGray = e && (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length));
-      const labelColor = isGray ? '#9CA3AF' : '#333';
+      const isHoveredGroup = hoveredName != null && l.name === hoveredName;
+      const isBlunt = e && e.cutType === 'blunt';
+      const isIIS = e && e.spacers && e.spacers.length > 0;
+      const showTwo = nameCounts.get(l.name) === 2;
+      let labelColor = '#333';
+      if (isGray) labelColor = '#9CA3AF';
+      else if (isHoveredGroup) labelColor = '#2563EB';
+      else if (isBlunt) labelColor = '#6B3A2A';
+      else if (isIIS) labelColor = '#0D6B6B';
       return (
         <g key={l.id} onMouseEnter={() => { if (isDraggingRef.current) return; setHoveredEnzyme(l.id); }} onMouseLeave={() => setHoveredEnzyme(null)}>
-          <rect x={l.cutX + 3} y={l.yTop - 10} width={l.enzW + 2} height={18} fill="transparent" />
+          <rect x={l.cutX + 3} y={l.yTop - 10} width={l.enzW + (showTwo ? 10 : 2)} height={18} fill="transparent" />
           {(() => {
             const enzText = { x: l.cutX + 6, y: l.yTop + 5, fontSize: "14px", fontFamily: "Cascadia Code", fontWeight: l.isUnique ? '700' : '350', style: { pointerEvents: 'none' } };
-            const content = (() => { const s = splitEnzName(l.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : l.name; })();
+            const nameContent = (() => { const s = splitEnzName(l.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : l.name; })();
+            const content = showTwo ? [...(Array.isArray(nameContent) ? nameContent : [nameContent]), <tspan key="two" fontSize="12" dy="-3">²</tspan>] : nameContent;
             return <>
               <text {...enzText} fill="none" stroke={bgColor} strokeWidth="5">{content}</text>
               <text {...enzText} fill={labelColor} stroke="none">{content}</text>
@@ -1113,26 +1127,32 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         </g>
       );
     });
-  }, [enzymeLayout, enzymes]);
+  }, [enzymeLayout, enzymes, hoveredEnzyme, bgColor]);
 
   const renderedEnzymeOverlay = useMemo(() => {
     if (!hoveredEnzyme) return null;
     const hoveredEntry = enzymeLayout.find(l => l.id === hoveredEnzyme);
     if (!hoveredEntry) return null;
-    const groupId = hoveredEntry.groupId;
-    const groupEntries = enzymeLayout.filter(l => l.groupId === groupId);
-    const e = enzymes.find(x => x.id === groupId);
+    const enzymeName = hoveredEntry.name;
+    const nameEntries = enzymeLayout.filter(l => l.name === enzymeName);
+    const e = enzymes.find(x => x.name === enzymeName);
     if (!e) return null;
     const isGray = e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
     const ovColor = isGray ? '#9CA3AF' : '#2563EB';
+    const showTwoOv = nameEntries.length === 2;
+    const ovNameContent = (() => {
+      const s = splitEnzName(e.name);
+      const parts = s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : [e.name];
+      if (showTwoOv) parts.push(<tspan key="two" fontSize="12" dy="-3">²</tspan>);
+      return parts;
+    })();
     return (
       <g style={{ pointerEvents: 'none' }}>
-        {groupEntries.map(l => {
-          const tTop = l.sy - 22;
+        {nameEntries.map(l => {
           return (
             <React.Fragment key={`ov-${l.id}`}>
-              <line x1={l.cutX} x2={l.cutX} y1={l.yTop} y2={tTop} stroke={bgColor} strokeWidth="6" strokeLinecap="square" />
-              <line x1={l.cutX} x2={l.cutX} y1={l.yTop} y2={tTop} stroke={ovColor} strokeWidth={e.isUnique ? '2' : '1'} />
+              <line x1={l.cutX} x2={l.cutX} y1={l.yTop} y2={l.sy + 5} stroke={bgColor} strokeWidth="6" strokeLinecap="square" />
+              <line x1={l.cutX} x2={l.cutX} y1={l.yTop} y2={l.sy + 5} stroke={ovColor} strokeWidth={e.isUnique ? '2' : '1'} />
             </React.Fragment>
           );
         })}
@@ -1148,13 +1168,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           return (
             <React.Fragment>
               <text x={hoveredEntry.cutX + 6} y={hoveredEntry.yTop + 5} fill="none" stroke={bgColor} strokeWidth="5"
-                fontSize="14px" fontFamily="Cascadia Code" fontWeight="700">
-                {(() => { const s = splitEnzName(e.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : e.name; })()}
+                fontSize="14px" fontFamily="Cascadia Code" fontWeight={hoveredEntry.isUnique ? '700' : '350'}>
+                {ovNameContent}
                 {methText}
               </text>
               <text x={hoveredEntry.cutX + 6} y={hoveredEntry.yTop + 5} fill={ovColor} stroke="none"
-                fontSize="14px" fontFamily="Cascadia Code" fontWeight="700">
-                {(() => { const s = splitEnzName(e.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : e.name; })()}
+                fontSize="14px" fontFamily="Cascadia Code" fontWeight={hoveredEntry.isUnique ? '700' : '350'}>
+                {ovNameContent}
                 {methText}
               </text>
             </React.Fragment>
@@ -1162,7 +1182,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         })()}
       </g>
     );
-  }, [hoveredEnzyme, enzymeLayout, enzymes]);
+  }, [hoveredEnzyme, enzymeLayout, enzymes, bgColor]);
 
   const renderedTooltips = useMemo(() => {
     if (!hoveredEnzyme) return null;
@@ -1175,9 +1195,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
     const dispLen = e.displayEnd - e.displayStart + 1;
     const sw = e.isUnique ? '2' : '1';
-    const swM = e.isUnique ? '3' : '1.5';
-    const pad = 8;
-    const ttH = 53;
+    const pad = 6;
+    const ttH = 44;
     const cutPairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
     const sub = cleanSeq.substring(e.displayStart, e.displayEnd + 1);
     const comp = sub.split('').map(complement).join('');
@@ -1196,7 +1215,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       <g style={{ pointerEvents: 'none' }}>
         {groupEntries.map((entry) => {
           const sy = entry.sy;
-          const ttY = sy - 23;
+          const ttY = sy - 19;
           const hp = cutPairs[entry.pairIndex] || cutPairs[0];
           const charsBeforeCut = hp.topCutIndex - e.displayStart;
           const baseX = entry.cutX - charsBeforeCut * cw;
@@ -1213,17 +1232,38 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                 `M ${tGapX} ${ttY - 2}`,
                 `L ${tGapX} ${sy + 3}`,
                 `L ${bGapX} ${sy + 3}`,
-                `L ${bGapX} ${sy + 28}`,
+                `L ${bGapX} ${sy + 19}`,
               ].join(' '),
             };
           });
 
+          const uniqueGapXs = [...new Set(polyEntries.map(pe => pe.tGapX))].sort((a, b) => a - b);
+          const gapHalfW = 4;
+          const r = 8;
+          let borderD = `M ${leftX + r} ${ttY}`;
+          let curX = leftX + r;
+          for (const gx of uniqueGapXs) {
+            if (gx - gapHalfW > curX) {
+              borderD += ` L ${gx - gapHalfW} ${ttY}`;
+            }
+            borderD += ` M ${gx + gapHalfW} ${ttY}`;
+            curX = gx + gapHalfW;
+          }
+          if (curX < leftX + ttW - r) {
+            borderD += ` L ${leftX + ttW - r} ${ttY}`;
+          }
+          borderD += ` A ${r} ${r} 0 0 1 ${leftX + ttW} ${ttY + r}`;
+          borderD += ` L ${leftX + ttW} ${ttY + ttH - r}`;
+          borderD += ` A ${r} ${r} 0 0 1 ${leftX + ttW - r} ${ttY + ttH}`;
+          borderD += ` L ${leftX + r} ${ttY + ttH}`;
+          borderD += ` A ${r} ${r} 0 0 1 ${leftX} ${ttY + ttH - r}`;
+          borderD += ` L ${leftX} ${ttY + r}`;
+          borderD += ` A ${r} ${r} 0 0 1 ${leftX + r} ${ttY}`;
+
           return (
             <g key={`tt-${entry.id}`}>
-              <rect x={leftX} y={ttY} width={ttW} height={ttH} rx={8} fill="#FFFFFF" stroke={ttColor} strokeWidth={sw} />
-              {polyEntries.filter(pe => pe.isLocal).map(pe => (
-                <line key={`notch-${pe.tGapX}`} x1={pe.tGapX - 3} x2={pe.tGapX + 3} y1={ttY} y2={ttY} stroke="#FFFFFF" strokeWidth={swM} />
-              ))}
+              <rect x={leftX} y={ttY} width={ttW} height={ttH} rx={8} fill="#FFFFFF" stroke="none" />
+              <path d={borderD} fill="none" stroke={ttColor} strokeWidth={sw} strokeLinejoin="round" />
               {polyEntries.map((pe, i) => (
                 <path key={`poly-${i}`} d={pe.path} fill="none" stroke={ttColor} strokeWidth={sw} strokeLinejoin="round" strokeLinecap="round" />
               ))}
@@ -1236,7 +1276,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   );
                 })}
               </text>
-              <text y={sy + 18} fontFamily={monoFont} fontSize="14px">
+              <text y={sy + 16} fontFamily={monoFont} fontSize="14px">
                 {comp.split('').map((c, i) => {
                   const bold = isRecBold(i);
                   return (
