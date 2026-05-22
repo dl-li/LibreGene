@@ -8,6 +8,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from '@
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Dna, FolderOpen, ChevronDown } from 'lucide-react';
+import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
 
@@ -333,7 +334,7 @@ export default function App() {
                           onClick={() => handleActivateProject(p.id)}
                           isActive={p.id === activeId}
                         >
-                          <Dna className="size-4 shrink-0" />
+                          {(() => { const Icon = getFileIcon(fileName(p)); return <Icon className="size-4 shrink-0" />; })()}
                           <span className="truncate">{fileName(p)}</span>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
