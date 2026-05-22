@@ -1188,7 +1188,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     return enzymeLayout.map(l => {
       const e = enzymes.find(x => x.id === l.groupId);
       const isGray = e && (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length));
-      const isHoveredGroup = hoveredName != null && l.name === hoveredName;
+      const isHoveredGroup = !isEnzymeSelection && hoveredName != null && l.name === hoveredName;
       const isSelected = selectedEnzymeIds.includes(l.id);
       const isBlunt = e && e.cutType === 'blunt';
       const isIIS = isIISEnzyme(e);
@@ -1321,12 +1321,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         </g>
       );
     });
-  }, [enzymeLayout, enzymes, hoveredEnzyme, bgColor, selectedEnzymeIds, clearCursorTimer]);
+  }, [enzymeLayout, enzymes, hoveredEnzyme, bgColor, selectedEnzymeIds, isEnzymeSelection, clearCursorTimer]);
 
   const renderedEnzymeOverlay = useMemo(() => {
     // Collect enzyme names to render lines for (from hover or selected ids)
     const namesToRender = new Set();
-    if (hoveredEnzyme) {
+    if (hoveredEnzyme && !isEnzymeSelection) {
       const entry = enzymeLayout.find(l => l.id === hoveredEnzyme);
       if (entry) namesToRender.add(entry.name);
     }
@@ -1338,7 +1338,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
     // Compute hover text content (only for hovered enzyme)
     let hoverTextContent = null;
-    if (hoveredEnzyme) {
+    if (hoveredEnzyme && !isEnzymeSelection) {
       const hoveredEntry = enzymeLayout.find(l => l.id === hoveredEnzyme);
       if (hoveredEntry) {
         const e = enzymes.find(x => x.name === hoveredEntry.name);
@@ -1373,9 +1373,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           const e = enzymes.find(x => x.name === name);
           if (!e) return null;
           const isGray = e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
-          const nameEntries = enzymeLayout.filter(l => l.name === name);
+          let nameEntries = enzymeLayout.filter(l => l.name === name);
+          // In selection mode, only render lines for selected entries, not all same-name sites
+          if (isEnzymeSelection) {
+            nameEntries = nameEntries.filter(l => selectedEnzymeIds.includes(l.id));
+          }
           return nameEntries.map(l => {
-            // Selected (dark blue) takes priority over hovered (medium blue)
             const isSel = selectedEnzymeIds.includes(l.id);
             const lineColor = isGray ? '#9CA3AF' : isSel ? enzymeActiveBlue : '#2563EB';
             return (
@@ -1403,7 +1406,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         )}
       </g>
     );
-  }, [hoveredEnzyme, selectedEnzymeIds, enzymeLayout, enzymes, bgColor, totalNameCounts]);
+  }, [hoveredEnzyme, selectedEnzymeIds, isEnzymeSelection, enzymeLayout, enzymes, bgColor, totalNameCounts]);
 
   const renderedTooltips = useMemo(() => {
     if (!hoveredEnzyme || isEnzymeDragging) return null;
