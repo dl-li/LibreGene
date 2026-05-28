@@ -17,7 +17,7 @@ export default defineConfig({
     strictPort: true,
     hmr: false,
     watch: {
-      ignored: ['**/src-tauri/**', '**/backend-rs/**', '**/target/**', '**/assets/Fonts/**'],
+      ignored: ['**/src-tauri/**', '**/backend/**', '**/target/**', '**/assets/Fonts/**'],
     },
   },
   build: {
