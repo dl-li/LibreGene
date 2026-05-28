@@ -169,7 +169,10 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   // Enrich primers with flat fields from bindingSites data model (v2).
   const enrichedPrimers = useMemo(() => (primers || []).map(p => {
     // Already enriched (legacy flat fields or pre-computed).
-    if (p.matchStart !== undefined && p.matchEnd !== undefined) return p;
+    if (p.matchStart !== undefined && p.matchEnd !== undefined) {
+      if (p.isFwd === false) return { ...p, color: '#4A148C' };
+      return p;
+    }
     const bs = p.bindingSites?.[0];
     if (!bs) return p;
     // templateStart (inclusive), templateEnd (exclusive) — convert to legacy inclusive matchEnd
@@ -201,6 +204,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       matchStart: ms,
       matchEnd: me,
       isFwd, // actual binding direction (NOT declared type)
+      color: isFwd ? p.color : '#4A148C', // rev primers always deep purple
       matchStr: isFwd
         ? cleanSeq.substring(ms, me + 1)
         : complementStr(cleanSeq.substring(ms, me + 1)),
