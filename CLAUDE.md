@@ -43,24 +43,24 @@ Geneie/
 │   │   └── use-mobile.js       # 移动端断点检测（768px）
 │   └── lib/
 │       └── utils.js            # cn() 工具（clsx + tailwind-merge）
-├── src-tauri/                  # Tauri v2 桌面壳
-│   ├── Cargo.toml              # Tauri 依赖 + 内嵌 geneie-core
-│   ├── tauri.conf.json         # Tauri 配置 (窗口 1400x900, bundle, CSP)
-│   ├── capabilities/           # 权限配置
-│   ├── icons/                  # 应用图标
-│   └── src/
-│       └── lib.rs              # 21 个 Tauri commands，多窗口路由，ProjectManager
-├── backend-rs/                 # Rust 后端 (workspace)
-│   └── geneie-core/            # 核心库
-│       ├── data/comm_only_enzymes.json  # 623 酶数据库（编译时嵌入）
-│       └── src/
-│           ├── models.rs       # ProjectData, Enzyme, Feature, Primer, BindingSite
-│           ├── project.rs      # ProjectManager（HashMap, max 24, eviction）
-│           ├── utils.rs        # complement, reverse_complement, DNA_COMP
-│           ├── enzyme/         # 酶切引擎：search, matching, cut, methylation, data
-│           ├── primer/         # 引物引擎：align, gbk, dna, tm
-│           └── file_io/        # 文件解析/序列化：gbk, dna, fasta, ab1, color
-└── backend/                    # [参考] 原 Python 后端（保留用于 golden file）
+├── backend/                    # Rust 后端 (workspace)
+│   ├── geneie-core/            # 核心库
+│   │   ├── data/comm_only_enzymes.json  # 623 酶数据库（编译时嵌入）
+│   │   └── src/
+│   │       ├── models.rs       # ProjectData, Enzyme, Feature, Primer, BindingSite
+│   │       ├── project.rs      # ProjectManager（HashMap, max 24, eviction）
+│   │       ├── utils.rs        # complement, reverse_complement, DNA_COMP
+│   │       ├── enzyme/         # 酶切引擎：search, matching, cut, methylation, data
+│   │       ├── primer/         # 引物引擎：align, gbk, dna, tm
+│   │       └── file_io/        # 文件解析/序列化：gbk, dna, fasta, ab1, color
+│   └── test_data/              # Golden 测试数据
+└── src-tauri/                  # Tauri v2 桌面壳
+    ├── Cargo.toml              # Tauri 依赖 + 内嵌 geneie-core
+    ├── tauri.conf.json         # Tauri 配置 (窗口 1400x900, bundle, CSP)
+    ├── capabilities/           # 权限配置
+    ├── icons/                  # 应用图标
+    └── src/
+        └── lib.rs              # 21 个 Tauri commands，多窗口路由，ProjectManager
 ```
 
 ## 开发命令
@@ -71,7 +71,7 @@ npx vite build                 # 仅前端编译检查
 npx shadcn add <component>     # 添加 shadcn 组件
 
 # 后端
-cd backend-rs
+cd backend
 cargo test -p geneie-core --lib                  # 单元测试
 cargo test -p geneie-core --test golden_tests     # Golden 测试
 ```
