@@ -67,6 +67,11 @@ impl ProjectManager {
             .and_then(|id| self.projects.get_mut(id))
     }
 
+    /// Get a mutable reference to any project by its ID (for multi-window support).
+    pub fn get_project_mut_by_id(&mut self, id: &str) -> Option<&mut ProjectData> {
+        self.projects.get_mut(id)
+    }
+
     pub fn active_id(&self) -> Option<&str> {
         self.active.as_deref()
     }

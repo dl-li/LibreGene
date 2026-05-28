@@ -1,8 +1,7 @@
 /**
- * Geneie Tauri-aware API layer.
+ * Geneie Tauri IPC API layer.
  *
- * In Tauri mode, uses invoke() for IPC commands and listen() for events.
- * In browser mode, falls back to fetch() and WebSocket (requires geneie-server on :8765).
+ * Tauri-desktop-only. Uses invoke() for IPC commands and listen() for events.
  */
 
 // Detect if running inside Tauri
@@ -12,7 +11,6 @@ let invoke;
 let listen;
 let dialog;
 
-// Lazy-load Tauri modules so non-Tauri builds don't break
 async function tauriInvoke(cmd, args) {
   if (!invoke) {
     const mod = await import('@tauri-apps/api/core');
@@ -46,45 +44,19 @@ async function tauriSave(options) {
 }
 
 // ---------------------------------------------------------------------------
-// Fallback fetch for browser mode
-// ---------------------------------------------------------------------------
-
-const BASE = "http://127.0.0.1:8765";
-
-async function request(method, path, body) {
-  const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (body !== undefined) opts.body = JSON.stringify(body);
-  const res = await fetch(`${BASE}${path}`, opts);
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
-  return res.json();
-}
-
-// ---------------------------------------------------------------------------
 // Project
 // ---------------------------------------------------------------------------
 
 export async function getProject(filter = 'unique', cpl = 60) {
-  if (isTauri) {
-    return tauriInvoke('get_project', {
-      enzymeFilter: filter,
-      cpl: cpl,
-    });
-  }
-  return request("GET", `/project?enzyme_filter=${filter}&cpl=${cpl}`);
+  return tauriInvoke('get_project', { enzymeFilter: filter, cpl });
 }
 
 export async function openFile(path) {
-  if (isTauri) {
-    return tauriInvoke('open_file', { path });
-  }
-  return request("POST", `/open?path=${encodeURIComponent(path)}`);
+  return tauriInvoke('open_file', { path });
 }
 
 export async function saveFile(path) {
-  if (isTauri) {
-    return tauriInvoke('save_file', { path });
-  }
-  return request("POST", `/save?path=${encodeURIComponent(path)}`);
+  return tauriInvoke('save_file', { path });
 }
 
 // ---------------------------------------------------------------------------
@@ -92,10 +64,7 @@ export async function saveFile(path) {
 // ---------------------------------------------------------------------------
 
 export async function updateSequence(sequence) {
-  if (isTauri) {
-    return tauriInvoke('update_sequence', { sequence });
-  }
-  return request("PUT", "/sequence", { sequence });
+  return tauriInvoke('update_sequence', { sequence });
 }
 
 // ---------------------------------------------------------------------------
@@ -103,17 +72,11 @@ export async function updateSequence(sequence) {
 // ---------------------------------------------------------------------------
 
 export async function setROI(start, end) {
-  if (isTauri) {
-    return tauriInvoke('set_roi', { start, end });
-  }
-  return request("POST", `/roi?s=${start}&e=${end}`);
+  return tauriInvoke('set_roi', { start, end });
 }
 
 export async function clearROI() {
-  if (isTauri) {
-    return tauriInvoke('clear_roi');
-  }
-  return request("POST", "/roi/clear");
+  return tauriInvoke('clear_roi');
 }
 
 // ---------------------------------------------------------------------------
@@ -121,18 +84,15 @@ export async function clearROI() {
 // ---------------------------------------------------------------------------
 
 export async function getFeatures() {
-  if (isTauri) return tauriInvoke('get_features');
-  return request("GET", "/features");
+  return tauriInvoke('get_features');
 }
 
 export async function addFeature(feature) {
-  if (isTauri) return tauriInvoke('add_feature', { feature });
-  return request("POST", "/features", feature);
+  return tauriInvoke('add_feature', { feature });
 }
 
 export async function deleteFeature(id) {
-  if (isTauri) return tauriInvoke('delete_feature', { id });
-  return request("DELETE", `/features/${encodeURIComponent(id)}`);
+  return tauriInvoke('delete_feature', { id });
 }
 
 // ---------------------------------------------------------------------------
@@ -140,18 +100,15 @@ export async function deleteFeature(id) {
 // ---------------------------------------------------------------------------
 
 export async function getPrimers() {
-  if (isTauri) return tauriInvoke('get_primers');
-  return request("GET", "/primers");
+  return tauriInvoke('get_primers');
 }
 
 export async function addPrimer(primer) {
-  if (isTauri) return tauriInvoke('add_primer', { primer });
-  return request("POST", "/primers", primer);
+  return tauriInvoke('add_primer', { primer });
 }
 
 export async function deletePrimer(id) {
-  if (isTauri) return tauriInvoke('delete_primer', { id });
-  return request("DELETE", `/primers/${encodeURIComponent(id)}`);
+  return tauriInvoke('delete_primer', { id });
 }
 
 // ---------------------------------------------------------------------------
@@ -159,10 +116,7 @@ export async function deletePrimer(id) {
 // ---------------------------------------------------------------------------
 
 export async function setMethylation(systems, overlap = 2) {
-  if (isTauri) {
-    return tauriInvoke('set_methylation', { systems, overlap });
-  }
-  return request("POST", `/methylation?systems=${systems.join(',')}&overlap=${overlap}`);
+  return tauriInvoke('set_methylation', { systems, overlap });
 }
 
 // ---------------------------------------------------------------------------
@@ -170,23 +124,31 @@ export async function setMethylation(systems, overlap = 2) {
 // ---------------------------------------------------------------------------
 
 export async function getProjects() {
-  if (isTauri) return tauriInvoke('get_projects');
-  return request("GET", "/projects");
+  return tauriInvoke('get_projects');
 }
 
 export async function getProjectById(id, filter = 'all') {
-  if (isTauri) return tauriInvoke('get_project_by_id', { id, enzymeFilter: filter });
-  return request("GET", `/project/${encodeURIComponent(id)}?enzyme_filter=${filter}`);
+  return tauriInvoke('get_project_by_id', { id, enzymeFilter: filter });
 }
 
 export async function activateProject(id) {
-  if (isTauri) return tauriInvoke('activate_project', { id });
-  return request("POST", `/projects/activate?id=${encodeURIComponent(id)}`);
+  return tauriInvoke('activate_project', { id });
 }
 
 export async function deleteProject(id) {
-  if (isTauri) return tauriInvoke('delete_project', { id });
-  return request("DELETE", `/projects/${encodeURIComponent(id)}`);
+  return tauriInvoke('delete_project', { id });
+}
+
+// ---------------------------------------------------------------------------
+// Multi-window
+// ---------------------------------------------------------------------------
+
+export async function openInNewWindow(projectId) {
+  return tauriInvoke('open_in_new_window', { projectId });
+}
+
+export async function getWindowProjectId() {
+  return tauriInvoke('get_window_project_id');
 }
 
 // ---------------------------------------------------------------------------
@@ -219,26 +181,10 @@ export async function saveFileDialog(defaultName = 'project.gbk') {
 }
 
 // ---------------------------------------------------------------------------
-// Tauri event listener (replaces WebSocket)
+// Tauri event listener
 // ---------------------------------------------------------------------------
 
 export function listenProjectUpdates(callback) {
-  if (!isTauri) {
-    // Browser mode: return a WebSocket-based listener
-    const ws = new WebSocket('ws://127.0.0.1:8765/ws');
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'project') {
-          callback(msg);
-        }
-      } catch {}
-    };
-    return {
-      close: () => ws.close(),
-    };
-  }
-  // Tauri mode: use event listener
   let unlistenFn = null;
   tauriListen('project-update', (event) => {
     callback(event.payload);
