@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow } from './tauriApi';
 import DebugPanel from './components/DebugPanel';
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Dna, FolderOpen, ChevronDown } from 'lucide-react';
+import { Dna, FolderOpen, ChevronDown, ExternalLink } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -22,6 +22,10 @@ export default function App() {
   // Multi-project state
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
+
+  // Multi-window: tracks whether this window is "main" or a "project" window
+  const [windowInfo, setWindowInfo] = useState(null);
+  // { type: 'main' } or { type: 'project', projectId: '...' }
 
   // Debug toggles
   const [debugOpen, setDebugOpen] = useState(false);
@@ -105,14 +109,33 @@ export default function App() {
     } catch {}
   }, []);
 
+  // Detect window type on mount
   useEffect(() => {
+    if (!isTauri) {
+      setWindowInfo({ type: 'main' });
+      return;
+    }
+    getWindowProjectId().then(pid => {
+      setWindowInfo(pid ? { type: 'project', projectId: pid } : { type: 'main' });
+    });
+  }, []);
+
+  // Main window: load active project + listen for project list updates
+  // Project window: load its bound project by ID
+  useEffect(() => {
+    if (!windowInfo) return;
     let listener = null;
     let cancelled = false;
 
-    async function connect() {
+    async function loadData() {
       setBackendStatus(isTauri ? 'online' : 'connecting');
       try {
-        const data = await getProject('all');
+        let data;
+        if (windowInfo.type === 'project') {
+          data = await getProjectById(windowInfo.projectId, 'all');
+        } else {
+          data = await getProject('all');
+        }
         if (cancelled) return;
         if (data && !data.error && data.sequence) {
           setSequence(data.sequence);
@@ -121,51 +144,37 @@ export default function App() {
           setPrimers(data.primers || []);
           setBackendStatus('online');
         }
+        if (data && data.projects) setProjects(data.projects);
+        if (data && data.activeId !== undefined) setActiveId(data.activeId);
         await refreshProjects();
       } catch {
         if (!cancelled) setBackendStatus(isTauri ? 'online' : 'offline');
       }
     }
 
-    connect();
+    loadData();
 
-    listener = listenProjectUpdates((msg) => {
-      if (cancelled) return;
-      if (msg.type === 'project' && msg.data) {
-        const newSeq = msg.data.sequence;
-        if (newSeq) {
-          if (msg.activeId) {
-            projectCacheRef.current[msg.activeId] = {
-              sequence: newSeq,
-              features: msg.data.features || EMPTY_ARRAY,
-              enzymes: msg.data.enzymes || EMPTY_ARRAY,
-              primers: msg.data.primers || EMPTY_ARRAY,
-              methKey: methKeyRef.current,
-            };
-          }
-          startTransition(() => {
-            setSequence(newSeq);
-            setFeatures(msg.data.features || EMPTY_ARRAY);
-            setEnzymes(msg.data.enzymes || EMPTY_ARRAY);
-            setPrimers(msg.data.primers || EMPTY_ARRAY);
-          });
-        }
-      }
-      if (msg.projects) setProjects(msg.projects);
-      if (msg.activeId !== undefined) setActiveId(msg.activeId);
-    });
+    // Event listener: main window syncs project list; project windows ignore
+    if (windowInfo.type === 'main') {
+      listener = listenProjectUpdates((msg) => {
+        if (cancelled) return;
+        if (msg.projects) setProjects(msg.projects);
+        if (msg.activeId !== undefined) setActiveId(msg.activeId);
+      });
+    }
 
     return () => { cancelled = true; if (listener) listener.close(); };
-  }, []);
+  }, [windowInfo]);
 
   // Sync methylation systems with backend, then fetch updated enzymes.
   // Only fires when methylation settings change (NOT on every project load).
   const syncMethylation = useCallback(async () => {
     if (backendStatus !== 'online') return;
     try {
-      await setMethylation(methylationSystems, methylationOverlap);
-      const data = await getProject('all');
-      if (data && !data.error) setEnzymes(data.enzymes || []);
+      const data = await setMethylation(methylationSystems, methylationOverlap);
+      if (data && !data.error && data.enzymes) {
+        setEnzymes(data.enzymes);
+      }
     } catch (e) {
       console.error('methylation sync error:', e);
     }
@@ -288,6 +297,14 @@ export default function App() {
     }
   }, [methKey, syncMethylation]);
 
+  const handleOpenInNewWindow = useCallback(async (id) => {
+    try {
+      await openInNewWindow(id);
+    } catch (e) {
+      console.error('open in new window error:', e);
+    }
+  }, []);
+
   // Extract filename from path
   const fileName = (p) => {
     const s = (p.name || p.id || '').replace(/\\/g, '/');
@@ -337,6 +354,13 @@ export default function App() {
                           {(() => { const Icon = getFileIcon(fileName(p)); return <Icon className="size-4 shrink-0" />; })()}
                           <span className="truncate">{fileName(p)}</span>
                         </SidebarMenuButton>
+                        <button
+                          className="ml-auto size-4 shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
+                          onClick={(e) => { e.stopPropagation(); handleOpenInNewWindow(p.id); }}
+                          title="Open in new window"
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </button>
                       </SidebarMenuItem>
                     ))}
                   </SidebarMenu>
@@ -356,7 +380,8 @@ export default function App() {
         style={{ "--sidebar-width": "12rem" }}
       >
         <div className="relative min-h-screen w-full bg-[#fdfbf7]">
-          {hasProject && (
+          {/* Only show sidebar in main window */}
+          {hasProject && (!windowInfo || windowInfo.type !== 'project') && (
             <div
               className="absolute left-0 top-0 bottom-0 z-40"
               onMouseEnter={handleSidebarEnter}

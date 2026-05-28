@@ -1,6 +1,6 @@
 # Geneie — 质粒编辑器
 
-基于 React + Vite + Tauri v2 + Rust/axum 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注。默认输出 SnapGene 风格 GenBank 文件。
+基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注。默认输出 SnapGene 风格 GenBank 文件。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
 
@@ -8,7 +8,7 @@
 
 - **前端**: React 19 + Vite 8，shadcn v4 (Radix UI)，lucide-react 图标，Tailwind CSS v4
 - **渲染**: 纯 SVG，Cascadia Code / TeX Gyre Heros 字体
-- **后端**: Rust (edition 2021), axum 0.8, tokio 1, gb-io 0.9
+- **后端**: Rust (edition 2021), tokio 1, gb-io 0.9
 - **桌面壳**: Tauri v2，内嵌 geneie-core
 - **无测试框架**（前端无测试，后端仅 Rust 单元测试 + golden tests）
 
@@ -29,7 +29,7 @@ Geneie/
 │   ├── App.jsx                 # 顶层：Empty(无文件)/Sidebar+Editor(有文件)，状态管理
 │   ├── SequenceEditor.jsx      # 核心编辑器：SVG 渲染、选择/光标、酶/引物/特征渲染
 │   ├── editorConstants.js      # 共享常量与工具函数（cw, getX, measureWidth, splitRange）
-│   ├── tauriApi.js             # Tauri IPC + 浏览器 fetch/WS fallback API 客户端
+│   ├── tauriApi.js             # Tauri IPC API 客户端
 │   ├── ErrorBoundary.jsx       # React Error Boundary
 │   ├── primerRenderer.jsx      # 引物几何计算（segment path, hover background）
 │   ├── PrimerSegmentRenderer.jsx # 引物 segment 渲染组件
@@ -49,22 +49,17 @@ Geneie/
 │   ├── capabilities/           # 权限配置
 │   ├── icons/                  # 应用图标
 │   └── src/
-│       └── lib.rs              # 19 个 Tauri commands，事件广播，ProjectManager
+│       └── lib.rs              # 21 个 Tauri commands，多窗口路由，ProjectManager
 ├── backend-rs/                 # Rust 后端 (workspace)
-│   ├── geneie-core/            # 核心库
-│   │   ├── data/comm_only_enzymes.json  # 623 酶数据库（编译时嵌入）
-│   │   └── src/
-│   │       ├── models.rs       # ProjectData, Enzyme, Feature, Primer, BindingSite
-│   │       ├── project.rs      # ProjectManager（HashMap, max 24, eviction）
-│   │       ├── utils.rs        # complement, reverse_complement, DNA_COMP
-│   │       ├── enzyme/         # 酶切引擎：search, matching, cut, methylation, data
-│   │       ├── primer/         # 引物引擎：align, gbk, dna, tm
-│   │       └── file_io/        # 文件解析/序列化：gbk, dna, fasta, ab1, color
-│   └── geneie-server/          # axum HTTP + WebSocket（浏览器 fallback）
+│   └── geneie-core/            # 核心库
+│       ├── data/comm_only_enzymes.json  # 623 酶数据库（编译时嵌入）
 │       └── src/
-│           ├── main.rs         # :8765, CORS + 压缩
-│           ├── routes.rs       # 19 个 REST 端点（含多项目管理）
-│           └── ws.rs           # WebSocket 实时广播
+│           ├── models.rs       # ProjectData, Enzyme, Feature, Primer, BindingSite
+│           ├── project.rs      # ProjectManager（HashMap, max 24, eviction）
+│           ├── utils.rs        # complement, reverse_complement, DNA_COMP
+│           ├── enzyme/         # 酶切引擎：search, matching, cut, methylation, data
+│           ├── primer/         # 引物引擎：align, gbk, dna, tm
+│           └── file_io/        # 文件解析/序列化：gbk, dna, fasta, ab1, color
 └── backend/                    # [参考] 原 Python 后端（保留用于 golden file）
 ```
 
@@ -126,31 +121,16 @@ SequenceRows → EnzymeTooltip
 
 ## API
 
-### Tauri Commands（19 个）
+### Tauri Commands（21 个）
 ```
-get_project, open_file, save_file, update_sequence,
+get_project, get_project_by_id, open_file, save_file, update_sequence,
 set_roi, clear_roi,
 get_features, add_feature, delete_feature,
 get_primers, add_primer, delete_primer,
 set_methylation,
-get_projects, activate_project, delete_project
+get_projects, activate_project, delete_project,
+open_in_new_window, get_window_project_id
 ```
-
-### REST API（浏览器 fallback, 19 个端点）
-```
-GET    /project?enzyme_filter=unique&row_start=N&row_end=M&cpl=60
-POST   /open?path=                PUT    /sequence
-POST   /save?path=                POST   /roi?s=&e=
-POST   /roi/clear                 GET    /features
-POST   /features                  DELETE /features/{id}
-GET    /primers                   POST   /primers
-DELETE /primers/{id}              POST   /methylation?systems=dam,dcm,ecoki
-GET    /projects                  POST   /projects/activate?id=
-DELETE /projects/{id}             WS     /ws
-```
-
-- `/project` 默认返回 unique 酶，`enzyme_filter=all` 返回全部
-- WebSocket/Event 广播：`{ type: "project", data: ProjectData, projects: [...], activeId: "..." }`
 
 ## 核心模型
 
@@ -188,11 +168,13 @@ DELETE /projects/{id}             WS     /ws
 - 依赖：`methylation_required=true` → `[Methyl Required]`
 - 依赖酶检测始终自动计算，不受用户甲基化选择影响
 
-## 多文件支持
+## 多文件 & 多窗口支持
 
 - `ProjectManager` 内部 `HashMap<String, ProjectData>`，上限 24 个，超出自动驱逐
-- 同时只有一个 active 项目
-- `GET /projects` 返回摘要 + activeId；`POST /projects/activate?id=` 切换
+- **主窗口**：有 Sidebar，通过 `activate_project` 切换 active 项目
+- **项目窗口**（label: `project-{id}-{ts}`）：每个 OS 窗口绑定一个特定项目，无 Sidebar，独立操作
+- 每个 Tauri 命令通过调用窗口的 label 路由到正确的项目（`webview_window` 参数注入）
+- mutation 命令返回完整数据，前端直接用返回值更新状态（不依赖事件广播）
 - 关闭 active 项目时自动切换到下一个
 
 ## 待优化项
