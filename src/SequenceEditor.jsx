@@ -102,7 +102,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const primerDragRef = useRef(null); // { startPrimerId, startFwd, didDrag, hoveredPrimerId }
   const isPrimerDraggingRef = useRef(false);
 
-  const hasSelection = selectionMode === 'text' && selStart !== null && selEnd !== null && selStart <= selEnd;
+  const hasSelection = selStart !== null && selEnd !== null && selStart <= selEnd && (selectionMode === 'text' || isEnzymeSelection);
   const currentSelColor = isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
 
   const pp = useMemo(() => ({
@@ -1528,9 +1528,10 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           const e = enzymes.find(x => x.name === name);
           if (!e) return null;
           const isGray = e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
+          const hoveredName = hoveredEnzyme ? enzymeLayout.find(l => l.id === hoveredEnzyme)?.name : null;
           let nameEntries = enzymeLayout.filter(l => l.name === name);
-          // In selection mode, only render lines for selected entries, not all same-name sites
-          if (isEnzymeSelection) {
+          // In selection mode, only filter non-hovered entries (selected + hovered lines both show)
+          if (isEnzymeSelection && name !== hoveredName) {
             nameEntries = nameEntries.filter(l => selectedEnzymeIds.includes(l.id));
           }
           return nameEntries.map(l => {
@@ -1748,7 +1749,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   }, [cursorIndex, hasSelection, isDragging, charsPerLine, numRows, getSeqY, rowBelow, selectionMode]);
 
   const renderedSelection = useMemo(() => {
-    if (!hasSelection || selectionMode !== 'text') return null;
+    if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
     const segs = sp(selStart, selEnd);
     return (
       <g style={{ pointerEvents: 'none' }}>
@@ -1760,7 +1761,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         ))}
       </g>
     );
-  }, [hasSelection, selStart, selEnd, getSeqY, sp, currentSelColor]);
+  }, [hasSelection, selStart, selEnd, getSeqY, sp, currentSelColor, isEnzymeSelection]);
 
   // Stable background: all sequence text in dark color — doesn't depend on selection
   const renderedSeqBg = useMemo(() => {
@@ -1786,7 +1787,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   // Selection overlay: only renders selected characters in white (grouped by row)
   const renderedSeqSel = useMemo(() => {
-    if (!hasSelection || selectionMode !== 'text') return null;
+    if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
     const segs = sp(selStart, selEnd);
     // Group segments by row
     const byRow = {};
@@ -1810,7 +1811,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         </text>
       );
     });
-  }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp]);
+  }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp, isEnzymeSelection]);
 
   return (
     <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
