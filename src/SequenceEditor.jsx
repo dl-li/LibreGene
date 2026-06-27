@@ -54,7 +54,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -84,6 +84,24 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const clearCursorTimer = useCallback(() => {
     if (cursorTimerRef.current) { clearTimeout(cursorTimerRef.current); cursorTimerRef.current = null; }
   }, []);
+
+  // Restore cursor/selection from undo/redo (external restoreState)
+  const restoreVersionRef = useRef(0);
+  useEffect(() => {
+    if (!restoreState) return;
+    if (restoreState.version === restoreVersionRef.current) return;
+    restoreVersionRef.current = restoreState.version;
+    setCursorIndex(restoreState.cursorIndex ?? null);
+    setSelStart(restoreState.selStart ?? null);
+    setSelEnd(restoreState.selEnd ?? null);
+    setSelectionMode('text');
+    setSelectedEnzymeIds([]);
+    setSelectedPrimerIds([]);
+    setIsEnzymeSelection(false);
+    if (restoreState.cursorIndex !== null) {
+      resetCursorTimer();
+    }
+  }, [restoreState, resetCursorTimer]);
 
   // --- enzyme selection state ---
   const [isEnzymeSelection, setIsEnzymeSelection] = useState(false);
@@ -712,6 +730,11 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   useEffect(() => {
     const onKey = (e) => {
+      // Ignore events from input/textarea (e.g. dialog textarea has focus)
+      const tag = e.target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+
+      // --- Arrow keys: cursor navigation ---
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         if (cursorIndex === null) return;
         e.preventDefault();
@@ -726,7 +749,50 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           setSelEnd(null);
           resetCursorTimer();
         }
+        return;
       }
+
+      // --- Edit triggers: letter keys (insert/replace), paste, and Delete/Backspace (delete) ---
+      if (!(e.ctrlKey || e.metaKey || e.altKey)) {
+        // Letter key → replace (any selection) or insert (cursor only)
+        if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key) && onEditRequest) {
+          // Replace mode: any active selection (text, enzyme, etc.)
+          if (hasSelection) {
+            e.preventDefault();
+            onEditRequest({
+              type: 'replace',
+              cursorIndex: selStart,
+              selStart,
+              selEnd,
+              selectedText: cleanSeq.substring(selStart, selEnd + 1),
+            });
+            return;
+          }
+          // Insert mode: cursor must be visible
+          if (cursorIndex !== null) {
+            e.preventDefault();
+            onEditRequest({
+              type: 'insert',
+              cursorIndex,
+            });
+            return;
+          }
+        }
+
+        // Delete/Backspace with selection → delete
+        if ((e.key === 'Delete' || e.key === 'Backspace') && hasSelection && onEditRequest) {
+          e.preventDefault();
+          onEditRequest({
+            type: 'delete',
+            selStart,
+            selEnd,
+            selectedText: cleanSeq.substring(selStart, selEnd + 1),
+          });
+          return;
+        }
+      }
+
+      // --- Ctrl/Cmd+C: Copy ---
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
           e.preventDefault();
@@ -765,10 +831,44 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursorIndex, selStart, selEnd, hasSelection, cleanSeq, charsPerLine, resetCursorTimer, selectionMode, selectedPrimerIds, enrichedPrimers]);
+  }, [cursorIndex, selStart, selEnd, hasSelection, cleanSeq, charsPerLine, resetCursorTimer, selectionMode, selectedPrimerIds, enrichedPrimers, onEditRequest]);
 
   useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
   useEffect(() => () => { clearCursorTimer(); clearTimeout(featureLeaveRef.current); }, [clearCursorTimer]);
+
+  // --- Paste event: read clipboard and trigger insert/replace dialog ---
+  useEffect(() => {
+    if (!onEditRequest) return;
+    const onPaste = (e) => {
+      // Ignore paste in input/textarea (e.g. dialog textarea)
+      const tag = e.target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+
+      // Get clipboard text synchronously from the paste event
+      const clipboardText = e.clipboardData?.getData('text') || '';
+      if (!clipboardText) return;
+
+      e.preventDefault();
+      if (hasSelection) {
+        onEditRequest({
+          type: 'replace',
+          cursorIndex: selStart,
+          selStart,
+          selEnd,
+          selectedText: cleanSeq.substring(selStart, selEnd + 1),
+          clipboardText,
+        });
+      } else if (cursorIndex !== null) {
+        onEditRequest({
+          type: 'insert',
+          cursorIndex,
+          clipboardText,
+        });
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [onEditRequest, hasSelection, cursorIndex, selStart, selEnd, cleanSeq]);
 
   // Visible row range for enzyme virtualization
   const visibleRows = useMemo(() => {
