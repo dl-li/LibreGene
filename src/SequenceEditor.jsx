@@ -97,7 +97,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const [selectionMode, setSelectionMode] = useState('none');
   const [selectedPrimerIds, setSelectedPrimerIds] = useState([]); // 1 for single, 2 for amplimer
   const [isPrimerDragging, setIsPrimerDragging] = useState(false);
-  const [primerDragMoved, setPrimerDragMoved] = useState(false);
+  const [primerDimActive, setPrimerDimActive] = useState(false); // 100ms delayed dimming
+  const primerDimTimerRef = useRef(null);
   const primerDragRef = useRef(null); // { startPrimerId, startFwd, didDrag, hoveredPrimerId }
   const isPrimerDraggingRef = useRef(false);
 
@@ -585,6 +586,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     setIsPrimerDragging(false);
     isPrimerDraggingRef.current = false;
     primerDragRef.current = null;
+    if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
+    setPrimerDimActive(false);
     const idx = clientToSeqIndex(e.clientX, e.clientY);
     if (idx === null) return;
     if (e.shiftKey && cursorIndex !== null) {
@@ -665,12 +668,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   useEffect(() => {
     if (!isPrimerDragging) return;
     const onMove = () => {
-      if (primerDragRef.current && !primerDragRef.current.didDrag) {
+      if (primerDragRef.current) {
         primerDragRef.current.didDrag = true;
-        setPrimerDragMoved(true);
       }
     };
     const onUp = () => {
+      if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
+      setPrimerDimActive(false);
       const ref = primerDragRef.current;
       if (ref) {
         if (ref.hoveredPrimerId && ref.hoveredPrimerId !== ref.startPrimerId) {
@@ -697,7 +701,6 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       setIsPrimerDragging(false);
       isPrimerDraggingRef.current = false;
       primerDragRef.current = null;
-      setPrimerDragMoved(false);
     };
     window.addEventListener('mousemove', onMove, { passive: true });
     window.addEventListener('mouseup', onUp);
@@ -882,6 +885,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   // Clear primer selection
                   setSelectionMode('text'); setSelectedPrimerIds([]);
                   isPrimerDraggingRef.current = false; primerDragRef.current = null;
+                  if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
+                  setPrimerDimActive(false);
                 }}
                 className="cursor-pointer">
                 <rect x={x} y={(isHovered && !isGap) ? sy - 18 : y} width={w}
@@ -957,6 +962,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                 setCursorIndex(fEnd + 1); clearCursorTimer();
                 setSelectionMode('text'); setSelectedPrimerIds([]);
                 isPrimerDraggingRef.current = false; primerDragRef.current = null;
+                if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
+                setPrimerDimActive(false);
               }}
               className="cursor-pointer">
               <text x={xr + 8} {...textProps} textAnchor="start" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
@@ -977,6 +984,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               setCursorIndex(fEnd + 1); clearCursorTimer();
               setSelectionMode('text'); setSelectedPrimerIds([]);
               isPrimerDraggingRef.current = false; primerDragRef.current = null;
+              if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
+              setPrimerDimActive(false);
             }}
             className="cursor-pointer">
             <text x={x - 8} {...textProps} textAnchor="end" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
@@ -1072,7 +1081,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
             if (pts.length < 2) return null;
 
             const isSelectedPrimer = selectedPrimerIds.includes(p.id) && (selectionMode === 'primer' || selectionMode === 'amplimer');
-            const isDimDuringDrag = isPrimerDragging && primerDragMoved && !isSelectedPrimer && p.isFwd === (primerDragRef.current?.startFwd);
+            const isDimDuringDrag = isPrimerDragging && primerDimActive && !isSelectedPrimer && p.isFwd === (primerDragRef.current?.startFwd);
 
             const pathStr = `M ${pts.map(p => `${p[0]} ${p[1]}`).join(' L ')}`;
             const expD = isFwd ? -1 : 1;
@@ -1090,6 +1099,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               ? `M ${arrowBaseX} ${arrowTipY} L ${isFwd ? arrowBaseX - pp.arrowHeadLen : arrowBaseX + pp.arrowHeadLen} ${arrowTipY + expD * pp.arrowHeadHeight}` : '';
 
             const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
+            const labelOff = isSelectedPrimer ? (isFwd ? -pp.hoverExpand : pp.hoverExpand) : 0;
 
             return (
               <g key={`${seg.row}-${seg.colStart}`}
@@ -1147,7 +1157,6 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                 <path d={pathStr} fill="none" stroke={pColor} strokeWidth="2.5" />
                 {isArrow && <path d={arrowPath} fill="none" stroke={pColor} strokeWidth="2.5" strokeLinecap="round" />}
 
-                const labelOff = isSelectedPrimer ? (isFwd ? -pp.hoverExpand : pp.hoverExpand) : 0;
                 <text x={pts[0][0]} y={pts[0][1] + (isFwd ? -pp.fwdLabelY : pp.revLabelY) + labelOff}
                   fontSize="12px" fontFamily="TeX Gyre Heros" fontWeight="600" fontStyle="italic"
                   textAnchor={isFwd ? 'start' : 'end'}
@@ -1186,6 +1195,9 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                       didDrag: false,
                       hoveredPrimerId: p.id,
                     };
+                    // Delay dimming other primers by 100ms to prevent flash on click
+                    if (primerDimTimerRef.current) clearTimeout(primerDimTimerRef.current);
+                    primerDimTimerRef.current = setTimeout(() => setPrimerDimActive(true), 100);
                     clearCursorTimer();
                   }}
                   onMouseEnter={() => {
@@ -1207,7 +1219,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         </g>
       );
     });
-  }, [visiblePrimers, hoveredPrimer, charsPerLine, pp, primerTracks, revPrimerFeatOffsets, getSeqY, sp, selectionMode, selectedPrimerIds, isPrimerDragging, primerDragMoved]);
+  }, [visiblePrimers, hoveredPrimer, charsPerLine, pp, primerTracks, revPrimerFeatOffsets, getSeqY, sp, selectionMode, selectedPrimerIds, isPrimerDragging, primerDimActive]);
 
   // Pre-compute fwd primer label x-ranges per row for fast enzyme label overlap detection
   const primerLabelOcc = useMemo(() => {
@@ -1382,6 +1394,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
             // Clear primer selection
             setSelectedPrimerIds([]);
             isPrimerDraggingRef.current = false; primerDragRef.current = null;
+            if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
+            setPrimerDimActive(false);
             const enzyme = enzymes.find(x => x.id === l.groupId);
             if (!enzyme) return;
             const pairs = enzyme.cutPairs || [{ topCutIndex: enzyme.cutIndex, botCutIndex: enzyme.botCutIndex }];
