@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange, enzymeActiveBlue } from './editorConstants';
+import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange, enzymeActiveBlue, amplimerGreen } from './editorConstants';
 
 const complementStr = (s) => s.split('').map(c => complement(c)).join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
@@ -92,8 +92,16 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const enzymeDragRef = useRef(null);
   const lastEnzymeSelRef = useRef(null); // { enzymeId, cutIdx, name } for shift+click
 
-  const hasSelection = selStart !== null && selEnd !== null && selStart <= selEnd;
-  const currentSelColor = isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
+  // --- primer / amplimer selection state ---
+  // selectionMode: 'none' | 'text' | 'enzyme' | 'primer' | 'amplimer'
+  const [selectionMode, setSelectionMode] = useState('none');
+  const [selectedPrimerIds, setSelectedPrimerIds] = useState([]); // 1 for single, 2 for amplimer
+  const [isPrimerDragging, setIsPrimerDragging] = useState(false);
+  const primerDragRef = useRef(null); // { startPrimerId, startFwd, didDrag, hoveredPrimerId }
+  const isPrimerDraggingRef = useRef(false);
+
+  const hasSelection = selectionMode === 'text' && selStart !== null && selEnd !== null && selStart <= selEnd;
+  const currentSelColor = selectionMode === 'enzyme' ? enzymeActiveBlue : '#3E2723';
 
   const pp = useMemo(() => ({
     fwdMatchY: 30, revMatchY: 26, misYDelta: 4,
@@ -570,6 +578,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     setIsEnzymeSelection(false);
     setSelectedEnzymeIds([]);
     lastEnzymeSelRef.current = null;
+    // Reset primer / amplimer selection
+    setSelectionMode('text');
+    setSelectedPrimerIds([]);
+    setIsPrimerDragging(false);
+    isPrimerDraggingRef.current = false;
+    primerDragRef.current = null;
     const idx = clientToSeqIndex(e.clientX, e.clientY);
     if (idx === null) return;
     if (e.shiftKey && cursorIndex !== null) {
@@ -646,6 +660,55 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     return () => window.removeEventListener('mouseup', onUp);
   }, [clearCursorTimer]);
 
+  // --- primer drag effect ---
+  useEffect(() => {
+    if (!isPrimerDragging) return;
+    const onMove = () => {
+      if (primerDragRef.current) {
+        primerDragRef.current.didDrag = true;
+      }
+    };
+    const onUp = () => {
+      const ref = primerDragRef.current;
+      if (ref) {
+        if (ref.hoveredPrimerId && ref.hoveredPrimerId !== ref.startPrimerId) {
+          // Mouse released on a different primer — check if pairable (opposite direction)
+          const targetPrimer = enrichedPrimers.find(p => p.id === ref.hoveredPrimerId);
+          if (targetPrimer && targetPrimer.isFwd !== ref.startFwd) {
+            // Opposite direction → amplimer selection
+            const p1 = enrichedPrimers.find(p => p.id === ref.startPrimerId);
+            const p2 = targetPrimer;
+            const fwdPrimer = p1.isFwd ? p1 : p2;
+            const revPrimer = !p1.isFwd ? p1 : p2;
+            setSelectedPrimerIds([fwdPrimer.id, revPrimer.id]);
+            setSelectionMode('amplimer');
+          } else {
+            // Same direction → cancel
+            setSelectionMode('none');
+            setSelectedPrimerIds([]);
+          }
+        } else if (ref.didDrag) {
+          // Dragged but landed on no primer → cancel
+          setSelectionMode('none');
+          setSelectedPrimerIds([]);
+        } else {
+          // Released on same primer without dragging → single primer selection
+          setSelectionMode('primer');
+          setSelectedPrimerIds([ref.startPrimerId]);
+        }
+      }
+      setIsPrimerDragging(false);
+      isPrimerDraggingRef.current = false;
+      primerDragRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove, { passive: true });
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isPrimerDragging, enrichedPrimers]);
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -664,6 +727,26 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         }
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
+          e.preventDefault();
+          const fp = enrichedPrimers.find(p => p.id === selectedPrimerIds[0]);
+          const rp = enrichedPrimers.find(p => p.id === selectedPrimerIds[1]);
+          const fwdPrimer = fp && fp.isFwd ? fp : rp;
+          const revPrimer = fp && !fp.isFwd ? fp : rp;
+          if (fwdPrimer && revPrimer) {
+            const fSeq = fwdPrimer.primerSeq || cleanSeq.substring(fwdPrimer.matchStart, fwdPrimer.matchEnd + 1);
+            const rSeq = revPrimer.primerSeq || cleanSeq.substring(revPrimer.matchStart, revPrimer.matchEnd + 1);
+            let intervening;
+            if (fwdPrimer.matchEnd < revPrimer.matchStart) {
+              intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
+            } else {
+              intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
+            }
+            const amplimer = fSeq + intervening + reverseComplement(rSeq);
+            navigator.clipboard.writeText(amplimer).catch(() => {});
+          }
+          return;
+        }
         if (hasSelection) {
           e.preventDefault();
           navigator.clipboard.writeText(cleanSeq.substring(selStart, selEnd + 1)).catch(() => {});
@@ -672,7 +755,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursorIndex, selStart, selEnd, hasSelection, cleanSeq, charsPerLine, resetCursorTimer]);
+  }, [cursorIndex, selStart, selEnd, hasSelection, cleanSeq, charsPerLine, resetCursorTimer, selectionMode, selectedPrimerIds, enrichedPrimers]);
 
   useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
   useEffect(() => () => { clearCursorTimer(); clearTimeout(featureLeaveRef.current); }, [clearCursorTimer]);
@@ -789,6 +872,9 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   const fEnd = Math.max(...f.segments.map(s => s.end));
                   setSelStart(fStart); setSelEnd(fEnd);
                   setCursorIndex(fEnd + 1); clearCursorTimer();
+                  // Clear primer selection
+                  setSelectionMode('text'); setSelectedPrimerIds([]);
+                  isPrimerDraggingRef.current = false; primerDragRef.current = null;
                 }}
                 className="cursor-pointer">
                 <rect x={x} y={(isHovered && !isGap) ? sy - 18 : y} width={w}
@@ -862,6 +948,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                 const fEnd = Math.max(...f.segments.map(s => s.end));
                 setSelStart(fStart); setSelEnd(fEnd);
                 setCursorIndex(fEnd + 1); clearCursorTimer();
+                setSelectionMode('text'); setSelectedPrimerIds([]);
+                isPrimerDraggingRef.current = false; primerDragRef.current = null;
               }}
               className="cursor-pointer">
               <text x={xr + 8} {...textProps} textAnchor="start" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
@@ -880,6 +968,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               const fEnd = Math.max(...f.segments.map(s => s.end));
               setSelStart(fStart); setSelEnd(fEnd);
               setCursorIndex(fEnd + 1); clearCursorTimer();
+              setSelectionMode('text'); setSelectedPrimerIds([]);
+              isPrimerDraggingRef.current = false; primerDragRef.current = null;
             }}
             className="cursor-pointer">
             <text x={x - 8} {...textProps} textAnchor="end" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
@@ -976,7 +1066,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
             const pathStr = `M ${pts.map(p => `${p[0]} ${p[1]}`).join(' L ')}`;
             const expD = isFwd ? -1 : 1;
-            const curExp = isHovered ? pp.hoverExpand : 0;
+            const curExp = (isHovered || isSelectedPrimer) ? pp.hoverExpand : 0;
             const last = pts[pts.length - 1];
             const hoverPath = pathStr +
               ` L ${last[0]} ${last[1] + expD * curExp} ` +
@@ -991,13 +1081,18 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
             const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
 
-            return (
-              <g key={`${seg.row}-${seg.colStart}`}>
-                <path d={hoverPath} fill={bgColor} style={{ transition: springAnim }} />
-                <path d={hoverPath} fill={pColor} fillOpacity={0.1} style={{ transition: springAnim }} />
+            const isSelectedPrimer = selectedPrimerIds.includes(p.id) && (selectionMode === 'primer' || selectionMode === 'amplimer');
+            const isDimDuringDrag = isPrimerDragging && !isSelectedPrimer && p.isFwd === (primerDragRef.current?.startFwd);
 
-                <text fill={pColor} fontSize="14px" fontFamily={monoFont} fontWeight="bold"
-                  style={{ opacity: isHovered ? 1 : 0, transition: 'opacity 0.2s ease-in-out', pointerEvents: 'none' }}>
+            return (
+              <g key={`${seg.row}-${seg.colStart}`}
+                opacity={isDimDuringDrag ? 0.2 : undefined}
+                style={isDimDuringDrag ? { pointerEvents: 'none' } : undefined}>
+                <path d={hoverPath} fill={isSelectedPrimer ? pColor : bgColor} style={{ transition: springAnim }} />
+                {!isSelectedPrimer && <path d={hoverPath} fill={pColor} fillOpacity={0.1} style={{ transition: springAnim }} />}
+
+                <text fill={isSelectedPrimer ? bgColor : pColor} fontSize="14px" fontFamily={monoFont} fontWeight="bold"
+                  style={{ opacity: (isHovered || isSelectedPrimer) ? 1 : 0, transition: 'opacity 0.2s ease-in-out', pointerEvents: 'none' }}>
                   {/* 5' tail */}
                   {isTail && hasMis && drawMisLen > 0 && (
                     <>
@@ -1049,13 +1144,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   fontSize="12px" fontFamily="TeX Gyre Heros" fontWeight="600" fontStyle="italic"
                   textAnchor={isFwd ? 'start' : 'end'}
                   fill="none" stroke={bgColor} strokeWidth="5"
-                  style={{ opacity: isHovered ? 0 : 1, transition: springAnim, pointerEvents: 'none' }}>
+                  style={{ opacity: (isHovered && !isSelectedPrimer) ? 0 : 1, transition: springAnim, pointerEvents: 'none' }}>
                   {p.name}</text>
                 <text x={pts[0][0]} y={pts[0][1] + (isFwd ? -pp.fwdLabelY : pp.revLabelY)}
                   fontSize="12px" fontFamily="TeX Gyre Heros" fontWeight="600" fontStyle="italic"
                   textAnchor={isFwd ? 'start' : 'end'}
                   fill={pColor} stroke="none"
-                  style={{ opacity: isHovered ? 0 : 1, transition: springAnim, pointerEvents: 'none' }}>
+                  style={{ opacity: (isHovered && !isSelectedPrimer) ? 0 : 1, transition: springAnim, pointerEvents: 'none' }}>
                   {p.name}</text>
 
                 <path d={pathStr} fill="none" stroke="transparent" strokeWidth="20" />
@@ -1064,7 +1159,38 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   width={Math.max(...pts.map(p => p[0])) - Math.min(...pts.map(p => p[0])) + 8}
                   height={Math.max(...pts.map(p => p[1])) - Math.min(...pts.map(p => p[1])) + 40}
                   fill="transparent"
-                  onMouseEnter={() => { if (isDraggingRef.current) return; setHoveredPrimer(p.id); }}
+                  onMouseDown={(e) => {
+                    if (e.button !== 0) return;
+                    e.stopPropagation(); e.preventDefault();
+                    // Clear all other selections
+                    setSelStart(null); setSelEnd(null); setCursorIndex(null);
+                    setIsEnzymeSelection(false); setSelectedEnzymeIds([]);
+                    lastEnzymeSelRef.current = null;
+                    // Start primer drag
+                    setSelectionMode('primer');
+                    setSelectedPrimerIds([p.id]);
+                    setIsPrimerDragging(true);
+                    isPrimerDraggingRef.current = true;
+                    setHoveredPrimer(p.id);
+                    primerDragRef.current = {
+                      startPrimerId: p.id,
+                      startFwd: p.isFwd,
+                      didDrag: false,
+                      hoveredPrimerId: p.id,
+                    };
+                    clearCursorTimer();
+                  }}
+                  onMouseEnter={() => {
+                    if (isPrimerDraggingRef.current) {
+                      if (primerDragRef.current) {
+                        primerDragRef.current.hoveredPrimerId = p.id;
+                      }
+                      setHoveredPrimer(p.id);
+                      return;
+                    }
+                    if (isDraggingRef.current) return;
+                    setHoveredPrimer(p.id);
+                  }}
                   onMouseLeave={() => setHoveredPrimer(null)}
                   className="cursor-pointer" />
               </g>
@@ -1073,7 +1199,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         </g>
       );
     });
-  }, [visiblePrimers, hoveredPrimer, charsPerLine, pp, primerTracks, revPrimerFeatOffsets, getSeqY, sp]);
+  }, [visiblePrimers, hoveredPrimer, charsPerLine, pp, primerTracks, revPrimerFeatOffsets, getSeqY, sp, selectionMode, selectedPrimerIds, isPrimerDragging]);
 
   // Pre-compute fwd primer label x-ranges per row for fast enzyme label overlap detection
   const primerLabelOcc = useMemo(() => {
@@ -1245,6 +1371,9 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           onMouseDown={(e) => {
             if (e.button !== 0) return;
             e.stopPropagation(); e.preventDefault();
+            // Clear primer selection
+            setSelectedPrimerIds([]);
+            isPrimerDraggingRef.current = false; primerDragRef.current = null;
             const enzyme = enzymes.find(x => x.id === l.groupId);
             if (!enzyme) return;
             const pairs = enzyme.cutPairs || [{ topCutIndex: enzyme.cutIndex, botCutIndex: enzyme.botCutIndex }];
@@ -1521,9 +1650,52 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   }, [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging]);
 
   // --- cursor & selection renderers ---
+  // --- amplimer intervening region (deep green) ---
+  const renderedAmplimerRegion = useMemo(() => {
+    if (selectionMode !== 'amplimer' || selectedPrimerIds.length !== 2) return null;
+    const fp = enrichedPrimers.find(p => p.id === selectedPrimerIds[0]);
+    const rp = enrichedPrimers.find(p => p.id === selectedPrimerIds[1]);
+    const fwdPrimer = fp && fp.isFwd ? fp : rp;
+    const revPrimer = fp && !fp.isFwd ? fp : rp;
+    if (!fwdPrimer || !revPrimer) return null;
+
+    let intStart = fwdPrimer.matchEnd + 1;
+    let intEnd = revPrimer.matchStart - 1;
+    if (intStart > intEnd || intStart >= cleanSeq.length || intEnd < 0) return null;
+
+    const segs = sp(intStart, intEnd);
+    if (!segs.length) return null;
+
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {segs.map(seg => (
+          <rect key={`amp-${seg.row}`}
+            x={getX(seg.colStart)} y={getSeqY(seg.row) - 19}
+            width={(seg.colEnd - seg.colStart + 1) * cw} height={28}
+            fill={amplimerGreen} rx="1" />
+        ))}
+        {segs.map(seg => {
+          const rowStart = seg.row * charsPerLine;
+          const chars = cleanSeq.substring(rowStart + seg.colStart, rowStart + seg.colEnd + 1).split('');
+          return (
+            <text key={`amp-txt-${seg.row}`} y={getSeqY(seg.row)}
+              fontFamily={monoFont} fontSize="14px" fontWeight="bold"
+              style={{ userSelect: 'none', pointerEvents: 'none' }}>
+              {chars.map((c, i) => (
+                <tspan key={i}
+                  x={getX(seg.colStart + i) + cw / 2} textAnchor="middle" fill={bgColor}>{c}</tspan>
+              ))}
+            </text>
+          );
+        })}
+      </g>
+    );
+  }, [selectionMode, selectedPrimerIds, enrichedPrimers, cleanSeq, charsPerLine, getSeqY, sp]);
+
   const renderedCursor = useMemo(() => {
     if (cursorIndex === null) return null;
     if (hasSelection && !isDragging) return null;
+    if (selectionMode !== 'text' && selectionMode !== 'none') return null;
     const row = Math.floor(cursorIndex / charsPerLine);
     const col = cursorIndex % charsPerLine;
     const x = getX(col);
@@ -1536,10 +1708,10 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         <line x1={x} x2={x} y1={topY} y2={botY} stroke={currentSelColor} strokeWidth="1.5" />
       </g>
     );
-  }, [cursorIndex, hasSelection, isDragging, charsPerLine, numRows, getSeqY, rowBelow]);
+  }, [cursorIndex, hasSelection, isDragging, charsPerLine, numRows, getSeqY, rowBelow, selectionMode]);
 
   const renderedSelection = useMemo(() => {
-    if (!hasSelection) return null;
+    if (!hasSelection || selectionMode !== 'text') return null;
     const segs = sp(selStart, selEnd);
     return (
       <g style={{ pointerEvents: 'none' }}>
@@ -1577,7 +1749,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   // Selection overlay: only renders selected characters in white (grouped by row)
   const renderedSeqSel = useMemo(() => {
-    if (!hasSelection) return null;
+    if (!hasSelection || selectionMode !== 'text') return null;
     const segs = sp(selStart, selEnd);
     // Group segments by row
     const byRow = {};
@@ -1610,6 +1782,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           onMouseDown={handleSvgMouseDown}>
           {renderedCursor}
           {renderedSelection}
+          {renderedAmplimerRegion}
           {renderedFeatures}
           {renderedFeatureLabels}
           {renderedEnzymes}
