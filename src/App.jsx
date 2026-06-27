@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog } from './tauriApi';
+import { createEditHistory } from './editHistory';
+import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Dna, FolderOpen, ChevronDown, ExternalLink } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  DialogFooter, DialogClose,
+} from '@/components/ui/dialog';
+import { Dna, FolderOpen, ChevronDown, ExternalLink, AlertTriangle } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -39,6 +45,19 @@ export default function App() {
   const sequenceRef = useRef(sequence);
   const projectCacheRef = useRef({}); // { [id]: { sequence, features, enzymes, primers, methKey } }
   const switchGenRef = useRef(0);      // generation counter to cancel stale async responses
+
+  // --- Sequence editing state ---
+  const editHistoryRef = useRef(createEditHistory());
+  const [editDialog, setEditDialog] = useState({ open: false, mode: 'insert', cursorIndex: null, selStart: null, selEnd: null, selectedText: '', initialText: '' });
+  const [restoreState, setRestoreState] = useState({ version: 0, cursorIndex: null, selStart: null, selEnd: null });
+  const undoVersionRef = useRef(0);
+  const [isDirty, setIsDirty] = useState(false);
+  const dirtyStateRef = useRef({}); // per-project dirty state
+  const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
+  const unsavedPendingRef = useRef(null); // ref mirror of pendingAction for stale-closure-safe access
+  const lastSavePathRef = useRef(null); // 最后保存/打开的路径
+  const baselineSequenceRef = useRef(''); // 文件打开/保存时的基线序列（用于 undo/redo 后准确判断 dirty）
+  const skipDirtyRef = useRef(false);    // 跳过脏检查标记（用于弹窗确认后的跳转/打开）
 
   // Cache methylation settings key — used to detect stale cache entries
   const methKey = useMemo(() => methylationSystems.join(',') + '|' + methylationOverlap, [methylationSystems, methylationOverlap]);
@@ -143,6 +162,15 @@ export default function App() {
           setEnzymes(data.enzymes || []);
           setPrimers(data.primers || []);
           setBackendStatus('online');
+          // Initialize undo history
+          const pid = data.activeId || activeId;
+          if (pid) {
+            editHistoryRef.current.reset({ sequence: data.sequence, features: data.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
+            baselineSequenceRef.current = data.sequence;
+            lastSavePathRef.current = pid;
+            dirtyStateRef.current[pid] = false;
+            setIsDirty(false);
+          }
         }
         if (data && data.projects) setProjects(data.projects);
         if (data && data.activeId !== undefined) setActiveId(data.activeId);
@@ -188,6 +216,18 @@ export default function App() {
 
   useEffect(() => { sequenceRef.current = sequence; }, [sequence]);
 
+  // --- beforeunload: warn on close with unsaved changes ---
+  useEffect(() => {
+    const handler = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
   const displayEnzymes = useMemo(() => {
     const all = enzymes || [];
     if (enzymeFilter === 'all') return all;
@@ -211,7 +251,18 @@ export default function App() {
     return all.filter(e => e.isUnique);
   }, [enzymes, enzymeFilter]);
 
+  // Sync unsavedPendingRef alongside setUnsavedDialog for stale-closure-safe access
+  const openUnsavedDialog = useCallback((pendingAction) => {
+    setUnsavedDialog({ open: true, pendingAction });
+    unsavedPendingRef.current = pendingAction;
+  }, []);
+
   const handleOpenFile = useCallback(async () => {
+    if (!skipDirtyRef.current && isDirty) {
+      openUnsavedDialog({ type: 'open' });
+      return;
+    }
+    skipDirtyRef.current = false;
     let paths;
     if (isTauri) {
       paths = await openFileDialog();
@@ -245,14 +296,30 @@ export default function App() {
         setPrimers(lastData.primers || EMPTY_ARRAY);
         // Apply methylation to newly opened file
         syncMethylation();
+        // Initialize undo history and dirty state
+        const pid = paths.length > 0 ? paths[paths.length - 1] : null;
+        if (pid) {
+          editHistoryRef.current.reset({ sequence: lastData.sequence, features: lastData.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
+          baselineSequenceRef.current = lastData.sequence;
+          lastSavePathRef.current = pid;
+          dirtyStateRef.current[pid] = false;
+          setIsDirty(false);
+        }
       }
       setFileStatus('ok');
     } catch (e) {
       setFileStatus('error: ' + e.message);
     }
-  }, [isTauri, openPath, methKey, refreshProjects, syncMethylation]);
+  }, [isTauri, openPath, methKey, refreshProjects, syncMethylation, isDirty, openUnsavedDialog]);
 
   const handleActivateProject = useCallback(async (id) => {
+    // Check dirty state before switching
+    if (!skipDirtyRef.current && activeId && activeId !== id && isDirty) {
+      openUnsavedDialog({ type: 'switch', targetId: id });
+      return;
+    }
+    skipDirtyRef.current = false;
+
     const gen = ++switchGenRef.current;
 
     // Instant switch from cache for perceived speed
@@ -264,6 +331,12 @@ export default function App() {
       setFeatures(cached.features);
       setEnzymes(cached.enzymes);
       setPrimers(cached.primers);
+      // Reset undo history for the switched-to project
+      editHistoryRef.current.reset({ sequence: cached.sequence, features: cached.features, cursorIndex: null, selStart: null, selEnd: null });
+      baselineSequenceRef.current = cached.sequence;
+      lastSavePathRef.current = id;
+      dirtyStateRef.current[id] = false;
+      setIsDirty(false);
       if (!methFresh) {
         syncMethylation();
       }
@@ -288,6 +361,12 @@ export default function App() {
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
           syncMethylation();
+          // Reset undo history
+          editHistoryRef.current.reset({ sequence: data.sequence, features: data.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
+          baselineSequenceRef.current = data.sequence;
+          lastSavePathRef.current = id;
+          dirtyStateRef.current[id] = false;
+          setIsDirty(false);
         }
 
         if (data.projects) setProjects(data.projects);
@@ -295,7 +374,362 @@ export default function App() {
     } catch (e) {
       console.error('activate project error:', e);
     }
-  }, [methKey, syncMethylation]);
+  }, [methKey, syncMethylation, activeId, isDirty, openUnsavedDialog]);
+
+  // --- Edit request from SequenceEditor: open the confirmation dialog ---
+  const handleEditRequest = useCallback((request) => {
+    setEditDialog({
+      open: true,
+      mode: request.type,
+      cursorIndex: request.cursorIndex ?? null,
+      selStart: request.selStart ?? null,
+      selEnd: request.selEnd ?? null,
+      selectedText: request.selectedText ?? '',
+      initialText: request.clipboardText ?? '',
+    });
+  }, []);
+
+  /**
+   * 调整特征/注释放置位置以适配编辑后的序列。
+   * 编辑会删除 [editStart, editEnd] 区间（oldLen 个碱基），
+   * 然后插入 newLen 个碱基。
+   * 编辑区之外的特征位置保持与原序列的相对偏移不变。
+   */
+  const adjustAnnotations = useCallback((anns, editStart, editEnd, oldLen, newLen) => {
+    const delta = newLen - oldLen;
+    if (delta === 0 && oldLen === 0) return anns; // no-op
+
+    return anns.map(ann => {
+      const adjustSegments = (segments) => {
+        if (!segments || !segments.length) return segments;
+        return segments.map(seg => {
+          let { start: s, end: e } = seg;
+          if (e < editStart) return seg;
+          if (s > editEnd) return { ...seg, start: s + delta, end: e + delta };
+          // spans
+          const ns = s < editStart ? s : editStart + newLen;
+          const ne = e > editEnd ? e + delta : editStart + newLen - 1;
+          if (ns > ne) return null;
+          return { ...seg, start: ns, end: ne };
+        }).filter(Boolean);
+      };
+
+      let newStart = ann.start, newEnd = ann.end;
+      if (ann.end < editStart) {
+        // entirely before – unchanged
+        return ann;
+      }
+      if (ann.start > editEnd) {
+        // entirely after – shift
+        newStart = ann.start + delta;
+        newEnd = ann.end + delta;
+      } else {
+        // spans the edit
+        newStart = ann.start < editStart ? ann.start : editStart + newLen;
+        newEnd = ann.end > editEnd ? ann.end + delta : editStart + newLen - 1;
+      }
+
+      if (newStart > newEnd) return null;
+
+      const result = { ...ann, start: newStart, end: newEnd };
+      if (ann.segments) result.segments = adjustSegments(ann.segments);
+      return result;
+    }).filter(Boolean);
+  }, []);
+
+  // --- Edit dialog confirmed (insert/delete/replace) ---
+  const handleEditConfirm = useCallback(async (result) => {
+    const { mode, cursorIndex, selStart, selEnd } = editDialog;
+    let newSeq;
+    const currentSeq = sequence || '';
+    let editStart, editEnd, oldLen, newLen;
+
+    // Compute the new sequence and save edit parameters for feature adjustment
+    if (mode === 'insert') {
+      const cleaned = (result.sequence || '').replace(/\s/g, '');
+      if (!cleaned) { setEditDialog(prev => ({ ...prev, open: false })); return; }
+      editStart = cursorIndex;
+      editEnd = cursorIndex - 1; // no deletion range
+      oldLen = 0;
+      newLen = cleaned.length;
+      newSeq = currentSeq.slice(0, cursorIndex) + cleaned + currentSeq.slice(cursorIndex);
+    } else if (mode === 'delete') {
+      if (selStart === null || selEnd === null) { setEditDialog(prev => ({ ...prev, open: false })); return; }
+      editStart = selStart;
+      editEnd = selEnd;
+      oldLen = selEnd - selStart + 1;
+      newLen = 0;
+      newSeq = currentSeq.slice(0, selStart) + currentSeq.slice(selEnd + 1);
+    } else if (mode === 'replace') {
+      const cleaned = (result.sequence || '').replace(/\s/g, '');
+      if (selStart === null || selEnd === null) { setEditDialog(prev => ({ ...prev, open: false })); return; }
+      editStart = selStart;
+      editEnd = selEnd;
+      oldLen = selEnd - selStart + 1;
+      newLen = cleaned.length;
+      newSeq = currentSeq.slice(0, selStart) + cleaned + currentSeq.slice(selEnd + 1);
+    } else {
+      return;
+    }
+
+    // Close dialog
+    setEditDialog(prev => ({ ...prev, open: false }));
+
+    // Optimistic UI update
+    setSequence(newSeq);
+    setIsDirty(true);
+    if (activeId) dirtyStateRef.current[activeId] = true;
+
+    // Compute adjusted features BEFORE backend call (for history and optimistic update)
+    const adjustedFeatures = adjustAnnotations(features || EMPTY_ARRAY, editStart, editEnd, oldLen, newLen);
+
+    // Push new state to undo history (includes adjusted features for correct undo)
+    editHistoryRef.current.push({
+      sequence: newSeq,
+      features: adjustedFeatures,
+      cursorIndex,
+      selStart: mode === 'insert' ? null : selStart,
+      selEnd: mode === 'insert' ? null : selEnd,
+    });
+
+    // Optimistic UI update
+    setSequence(newSeq);
+    setFeatures(adjustedFeatures);
+    setIsDirty(true);
+    if (activeId) dirtyStateRef.current[activeId] = true;
+
+    // Send to backend for recomputation (enzymes, primer binding sites)
+    try {
+      const data = await updateSequence({ sequence: newSeq });
+      if (data && !data.error) {
+        setSequence(data.sequence);
+        setFeatures(adjustedFeatures); // use our adjusted features, not backend's stale ones
+        setEnzymes(data.enzymes || EMPTY_ARRAY);
+        setPrimers(data.primers || EMPTY_ARRAY);
+        if (activeId) {
+          projectCacheRef.current[activeId] = {
+            sequence: data.sequence,
+            features: data.features || EMPTY_ARRAY,
+            enzymes: data.enzymes || EMPTY_ARRAY,
+            primers: data.primers || EMPTY_ARRAY,
+            methKey,
+          };
+        }
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+      } else {
+        console.error('update_sequence error:', data?.error || 'unknown');
+        // Re-fetch to recover from optimistic update
+        try {
+          const refresh = await getProject('all');
+          if (refresh && !refresh.error && refresh.sequence) {
+            setSequence(refresh.sequence);
+            setFeatures(refresh.features || EMPTY_ARRAY);
+            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
+            setPrimers(refresh.primers || EMPTY_ARRAY);
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.error('update_sequence exception:', e);
+    }
+  }, [sequence, editDialog, activeId, methKey]);
+
+  // --- Edit dialog cancelled ---
+  const handleEditCancel = useCallback(() => {
+    setEditDialog(prev => ({ ...prev, open: false }));
+  }, []);
+
+  // --- Undo ---
+  const handleUndo = useCallback(async () => {
+    const snapshot = editHistoryRef.current.undo();
+    if (!snapshot) return;
+
+    // Restore cursor/selection in SequenceEditor (use ref for atomic version)
+    setUndoRestore({
+      version: ++undoVersionRef.current,
+      cursorIndex: snapshot.cursorIndex,
+      selStart: snapshot.selStart,
+      selEnd: snapshot.selEnd,
+    });
+
+    // Send to backend for recomputation
+    try {
+      const data = await updateSequence({ sequence: snapshot.sequence });
+      if (data && !data.error) {
+        setSequence(data.sequence);
+        setFeatures(snapshot.features || EMPTY_ARRAY);
+        setEnzymes(data.enzymes || EMPTY_ARRAY);
+        setPrimers(data.primers || EMPTY_ARRAY);
+        if (activeId) {
+          projectCacheRef.current[activeId] = {
+            sequence: data.sequence,
+            features: snapshot.features || EMPTY_ARRAY,
+            enzymes: data.enzymes || EMPTY_ARRAY,
+            primers: data.primers || EMPTY_ARRAY,
+            methKey,
+          };
+        }
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+        // Accurate dirty check: undo to saved state = not dirty
+        if (snapshot.sequence === baselineSequenceRef.current) {
+          setIsDirty(false);
+          if (activeId) dirtyStateRef.current[activeId] = false;
+        } else {
+          setIsDirty(true);
+          if (activeId) dirtyStateRef.current[activeId] = true;
+        }
+      } else {
+        // Re-fetch to recover
+        try {
+          const refresh = await getProject('all');
+          if (refresh && !refresh.error && refresh.sequence) {
+            setSequence(refresh.sequence);
+            setFeatures(refresh.features || EMPTY_ARRAY);
+            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
+            setPrimers(refresh.primers || EMPTY_ARRAY);
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.error('undo error:', e);
+    }
+  }, [activeId, methKey]);
+
+  // --- Redo ---
+  const handleRedo = useCallback(async () => {
+    const snapshot = editHistoryRef.current.redo();
+    if (!snapshot) return;
+
+    setUndoRestore({
+      version: ++undoVersionRef.current,
+      cursorIndex: snapshot.cursorIndex,
+      selStart: snapshot.selStart,
+      selEnd: snapshot.selEnd,
+    });
+
+    try {
+      const data = await updateSequence({ sequence: snapshot.sequence });
+      if (data && !data.error) {
+        setSequence(data.sequence);
+        setFeatures(snapshot.features || EMPTY_ARRAY);
+        setEnzymes(data.enzymes || EMPTY_ARRAY);
+        setPrimers(data.primers || EMPTY_ARRAY);
+        if (activeId) {
+          projectCacheRef.current[activeId] = {
+            sequence: data.sequence,
+            features: snapshot.features || EMPTY_ARRAY,
+            enzymes: data.enzymes || EMPTY_ARRAY,
+            primers: data.primers || EMPTY_ARRAY,
+            methKey,
+          };
+        }
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+        // Accurate dirty check: redo back to saved state = not dirty
+        if (snapshot.sequence === baselineSequenceRef.current) {
+          setIsDirty(false);
+          if (activeId) dirtyStateRef.current[activeId] = false;
+        } else {
+          setIsDirty(true);
+          if (activeId) dirtyStateRef.current[activeId] = true;
+        }
+      } else {
+        try {
+          const refresh = await getProject('all');
+          if (refresh && !refresh.error && refresh.sequence) {
+            setSequence(refresh.sequence);
+            setFeatures(refresh.features || EMPTY_ARRAY);
+            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
+            setPrimers(refresh.primers || EMPTY_ARRAY);
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.error('redo error:', e);
+    }
+  }, [activeId, methKey]);
+
+  // --- Save As (defined before Save because Save may reference it) ---
+  const handleSaveAs = useCallback(async () => {
+    if (!isTauri) return;
+
+    const defaultName = activeId ? activeId.split('/').pop() : 'sequence.gbk';
+    const path = await saveFileDialog(defaultName);
+    if (!path) return; // User cancelled
+
+    try {
+      const result = await saveFile({ path });
+      if (result && !result.error) {
+        lastSavePathRef.current = path;
+        baselineSequenceRef.current = sequenceRef.current || sequence;
+        dirtyStateRef.current[path] = false;
+        setIsDirty(false);
+      }
+    } catch (e) {
+      console.error('save as error:', e);
+    }
+  }, [activeId]);
+
+  // --- Save ---
+  const handleSave = useCallback(async () => {
+    if (!isTauri) {
+      console.warn('Save is only available in desktop mode');
+      return;
+    }
+
+    const filePath = lastSavePathRef.current || activeId;
+    if (!filePath) {
+      // No path known — fall back to Save As
+      await handleSaveAs();
+      return;
+    }
+
+    try {
+      const result = await saveFile({ path: filePath });
+      if (result && !result.error) {
+        baselineSequenceRef.current = sequenceRef.current || sequence;
+        dirtyStateRef.current[filePath] = false;
+        setIsDirty(false);
+      } else {
+        console.error('save error:', result?.error);
+      }
+    } catch (e) {
+      console.error('save exception:', e);
+    }
+  }, [activeId]);
+
+  // --- Unsaved changes dialog handlers ---
+  const handleUnsavedSave = useCallback(async () => {
+    const pending = unsavedPendingRef.current;
+    setUnsavedDialog({ open: false, pendingAction: null });
+    unsavedPendingRef.current = null;
+    await handleSave();
+    skipDirtyRef.current = true;
+    if (pending?.type === 'switch' && pending.targetId) {
+      handleActivateProject(pending.targetId);
+    } else if (pending?.type === 'open') {
+      handleOpenFile();
+    }
+  }, [handleSave, handleActivateProject, handleOpenFile]);
+
+  const handleUnsavedDiscard = useCallback(() => {
+    const pending = unsavedPendingRef.current;
+    setUnsavedDialog({ open: false, pendingAction: null });
+    unsavedPendingRef.current = null;
+    skipDirtyRef.current = true;
+    if (pending?.type === 'switch' && pending.targetId) {
+      handleActivateProject(pending.targetId);
+    } else if (pending?.type === 'open') {
+      handleOpenFile();
+    }
+  }, [handleActivateProject, handleOpenFile]);
+
+  const handleUnsavedCancel = useCallback(() => {
+    setUnsavedDialog({ open: false, pendingAction: null });
+    unsavedPendingRef.current = null;
+  }, []);
 
   const handleOpenInNewWindow = useCallback(async (id) => {
     try {
@@ -304,6 +738,47 @@ export default function App() {
       console.error('open in new window error:', e);
     }
   }, []);
+
+  // --- Global keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+S, Ctrl+Shift+S ---
+  // (must be placed AFTER all handler definitions to avoid TDZ)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isCtrl = e.ctrlKey || e.metaKey;
+      if (!isCtrl) return;
+
+      // Ignore when focus is in input/textarea (e.g. edit dialog)
+      const tag = e.target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+
+      // Ctrl+Z: Undo (no shift)
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      // Ctrl+Shift+Z or Ctrl+Y: Redo
+      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+      // Ctrl+S: Save (no shift)
+      if (e.key === 's' && !e.shiftKey) {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+      // Ctrl+Shift+S: Save As
+      if (e.key === 's' && e.shiftKey) {
+        e.preventDefault();
+        handleSaveAs();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, handleSave, handleSaveAs]);
 
   // Extract filename from path
   const fileName = (p) => {
@@ -352,7 +827,7 @@ export default function App() {
                           isActive={p.id === activeId}
                         >
                           {(() => { const Icon = getFileIcon(fileName(p)); return <Icon className="size-4 shrink-0" />; })()}
-                          <span className="truncate">{fileName(p)}</span>
+                          <span className="truncate">{fileName(p)}{p.id === activeId && isDirty ? ' *' : ''}</span>
                         </SidebarMenuButton>
                         <button
                           className="ml-auto size-4 shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
@@ -399,6 +874,8 @@ export default function App() {
                 primers={editorPrimers}
                 charsPerLine={60}
                 layoutParams={editorLayoutParams}
+                onEditRequest={handleEditRequest}
+                restoreState={restoreState}
               />
             ) : (
               <Empty className="min-h-screen">
@@ -436,6 +913,41 @@ export default function App() {
           layoutParams={layoutParams} setLP={setLP}
           onOpenFile={handleOpenFile}
         />
+
+        {/* --- Sequence Edit Dialog --- */}
+        <SequenceEditDialog
+          open={editDialog.open}
+          mode={editDialog.mode}
+          cursorIndex={editDialog.cursorIndex}
+          selStart={editDialog.selStart}
+          selEnd={editDialog.selEnd}
+          selectedText={editDialog.selectedText}
+          initialText={editDialog.initialText}
+          onConfirm={handleEditConfirm}
+          onCancel={handleEditCancel}
+        />
+
+        {/* --- Unsaved Changes Dialog --- */}
+        <Dialog open={unsavedDialog.open} onOpenChange={(open) => { if (!open) handleUnsavedCancel(); }}>
+          <DialogContent onInteractOutside={(e) => e.preventDefault()}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="size-4 text-amber-500" />
+                Unsaved Changes
+              </DialogTitle>
+              <DialogDescription>
+                This project has unsaved changes. Save before continuing?
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <DialogClose asChild>
+                <Button variant="outline" onClick={handleUnsavedCancel}>Cancel</Button>
+              </DialogClose>
+              <Button variant="outline" onClick={handleUnsavedDiscard}>Don't Save</Button>
+              <Button onClick={handleUnsavedSave}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <button
           className="fixed bottom-3 right-3 w-3.5 h-3.5 rounded-full z-50 opacity-60 hover:opacity-100 hover:scale-125 transition-all cursor-pointer border-0"
