@@ -103,7 +103,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const isPrimerDraggingRef = useRef(false);
 
   const hasSelection = selectionMode === 'text' && selStart !== null && selEnd !== null && selStart <= selEnd;
-  const currentSelColor = selectionMode === 'enzyme' ? enzymeActiveBlue : '#3E2723';
+  const currentSelColor = isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
 
   const pp = useMemo(() => ({
     fwdMatchY: 30, revMatchY: 26, misYDelta: 4,
@@ -1099,7 +1099,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               ? `M ${arrowBaseX} ${arrowTipY} L ${isFwd ? arrowBaseX - pp.arrowHeadLen : arrowBaseX + pp.arrowHeadLen} ${arrowTipY + expD * pp.arrowHeadHeight}` : '';
 
             const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
-            const labelOff = isSelectedPrimer ? (isFwd ? -pp.hoverExpand : pp.hoverExpand) : 0;
+            const labelOff = isSelectedPrimer ? (isFwd ? -16 : 13) : 0;
 
             return (
               <g key={`${seg.row}-${seg.colStart}`}
@@ -1338,7 +1338,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     return enzymeLayout.map(l => {
       const e = enzymes.find(x => x.id === l.groupId);
       const isGray = e && (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length));
-      const isHoveredGroup = !isEnzymeSelection && hoveredName != null && l.name === hoveredName;
+      const isHoveredGroup = hoveredName != null && l.name === hoveredName;
       const isSelected = selectedEnzymeIds.includes(l.id);
       const isBlunt = e && e.cutType === 'blunt';
       const isIIS = isIISEnzyme(e);
@@ -1481,7 +1481,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const renderedEnzymeOverlay = useMemo(() => {
     // Collect enzyme names to render lines for (from hover or selected ids)
     const namesToRender = new Set();
-    if (hoveredEnzyme && !isEnzymeSelection) {
+    if (hoveredEnzyme) {
       const entry = enzymeLayout.find(l => l.id === hoveredEnzyme);
       if (entry) namesToRender.add(entry.name);
     }
@@ -1493,7 +1493,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
     // Compute hover text content (only for hovered enzyme)
     let hoverTextContent = null;
-    if (hoveredEnzyme && !isEnzymeSelection) {
+    if (hoveredEnzyme) {
       const hoveredEntry = enzymeLayout.find(l => l.id === hoveredEnzyme);
       if (hoveredEntry) {
         const e = enzymes.find(x => x.name === hoveredEntry.name);
