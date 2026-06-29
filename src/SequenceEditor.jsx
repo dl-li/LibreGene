@@ -55,7 +55,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -908,6 +908,16 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
   useEffect(() => () => { clearCursorTimer(); clearTimeout(featureLeaveRef.current); }, [clearCursorTimer]);
+
+  // Sync featureInfoFeature when features update (e.g., after ftype change)
+  useEffect(() => {
+    if (featureInfoFeature && features.length) {
+      const updated = features.find(f => f.id === featureInfoFeature.id);
+      if (updated && updated !== featureInfoFeature) {
+        setFeatureInfoFeature(updated);
+      }
+    }
+  }, [features, featureInfoFeature]);
 
   // --- Paste event: read clipboard and trigger insert/replace dialog ---
   useEffect(() => {
@@ -2076,6 +2086,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         open={featureInfoFeature !== null}
         onOpenChange={(open) => { if (!open) setFeatureInfoFeature(null); }}
         onFtypeChange={onFeatureFtypeChange}
+        onFeatureColorChange={onFeatureColorChange}
       />
     </div>
   );

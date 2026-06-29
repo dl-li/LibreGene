@@ -94,7 +94,7 @@ const HIGHLIGHT = '#1E40AF';
 const MONO = '"Cascadia Code", ui-monospace, monospace';
 
 /* ---------- Component ---------- */
-export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange }) {
+export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange }) {
   const [editingFtype, setEditingFtype] = useState(false);
 
   const lines = useMemo(() => {
@@ -120,7 +120,27 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-base">Feature Info — {feature.name}</DialogTitle>
+          <DialogTitle className="text-base flex items-center gap-2">
+            <span
+              className="inline-block rounded border cursor-pointer"
+              style={{
+                width: 16, height: 16,
+                backgroundColor: feature.color || '#60A5FA',
+                borderColor: '#d1d5db',
+              }}
+              title="Click to change color"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'color';
+                input.value = feature.color || '#60A5FA';
+                input.addEventListener('input', (e) => {
+                  onFeatureColorChange?.(feature.id, e.target.value);
+                });
+                input.click();
+              }}
+            />
+            Feature Info — {feature.name}
+          </DialogTitle>
         </DialogHeader>
 
         <div
