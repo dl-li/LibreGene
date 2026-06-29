@@ -38,9 +38,11 @@ function extractQualifiers(feature) {
   }
 
   // Raw GenBank qualifiers (gene, product, codon_start, etc.)
-  if (feature.qualifiers && feature.qualifiers.length) {
+  if (feature.qualifiers && Array.isArray(feature.qualifiers) && feature.qualifiers.length) {
     for (const q of feature.qualifiers) {
-      quals.push({ key: q[0], value: q[1] });
+      if (Array.isArray(q) && q.length >= 2) {
+        quals.push({ key: String(q[0]), value: String(q[1] ?? '') });
+      }
     }
   }
 

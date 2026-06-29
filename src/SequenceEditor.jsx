@@ -198,6 +198,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   const cleanSeq = sequence || '';
 
+  // Ensure primer color is a valid non-black hex, falling back to default green
+  const safePrimerColor = (c) => {
+    if (!c || c === '#000000' || c === '#000' || c === 'black') return '#166534';
+    if (/^#[0-9a-f]{6}$/i.test(c)) return c;
+    return '#166534';
+  };
+
   // Simple Tm estimation: Wallace rule (<20bp) or Marmur-Doty adjusted formula
   function calcTm(seq) {
     const len = seq.length;
@@ -253,7 +260,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       matchStart: ms,
       matchEnd: me,
       isFwd, // actual binding direction (NOT declared type)
-      color: isFwd ? p.color : '#4A148C', // rev primers always deep purple
+      color: isFwd ? safePrimerColor(p.color) : '#4A148C', // rev primers always deep purple
       matchStr: isFwd
         ? cleanSeq.substring(ms, me + 1)
         : complementStr(cleanSeq.substring(ms, me + 1)),
@@ -1170,7 +1177,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       const isHovered = hoveredPrimer === p.id;
       const misLen = p.mismatchStr?.length || 0;
       const hasMis = misLen > 0;
-      const pColor = p.color || '#166534';
+      const pColor = safePrimerColor(p.color);
       const segs = sp(p.matchStart, p.matchEnd);
       if (p.renderCols) {
         let ci = 0;
