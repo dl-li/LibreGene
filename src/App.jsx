@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -387,6 +387,17 @@ export default function App() {
       selectedText: request.selectedText ?? '',
       initialText: request.clipboardText ?? '',
     });
+  }, []);
+
+  const handleFeatureFtypeChange = useCallback(async (featureId, newFtype) => {
+    try {
+      const data = await updateFeatureFtype(featureId, newFtype);
+      if (data && data.features) {
+        setFeatures(data.features);
+      }
+    } catch (e) {
+      console.error('update feature ftype error:', e);
+    }
   }, []);
 
   /**
@@ -876,6 +887,7 @@ export default function App() {
                 layoutParams={editorLayoutParams}
                 onEditRequest={handleEditRequest}
                 restoreState={restoreState}
+                onFeatureFtypeChange={handleFeatureFtypeChange}
               />
             ) : (
               <Empty className="min-h-screen">
