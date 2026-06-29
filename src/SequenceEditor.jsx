@@ -55,7 +55,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -2087,6 +2087,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         onOpenChange={(open) => { if (!open) setFeatureInfoFeature(null); }}
         onFtypeChange={onFeatureFtypeChange}
         onFeatureColorChange={onFeatureColorChange}
+        onFeatureLocationChange={onFeatureLocationChange}
       />
     </div>
   );
