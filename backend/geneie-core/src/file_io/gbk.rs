@@ -432,6 +432,68 @@ fn model_range_to_gb_location(f: &Feature) -> Location {
     }
 }
 
+/// Parse a GenBank location string (e.g. "complement(1..100)", "join(1..50,60..100)")
+/// and return (segments, overall_start, overall_end, strand).
+/// Returns None on parse failure.
+pub fn parse_location_string(s: &str) -> Option<(Vec<Segment>, i64, i64, String)> {
+    let s = s.trim();
+    let (inner, strand) = if let Some(rest) = s.strip_prefix("complement(") {
+        rest.strip_suffix(')').map(|r| (r, "-"))
+    } else if let Some(rest) = s.strip_prefix("Complement(") {
+        rest.strip_suffix(')').map(|r| (r, "-"))
+    } else {
+        Some((s, "+"))
+    }?;
+
+    let inner = inner.trim();
+
+    let parts: Vec<&str> = if let Some(rest) = inner.strip_prefix("join(") {
+        rest.strip_suffix(')')?.split(',').map(|p| p.trim()).collect()
+    } else if let Some(rest) = inner.strip_prefix("order(") {
+        rest.strip_suffix(')')?.split(',').map(|p| p.trim()).collect()
+    } else {
+        vec![inner]
+    };
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    for part in &parts {
+        if let Some(dotdot) = part.find("..") {
+            let start_str = part[..dotdot].trim();
+            let end_str = part[dotdot + 2..].trim();
+            let start: i64 = start_str.parse().ok()?;
+            let end: i64 = end_str.parse().ok()?;
+            if start < 1 || end < 1 || start > end {
+                return None;
+            }
+            segments.push(Segment {
+                start: start - 1,
+                end: end - 1,
+                color: None,
+            });
+        } else {
+            // Single position
+            let pos: i64 = part.trim().parse().ok()?;
+            if pos < 1 {
+                return None;
+            }
+            segments.push(Segment {
+                start: pos - 1,
+                end: pos - 1,
+                color: None,
+            });
+        }
+    }
+
+    let overall_start = segments.iter().map(|s| s.start).min().unwrap_or(0);
+    let overall_end = segments.iter().map(|s| s.end).max().unwrap_or(0);
+
+    Some((segments, overall_start, overall_end, strand.to_string()))
+}
+
 // ---------------------------------------------------------------------------
 //  Fallback primer parser / serializer
 // ---------------------------------------------------------------------------

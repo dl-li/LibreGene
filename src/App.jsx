@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureLocation } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -422,6 +422,24 @@ export default function App() {
       }
     } catch (e) {
       console.error('update feature color error:', e);
+    }
+  }, [activeId, sequence, features]);
+
+  const handleFeatureLocationChange = useCallback(async (featureId, locationStr) => {
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await updateFeatureLocation(featureId, locationStr);
+      if (data && data.features) {
+        setFeatures(data.features);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      throw e;
     }
   }, [activeId, sequence, features]);
 
@@ -914,6 +932,7 @@ export default function App() {
                 restoreState={restoreState}
                 onFeatureFtypeChange={handleFeatureFtypeChange}
                 onFeatureColorChange={handleFeatureColorChange}
+                onFeatureLocationChange={handleFeatureLocationChange}
               />
             ) : (
               <Empty className="min-h-screen">

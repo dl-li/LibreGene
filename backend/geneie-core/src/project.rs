@@ -150,6 +150,27 @@ impl ProjectManager {
         }
     }
 
+    /// Update a feature's location by parsing a GenBank location string.
+    /// Returns None if the location string is invalid.
+    pub fn update_feature_location(
+        &mut self,
+        feature_id: &str,
+        location_str: &str,
+    ) -> Result<(), String> {
+        let parsed = crate::file_io::gbk::parse_location_string(location_str)
+            .ok_or_else(|| format!("Invalid location: {}", location_str))?;
+        let (segments, start, end, strand) = parsed;
+        if let Some(p) = self.get_project_mut() {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.segments = segments;
+                f.start = start;
+                f.end = end;
+                f.strand = strand;
+            }
+        }
+        Ok(())
+    }
+
     pub fn update_primers(&mut self, primers: Vec<crate::models::Primer>) {
         if let Some(p) = self.get_project_mut() {
             p.primers = primers;

@@ -74,9 +74,7 @@ function extractQualifiers(feature) {
     }
   } else if (feature.notes) {
     const trimmed = feature.notes.trim();
-    if (trimmed) {
-      quals.push({ key: 'note', value: trimmed });
-    }
+    if (trimmed) quals.push({ key: 'note', value: trimmed });
   }
 
   if (feature.translation) {
@@ -94,8 +92,11 @@ const HIGHLIGHT = '#1E40AF';
 const MONO = '"Cascadia Code", ui-monospace, monospace';
 
 /* ---------- Component ---------- */
-export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange }) {
+export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange }) {
   const [editingFtype, setEditingFtype] = useState(false);
+  const [editingLoc, setEditingLoc] = useState(false);
+  const [locInput, setLocInput] = useState('');
+  const [locError, setLocError] = useState('');
 
   const lines = useMemo(() => {
     if (!feature) return [];
@@ -115,31 +116,47 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
   if (!feature) return null;
 
   const currentFtype = feature.ftype || 'misc_feature';
+  const locLabel = lines.find(l => l.key === 'loc')?.label || '';
+
+  const submitLocation = async (value) => {
+    setEditingLoc(false);
+    if (!onFeatureLocationChange) return;
+    try {
+      await onFeatureLocationChange(feature.id, value);
+    } catch (e) {
+      setLocError(String(e));
+      setEditingLoc(true);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-base flex items-center gap-2">
-            <span
-              className="inline-block rounded border cursor-pointer"
-              style={{
-                width: 16, height: 16,
-                backgroundColor: feature.color || '#60A5FA',
-                borderColor: '#d1d5db',
-              }}
-              title="Click to change color"
-              onClick={() => {
-                const input = document.createElement('input');
-                input.type = 'color';
-                input.value = feature.color || '#60A5FA';
-                input.addEventListener('input', (e) => {
-                  onFeatureColorChange?.(feature.id, e.target.value);
-                });
-                input.click();
-              }}
-            />
-            Feature Info — {feature.name}
+            <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18 }}>
+              <span
+                style={{
+                  position: 'absolute', inset: 0,
+                  backgroundColor: feature.color || '#60A5FA',
+                  border: '2px solid #000',
+                  borderRadius: 2,
+                  pointerEvents: 'none',
+                }}
+              />
+              <input
+                type="color"
+                value={feature.color || '#60A5FA'}
+                onChange={(e) => onFeatureColorChange?.(feature.id, e.target.value)}
+                style={{
+                  position: 'absolute', inset: 0,
+                  width: '100%', height: '100%',
+                  padding: 0, border: 'none',
+                  opacity: 0, cursor: 'pointer',
+                }}
+              />
+            </span>
+            {feature.name}
           </DialogTitle>
         </DialogHeader>
 
@@ -177,7 +194,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                     </select>
                   ) : (
                     <span
-                      style={{ fontWeight: 900, color: '#1f2937', cursor: 'pointer' }}
+                      style={{ fontWeight: 900, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
                       onDoubleClick={() => setEditingFtype(true)}
                       title="Double-click to edit"
                     >{line.label}</span>
@@ -185,10 +202,36 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                 </div>
               );
             }
-            // Location line
+            // Location line — editable with backend validation
             return (
               <div key={i} className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                <span style={{ fontWeight: 900, color: '#1f2937' }}>{line.label}</span>
+                {editingLoc ? (
+                  <div>
+                    <input
+                      value={locInput}
+                      onChange={(e) => { setLocInput(e.target.value); setLocError(''); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { submitLocation(locInput); }
+                        else if (e.key === 'Escape') { setEditingLoc(false); setLocError(''); }
+                      }}
+                      onBlur={() => { if (!locError) { setEditingLoc(false); } }}
+                      autoFocus
+                      className="w-full text-sm border rounded px-1 py-0.5"
+                      style={{ fontWeight: 900, fontFamily: MONO }}
+                    />
+                    {locError && (
+                      <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: MONO, marginTop: 2 }}>
+                        {locError}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span
+                    style={{ fontWeight: 900, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
+                    onDoubleClick={() => { setLocInput(locLabel); setEditingLoc(true); setLocError(''); }}
+                    title="Double-click to edit"
+                  >{line.label}</span>
+                )}
               </div>
             );
           })}

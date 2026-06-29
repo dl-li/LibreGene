@@ -103,6 +103,10 @@ export async function updateFeatureColor(featureId, newColor) {
   return tauriInvoke('update_feature_color', { featureId, newColor });
 }
 
+export async function updateFeatureLocation(featureId, locationStr) {
+  return tauriInvoke('update_feature_location', { featureId, locationStr });
+}
+
 // ---------------------------------------------------------------------------
 // Primers
 // ---------------------------------------------------------------------------
