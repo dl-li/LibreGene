@@ -29,7 +29,9 @@ Geneie/
 │   ├── App.jsx                 # 顶层：Empty(无文件)/Sidebar+Editor(有文件)，状态管理
 │   ├── SequenceEditor.jsx      # 核心编辑器：SVG 渲染、选择/光标、酶/引物/特征渲染
 │   ├── editorConstants.js      # 共享常量与工具函数（cw, getX, measureWidth, splitRange）
+│   ├── editHistory.js          # 撤销/重做历史栈（快照: { sequence, features, cursorIndex, selStart, selEnd }）
 │   ├── tauriApi.js             # Tauri IPC API 客户端
+│   ├── FeatureInfoDialog.jsx   # 双击特征弹窗：GenBank信息、ftype/color/location编辑
 │   ├── ErrorBoundary.jsx       # React Error Boundary
 │   ├── primerRenderer.jsx      # 引物几何计算（segment path, hover background）
 │   ├── PrimerSegmentRenderer.jsx # 引物 segment 渲染组件
@@ -112,6 +114,22 @@ EnzymeLabels → EnzymeOverlay → HoveredFwdPrimer → SelectedPrimerOverlay �
 SequenceRows → EnzymeTooltip
 ```
 
+### 特征编辑（FeatureInfoDialog）
+- 双击 feature 弹窗展示 ftype / location / qualifiers（GenBank 格式）
+- ftype：双击下拉菜单切换类型；color：弹窗标题栏取色器；location：双击编辑 + 后端校验
+- 所有特征修改推入 `editHistory.push()`，支持 Cmd+Z 撤销并标记 dirty
+- Feature 模型新增 `qualifiers: Vec<(String, String)>` 存储原始 GenBank 键值对
+
+### 序列选择增强
+- 拖拽选择时在光标左侧显示 `N bp, ~Tm°C`（等宽字体、bgColor stroke、底部对齐竖线底端）
+- Tm 估算：Wallace rule (<20bp) / Marmur-Doty (≥20bp)
+- 悬浮碱基上方显示 1-based 序号（低透明度深棕色、bgColor stroke）
+- 序号仅在非拖拽时显示（选择完成后仍可看到）
+
+### 引物颜色安全
+- 前端 `safePrimerColor(c)` 过滤 `#000000`/`#000`/`black`，兜底为 `#166534`（绿色）
+- 前端 `p.color || '#166534'` + `PrimerSegmentRenderer` 均有安全兜底
+
 ### 重要约定
 - `matchStart/End` inclusive；`cutIndex` 0-based，切口在 `cutIndex-1` 与 `cutIndex` 之间
 - Rev 引物前端从右到左遍历，显示 5'→3'
@@ -121,11 +139,12 @@ SequenceRows → EnzymeTooltip
 
 ## API
 
-### Tauri Commands（21 个）
+### Tauri Commands（24 个）
 ```
 get_project, get_project_by_id, open_file, save_file, update_sequence,
 set_roi, clear_roi,
-get_features, add_feature, delete_feature,
+get_features, add_feature, delete_feature, update_feature_ftype, update_feature_color,
+update_feature_location,
 get_primers, add_primer, delete_primer,
 set_methylation,
 get_projects, activate_project, delete_project,
@@ -183,6 +202,6 @@ open_in_new_window, get_window_project_id
 |--------|------|------|
 | 中 | SequenceEditor.jsx ~1500 行 | 需拆分组件 |
 | 中 | PrimerLayer 重复代码 | 三个组件共享渲染逻辑需抽象 |
-| 中 | 选择渲染效果 | 背景色位置和光标交互需打磨 |
+| 中 | 引物编辑未接入 undo/redo | 需扩展 editHistory 快照格式 |
 | 低 | 前端纯 JS | TypeScript 迁移成本 3-5 天 |
 | 低 | FeatureLayer O(n²) 边界检测 | 实际特征数量少，不紧急 |
