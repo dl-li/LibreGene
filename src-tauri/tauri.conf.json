@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Geneie - Plasmid Editor",
+        "title": "Geneie",
         "width": 1400,
         "height": 900,
         "resizable": true,

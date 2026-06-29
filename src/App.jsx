@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureLocation } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, deleteProject, setWindowTitle } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, DialogClose,
 } from '@/components/ui/dialog';
-import { Dna, FolderOpen, ChevronDown, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Dna, FolderOpen, ChevronDown, ExternalLink, AlertTriangle, X } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -57,6 +57,7 @@ export default function App() {
   const unsavedPendingRef = useRef(null); // ref mirror of pendingAction for stale-closure-safe access
   const lastSavePathRef = useRef(null); // 最后保存/打开的路径
   const baselineSequenceRef = useRef(''); // 文件打开/保存时的基线序列（用于 undo/redo 后准确判断 dirty）
+  const baselinePerProjectRef = useRef({}); // { [projectId]: baselineSequence } — per-project baseline tracking
   const skipDirtyRef = useRef(false);    // 跳过脏检查标记（用于弹窗确认后的跳转/打开）
 
   // Cache methylation settings key — used to detect stale cache entries
@@ -167,13 +168,21 @@ export default function App() {
           if (pid) {
             editHistoryRef.current.reset({ sequence: data.sequence, features: data.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
             baselineSequenceRef.current = data.sequence;
+            baselinePerProjectRef.current[pid] = data.sequence;
             lastSavePathRef.current = pid;
             dirtyStateRef.current[pid] = false;
             setIsDirty(false);
           }
         }
         if (data && data.projects) setProjects(data.projects);
-        if (data && data.activeId !== undefined) setActiveId(data.activeId);
+        if (data && data.activeId !== undefined) {
+          setActiveId(data.activeId);
+          const pid = windowInfo.type === 'project' ? windowInfo.projectId : data.activeId;
+          if (pid && pid !== 'all') {
+            const fn = pid.split('/').pop().split('\\').pop();
+            setWindowTitle(fn);
+          }
+        }
         await refreshProjects();
       } catch {
         if (!cancelled) setBackendStatus(isTauri ? 'online' : 'offline');
@@ -186,8 +195,35 @@ export default function App() {
     if (windowInfo.type === 'main') {
       listener = listenProjectUpdates((msg) => {
         if (cancelled) return;
-        if (msg.projects) setProjects(msg.projects);
-        if (msg.activeId !== undefined) setActiveId(msg.activeId);
+        if (msg.projects) {
+          setProjects(msg.projects);
+          // Sync dirty flags from backend to per-project tracking
+          for (const p of msg.projects) {
+            if (p.dirty) dirtyStateRef.current[p.id] = true;
+          }
+        }
+        if (msg.activeId !== undefined) {
+          setActiveId(msg.activeId);
+        }
+        if (msg.data && msg.data.sequence && msg.activeId !== undefined) {
+          setSequence(msg.data.sequence);
+          setFeatures(msg.data.features || []);
+          setEnzymes(msg.data.enzymes || []);
+          setPrimers(msg.data.primers || []);
+          editHistoryRef.current.reset({
+            sequence: msg.data.sequence,
+            features: msg.data.features || EMPTY_ARRAY,
+            cursorIndex: null, selStart: null, selEnd: null,
+          });
+          baselineSequenceRef.current = msg.data.sequence;
+          baselinePerProjectRef.current[msg.activeId] = msg.data.sequence;
+          // Use backend dirty flag if available, fall back to local per-project tracking
+          const isDirtyFlag = msg.data.dirty === true;
+          if (isDirtyFlag) {
+            dirtyStateRef.current[msg.activeId] = true;
+          }
+          setIsDirty(isDirtyFlag);
+        }
       });
     }
 
@@ -258,11 +294,10 @@ export default function App() {
   }, []);
 
   const handleOpenFile = useCallback(async () => {
-    if (!skipDirtyRef.current && isDirty) {
-      openUnsavedDialog({ type: 'open' });
-      return;
+    // Save current project's dirty state before opening new files
+    if (activeId) {
+      dirtyStateRef.current[activeId] = isDirty;
     }
-    skipDirtyRef.current = false;
     let paths;
     if (isTauri) {
       paths = await openFileDialog();
@@ -301,22 +336,25 @@ export default function App() {
         if (pid) {
           editHistoryRef.current.reset({ sequence: lastData.sequence, features: lastData.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
           baselineSequenceRef.current = lastData.sequence;
+          baselinePerProjectRef.current[pid] = lastData.sequence;
           lastSavePathRef.current = pid;
           dirtyStateRef.current[pid] = false;
           setIsDirty(false);
         }
       }
+      const fn = paths[paths.length - 1].split('/').pop().split('\\').pop();
+      setWindowTitle(fn);
       setFileStatus('ok');
     } catch (e) {
       setFileStatus('error: ' + e.message);
     }
-  }, [isTauri, openPath, methKey, refreshProjects, syncMethylation, isDirty, openUnsavedDialog]);
+  }, [isTauri, openPath, methKey, refreshProjects, syncMethylation, activeId, isDirty]);
 
   const handleActivateProject = useCallback(async (id) => {
-    // Check dirty state before switching
-    if (!skipDirtyRef.current && activeId && activeId !== id && isDirty) {
-      openUnsavedDialog({ type: 'switch', targetId: id });
-      return;
+    // Save current project's dirty state and baseline before switching away
+    if (activeId && activeId !== id) {
+      dirtyStateRef.current[activeId] = isDirty;
+      baselinePerProjectRef.current[activeId] = baselineSequenceRef.current;
     }
     skipDirtyRef.current = false;
 
@@ -327,19 +365,27 @@ export default function App() {
     if (cached) {
       const methFresh = cached.methKey === methKey;
       setActiveId(id);
+      setRestoreState({
+        version: ++undoVersionRef.current,
+        cursorIndex: null,
+        selStart: null,
+        selEnd: null,
+      });
       setSequence(cached.sequence);
       setFeatures(cached.features);
       setEnzymes(cached.enzymes);
       setPrimers(cached.primers);
       // Reset undo history for the switched-to project
       editHistoryRef.current.reset({ sequence: cached.sequence, features: cached.features, cursorIndex: null, selStart: null, selEnd: null });
-      baselineSequenceRef.current = cached.sequence;
+      baselineSequenceRef.current = baselinePerProjectRef.current[id] ?? cached.sequence;
       lastSavePathRef.current = id;
-      dirtyStateRef.current[id] = false;
-      setIsDirty(false);
+      // Restore per-project dirty state and keep dirty indicator consistent
+      setIsDirty(dirtyStateRef.current[id] === true);
       if (!methFresh) {
         syncMethylation();
       }
+      const fn = id.split('/').pop().split('\\').pop();
+      setWindowTitle(fn);
     }
 
     try {
@@ -356,6 +402,12 @@ export default function App() {
             methKey,
           };
           setActiveId(id);
+          setRestoreState({
+            version: ++undoVersionRef.current,
+            cursorIndex: null,
+            selStart: null,
+            selEnd: null,
+          });
           setSequence(data.sequence);
           setFeatures(data.features || EMPTY_ARRAY);
           setEnzymes(data.enzymes || EMPTY_ARRAY);
@@ -364,9 +416,12 @@ export default function App() {
           // Reset undo history
           editHistoryRef.current.reset({ sequence: data.sequence, features: data.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
           baselineSequenceRef.current = data.sequence;
+          baselinePerProjectRef.current[id] = data.sequence;
           lastSavePathRef.current = id;
-          dirtyStateRef.current[id] = false;
-          setIsDirty(false);
+          // Restore per-project dirty state instead of always setting clean
+          setIsDirty(dirtyStateRef.current[id] === true);
+          const fn = id.split('/').pop().split('\\').pop();
+          setWindowTitle(fn);
         }
 
         if (data.projects) setProjects(data.projects);
@@ -374,7 +429,7 @@ export default function App() {
     } catch (e) {
       console.error('activate project error:', e);
     }
-  }, [methKey, syncMethylation, activeId, isDirty, openUnsavedDialog]);
+  }, [methKey, syncMethylation, activeId, isDirty]);
 
   // --- Edit request from SequenceEditor: open the confirmation dialog ---
   const handleEditRequest = useCallback((request) => {
@@ -422,6 +477,24 @@ export default function App() {
       }
     } catch (e) {
       console.error('update feature color error:', e);
+    }
+  }, [activeId, sequence, features]);
+
+  const handleFeatureNameChange = useCallback(async (featureId, newName) => {
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await updateFeatureName(featureId, newName);
+      if (data && data.features) {
+        setFeatures(data.features);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      console.error('update feature name error:', e);
     }
   }, [activeId, sequence, features]);
 
@@ -718,6 +791,7 @@ export default function App() {
       if (result && !result.error) {
         lastSavePathRef.current = path;
         baselineSequenceRef.current = sequenceRef.current || sequence;
+        baselinePerProjectRef.current[path] = baselineSequenceRef.current;
         dirtyStateRef.current[path] = false;
         setIsDirty(false);
       }
@@ -744,7 +818,7 @@ export default function App() {
       const result = await saveFile({ path: filePath });
       if (result && !result.error) {
         baselineSequenceRef.current = sequenceRef.current || sequence;
-        dirtyStateRef.current[filePath] = false;
+        baselinePerProjectRef.current[filePath] = baselineSequenceRef.current;
         setIsDirty(false);
       } else {
         console.error('save error:', result?.error);
@@ -753,6 +827,55 @@ export default function App() {
       console.error('save exception:', e);
     }
   }, [activeId]);
+
+  // Internal: actually perform the close (no dirty check)
+  const doCloseProject = useCallback(async (id) => {
+    try {
+      const data = await deleteProject(id);
+      if (data && data.error) return;
+
+      // Clean up per-project state
+      delete dirtyStateRef.current[id];
+      delete baselinePerProjectRef.current[id];
+      delete projectCacheRef.current[id];
+
+      // If the closed project was active, load the new active project's data
+      if (id === activeId) {
+        const newData = await getProject('all');
+        if (newData && !newData.error && newData.sequence) {
+          setSequence(newData.sequence);
+          setFeatures(newData.features || EMPTY_ARRAY);
+          setEnzymes(newData.enzymes || EMPTY_ARRAY);
+          setPrimers(newData.primers || EMPTY_ARRAY);
+          editHistoryRef.current.reset({ sequence: newData.sequence, features: newData.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
+          baselineSequenceRef.current = newData.sequence;
+          setIsDirty(false);
+        }
+        if (newData && newData.projects) setProjects(newData.projects);
+        if (newData && newData.activeId !== undefined) {
+          setActiveId(newData.activeId);
+          if (newData.activeId && newData.activeId !== 'all') {
+            const fn = newData.activeId.split('/').pop().split('\\').pop();
+            setWindowTitle(fn);
+          } else {
+            setWindowTitle('Geneie');
+          }
+        }
+      }
+    } catch (e) {
+      console.error('close project error:', e);
+    }
+  }, [activeId]);
+
+  // Public close handler with dirty check
+  const handleCloseProject = useCallback(async (id) => {
+    const isProjectDirty = id === activeId ? isDirty : dirtyStateRef.current[id] === true;
+    if (isProjectDirty) {
+      openUnsavedDialog({ type: 'close', targetId: id });
+      return;
+    }
+    doCloseProject(id);
+  }, [activeId, isDirty, openUnsavedDialog, doCloseProject]);
 
   // --- Unsaved changes dialog handlers ---
   const handleUnsavedSave = useCallback(async () => {
@@ -765,8 +888,10 @@ export default function App() {
       handleActivateProject(pending.targetId);
     } else if (pending?.type === 'open') {
       handleOpenFile();
+    } else if (pending?.type === 'close' && pending.targetId) {
+      doCloseProject(pending.targetId);
     }
-  }, [handleSave, handleActivateProject, handleOpenFile]);
+  }, [handleSave, handleActivateProject, handleOpenFile, doCloseProject]);
 
   const handleUnsavedDiscard = useCallback(() => {
     const pending = unsavedPendingRef.current;
@@ -777,8 +902,10 @@ export default function App() {
       handleActivateProject(pending.targetId);
     } else if (pending?.type === 'open') {
       handleOpenFile();
+    } else if (pending?.type === 'close' && pending.targetId) {
+      doCloseProject(pending.targetId);
     }
-  }, [handleActivateProject, handleOpenFile]);
+  }, [handleActivateProject, handleOpenFile, doCloseProject]);
 
   const handleUnsavedCancel = useCallback(() => {
     setUnsavedDialog({ open: false, pendingAction: null });
@@ -867,7 +994,7 @@ export default function App() {
             <SidebarGroup>
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="cursor-pointer">
-                  Open Files
+                  Opened Files
                   <ChevronDown className={`ml-auto size-4 shrink-0 transition-transform ${filesOpen ? 'rotate-0' : '-rotate-90'}`} />
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
@@ -875,21 +1002,32 @@ export default function App() {
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {projects.map(p => (
-                      <SidebarMenuItem key={p.id}>
+                      <SidebarMenuItem key={p.id} className="flex items-center">
                         <SidebarMenuButton
                           onClick={() => handleActivateProject(p.id)}
                           isActive={p.id === activeId}
+                          className="flex-1"
                         >
                           {(() => { const Icon = getFileIcon(fileName(p)); return <Icon className="size-4 shrink-0" />; })()}
-                          <span className="truncate">{fileName(p)}{p.id === activeId && isDirty ? ' *' : ''}</span>
+                          <span className="truncate hover:overflow-x-auto hover:[text-overflow:clip] [scrollbar-width:none] [&::-webkit-scrollbar]:[display:none]">{fileName(p)}{(p.id === activeId && isDirty) || dirtyStateRef.current[p.id] ? ' *' : ''}</span>
                         </SidebarMenuButton>
-                        <button
-                          className="ml-auto size-4 shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
-                          onClick={(e) => { e.stopPropagation(); handleOpenInNewWindow(p.id); }}
-                          title="Open in new window"
-                        >
-                          <ExternalLink className="size-3.5" />
-                        </button>
+                        <div className="flex items-center gap-0.5 shrink-0 group-data-[state=collapsed]:hidden">
+                          <button
+                            className="size-4 shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); handleOpenInNewWindow(p.id); }}
+                            title="Open in new window"
+                            hidden={projects.length <= 1}
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </button>
+                          <button
+                            className="size-4 shrink-0 opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); handleCloseProject(p.id); }}
+                            title="Close"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
                       </SidebarMenuItem>
                     ))}
                   </SidebarMenu>
@@ -906,7 +1044,7 @@ export default function App() {
     <TooltipProvider>
       <SidebarProvider
         open={sidebarHover}
-        style={{ "--sidebar-width": "12rem" }}
+        style={{ "--sidebar-width": "14rem" }}
       >
         <div className="relative min-h-screen w-full bg-[#fdfbf7]">
           {/* Only show sidebar in main window */}
@@ -933,6 +1071,7 @@ export default function App() {
                 onFeatureFtypeChange={handleFeatureFtypeChange}
                 onFeatureColorChange={handleFeatureColorChange}
                 onFeatureLocationChange={handleFeatureLocationChange}
+                onFeatureNameChange={handleFeatureNameChange}
               />
             ) : (
               <Empty className="min-h-screen">

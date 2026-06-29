@@ -375,12 +375,18 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                     })
                     .next()
                     .unwrap_or("")
-                    .to_string();
+                    .replace(',', "");   // SnapGene uses commas as CDS gap markers; strip them
 
-                // Collect raw qualifier key-value pairs
+                // Collect raw qualifier key-value pairs (filter out internal ones like gbk.rs does)
+                let skip_keys: std::collections::HashSet<&str> = [
+                    "label", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
+                    "geneie_color", "direction", "directionality",
+                    "geneie_primer_id", "geneie_primer_seq", "geneie_primer_type",
+                ].into_iter().collect();
                 let qualifiers: Vec<(String, String)> = sf
                     .qualifiers
                     .iter()
+                    .filter(|q| !skip_keys.contains(q.name.as_str()))
                     .filter_map(|q| {
                         q.values.first().and_then(|v| {
                             v.text

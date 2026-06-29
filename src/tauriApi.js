@@ -11,6 +11,18 @@ let invoke;
 let listen;
 let dialog;
 
+/**
+ * Set the Tauri window title.
+ * Falls back silently outside Tauri.
+ */
+export async function setWindowTitle(title) {
+  if (!isTauri) return;
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await getCurrentWindow().setTitle(title);
+  } catch (_) { /* ignore */ }
+}
+
 async function tauriInvoke(cmd, args) {
   if (!invoke) {
     const mod = await import('@tauri-apps/api/core');
@@ -105,6 +117,10 @@ export async function updateFeatureColor(featureId, newColor) {
 
 export async function updateFeatureLocation(featureId, locationStr) {
   return tauriInvoke('update_feature_location', { featureId, locationStr });
+}
+
+export async function updateFeatureName(featureId, newName) {
+  return tauriInvoke('update_feature_name', { featureId, newName });
 }
 
 // ---------------------------------------------------------------------------

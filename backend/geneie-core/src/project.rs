@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::ProjectData;
 
@@ -9,7 +9,11 @@ const MAX_PROJECTS: usize = 24;
 #[derive(Default)]
 pub struct ProjectManager {
     projects: HashMap<String, ProjectData>,
+    /// Insertion order tracking for deterministic project listing (newest at end).
+    ordered_ids: Vec<String>,
     active: Option<String>,
+    /// Set of project IDs that have unsaved modifications.
+    dirty_projects: HashSet<String>,
 }
 
 impl ProjectManager {
@@ -23,11 +27,12 @@ impl ProjectManager {
         if self.projects.len() < MAX_PROJECTS || self.projects.is_empty() {
             return;
         }
-        // Evict the first non-active project
-        let keys: Vec<String> = self.projects.keys().cloned().collect();
-        for k in &keys {
+        // Evict the oldest non-active project (first in insertion order that isn't active)
+        for k in &self.ordered_ids.clone() {
             if Some(k.as_str()) != self.active.as_deref() {
                 self.projects.remove(k);
+                self.ordered_ids.retain(|i| i != k);
+                self.dirty_projects.remove(k);
                 return;
             }
         }
@@ -37,6 +42,7 @@ impl ProjectManager {
         // Only evict when adding a genuinely new entry
         if !self.projects.contains_key(id) {
             self.evict_one();
+            self.ordered_ids.push(id.to_string());
         }
         self.projects.insert(id.to_string(), project.clone());
         self.active = Some(id.to_string());
@@ -46,6 +52,7 @@ impl ProjectManager {
         // Only evict when adding a genuinely new entry
         if !self.projects.contains_key(&id) {
             self.evict_one();
+            self.ordered_ids.push(id.clone());
         }
         self.projects.insert(id.clone(), project);
         self.active = Some(id);
@@ -77,16 +84,17 @@ impl ProjectManager {
     }
 
     pub fn list_projects(&self) -> Vec<serde_json::Value> {
-        self.projects
+        self.ordered_ids
             .iter()
-            .map(|(id, p)| {
+            .filter_map(|id| self.projects.get(id).map(|p| {
                 serde_json::json!({
                     "id": id,
                     "name": id,
                     "length": p.length,
                     "topology": p.topology,
+                    "dirty": self.dirty_projects.contains(id.as_str()),
                 })
-            })
+            }))
             .collect()
     }
 
@@ -99,10 +107,27 @@ impl ProjectManager {
         }
     }
 
+    /// Mark a project as having unsaved changes.
+    pub fn mark_dirty(&mut self, id: &str) {
+        self.dirty_projects.insert(id.to_string());
+    }
+
+    /// Mark a project as clean (saved to disk).
+    pub fn mark_clean(&mut self, id: &str) {
+        self.dirty_projects.remove(id);
+    }
+
+    /// Check whether a project has unsaved changes.
+    pub fn is_dirty(&self, id: &str) -> bool {
+        self.dirty_projects.contains(id)
+    }
+
     pub fn close_project(&mut self, id: &str) -> bool {
         let existed = self.projects.remove(id).is_some();
+        self.ordered_ids.retain(|i| i != id);
+        self.dirty_projects.remove(id);
         if self.active.as_deref() == Some(id) {
-            self.active = self.projects.keys().next().cloned();
+            self.active = self.ordered_ids.first().cloned();
         }
         existed
     }
@@ -123,12 +148,18 @@ impl ProjectManager {
         if let Some(p) = self.get_project_mut() {
             p.sequence = seq;
             p.length = p.sequence.len() as i64;
+            if let Some(ref active) = self.active {
+                self.dirty_projects.insert(active.clone());
+            }
         }
     }
 
     pub fn update_features(&mut self, features: Vec<crate::models::Feature>) {
         if let Some(p) = self.get_project_mut() {
             p.features = features;
+            if let Some(ref active) = self.active {
+                self.dirty_projects.insert(active.clone());
+            }
         }
     }
 
@@ -138,6 +169,9 @@ impl ProjectManager {
             if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
                 f.ftype = new_ftype.to_string();
             }
+            if let Some(ref active) = self.active {
+                self.dirty_projects.insert(active.clone());
+            }
         }
     }
 
@@ -146,6 +180,9 @@ impl ProjectManager {
         if let Some(p) = self.get_project_mut() {
             if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
                 f.color = new_color.to_string();
+            }
+            if let Some(ref active) = self.active {
+                self.dirty_projects.insert(active.clone());
             }
         }
     }
@@ -167,6 +204,9 @@ impl ProjectManager {
                 f.end = end;
                 f.strand = strand;
             }
+            if let Some(ref active) = self.active {
+                self.dirty_projects.insert(active.clone());
+            }
         }
         Ok(())
     }
@@ -174,6 +214,9 @@ impl ProjectManager {
     pub fn update_primers(&mut self, primers: Vec<crate::models::Primer>) {
         if let Some(p) = self.get_project_mut() {
             p.primers = primers;
+            if let Some(ref active) = self.active {
+                self.dirty_projects.insert(active.clone());
+            }
         }
     }
 

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::RwLock;
 
 use geneie_core::enzyme;
@@ -49,6 +49,31 @@ async fn resolve_project_id(state: &State<'_, AppState>, window_label: &str) -> 
     // Fall back to active project (main window)
     let pm = state.pm.read().await;
     pm.active_id().map(|s| s.to_string())
+}
+
+/// Returns the set of project IDs that are currently open in dedicated project windows.
+/// These projects should be hidden from the main window's sidebar.
+fn excluded_project_ids(wp: &tokio::sync::RwLockReadGuard<HashMap<String, String>>) -> HashSet<String> {
+    wp.values().cloned().collect()
+}
+
+/// Filter out projects that are open in project windows, and adjust the activeId
+/// if it points to an excluded project.
+fn filter_main_window_projects(
+    projects: Vec<serde_json::Value>,
+    excluded: &HashSet<String>,
+    active_id: Option<String>,
+) -> (Vec<serde_json::Value>, Option<String>) {
+    let filtered: Vec<_> = projects
+        .into_iter()
+        .filter(|p| p["id"].as_str().map_or(true, |id| !excluded.contains(id)))
+        .collect();
+    let active = active_id.filter(|id| !excluded.contains(id.as_str()))
+        .or_else(|| {
+            filtered.first()
+                .and_then(|p| p["id"].as_str().map(String::from))
+        });
+    (filtered, active)
 }
 
 /// Inject projects list and activeId into a JSON response so the main
@@ -124,27 +149,35 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
     })
 }
 
-/// Emit the current project state + project list as a Tauri event.
+/// Emit the current project state + filtered project list as a Tauri event.
 async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>) {
     let pm = state.pm.read().await;
-    if let Some(project) = pm.get_project() {
-        let projects = pm.list_projects();
-        let active_id = pm.active_id().map(|s| s.to_string());
-        let params = ProjectParams {
-            enzyme_filter: Some("all".to_string()),
-            row_start: None,
-            row_end: None,
-            cpl: None,
-        };
-        let filtered = filter_project(project, &params);
-        let payload = serde_json::json!({
-            "type": "project",
-            "data": filtered,
-            "projects": projects,
-            "activeId": active_id,
-        });
-        let _ = app_handle.emit("project-update", payload);
+    let wp = state.window_projects.read().await;
+    let excluded = excluded_project_ids(&wp);
+    let all_projects = pm.list_projects();
+    let raw_active_id = pm.active_id().map(|s| s.to_string());
+    let (filtered_projects, active_id) = filter_main_window_projects(all_projects, &excluded, raw_active_id);
+    let mut payload = serde_json::json!({
+        "projects": filtered_projects,
+        "activeId": active_id,
+    });
+    // Include project data if there's an active project in the main window
+    if let Some(ref active) = active_id {
+        if let Some(project) = pm.get_project_by_id(active) {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            let mut filtered = filter_project(project, &params);
+            if let Some(ref mut map) = filtered.as_object_mut() {
+                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
+            }
+            payload["data"] = filtered;
+        }
     }
+    let _ = app_handle.emit("project-update", payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,10 +261,19 @@ async fn save_file(
     let project_id = resolve_project_id(&state, webview_window.label()).await;
     match project_id {
         Some(id) => {
-            let pm = state.pm.read().await;
-            match pm.get_project_by_id(&id) {
-                Some(project) => match file_io::gbk::write_gbk(project, &save_path) {
-                    Ok(()) => Ok(serde_json::json!({"status": "ok"})),
+            let project;
+            {
+                let pm = state.pm.read().await;
+                project = pm.get_project_by_id(&id).cloned();
+            }
+            match project {
+                Some(ref p) => match file_io::gbk::write_gbk(p, &save_path) {
+                    Ok(()) => {
+                        // Mark project as clean after successful save
+                        let mut pm = state.pm.write().await;
+                        pm.mark_clean(&id);
+                        Ok(serde_json::json!({"status": "ok"}))
+                    }
                     Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
                 },
                 None => Ok(serde_json::json!({"error": "Project not found"})),
@@ -263,6 +305,7 @@ async fn update_sequence(
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             p.sequence = sequence;
             p.length = p.sequence.len() as i64;
+            pm.mark_dirty(&project_id);
         }
     }
 
@@ -449,7 +492,12 @@ async fn update_feature_ftype(
 
     {
         let mut pm = state.pm.write().await;
-        pm.update_feature_ftype(&feature_id, &new_ftype);
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.ftype = new_ftype;
+            }
+            pm.mark_dirty(&project_id);
+        }
     }
 
     // Return updated project
@@ -487,7 +535,54 @@ async fn update_feature_color(
 
     {
         let mut pm = state.pm.write().await;
-        pm.update_feature_color(&feature_id, &new_color);
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.color = new_color;
+            }
+            pm.mark_dirty(&project_id);
+        }
+    }
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands — feature name
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn update_feature_name(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    feature_id: String,
+    new_name: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    {
+        let mut pm = state.pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.name = new_name;
+            }
+            pm.mark_dirty(&project_id);
+        }
     }
 
     let pm = state.pm.read().await;
@@ -524,8 +619,18 @@ async fn update_feature_location(
 
     {
         let mut pm = state.pm.write().await;
-        pm.update_feature_location(&feature_id, &location_str)
-            .map_err(|e| e)?;
+        let parsed = geneie_core::file_io::gbk::parse_location_string(&location_str)
+            .ok_or_else(|| format!("Invalid location: {}", location_str))?;
+        let (segments, start, end, strand) = parsed;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.segments = segments;
+                f.start = start;
+                f.end = end;
+                f.strand = strand;
+            }
+            pm.mark_dirty(&project_id);
+        }
     }
 
     let pm = state.pm.read().await;
@@ -719,11 +824,14 @@ async fn set_methylation(
 #[tauri::command]
 async fn get_projects(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let pm = state.pm.read().await;
-    let projects = pm.list_projects();
-    let active = pm.active_id().map(|s| s.to_string());
+    let wp = state.window_projects.read().await;
+    let excluded = excluded_project_ids(&wp);
+    let all_projects = pm.list_projects();
+    let raw_active = pm.active_id().map(|s| s.to_string());
+    let (projects, active_id) = filter_main_window_projects(all_projects, &excluded, raw_active);
     Ok(serde_json::json!({
         "projects": projects,
-        "activeId": active,
+        "activeId": active_id,
     }))
 }
 
@@ -856,7 +964,7 @@ async fn open_in_new_window(
     }
 
     // Create the new window
-    let _window = WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
         WebviewUrl::App("index.html".into()),
@@ -865,6 +973,27 @@ async fn open_in_new_window(
     .inner_size(1400.0, 900.0)
     .build()
     .map_err(|e| format!("failed to create window: {e}"))?;
+
+    // When the project window is destroyed, restore the project to the main window
+    let ah = app_handle.clone();
+    let lbl = window_label.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            let ah = ah.clone();
+            let lbl = lbl.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = ah.state::<AppState>();
+                {
+                    let mut wp = state.window_projects.write().await;
+                    wp.remove(&lbl);
+                }
+                broadcast_project(&ah, &state).await;
+            });
+        }
+    });
+
+    // Broadcast so the main window updates its sidebar immediately
+    broadcast_project(&app_handle, &state).await;
 
     Ok(serde_json::json!({"status": "ok", "windowLabel": window_label}))
 }
@@ -906,6 +1035,7 @@ pub fn run() {
             delete_feature,
             update_feature_ftype,
             update_feature_color,
+            update_feature_name,
             update_feature_location,
             get_primers,
             add_primer,
