@@ -187,6 +187,9 @@ pub struct Feature {
     /// AA sequence (CDS only)
     #[serde(default)]
     pub translation: String,
+    /// Raw GenBank qualifier key-value pairs
+    #[serde(default)]
+    pub qualifiers: Vec<(String, String)>,
 }
 
 fn default_feature_color() -> String {
