@@ -153,12 +153,15 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             .collect::<Vec<_>>()
             .join("; ");
 
-        // Collect remaining qualifiers (filter out ones we store separately)
+        // Collect remaining qualifiers (filter out ones we store separately or add synthetically)
         let skip_keys: std::collections::HashSet<&str> = [
-            "label", "note", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
+            "label", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
             "geneie_color", "direction", "geneie_primer_id", "geneie_primer_seq",
             "geneie_primer_type",
         ].into_iter().collect();
+        // Keep "note" in qualifiers — the notes field is a ";"-joined copy that can't
+        // round-trip note values whose content contains "; ".  The dialog uses qualifiers
+        // when available and falls back to the notes field for backward compat.
         let qualifiers: Vec<(String, String)> = f
             .qualifiers
             .iter()

@@ -19,30 +19,48 @@ function gbLocation(feature) {
 /* ---------- Qualifier extraction ---------- */
 function extractQualifiers(feature) {
   const quals = [];
+  const skipNotePrefixes = ['color:', 'direction:'];
 
   // Label
   if (feature.name) {
     quals.push({ key: 'label', value: feature.name });
   }
 
-  // Notes — filter out synthetic color/direction notes
-  const skipNotes = new Set(['color', 'direction']);
-  if (feature.notes) {
-    for (const note of feature.notes.split('; ')) {
-      const trimmed = note.trim();
-      if (!trimmed) continue;
-      const [prefix] = trimmed.split(':');
-      if (skipNotes.has(prefix)) continue;
-      quals.push({ key: 'note', value: trimmed });
+  // Collect raw qualifiers into a Map<key, values[]>
+  const rawQuals = new Map();
+  if (feature.qualifiers && Array.isArray(feature.qualifiers)) {
+    for (const q of feature.qualifiers) {
+      if (Array.isArray(q) && q.length >= 2) {
+        const key = String(q[0]);
+        const val = String(q[1] ?? '');
+        if (!rawQuals.has(key)) rawQuals.set(key, []);
+        rawQuals.get(key).push(val);
+      }
     }
   }
 
-  // Raw GenBank qualifiers (gene, product, codon_start, etc.)
-  if (feature.qualifiers && Array.isArray(feature.qualifiers) && feature.qualifiers.length) {
-    for (const q of feature.qualifiers) {
-      if (Array.isArray(q) && q.length >= 2) {
-        quals.push({ key: String(q[0]), value: String(q[1] ?? '') });
-      }
+  // Non-note raw qualifiers (gene, product, codon_start, etc.)
+  for (const [key, vals] of rawQuals) {
+    if (key === 'note') continue;
+    for (const v of vals) {
+      quals.push({ key, value: v });
+    }
+  }
+
+  // Notes: use individual entries from raw qualifiers whenever possible
+  const rawNotes = rawQuals.get('note');
+  if (rawNotes && rawNotes.length > 0) {
+    for (const v of rawNotes) {
+      const trimmed = v.trim();
+      if (!trimmed) continue;
+      if (skipNotePrefixes.some(p => trimmed.startsWith(p))) continue;
+      quals.push({ key: 'note', value: trimmed });
+    }
+  } else if (feature.notes) {
+    // Backward compat: display the entire notes field as one /note entry
+    const trimmed = feature.notes.trim();
+    if (trimmed) {
+      quals.push({ key: 'note', value: trimmed });
     }
   }
 
@@ -59,43 +77,49 @@ function extractQualifiers(feature) {
 
 /* ---------- Line renderer ---------- */
 const HIGHLIGHT = '#1E40AF'; // enzyme active blue
+const MONO = '"Cascadia Code", ui-monospace, monospace';
 
 function GbLine({ label, children, isKey }) {
   if (isKey) {
     return (
-      <div className="leading-6" style={{ fontFamily: '"Cascadia Code", ui-monospace, monospace', fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+      <div className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
         <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{label}</span>
         <span>{children}</span>
       </div>
     );
   }
-  // Location line — indent + no key highlight
+  // Highlighted header line (ftype or location)
   return (
-    <div className="leading-6" style={{ fontFamily: '"Cascadia Code", ui-monospace, monospace', fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-      <span style={{ color: '#374151' }}>{label}</span>
+    <div className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+      <span style={{ fontWeight: 600, color: HIGHLIGHT }}>{label}</span>
     </div>
   );
 }
 
 /* ---------- Component ---------- */
 export default function FeatureInfoDialog({ feature, open, onOpenChange }) {
-  const { loc, ftype, lines } = useMemo(() => {
-    if (!feature) return { loc: '', ftype: '', lines: [] };
+  const lines = useMemo(() => {
+    if (!feature) return [];
 
     const loc = gbLocation(feature);
     const ftype = feature.ftype || 'misc_feature';
     const quals = extractQualifiers(feature);
 
     const lines = [];
-    // First line: location with indented ftype
-    lines.push({ isKey: false, label: `${ftype.padEnd(20)}${loc}` });
+    // Line 1: ftype (highlighted)
+    lines.push({ key: 'ftype', label: ftype });
+    // Line 2: location (highlighted)
+    lines.push({ key: 'loc', label: loc });
 
+    // Qualifier lines
     for (const q of quals) {
       const escaped = q.value.includes('"') ? q.value.replace(/"/g, '\\"') : q.value;
-      lines.push({ isKey: true, label: `/${q.key}`, children: `="${escaped}"` });
+      const label = `/${q.key}`;
+      const children = `="${escaped}"`;
+      lines.push({ key: label, label, children, isKey: true });
     }
 
-    return { loc, ftype, lines };
+    return lines;
   }, [feature]);
 
   if (!feature) return null;
@@ -111,15 +135,20 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange }) {
           className="flex-1 overflow-y-auto rounded border p-4 mt-2"
           style={{ backgroundColor: '#faf9f7' }}
         >
-          {lines.length > 0 && (
-            <GbLine label={lines[0].label} isKey={false} />
-          )}
-          {lines.slice(1).length > 0 && <div className="mt-1" />}
-          {lines.slice(1).map((line, i) => (
-            <GbLine key={i} label={line.label} isKey={line.isKey}>{line.children}</GbLine>
+          {lines.map((line, i) => (
+            line.isKey ? (
+              <div key={i} className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{line.label}</span>
+                <span>{line.children}</span>
+              </div>
+            ) : (
+              <div key={i} className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                <span style={{ fontWeight: 600, color: HIGHLIGHT }}>{line.label}</span>
+              </div>
+            )
           ))}
           {lines.length === 0 && (
-            <div className="text-sm text-muted-foreground italic">No qualifier data</div>
+            <div className="text-sm text-muted-foreground italic">No data</div>
           )}
         </div>
 
