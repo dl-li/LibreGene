@@ -377,6 +377,21 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                     .unwrap_or("")
                     .to_string();
 
+                // Collect raw qualifier key-value pairs
+                let qualifiers: Vec<(String, String)> = sf
+                    .qualifiers
+                    .iter()
+                    .filter_map(|q| {
+                        q.values.first().and_then(|v| {
+                            v.text
+                                .as_deref()
+                                .or(v.predef.as_deref())
+                                .or(v.int_val.as_deref())
+                                .map(|val| (q.name.clone(), val.to_string()))
+                        })
+                    })
+                    .collect();
+
                 features.push(Feature {
                     id: format!("{}_{}", name, start),
                     name,
@@ -388,7 +403,7 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                     strand: strand.to_string(),
                     notes,
                     translation,
-                    qualifiers: vec![],
+                    qualifiers,
                 });
             }
         }
