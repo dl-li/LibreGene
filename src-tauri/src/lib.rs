@@ -469,6 +469,43 @@ async fn update_feature_ftype(
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — feature color
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn update_feature_color(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    feature_id: String,
+    new_color: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    {
+        let mut pm = state.pm.write().await;
+        pm.update_feature_color(&feature_id, &new_color);
+    }
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — primers
 // ---------------------------------------------------------------------------
 
@@ -830,6 +867,7 @@ pub fn run() {
             add_feature,
             delete_feature,
             update_feature_ftype,
+            update_feature_color,
             get_primers,
             add_primer,
             delete_primer,

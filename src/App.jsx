@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -391,14 +391,39 @@ export default function App() {
 
   const handleFeatureFtypeChange = useCallback(async (featureId, newFtype) => {
     try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
       const data = await updateFeatureFtype(featureId, newFtype);
       if (data && data.features) {
         setFeatures(data.features);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
       }
     } catch (e) {
       console.error('update feature ftype error:', e);
     }
-  }, []);
+  }, [activeId, sequence, features]);
+
+  const handleFeatureColorChange = useCallback(async (featureId, newColor) => {
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await updateFeatureColor(featureId, newColor);
+      if (data && data.features) {
+        setFeatures(data.features);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      console.error('update feature color error:', e);
+    }
+  }, [activeId, sequence, features]);
 
   /**
    * 调整特征/注释放置位置以适配编辑后的序列。
@@ -888,6 +913,7 @@ export default function App() {
                 onEditRequest={handleEditRequest}
                 restoreState={restoreState}
                 onFeatureFtypeChange={handleFeatureFtypeChange}
+                onFeatureColorChange={handleFeatureColorChange}
               />
             ) : (
               <Empty className="min-h-screen">

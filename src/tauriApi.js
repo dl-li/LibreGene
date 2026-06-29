@@ -99,6 +99,10 @@ export async function updateFeatureFtype(featureId, newFtype) {
   return tauriInvoke('update_feature_ftype', { featureId, newFtype });
 }
 
+export async function updateFeatureColor(featureId, newColor) {
+  return tauriInvoke('update_feature_color', { featureId, newColor });
+}
+
 // ---------------------------------------------------------------------------
 // Primers
 // ---------------------------------------------------------------------------

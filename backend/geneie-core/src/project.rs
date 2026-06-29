@@ -141,6 +141,15 @@ impl ProjectManager {
         }
     }
 
+    /// Update the `color` field of a single feature identified by `feature_id`.
+    pub fn update_feature_color(&mut self, feature_id: &str, new_color: &str) {
+        if let Some(p) = self.get_project_mut() {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.color = new_color.to_string();
+            }
+        }
+    }
+
     pub fn update_primers(&mut self, primers: Vec<crate::models::Primer>) {
         if let Some(p) = self.get_project_mut() {
             p.primers = primers;
