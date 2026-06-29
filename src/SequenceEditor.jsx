@@ -75,6 +75,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef({ startIdx: null, active: false });
   const isDraggingRef = useRef(false);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const hoveredIndexRef = useRef(null);
   const cursorTimerRef = useRef(null);
   const resetCursorTimer = useCallback(() => {
     if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
@@ -193,6 +195,23 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   }, [layoutKey]);
 
   const cleanSeq = sequence || '';
+
+  // Simple Tm estimation: Wallace rule (<20bp) or Marmur-Doty adjusted formula
+  function calcTm(seq) {
+    const len = seq.length;
+    if (len < 2) return null;
+    let a = 0, t = 0, g = 0, c = 0;
+    for (const ch of seq.toUpperCase()) {
+      if (ch === 'A') a++;
+      else if (ch === 'T') t++;
+      else if (ch === 'G') g++;
+      else if (ch === 'C') c++;
+    }
+    const total = a + t + g + c;
+    if (total === 0) return null;
+    if (len < 20) return Math.round(2 * (a + t) + 4 * (g + c));
+    return Math.round(64.9 + 41 * ((g + c) - 16.4) / total);
+  }
 
   // Enrich primers with flat fields from bindingSites data model (v2).
   const enrichedPrimers = useMemo(() => (primers || []).map(p => {
@@ -592,6 +611,31 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     return Math.max(0, Math.min(cleanSeq.length, idx));
   }, [charsPerLine, numRows, getSeqY, cleanSeq]);
 
+  // Returns which character the pointer is over (0-based char index), not the insertion point
+  const clientToCharIndex = useCallback((clientX, clientY) => {
+    if (!svgRef.current) return null;
+    const pt = svgRef.current.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const ctm = svgRef.current.getScreenCTM();
+    if (!ctm) return null;
+    const svgPt = pt.matrixTransform(ctm.inverse());
+    const xRel = svgPt.x - startX;
+    if (xRel < -cw / 2 || xRel > charsPerLine * cw + cw / 2) return null;
+    let col = Math.floor(xRel / cw);
+    if (xRel < 0) col = 0;
+    if (col >= charsPerLine) col = charsPerLine - 1;
+    let row = -1;
+    for (let r = 0; r < numRows; r++) {
+      const sy = getSeqY(r);
+      const top = sy - rowAbove[r];
+      const bottom = r < numRows - 1 ? getSeqY(r + 1) - rowAbove[r + 1] : Infinity;
+      if (svgPt.y >= top && svgPt.y < bottom) { row = r; break; }
+    }
+    if (row < 0) return null;
+    const idx = row * charsPerLine + col;
+    return Math.max(0, Math.min(cleanSeq.length - 1, idx));
+  }, [charsPerLine, numRows, getSeqY, cleanSeq]);
+
   const handleSvgMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
     // Reset enzyme selection when clicking on sequence directly
@@ -628,6 +672,26 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     setSelEnd(null);
     resetCursorTimer();
   }, [clientToSeqIndex, resetCursorTimer, clearCursorTimer, cursorIndex]);
+
+  const handleSvgMouseMove = useCallback((e) => {
+    if (isDraggingRef.current) {
+      if (hoveredIndexRef.current !== null) {
+        hoveredIndexRef.current = null;
+        setHoveredIndex(null);
+      }
+      return;
+    }
+    const idx = clientToCharIndex(e.clientX, e.clientY);
+    if (idx !== hoveredIndexRef.current) {
+      hoveredIndexRef.current = idx;
+      setHoveredIndex(idx);
+    }
+  }, [clientToCharIndex]);
+
+  const handleSvgMouseLeave = useCallback(() => {
+    hoveredIndexRef.current = null;
+    setHoveredIndex(null);
+  }, []);
 
   useEffect(() => {
     const onMove = (e) => {
@@ -1848,6 +1912,69 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     );
   }, [cursorIndex, hasSelection, isDragging, charsPerLine, numRows, getSeqY, rowBelow, selectionMode]);
 
+  const renderedHoverIndex = useMemo(() => {
+    if (hoveredIndex === null || isDragging) return null;
+    const row = Math.floor(hoveredIndex / charsPerLine);
+    const col = hoveredIndex % charsPerLine;
+    const sy = getSeqY(row);
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        <text
+          x={getX(col) + cw / 2}
+          y={sy - 22}
+          fontFamily={monoFont}
+          fontSize="9px"
+          fontWeight="600"
+          fill={currentSelColor}
+          fillOpacity={0.35}
+          stroke={bgColor}
+          strokeWidth="2"
+          strokeLinejoin="round"
+          paintOrder="stroke"
+          textAnchor="middle"
+          style={{ pointerEvents: 'none', userSelect: 'none' }}
+        >{hoveredIndex + 1}</text>
+      </g>
+    );
+  }, [hoveredIndex, isDragging, charsPerLine, getSeqY, currentSelColor]);
+
+  const renderedSelectionInfo = useMemo(() => {
+    if (!isDragging || !hasSelection || cursorIndex === null) return null;
+    if (selectionMode !== 'text') return null;
+    const len = selEnd - selStart + 1;
+    const seq = cleanSeq.substring(selStart, selEnd + 1);
+    const tm = calcTm(seq);
+    const showTm = tm !== null && tm >= 40 && tm <= 75;
+    const row = Math.floor(cursorIndex / charsPerLine);
+    const col = cursorIndex % charsPerLine;
+    const sy = getSeqY(row);
+    const botY = row === numRows - 1 ? sy + rowBelow[row] + 24 : getSeqY(row + 1) - rowAbove[row + 1];
+    const x = getX(col);
+    const fontSize = '11px';
+    const fontStr = `600 ${fontSize} ${monoFont}`;
+    let label = `${len} bp`;
+    if (showTm) label += `, ~${tm}°C`;
+    const tw = measureWidth(label, fontStr);
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        <text
+          dominantBaseline="text-after-edge"
+          x={x - 8 - tw}
+          y={botY}
+          fontFamily={monoFont}
+          fontSize={fontSize}
+          fontWeight="600"
+          fill={currentSelColor}
+          stroke={bgColor}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          paintOrder="stroke"
+          style={{ userSelect: 'none', whiteSpace: 'nowrap' }}
+        >{label}</text>
+      </g>
+    );
+  }, [isDragging, hasSelection, cursorIndex, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, numRows, rowBelow, rowAbove, currentSelColor]);
+
   const renderedSelection = useMemo(() => {
     if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
     const segs = sp(selStart, selEnd);
@@ -1917,7 +2044,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
       <div style={{ width: svgWidth }}>
         <svg ref={svgRef} width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible', willChange: 'transform', transform: 'translateZ(0)' }}
-          onMouseDown={handleSvgMouseDown}>
+          onMouseDown={handleSvgMouseDown} onMouseMove={handleSvgMouseMove} onMouseLeave={handleSvgMouseLeave}>
           {renderedCursor}
           {renderedSelection}
           {renderedFeatures}
@@ -1930,6 +2057,8 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           {renderedSeqSel}
           {renderedAmplimerRegion}
           {renderedTooltips}
+          {renderedSelectionInfo}
+          {renderedHoverIndex}
         </svg>
       </div>
     </div>
