@@ -56,7 +56,12 @@ export default function PrimerSegmentRenderer({
   // Color: orange if multi-site with secondary Tm > 45
   const bs = primer.bindingSites || [];
   const multiSite = bs.length > 1 && (bs[1]?.tm || 0) > 45;
-  const baseColor = isFwd ? (primer.color || '#166534') : '#5b21b6';
+  const safePrimerColor = (c) => {
+    if (!c || c === '#000000' || c === '#000' || c === 'black') return '#166534';
+    if (/^#[0-9a-f]{6}$/i.test(c)) return c;
+    return '#166534';
+  };
+  const baseColor = isFwd ? safePrimerColor(primer.color) : '#5b21b6';
   const pColor = multiSite ? '#c2410c' : baseColor;
 
   const showText = mode !== 'default';
