@@ -388,6 +388,7 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                     strand: strand.to_string(),
                     notes,
                     translation,
+                    qualifiers: vec![],
                 });
             }
         }

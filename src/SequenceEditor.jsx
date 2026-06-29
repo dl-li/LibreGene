@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange, enzymeActiveBlue, amplimerGreen } from './editorConstants';
+import FeatureInfoDialog from './FeatureInfoDialog';
 
 const complementStr = (s) => s.split('').map(c => complement(c)).join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
@@ -59,6 +60,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
   const featureLeaveRef = useRef(null);
+  const [featureInfoFeature, setFeatureInfoFeature] = useState(null); // for FeatureInfoDialog
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
@@ -1052,6 +1054,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
                   setPrimerDimActive(false);
                 }}
+                onDoubleClick={(e) => { e.stopPropagation(); setFeatureInfoFeature(f); }}
                 className="cursor-pointer">
                 <rect x={x} y={(isHovered && !isGap) ? sy - 18 : y} width={w}
                   height={(isHovered && !isGap) ? y - (sy - 18) : 0} fill={v.color}
@@ -2061,6 +2064,11 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           {renderedHoverIndex}
         </svg>
       </div>
+      <FeatureInfoDialog
+        feature={featureInfoFeature}
+        open={featureInfoFeature !== null}
+        onOpenChange={(open) => { if (!open) setFeatureInfoFeature(null); }}
+      />
     </div>
   );
 });
