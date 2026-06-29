@@ -14,6 +14,27 @@ import { AlertTriangle, Info } from 'lucide-react'
 // IUPAC 核苷酸字符集（含简并碱基）
 const IUPAC_BASES = new Set('ATGCURYSWKMBDHVN')
 
+// IUPAC 互补碱基对照表（含简并碱基）
+const IUPAC_COMP = {
+  'A': 'T', 'T': 'A', 'U': 'A', 'C': 'G', 'G': 'C',
+  'R': 'Y', 'Y': 'R',
+  'S': 'S', 'W': 'W',
+  'K': 'M', 'M': 'K',
+  'B': 'V', 'D': 'H', 'H': 'D', 'V': 'B',
+  'N': 'N',
+}
+
+function reverseComplement(seq) {
+  let result = ''
+  for (let i = seq.length - 1; i >= 0; i--) {
+    const ch = seq[i]
+    const upper = ch.toUpperCase()
+    const comp = IUPAC_COMP[upper] || upper
+    result += ch === upper ? comp : comp.toLowerCase()
+  }
+  return result
+}
+
 /**
  * 去掉空白字符
  */
@@ -146,7 +167,7 @@ export default function SequenceEditDialog({
             {(mode === 'delete' || mode === 'replace') && selStart !== null && selEnd !== null && (
               <span>
                 Selection: <code className="font-mono text-foreground">{selStart} – {selEnd}</code>
-                {' '}({deleteLen} nt)
+                {' '}({deleteLen} bp)
               </span>
             )}
           </div>
@@ -188,14 +209,14 @@ export default function SequenceEditDialog({
               <span className="inline-flex items-center gap-1">
                 <span className="text-muted-foreground">Insert</span>
                 {' '}
-                <span className="font-semibold text-emerald-600">{insertLen} nt</span>
+                <span className="font-semibold text-emerald-600">{insertLen} bp</span>
               </span>
             )}
             {mode === 'delete' && (
               <span className="inline-flex items-center gap-1">
                 <span className="text-muted-foreground">Delete</span>
                 {' '}
-                <span className="font-semibold text-destructive">{deleteLen} nt</span>
+                <span className="font-semibold text-destructive">{deleteLen} bp</span>
               </span>
             )}
             {mode === 'replace' && (
@@ -203,13 +224,13 @@ export default function SequenceEditDialog({
                 <span className="inline-flex items-center gap-1">
                   <span className="text-muted-foreground">Delete</span>
                   {' '}
-                  <span className="font-semibold text-destructive">{deleteLen} nt</span>
+                  <span className="font-semibold text-destructive">{deleteLen} bp</span>
                 </span>
                 <span className="text-muted-foreground">|</span>
                 <span className="inline-flex items-center gap-1">
                   <span className="text-muted-foreground">Insert</span>
                   {' '}
-                  <span className="font-semibold text-emerald-600">{insertLen} nt</span>
+                  <span className="font-semibold text-emerald-600">{insertLen} bp</span>
                 </span>
                 <span className="text-muted-foreground">|</span>
                 <span className="inline-flex items-center gap-1">
@@ -218,7 +239,7 @@ export default function SequenceEditDialog({
                   <span className={`font-semibold ${netChange > 0 ? 'text-emerald-600' : netChange < 0 ? 'text-destructive' : ''}`}>
                     {netChange > 0 ? '+' : ''}{netChange}
                   </span>{' '}
-                  <span className="text-muted-foreground">nt</span>
+                  <span className="text-muted-foreground">bp</span>
                 </span>
               </>
             )}
@@ -242,6 +263,18 @@ export default function SequenceEditDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
+          {(mode === 'insert' || mode === 'replace') && inputText.trim().length > 0 && !hasInvalid && (
+            <button
+              onClick={() => setInputText(reverseComplement(inputText))}
+              style={{
+                fontSize: '12px', fontWeight: 600,
+                padding: '4px 12px', cursor: 'pointer',
+                background: '#f3f4f6', color: '#1f2937',
+                border: '1px solid #d1d5db', borderRadius: 4,
+              }}
+              className="hover:bg-gray-200 transition-colors mr-auto"
+            >Reverse Complement</button>
+          )}
           <DialogClose asChild>
             <Button variant="outline" onClick={onCancel}>Cancel</Button>
           </DialogClose>
@@ -252,7 +285,7 @@ export default function SequenceEditDialog({
           >
             {mode === 'insert' && 'Confirm Insertion'}
             {mode === 'delete' && 'Confirm Deletion'}
-            {mode === 'replace' && 'Confirm Edit'}
+            {mode === 'replace' && 'Apply'}
           </Button>
         </DialogFooter>
       </DialogContent>

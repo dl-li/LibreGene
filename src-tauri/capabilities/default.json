@@ -5,6 +5,7 @@
   "windows": ["main", "project-*"],
   "permissions": [
     "core:default",
+    "core:window:allow-set-title",
     "dialog:default",
     "opener:default"
   ]

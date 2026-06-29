@@ -55,7 +55,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -1149,6 +1149,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                 if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
                 setPrimerDimActive(false);
               }}
+              onDoubleClick={(e) => { e.stopPropagation(); setFeatureInfoFeature(f); }}
               className="cursor-pointer">
               <text x={xr + 8} {...textProps} textAnchor="start" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
               <text x={xr + 8} {...textProps} textAnchor="start" fill={labelColor} stroke="none">{labelText}</text>
@@ -1171,6 +1172,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
               setPrimerDimActive(false);
             }}
+            onDoubleClick={(e) => { e.stopPropagation(); setFeatureInfoFeature(f); }}
             className="cursor-pointer">
             <text x={x - 8} {...textProps} textAnchor="end" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
             <text x={x - 8} {...textProps} textAnchor="end" fill={labelColor} stroke="none">{labelText}</text>
@@ -1945,8 +1947,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           fontFamily={monoFont}
           fontSize="9px"
           fontWeight="600"
-          fill={currentSelColor}
-          fillOpacity={0.35}
+          fill="#A8A29E"
           stroke={bgColor}
           strokeWidth="2"
           strokeLinejoin="round"
@@ -2088,6 +2089,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         onFtypeChange={onFeatureFtypeChange}
         onFeatureColorChange={onFeatureColorChange}
         onFeatureLocationChange={onFeatureLocationChange}
+        onFeatureNameChange={onFeatureNameChange}
       />
     </div>
   );
