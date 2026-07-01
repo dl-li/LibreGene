@@ -48,6 +48,7 @@ export default function DebugPanel({
   methylationOverlap, setMethylationOverlap,
   isTauri, openPath, setOpenPath, fileStatus,
   layoutParams, setLP,
+  primerSeedLength, setPrimerSeedLength,
   onOpenFile,
 }) {
   const lp = layoutParams;
@@ -160,6 +161,15 @@ export default function DebugPanel({
                 onChange={e => setMethylationOverlap(Number(e.target.value))} />
               <span className="text-[11px] text-muted-foreground">bp</span>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* ── 引物分析 ── */}
+          <div>
+            <div className="text-xs font-medium mb-1.5">引物分析</div>
+            <NumInput label="种子区长度 (bp)" value={primerSeedLength}
+              onChange={setPrimerSeedLength} min={6} max={20} />
           </div>
 
           <Separator />

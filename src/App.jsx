@@ -40,6 +40,7 @@ export default function App() {
   const [enzymeFilter, setEnzymeFilter] = useState('unique');
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
+  const [primerSeedLength, setPrimerSeedLength] = useState(10);
   const [openPath, setOpenPath] = useState('/Users/lidonglin/Documents/Geneie/test/pUC-GW-Amp.gb');
   const [fileStatus, setFileStatus] = useState('');
   const sequenceRef = useRef(sequence);
@@ -1072,6 +1073,7 @@ export default function App() {
                 onFeatureColorChange={handleFeatureColorChange}
                 onFeatureLocationChange={handleFeatureLocationChange}
                 onFeatureNameChange={handleFeatureNameChange}
+                primerSeedLength={primerSeedLength}
               />
             ) : (
               <Empty className="min-h-screen">
@@ -1104,6 +1106,7 @@ export default function App() {
           enzymes={enzymes} displayEnzymes={displayEnzymes}
           methylationSystems={methylationSystems} setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap} setMethylationOverlap={setMethylationOverlap}
+          primerSeedLength={primerSeedLength} setPrimerSeedLength={setPrimerSeedLength}
           isTauri={isTauri} openPath={openPath} setOpenPath={setOpenPath}
           fileStatus={fileStatus}
           layoutParams={layoutParams} setLP={setLP}

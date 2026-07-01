@@ -139,6 +139,10 @@ export async function deletePrimer(id) {
   return tauriInvoke('delete_primer', { id });
 }
 
+export async function computePrimerAlignment(primerId, seedLength, customSeq) {
+  return tauriInvoke('compute_primer_alignment', { primerId, seedLength, customSeq: customSeq || null });
+}
+
 // ---------------------------------------------------------------------------
 // Methylation
 // ---------------------------------------------------------------------------

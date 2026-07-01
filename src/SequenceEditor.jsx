@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange, enzymeActiveBlue, amplimerGreen } from './editorConstants';
 import FeatureInfoDialog from './FeatureInfoDialog';
+import PrimerAlignmentDialog from './PrimerAlignmentDialog';
+import { computePrimerAlignment } from './tauriApi';
 
 const complementStr = (s) => s.split('').map(c => complement(c)).join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
@@ -55,12 +57,14 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, primerSeedLength }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
   const featureLeaveRef = useRef(null);
   const [featureInfoFeature, setFeatureInfoFeature] = useState(null); // for FeatureInfoDialog
+  const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog
+  const [primerAlignmentCache, setPrimerAlignmentCache] = useState({});
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
@@ -919,6 +923,32 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     }
   }, [features, featureInfoFeature]);
 
+  // Pre-compute primer alignment data so the dialog has zero flash/width-jump.
+  useEffect(() => {
+    let cancelled = false;
+    async function prefetchAll() {
+      const cache = {};
+      const items = primers || [];
+      // Use Promise.allSettled for parallelism, but limit concurrency.
+      const concurrency = 4;
+      for (let i = 0; i < items.length; i += concurrency) {
+        const batch = items.slice(i, i + concurrency);
+        const results = await Promise.allSettled(
+          batch.map(p => computePrimerAlignment(p.id, primerSeedLength))
+        );
+        if (cancelled) return;
+        for (let j = 0; j < batch.length; j++) {
+          if (results[j].status === 'fulfilled') {
+            cache[batch[j].id] = results[j].value;
+          }
+        }
+      }
+      if (!cancelled) setPrimerAlignmentCache(cache);
+    }
+    prefetchAll();
+    return () => { cancelled = true; };
+  }, [primers, primerSeedLength]);
+
   // --- Paste event: read clipboard and trigger insert/replace dialog ---
   useEffect(() => {
     if (!onEditRequest) return;
@@ -1398,6 +1428,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                     setHoveredPrimer(p.id);
                   }}
                   onMouseLeave={() => setHoveredPrimer(null)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    // Prevent drag activation on double-click
+                    setPrimerDimActive(false);
+                    if (primerDimTimerRef.current) clearTimeout(primerDimTimerRef.current);
+                    setPrimerAlignmentPrimer(enrichedPrimers.find(ep => ep.id === p.id) || null);
+                  }}
                   className="cursor-pointer" />
               </g>
             );
@@ -2090,6 +2127,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         onFeatureColorChange={onFeatureColorChange}
         onFeatureLocationChange={onFeatureLocationChange}
         onFeatureNameChange={onFeatureNameChange}
+      />
+      <PrimerAlignmentDialog
+        primer={primerAlignmentPrimer}
+        alignmentData={primerAlignmentCache[primerAlignmentPrimer?.id]}
+        open={primerAlignmentPrimer !== null}
+        onOpenChange={(open) => { if (!open) setPrimerAlignmentPrimer(null); }}
+        seedLength={primerSeedLength}
       />
     </div>
   );

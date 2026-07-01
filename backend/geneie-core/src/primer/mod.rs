@@ -10,6 +10,7 @@
 
 pub mod align;
 pub mod alignment;
+pub mod display;
 pub mod dna;
 pub mod formatter;
 pub mod gbk;

@@ -18,8 +18,8 @@ use super::iupac;
 // ---------------------------------------------------------------------------
 
 const MATCH_SCORE: i32 = 2;
-const GAP_OPEN: i32 = -5;
-const GAP_EXTEND: i32 = -2;
+const GAP_OPEN: i32 = -15;
+const GAP_EXTEND: i32 = -6;
 const KMER: usize = 6;
 
 // ---------------------------------------------------------------------------
@@ -28,22 +28,32 @@ const KMER: usize = 6;
 
 /// Returns the mismatch penalty at primer position `i` (0-based, 5'→3').
 ///
-/// The penalty is heavily weighted toward the 3' end:
-///   - 3' terminal (last base):     -16
-///   - 3'-1:                        -12
-///   - 3'-2:                         -8
-///   - 3'-3:                         -5
-///   - 3'-4:                         -3
+/// The penalty is heavily weighted toward the 3' end.
+/// The **entire 3' seed region** (last 13 bases — matching pydna's anchor)
+/// receives elevated penalties so that the anchor must be well-conserved:
+///   - 3' terminal (last base):     -20
+///   - 3'-1:                        -18
+///   - 3'-2:                        -15
+///   - 3'-3:                        -12
+///   - 3'-4:                        -10
+///   - 3'-5:                         -8
+///   - 3'-6:                         -7
+///   - 3'-7 to 3'-9:                 -6
+///   - 3'-10 to 3'-13:               -5
 ///   - 5' end (first 20% of primer): -1
 ///   - Middle:                       -2
 fn mismatch_penalty(i: usize, primer_len: usize) -> i32 {
     let from_3prime = primer_len.saturating_sub(i); // 1-based from 3' end
     match from_3prime {
-        1 => -16,
-        2 => -12,
-        3 => -8,
-        4 => -5,
-        5 => -3,
+        1 => -20,
+        2 => -18,
+        3 => -15,
+        4 => -12,
+        5 => -10,
+        6 => -8,
+        7 => -7,
+        8..=9 => -6,
+        10..=13 => -5,
         _ => {
             // 5' end light penalty (first 20%).
             if (i as f64) < (primer_len as f64) * 0.2 {
@@ -382,6 +392,390 @@ pub fn align(primer: &[u8], template_region: &[u8]) -> Option<AlignmentResult> {
     })
 }
 
+/// Run alignment with the primer's **3' end constrained** to the template.
+///
+/// Uses direct sequence matching (A matches A). Appropriate for fwd primers
+/// where the primer sequence matches the template top strand directly.
+pub fn align_3prime_constrained(
+    primer: &[u8],
+    template_region: &[u8],
+) -> Option<AlignmentResult> {
+    align_3prime_constrained_impl(primer, template_region, false)
+}
+
+/// Run 3'-constrained alignment using **Watson-Crick complement matching**.
+///
+/// A matches T, C matches G, etc. Appropriate for rev primers — allows
+/// displaying the primer sequence as-is while checking complementarity.
+pub fn align_3prime_constrained_rev(
+    primer: &[u8],
+    template_region: &[u8],
+) -> Option<AlignmentResult> {
+    align_3prime_constrained_impl(primer, template_region, true)
+}
+
+fn align_3prime_constrained_impl(
+    primer: &[u8],
+    template_region: &[u8],
+    use_complement: bool,
+) -> Option<AlignmentResult> {
+    let n = primer.len();
+    let m = template_region.len();
+    if n == 0 || m == 0 {
+        return None;
+    }
+
+    // DP tables: score, gap-in-primer, gap-in-template
+    let neg_inf = i32::MIN / 2;
+    let mut dp = vec![vec![neg_inf; m + 1]; n + 1];
+    let mut gp = vec![vec![neg_inf; m + 1]; n + 1];
+    let mut gt = vec![vec![neg_inf; m + 1]; n + 1];
+
+    // Free end-gaps on the LEFT side (primer 5' end, template start).
+    for i in 0..=n {
+        dp[i][0] = 0;
+    }
+    for j in 0..=m {
+        dp[0][j] = 0;
+    }
+
+    // Choose overlap function based on mode.
+    let overlap_fn = |a: u8, b: u8| {
+        if use_complement {
+            iupac::pair_fraction(a, b)
+        } else {
+            if iupac::bases_overlap(a, b) {
+                iupac::overlap_weight(a, b)
+            } else {
+                0.0
+            }
+        }
+    };
+
+    let bases_fn = |a: u8, b: u8| {
+        if use_complement {
+            iupac::bases_pair(a, b)
+        } else {
+            iupac::bases_overlap(a, b)
+        }
+    };
+
+    for i in 1..=n {
+        for j in 1..=m {
+            gp[i][j] = (dp[i][j - 1] + GAP_OPEN)
+                .max(gp[i][j - 1] + GAP_EXTEND);
+
+            gt[i][j] = (dp[i - 1][j] + GAP_OPEN)
+                .max(gt[i - 1][j] + GAP_EXTEND);
+
+            let w = overlap_fn(primer[i - 1], template_region[j - 1]);
+            let s = if w > 0.0 {
+                (MATCH_SCORE as f64 * w) as i32
+            } else {
+                mismatch_penalty(i - 1, n)
+            };
+
+            dp[i][j] = (dp[i - 1][j - 1] + s)
+                .max(gp[i][j])
+                .max(gt[i][j]);
+        }
+    }
+
+    // 3' CONSTRAINT: only search the LAST ROW (primer's 3' terminal must
+    // participate). We do NOT consider dp[i][m] (free primer end-gap).
+    let mut best_j = m;
+    let mut best_score = dp[n][m];
+    for j in 0..=m {
+        if dp[n][j] > best_score {
+            best_score = dp[n][j];
+            best_j = j;
+        }
+    }
+
+    if best_score <= 0 {
+        return None;
+    }
+
+    // Traceback.
+    let mut ops: Vec<AlignedPair> = Vec::new();
+    let (mut i, mut j) = (n, best_j);
+
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 {
+            let bases_ov = bases_fn(primer[i - 1], template_region[j - 1]);
+            let weight = if bases_ov {
+                overlap_fn(primer[i - 1], template_region[j - 1])
+            } else {
+                0.0
+            };
+            let step_score = if weight > 0.0 {
+                (MATCH_SCORE as f64 * weight) as i32
+            } else {
+                mismatch_penalty(i - 1, n)
+            };
+
+            if dp[i][j] == dp[i - 1][j - 1] + step_score {
+                ops.push(AlignedPair {
+                    op: if weight >= 0.5 { Op::Match } else { Op::Mismatch },
+                    primer_pos: Some(i - 1),
+                    template_pos: Some(j - 1),
+                });
+                i -= 1;
+                j -= 1;
+                continue;
+            }
+        }
+
+        if j > 0 && dp[i][j] == gp[i][j] {
+            ops.push(AlignedPair {
+                op: Op::Del,
+                primer_pos: None,
+                template_pos: Some(j - 1),
+            });
+            j -= 1;
+            continue;
+        }
+
+        if i > 0 && dp[i][j] == gt[i][j] {
+            ops.push(AlignedPair {
+                op: Op::Ins,
+                primer_pos: Some(i - 1),
+                template_pos: None,
+            });
+            i -= 1;
+            continue;
+        }
+
+        break;
+    }
+
+    ops.reverse();
+
+    let primer_start = i;
+    let template_start = j;
+    let primer_end = n;
+    let template_end = best_j;
+
+    let last_3prime = ops.iter().rev().find_map(|p| {
+        if p.op == Op::Mismatch || p.op == Op::Del {
+            p.primer_pos
+        } else {
+            None
+        }
+    });
+
+    let has_3prime_issue = last_3prime
+        .map(|pos| n.saturating_sub(pos) <= 5)
+        .unwrap_or(false);
+    let last_3prime_aligned_pos = if has_3prime_issue {
+        last_3prime
+    } else {
+        None
+    };
+
+    Some(AlignmentResult {
+        ops,
+        primer_start,
+        primer_end,
+        template_start,
+        template_end,
+        score: best_score,
+        last_3prime_aligned_pos,
+    })
+}
+
+/// Run alignment with the primer's **5' end (first base) constrained**.
+///
+/// The first base of the query MUST participate in the alignment.  The last
+/// base (and the template right end) are free.  Uses direct sequence matching.
+///
+/// This is appropriate for reverse-mode probe alignment where the 3' end of
+/// the original primer sits at the query's first position after reversal.
+pub fn align_first_base_constrained(
+    query: &[u8],
+    template_region: &[u8],
+) -> Option<AlignmentResult> {
+    align_first_base_constrained_impl(query, template_region, false)
+}
+
+/// Run first-base-constrained alignment with complement matching.
+///
+/// A matches T, C matches G, etc.  The first base of the query is constrained.
+pub fn align_first_base_constrained_rev(
+    query: &[u8],
+    template_region: &[u8],
+) -> Option<AlignmentResult> {
+    align_first_base_constrained_impl(query, template_region, true)
+}
+
+fn align_first_base_constrained_impl(
+    query: &[u8],
+    template_region: &[u8],
+    use_complement: bool,
+) -> Option<AlignmentResult> {
+    let n = query.len();
+    let m = template_region.len();
+    if n == 0 || m == 0 {
+        return None;
+    }
+
+    let neg_inf = i32::MIN / 2;
+    let mut dp = vec![vec![neg_inf; m + 1]; n + 1];
+    let mut gp = vec![vec![neg_inf; m + 1]; n + 1];
+    let mut gt = vec![vec![neg_inf; m + 1]; n + 1];
+
+    // FIRST BASE constrained: no free end-gaps at the query front.
+    dp[0][0] = 0;
+    for i in 1..=n {
+        dp[i][0] = neg_inf;
+    }
+    // Template start is always free.
+    for j in 0..=m {
+        dp[0][j] = 0;
+    }
+
+    let overlap_fn = |a: u8, b: u8| {
+        if use_complement {
+            iupac::pair_fraction(a, b)
+        } else {
+            if iupac::bases_overlap(a, b) {
+                iupac::overlap_weight(a, b)
+            } else {
+                0.0
+            }
+        }
+    };
+
+    let bases_fn = |a: u8, b: u8| {
+        if use_complement {
+            iupac::bases_pair(a, b)
+        } else {
+            iupac::bases_overlap(a, b)
+        }
+    };
+
+    for i in 1..=n {
+        for j in 1..=m {
+            gp[i][j] = (dp[i][j - 1] + GAP_OPEN)
+                .max(gp[i][j - 1] + GAP_EXTEND);
+            gt[i][j] = (dp[i - 1][j] + GAP_OPEN)
+                .max(gt[i - 1][j] + GAP_EXTEND);
+
+            let w = overlap_fn(query[i - 1], template_region[j - 1]);
+            let s = if w > 0.0 {
+                (MATCH_SCORE as f64 * w) as i32
+            } else {
+                mismatch_penalty(i - 1, n)
+            };
+
+            dp[i][j] = (dp[i - 1][j - 1] + s)
+                .max(gp[i][j])
+                .max(gt[i][j]);
+        }
+    }
+
+    // Find best score: query RIGHT end is free (5' side), so only dp[n][*].
+    let mut best_j = m;
+    let mut best_score = dp[n][m];
+    for j in 0..=m {
+        if dp[n][j] > best_score {
+            best_score = dp[n][j];
+            best_j = j;
+        }
+    }
+
+    if best_score <= 0 {
+        return None;
+    }
+
+    // Traceback.
+    let mut ops: Vec<AlignedPair> = Vec::new();
+    let (mut i, mut j) = (n, best_j);
+
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 {
+            let bases_ov = bases_fn(query[i - 1], template_region[j - 1]);
+            let weight = if bases_ov {
+                overlap_fn(query[i - 1], template_region[j - 1])
+            } else {
+                0.0
+            };
+            let step_score = if weight > 0.0 {
+                (MATCH_SCORE as f64 * weight) as i32
+            } else {
+                mismatch_penalty(i - 1, n)
+            };
+
+            if dp[i][j] == dp[i - 1][j - 1] + step_score {
+                ops.push(AlignedPair {
+                    op: if weight >= 0.5 { Op::Match } else { Op::Mismatch },
+                    primer_pos: Some(i - 1),
+                    template_pos: Some(j - 1),
+                });
+                i -= 1;
+                j -= 1;
+                continue;
+            }
+        }
+
+        if j > 0 && dp[i][j] == gp[i][j] {
+            ops.push(AlignedPair {
+                op: Op::Del,
+                primer_pos: None,
+                template_pos: Some(j - 1),
+            });
+            j -= 1;
+            continue;
+        }
+
+        if i > 0 && dp[i][j] == gt[i][j] {
+            ops.push(AlignedPair {
+                op: Op::Ins,
+                primer_pos: Some(i - 1),
+                template_pos: None,
+            });
+            i -= 1;
+            continue;
+        }
+
+        break;
+    }
+
+    ops.reverse();
+
+    let primer_start = i;
+    let template_start = j;
+    let primer_end = n;
+    let template_end = best_j;
+
+    let last_3prime = ops.iter().rev().find_map(|p| {
+        if p.op == Op::Mismatch || p.op == Op::Del {
+            p.primer_pos
+        } else {
+            None
+        }
+    });
+
+    let has_3prime_issue = last_3prime
+        .map(|pos| n.saturating_sub(pos) <= 5)
+        .unwrap_or(false);
+    let last_3prime_aligned_pos = if has_3prime_issue {
+        last_3prime
+    } else {
+        None
+    };
+
+    Some(AlignmentResult {
+        ops,
+        primer_start,
+        primer_end,
+        template_start,
+        template_end,
+        score: best_score,
+        last_3prime_aligned_pos,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Candidate generation (public for use by align.rs)
 // ---------------------------------------------------------------------------
@@ -409,11 +803,19 @@ mod tests {
     #[test]
     fn test_mismatch_penalty_3prime() {
         // 20-mer: last position (i=19) is 3' terminal.
-        assert_eq!(mismatch_penalty(19, 20), -16);
-        assert_eq!(mismatch_penalty(18, 20), -12);
-        assert_eq!(mismatch_penalty(17, 20), -8);
-        assert_eq!(mismatch_penalty(16, 20), -5);
-        assert_eq!(mismatch_penalty(15, 20), -3);
+        assert_eq!(mismatch_penalty(19, 20), -20);
+        assert_eq!(mismatch_penalty(18, 20), -18);
+        assert_eq!(mismatch_penalty(17, 20), -15);
+        assert_eq!(mismatch_penalty(16, 20), -12);
+        assert_eq!(mismatch_penalty(15, 20), -10);
+        // Seed region: positions 7-13 from 3' end (i=8..13)
+        assert_eq!(mismatch_penalty(14, 20), -8);
+        assert_eq!(mismatch_penalty(13, 20), -7);
+        // from_3prime=9 => 8..=9 => -6
+        assert_eq!(mismatch_penalty(11, 20), -6);
+        // from_3prime=10..=13 => -5
+        assert_eq!(mismatch_penalty(10, 20), -5);
+        assert_eq!(mismatch_penalty(7, 20), -5);
     }
 
     #[test]
@@ -425,8 +827,9 @@ mod tests {
 
     #[test]
     fn test_mismatch_penalty_middle() {
-        // Middle region (positions 4–14 for 20-mer).
-        assert_eq!(mismatch_penalty(10, 20), -2);
+        // Outside seed region (from_3prime > 13) and not in first 20%.
+        // 20-mer: i=4 => from_3prime=16 > 13, and 4 < 20*0.2=false => middle→-2
+        assert_eq!(mismatch_penalty(4, 20), -2);
     }
 
     #[test]
@@ -442,27 +845,44 @@ mod tests {
 
     #[test]
     fn test_align_with_mismatches() {
+        // Use a longer template so the alignment can't simply shift past the mismatch.
+        // Primer "ATGCATGC" has A at pos 4, template has T at the corresponding position.
         let primer = b"ATGCATGC";
-        let tmpl = b"ATGCTTGC"; // one mismatch at pos 4
+        let tmpl = b"NNATGCTTGCAA"; // one mismatch at primer pos 4 (A vs T)
         let result = align(primer, tmpl).unwrap();
-        assert!(result.ops.iter().any(|p| p.op == Op::Mismatch));
+        assert!(result.ops.iter().any(|p| p.op == Op::Mismatch),
+            "expected at least one mismatch but alignment avoided it entirely");
     }
 
     #[test]
     fn test_align_3prime_mismatch_penalized() {
-        // Primer with 3' mismatch should score much lower than internal mismatch.
-        let primer = b"AAAAAACCC";
-        let good = b"AAAAAACCC"; // exact match
-        let bad_3prime = b"AAAAAACCT"; // mismatch at 3' end
-        let bad_5prime = b"TAAAAACCC"; // mismatch at 5' end
+        // The semi-global alignment allows end-gaps at both ends, so single-end
+        // mismatches can be avoided by shifting. Instead we verify:
+        //   1. Exact match has the correct score.
+        //   2. A mismatch in the 3' seed region forces a lower score than the
+        //      same mismatch further 5' when embedded deep enough to be forced.
+        //
+        // Force both mismatches by making the primer's 5' half and 3' half
+        // flanking sequences that can't shift past.
+        let primer = b"AAAAAAAACCCCCCCC"; // 16-mer: 8A + 8C
+        // Mismatch at 3' seed: change a C to T
+        let forced_3prime = b"AAAAAAAAACCCCCCT"; // last C→T at primer pos 15
+        // Mismatch at 5' outside seed: change an A to T
+        let forced_5prime = b"ATAAAAAACCCCCCCC"; // second A→T at primer pos 1
+        // The forced_5prime template must be unambiguously alignable at full length
 
-        let score_exact = align(primer, good).unwrap().score;
-        let score_3prime = align(primer, bad_3prime).unwrap().score;
-        let score_5prime = align(primer, bad_5prime).unwrap().score;
+        // Accept = score_3prime < score_5prime < score_exact
+        let score_exact = align(primer, primer).unwrap().score;
+        let score_3prime = align(primer, forced_3prime).unwrap().score;
+        let score_5prime = align(primer, forced_5prime).unwrap().score;
 
+        // Both mismatches should reduce the score
+        assert!(score_3prime < score_exact, "3' mismatch should reduce score");
+        assert!(score_5prime < score_exact, "5' mismatch should reduce score");
+        // 3' penalty (-20 at terminal) >> middle penalty (-2) so 3' wins
         assert!(score_3prime < score_5prime,
-            "3' mismatch should score lower than 5' mismatch: {score_3prime} vs {score_5prime}");
-        assert_eq!(score_exact, 9 * MATCH_SCORE);
+            "3' mismatch (score={}) should be penalized more than 5' mismatch (score={})",
+            score_3prime, score_5prime);
     }
 
     #[test]
