@@ -751,6 +751,217 @@ async fn delete_primer(
     ))
 }
 
+#[tauri::command]
+async fn compute_primer_alignment(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    primer_id: String,
+    seed_length: Option<usize>,
+    custom_seq: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+
+    let pm = state.pm.read().await;
+    let project = pm.get_project_by_id(&project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+
+    let primer = project.primers.iter()
+        .find(|p| p.id == primer_id)
+        .ok_or_else(|| "Primer not found".to_string())?;
+
+    let template = &project.sequence;
+    let tpl_bytes = template.as_bytes();
+    let tlen = tpl_bytes.len();
+    let is_circular = project.topology == "circular";
+    // Use custom_seq for live preview if provided, otherwise use stored sequence.
+    let active_seq: String = custom_seq.unwrap_or_else(|| primer.primer_seq.clone());
+    let primer_bytes = active_seq.as_bytes();
+    let plen = primer_bytes.len();
+
+    let seed_len = seed_length.unwrap_or(10).clamp(6, plen.min(20));
+    let expansion: usize = 60;
+
+    if plen < seed_len {
+        return Err(format!("Primer too short ({}bp < {}bp seed)", plen, seed_len));
+    }
+
+    // Pre-compute reverse primer and RC seed (for R-mode search).
+    let seed = &primer_bytes[plen - seed_len..];
+    let rev_bytes: Vec<u8> = primer_bytes.iter().rev().copied().collect();
+    // RC of the 3' seed — this is what we search for in R mode.
+    let rc_seed: Vec<u8> = seed.iter()
+        .rev()
+        .map(|&b| geneie_core::utils::complement_char(b as char) as u8)
+        .collect();
+
+    let search_len = if is_circular { tlen + seed_len } else { tlen };
+    let extended: Vec<u8> = if is_circular {
+        [tpl_bytes, tpl_bytes].concat()
+    } else {
+        tpl_bytes.to_vec()
+    };
+
+    let mut candidates: Vec<BindingSiteCandidate> = Vec::new();
+
+    // Search BOTH exact seed (F mode) and RC seed (R mode).
+    for mode in &[SearchMode::Forward, SearchMode::Reverse] {
+        let (needle, is_rev) = match mode {
+            SearchMode::Forward => (&primer_bytes[plen - seed_len..], false),
+            SearchMode::Reverse => (&rc_seed[..], true),
+        };
+
+        for i in 0..=search_len.saturating_sub(seed_len) {
+            if &extended[i..i + seed_len] != needle {
+                continue;
+            }
+
+            // For F mode: 3' end is the LAST base of the seed match on template.
+            // For R mode: 3' end is the FIRST base of the RC-seed match on template.
+            let seed_tstart = if is_circular { i % tlen } else { i };
+            let tp_3prime = if is_rev { seed_tstart } else { seed_tstart + seed_len - 1 };
+
+            if candidates.iter().any(|c| {
+                let d = if c.tp_3prime > tp_3prime { c.tp_3prime - tp_3prime } else { tp_3prime - c.tp_3prime };
+                d <= 3
+            }) { continue; }
+
+            // Greedy 5'-ward extension.
+            // F: extend LEFT  on template (seed_start-1, seed_start-2, …)
+            // R: extend RIGHT on template (seed_start+seed_len, seed_start+seed_len+1, …)
+            let mut ext = 0usize;
+            let max_ext = plen.saturating_sub(seed_len);
+            while ext < max_ext {
+                let p_pos = plen - seed_len - ext - 1;
+                let t_pos = if is_rev {
+                    seed_tstart + seed_len + ext
+                } else {
+                    seed_tstart.checked_sub(ext + 1).unwrap_or(usize::MAX)
+                };
+                if t_pos >= tlen { break; }
+                let ok = if is_rev {
+                    geneie_core::primer::iupac::bases_pair(primer_bytes[p_pos], tpl_bytes[t_pos])
+                } else {
+                    primer_bytes[p_pos] == tpl_bytes[t_pos]
+                };
+                if ok { ext += 1; } else { break; }
+            }
+
+            let footprint_len = seed_len + ext;
+
+            let footprint_seq: String = primer_bytes[plen - footprint_len..]
+                .iter().map(|&b| b.to_ascii_uppercase() as char).collect();
+            let est_tm = if footprint_seq.len() >= 2 {
+                geneie_core::primer::thermodynamics::compute_tm(&footprint_seq)
+            } else { 0.0 };
+
+            candidates.push(BindingSiteCandidate { is_rev, tp_3prime, footprint_len, est_tm });
+        }
+    }
+
+    candidates.sort_by(|a, b| b.est_tm.partial_cmp(&a.est_tm).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.dedup_by(|a, b| (a.tp_3prime as i64 - b.tp_3prime as i64).unsigned_abs() <= 3);
+
+    if candidates.is_empty() {
+        return Err("No candidate binding sites found".to_string());
+    }
+
+    let mut results = Vec::new();
+
+    for (idx, c) in candidates.iter().enumerate() {
+        let tp = c.tp_3prime;
+        let raw_start = (tp as i64) - (expansion as i64) - (plen as i64) + seed_len as i64;
+        let win_start = if is_circular {
+            (raw_start.rem_euclid(tlen as i64)) as usize
+        } else {
+            raw_start.max(0) as usize
+        };
+        let win_end = if is_circular {
+            (tp + expansion) % tlen
+        } else {
+            (tp + expansion).min(tlen)
+        };
+
+        let template_region = if is_circular {
+            primer::alignment::wrap_template_region(tpl_bytes, win_start, win_end)
+        } else {
+            tpl_bytes[win_start..win_end].to_vec()
+        };
+
+        if idx == 0 {
+            // Best site: full SW alignment.
+            let sw_ok = if c.is_rev {
+                primer::alignment::align_first_base_constrained_rev(
+                    &rev_bytes, &template_region,
+                ).map(|result| {
+                    let text = primer::display::format_alignment_text(
+                        &rev_bytes, &template_region, &result,
+                        "Template", &primer.name, win_start, true,
+                    );
+                    let sw_tm = primer::display::compute_tm_from_alignment(&rev_bytes, &result);
+                    results.push(serde_json::json!({
+                        "tm": (sw_tm * 10.0).round() / 10.0,
+                        "strand": -1,
+                        "start": (result.template_start + win_start) as i64,
+                        "end": (result.template_end + win_start) as i64,
+                        "alignment": text,
+                    }));
+                })
+            } else {
+                primer::alignment::align_3prime_constrained(
+                    primer_bytes, &template_region,
+                ).map(|result| {
+                    let text = primer::display::format_alignment_text(
+                        primer_bytes, &template_region, &result,
+                        "Template", &primer.name, win_start, false,
+                    );
+                    let sw_tm = primer::display::compute_tm_from_alignment(primer_bytes, &result);
+                    results.push(serde_json::json!({
+                        "tm": (sw_tm * 10.0).round() / 10.0,
+                        "strand": 1,
+                        "start": (result.template_start + win_start) as i64,
+                        "end": (result.template_end + win_start) as i64,
+                        "alignment": text,
+                    }));
+                })
+            };
+            if sw_ok.is_none() {
+                results.push(serde_json::json!({
+                    "tm": (c.est_tm * 10.0).round() / 10.0,
+                    "strand": if c.is_rev { -1 } else { 1 },
+                    "start": (tp - c.footprint_len + 1) as i64,
+                    "end": tp as i64 + 1,
+                    "alignment": null,
+                }));
+            }
+        } else {
+            // Alternative: just list position + Tm, no alignment.
+            results.push(serde_json::json!({
+                "tm": (c.est_tm * 10.0).round() / 10.0,
+                "strand": if c.is_rev { -1 } else { 1 },
+                "start": (tp - c.footprint_len + 1) as i64,
+                "end": tp as i64 + 1,
+                "alignment": null,
+            }));
+        }
+    }
+
+    if results.is_empty() {
+        return Err("No valid binding sites found".to_string());
+    }
+    let current = results.remove(0);
+    Ok(serde_json::json!({ "current": current, "alternatives": results }))
+}
+
+enum SearchMode { Forward, Reverse }
+
+struct BindingSiteCandidate {
+    is_rev: bool,
+    tp_3prime: usize,
+    footprint_len: usize,
+    est_tm: f64,
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — methylation
 // ---------------------------------------------------------------------------
@@ -1040,6 +1251,7 @@ pub fn run() {
             get_primers,
             add_primer,
             delete_primer,
+            compute_primer_alignment,
             set_methylation,
             get_projects,
             activate_project,
