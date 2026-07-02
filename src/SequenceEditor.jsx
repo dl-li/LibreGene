@@ -7,65 +7,174 @@ import { AlertTriangle } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // PrimerWarningBadge — floating indicator in top-right corner for primers
-// that have no binding sites.  Expands on hover to show their names.
+// that have no binding sites.  Click to expand, mouse-leave to close.
 // ---------------------------------------------------------------------------
 function PrimerWarningBadge({ primers }) {
-  const [hovered, setHovered] = useState(false);
-  const onEnter = useCallback(() => setHovered(true), []);
-  const onLeave = useCallback(() => setHovered(false), []);
+  const [expanded, setExpanded] = useState(false);
+  const ref = useRef(null);
 
-  if (hovered) {
-    return (
-      <div
-        onMouseEnter={onEnter}
-        onMouseLeave={onLeave}
-        style={{
-          position: 'fixed', top: 8, right: 8, zIndex: 9999,
-          backgroundColor: '#fef3c7', color: '#92400e',
-          border: '1px solid #fde68a', borderRadius: 8,
-          fontSize: '12px', lineHeight: '1.4',
-          padding: '6px 10px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-          maxWidth: 320,
-        }}
-      >
-        <div className="flex items-center gap-1.5 mb-1">
-          <AlertTriangle className="size-3.5 shrink-0" />
-          <span className="font-semibold">引物未匹配到模板</span>
-        </div>
-        <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
-          {primers.map(p => (
-            <li key={p.id} style={{ fontFamily: '"Cascadia Code", ui-monospace, monospace', fontSize: '11px' }}>
-              {p.name || p.id}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
+  const onClick = useCallback(() => setExpanded(v => !v), []);
+  const onMouseLeave = useCallback(() => setExpanded(false), []);
+
+  // Close on mouse-leave of the expanded panel (only when expanded)
+  useEffect(() => {
+    if (!expanded) return;
+    const el = ref.current;
+    if (!el) return;
+    const handler = () => setExpanded(false);
+    el.addEventListener('mouseleave', handler);
+    return () => el.removeEventListener('mouseleave', handler);
+  }, [expanded]);
 
   return (
-    <div
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      style={{
-        position: 'fixed', top: 8, right: 8, zIndex: 9999,
-        backgroundColor: '#fef3c7', color: '#92400e',
-        border: '1px solid #fde68a', borderRadius: 8,
-        fontSize: '11px', lineHeight: '1.2',
-        padding: '3px 7px',
-        cursor: 'default',
-        display: 'flex', alignItems: 'center', gap: 3,
-      }}
-    >
-      <AlertTriangle className="size-3.5" />
-      <span>{primers.length}</span>
+    <div ref={ref} style={{ position: 'fixed', top: 8, right: 8, zIndex: 9999 }}>
+      {/* Collapsed badge */}
+      {!expanded && (
+        <div
+          onClick={onClick}
+          style={{
+            backgroundColor: '#fef3c7', color: '#92400e',
+            border: '1px solid #fde68a', borderRadius: 8,
+            fontSize: '11px', lineHeight: '1.2',
+            padding: '3px 7px',
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 3,
+          }}
+        >
+          <AlertTriangle className="size-3.5" />
+          <span>{primers.length}</span>
+        </div>
+      )}
+      {/* Expanded detail panel */}
+      {expanded && (
+        <div
+          onClick={onClick}
+          style={{
+            backgroundColor: '#fef3c7', color: '#92400e',
+            border: '1px solid #fde68a', borderRadius: 8,
+            fontSize: '12px', lineHeight: '1.4',
+            padding: '6px 10px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            maxWidth: 320,
+            cursor: 'pointer',
+          }}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span className="font-semibold">引物未匹配到模板</span>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
+            {primers.map(p => (
+              <li key={p.id} style={{ fontFamily: '"Cascadia Code", ui-monospace, monospace', fontSize: '11px' }}>
+                {p.name || p.id}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
 
 const complementStr = (s) => s.split('').map(c => complement(c)).join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
+
+// ---------------------------------------------------------------------------
+// SelectionLengthBadge — top-right badge showing "xx bp" for the current
+// selection (text / enzyme / primer / amplimer).  Hover shows "Copy", click
+// copies the corresponding sequence, then shows ✓ briefly.
+// ---------------------------------------------------------------------------
+function SelectionLengthBadge({
+  selectionMode, isEnzymeSelection, selStart, selEnd, cleanSeq,
+  selectedPrimerIds, enrichedPrimers,
+  enzymeActiveBlue, amplimerGreen,
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Compute the sequence to copy and the display length + colour.
+  let len, bg, seqToCopy;
+
+  if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
+    const fp = enrichedPrimers.find(p => p.id === selectedPrimerIds[0]);
+    const rp = enrichedPrimers.find(p => p.id === selectedPrimerIds[1]);
+    if (!fp || !rp) return null;
+    const fwdPrimer = fp.isFwd ? fp : rp;
+    const revPrimer = fp.isFwd ? rp : fp;
+    if (!fwdPrimer || !revPrimer) return null;
+    const fSeq = fwdPrimer.primerSeq || cleanSeq.substring(fwdPrimer.matchStart, fwdPrimer.matchEnd + 1);
+    const rSeq = revPrimer.primerSeq || cleanSeq.substring(revPrimer.matchStart, revPrimer.matchEnd + 1);
+    let intervening;
+    if (fwdPrimer.matchEnd < revPrimer.matchStart) {
+      intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
+    } else {
+      intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
+    }
+    len = fSeq.length + intervening.length + rSeq.length;
+    seqToCopy = fSeq + intervening + reverseComplement(rSeq);
+    bg = amplimerGreen;
+  } else if (selectionMode === 'primer' && selectedPrimerIds.length === 1) {
+    const p = enrichedPrimers.find(pr => pr.id === selectedPrimerIds[0]);
+    if (!p || p.matchStart === undefined || p.matchEnd === undefined) return null;
+    len = p.matchEnd - p.matchStart + 1;
+    seqToCopy = p.primerSeq || cleanSeq.substring(p.matchStart, p.matchEnd + 1);
+    bg = (p.isFwd === false) ? '#4A148C' : '#166534';
+  } else if (isEnzymeSelection) {
+    if (selStart === null || selEnd === null) return null;
+    len = selEnd - selStart + 1;
+    seqToCopy = cleanSeq.substring(selStart, selEnd + 1);
+    bg = enzymeActiveBlue;
+  } else if (selectionMode === 'text' && selStart !== null && selEnd !== null) {
+    len = selEnd - selStart + 1;
+    seqToCopy = cleanSeq.substring(selStart, selEnd + 1);
+    bg = '#3E2723';
+  } else {
+    return null;
+  }
+
+  const handleMouseEnter = () => setHovered(true);
+  const handleMouseLeave = () => { setHovered(false); setCopied(false); };
+  const handleClick = async () => {
+    if (!seqToCopy) return;
+    try {
+      await navigator.clipboard.writeText(seqToCopy);
+      setCopied(true);
+    } catch { /* clipboard not available */ }
+  };
+
+  let label;
+  if (copied) {
+    label = '✓';
+  } else if (hovered) {
+    label = 'Copy';
+  } else {
+    label = `${len} bp`;
+  }
+
+  // Measure "xx bp" width to prevent the badge from shrinking on state change
+  const lenTextWidth = measureWidth(`${len} bp`, `600 11px ${monoFont}`);
+
+  return (
+    <div
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+      style={{
+        position: 'fixed', top: 36, right: 8, zIndex: 9998,
+        backgroundColor: bg, color: bgColor,
+        border: `1px solid ${bg}`, borderRadius: 8,
+        fontSize: '11px', lineHeight: '1.2',
+        padding: '3px 7px',
+        minWidth: lenTextWidth + 14,
+        textAlign: 'center',
+        cursor: 'pointer',
+        userSelect: 'none',
+      }}
+    >
+      {label}
+    </div>
+  );
+}
 
 const isIISEnzyme = (e) => {
   if (!e) return false;
@@ -117,7 +226,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, primerSeedLength }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, primerSeedLength, onSelectionChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -153,7 +262,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     if (cursorTimerRef.current) { clearTimeout(cursorTimerRef.current); cursorTimerRef.current = null; }
   }, []);
 
-  // Restore cursor/selection from undo/redo (external restoreState)
+  // Restore cursor/selection from undo/redo or project switch (external restoreState)
   const restoreVersionRef = useRef(0);
   useEffect(() => {
     if (!restoreState) return;
@@ -162,14 +271,24 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     setCursorIndex(restoreState.cursorIndex ?? null);
     setSelStart(restoreState.selStart ?? null);
     setSelEnd(restoreState.selEnd ?? null);
-    setSelectionMode('text');
-    setSelectedEnzymeIds([]);
-    setSelectedPrimerIds([]);
-    setIsEnzymeSelection(false);
+    setSelectionMode(restoreState.selectionMode ?? 'text');
+    setSelectedPrimerIds(restoreState.selectedPrimerIds ?? []);
+    setIsEnzymeSelection(restoreState.isEnzymeSelection ?? false);
+    setSelectedEnzymeIds(restoreState.selectedEnzymeIds ?? []);
     if (restoreState.cursorIndex !== null) {
       resetCursorTimer();
     }
   }, [restoreState, resetCursorTimer]);
+
+  // Notify parent of selection changes (for per-project state persistence)
+  const prevSelSnapshotRef = useRef(null);
+  useEffect(() => {
+    if (!onSelectionChange) return;
+    const snap = JSON.stringify([cursorIndex, selStart, selEnd, selectionMode, selectedPrimerIds, isEnzymeSelection, selectedEnzymeIds]);
+    if (snap === prevSelSnapshotRef.current) return;
+    prevSelSnapshotRef.current = snap;
+    onSelectionChange({ cursorIndex, selStart, selEnd, selectionMode, selectedPrimerIds, isEnzymeSelection, selectedEnzymeIds });
+  });
 
   // --- enzyme selection state ---
   const [isEnzymeSelection, setIsEnzymeSelection] = useState(false);
@@ -873,8 +992,10 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   useEffect(() => {
     const onKey = (e) => {
       // Ignore events from input/textarea (e.g. dialog textarea has focus)
+      // Also skip when inside a dialog — let the browser handle text selection copy naturally
       const tag = e.target?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+      if (e.target?.closest?.('[role="dialog"]')) return;
 
       // --- Arrow keys: cursor navigation ---
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -2164,12 +2285,25 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp, isEnzymeSelection]);
 
   return (
-    <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
+    <>
+      {/* Unmatched primers warning — rendered outside container to avoid contain: style breaking position: fixed */}
+      {/* Selection length badge */}
+      <SelectionLengthBadge
+        selectionMode={selectionMode}
+        isEnzymeSelection={isEnzymeSelection}
+        selStart={selStart}
+        selEnd={selEnd}
+        cleanSeq={cleanSeq}
+        selectedPrimerIds={selectedPrimerIds}
+        enrichedPrimers={enrichedPrimers}
+        enzymeActiveBlue={enzymeActiveBlue}
+        amplimerGreen={amplimerGreen}
+      />
+      {unmatchedPrimers.length > 0 && (
+        <PrimerWarningBadge primers={unmatchedPrimers} />
+      )}
+      <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
       <div style={{ width: svgWidth }}>
-        {/* Unmatched primers warning — floating badge, expands on hover */}
-        {unmatchedPrimers.length > 0 && (
-          <PrimerWarningBadge primers={unmatchedPrimers} />
-        )}
         <svg ref={svgRef} width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible', willChange: 'transform', transform: 'translateZ(0)' }}
           onMouseDown={handleSvgMouseDown} onMouseMove={handleSvgMouseMove} onMouseLeave={handleSvgMouseLeave}>
           {renderedCursor}
@@ -2205,6 +2339,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         seedLength={primerSeedLength}
       />
     </div>
+    </>
   );
 });
 

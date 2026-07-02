@@ -45,6 +45,7 @@ export default function App() {
   const [fileStatus, setFileStatus] = useState('');
   const sequenceRef = useRef(sequence);
   const projectCacheRef = useRef({}); // { [id]: { sequence, features, enzymes, primers, methKey } }
+  const perProjectSelectionRef = useRef({}); // { [id]: { cursorIndex, selStart, selEnd, selectionMode, selectedPrimerIds, isEnzymeSelection, selectedEnzymeIds } }
   const switchGenRef = useRef(0);      // generation counter to cancel stale async responses
 
   // --- Sequence editing state ---
@@ -351,12 +352,21 @@ export default function App() {
     }
   }, [isTauri, openPath, methKey, refreshProjects, syncMethylation, activeId, isDirty]);
 
+  // Track selection state per project so switching files preserves it
+  const handleSelectionChange = useCallback((sel) => {
+    if (activeId) {
+      perProjectSelectionRef.current[activeId] = sel;
+    }
+  }, [activeId]);
+
   const handleActivateProject = useCallback(async (id) => {
-    // Save current project's dirty state and baseline before switching away
+    // Save current project's dirty state, baseline, and selection before switching away
     if (activeId && activeId !== id) {
       dirtyStateRef.current[activeId] = isDirty;
       baselinePerProjectRef.current[activeId] = baselineSequenceRef.current;
     }
+    // Retrieve the target project's saved selection (or empty defaults)
+    const targetSel = id ? perProjectSelectionRef.current[id] : null;
     skipDirtyRef.current = false;
 
     const gen = ++switchGenRef.current;
@@ -368,9 +378,13 @@ export default function App() {
       setActiveId(id);
       setRestoreState({
         version: ++undoVersionRef.current,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
+        cursorIndex: targetSel?.cursorIndex ?? null,
+        selStart: targetSel?.selStart ?? null,
+        selEnd: targetSel?.selEnd ?? null,
+        selectionMode: targetSel?.selectionMode ?? 'text',
+        selectedPrimerIds: targetSel?.selectedPrimerIds ?? [],
+        isEnzymeSelection: targetSel?.isEnzymeSelection ?? false,
+        selectedEnzymeIds: targetSel?.selectedEnzymeIds ?? [],
       });
       setSequence(cached.sequence);
       setFeatures(cached.features);
@@ -405,9 +419,13 @@ export default function App() {
           setActiveId(id);
           setRestoreState({
             version: ++undoVersionRef.current,
-            cursorIndex: null,
-            selStart: null,
-            selEnd: null,
+            cursorIndex: targetSel?.cursorIndex ?? null,
+            selStart: targetSel?.selStart ?? null,
+            selEnd: targetSel?.selEnd ?? null,
+            selectionMode: targetSel?.selectionMode ?? 'text',
+            selectedPrimerIds: targetSel?.selectedPrimerIds ?? [],
+            isEnzymeSelection: targetSel?.isEnzymeSelection ?? false,
+            selectedEnzymeIds: targetSel?.selectedEnzymeIds ?? [],
           });
           setSequence(data.sequence);
           setFeatures(data.features || EMPTY_ARRAY);
@@ -1074,6 +1092,7 @@ export default function App() {
                 onFeatureLocationChange={handleFeatureLocationChange}
                 onFeatureNameChange={handleFeatureNameChange}
                 primerSeedLength={primerSeedLength}
+                onSelectionChange={handleSelectionChange}
               />
             ) : (
               <Empty className="min-h-screen">
