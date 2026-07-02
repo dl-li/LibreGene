@@ -1,27 +1,23 @@
-//! EMBOSS-style plain-text alignment display for primers.
+//! Compact centred-layout alignment display for primers.
 //!
-//! Converts a Smith-Waterman [`AlignmentResult`] into a three-line text block:
+//! Formats into a 5-line block:
 //!
 //! ```text
-//! Template       32 AGTTGTGTTCAAGCATATTTGCTGAGCGA 60
-//!                    |||||||||||||||||||||||||||||
-//! Primer          1 AGTTGTGTTCAAGCATATTTGCTGAGCGA 29
-//!                 5' -> 3'
+//!             Template
+//!   120 CTACTAGGGCGAATTG 136
+//!       ||||||||||||||||
+//!  5' > CTACTAGGGCGAATTG > 3'
+//!             V20-Fs
 //! ```
 
 use super::alignment::{AlignmentResult, Op};
 use super::thermodynamics;
 
-/// Format an [`AlignmentResult`] as EMBOSS-style pairwise alignment text.
+/// Format an [`AlignmentResult`] into a compact centred 5-line block.
 ///
-/// - `primer_seq` — the full primer sequence (5′→3′) as displayed.
-/// - `template_region` — the contiguous template segment that `result` was
-///   aligned against (the same slice passed to [`super::alignment::align`]).
-/// - `result` — the alignment result from the Smith-Waterman engine.
-/// - `template_name` / `primer_name` — labels shown in the left column.
-/// - `window_offset` — 0-based position of `template_region[0]` in the **full**
-///   template sequence, used to compute 1-based display coordinates.
-/// - `is_rev` — if true, add a `3' <- 5'` direction indicator; otherwise `5' -> 3'`.
+/// Lines 1 (template name) and 5 (primer name) are centred over the sequence.
+/// Position numbers appear on line 2.  Match chars on line 3.  Arrow indicators
+/// on line 4.  The frontend applies colours per line index.
 pub fn format_alignment_text(
     primer_seq: &[u8],
     template_region: &[u8],
@@ -31,14 +27,15 @@ pub fn format_alignment_text(
     window_offset: usize,
     is_rev: bool,
 ) -> String {
-    let primer_upper: Vec<u8> = primer_seq.iter().map(|&b| b.to_ascii_uppercase()).collect();
+    let primer_upper: Vec<u8> = primer_seq.to_vec(); // preserve original case
 
     let mut template_aln = String::new();
     let mut match_aln = String::new();
     let mut primer_aln = String::new();
 
     for pair in &result.ops {
-        let tb = pair.template_pos.map(|p| template_region[p].to_ascii_uppercase() as char);
+        let tb =
+            pair.template_pos.map(|p| template_region[p].to_ascii_uppercase() as char);
         let pb = pair.primer_pos.map(|p| primer_upper[p] as char);
 
         match pair.op {
@@ -65,56 +62,67 @@ pub fn format_alignment_text(
         }
     }
 
-    // 1-based display offsets for the aligned region
+    // 1-based display offsets
     let tstart = window_offset + result.template_start + 1;
-    let tend   = window_offset + result.template_end;
-    let pstart = result.primer_start + 1;
-    let pend   = result.primer_end;
+    let tend = window_offset + result.template_end;
 
-    // Layout: name=16, start=6 chars, seq=variable, end=6 chars
-    let name_w = 16;
-    let pos_w  = 6;
+    let tstart_str = tstart.to_string();
+    let tend_str = tend.to_string();
+    let seq_len = template_aln.len();
 
-    let line1 = format!(
-        "{:<nw$}{:>pw$} {} {:<pw$}",
-        template_name, tstart, template_aln, tend,
-        nw = name_w, pw = pos_w,
-    );
-    // Match line indentation: name_w(16) + 1 space + pos_w(6) + 1 space = 24 chars before seq.
-    // So match chars need 24 leading spaces to align.  We right-pad an empty string:
-    //   name_w(16) + "" + 1 space + pos_w(6) + "" + 1 space => 16+1+6+1 = 24.
+    // Position-number column width (dynamic to the actual digits).
+    let pos_w = tstart_str.len().max(tend_str.len()).max(1);
+
+    // Left prefix width: 1 space + pos_w digits + 1 space = pos_w + 2.
+    // We match this to the arrow prefix so that the sequence column is aligned
+    // across all lines.
+    let arrow_left_str = if is_rev { "3' < " } else { "5' > " };
+    // left_prefix_width ensures the arrow fits and the sequences line up
+    let left_prefix_width = (pos_w + 2).max(arrow_left_str.len());
+
+    // ----- Line 1: template name centred over the sequence -----
+    let line1_seq_centred = centre(template_name, seq_len);
+    let line1 = format!("{:>lw$}{}", "", line1_seq_centred, lw = left_prefix_width);
+
+    // ----- Line 2: template sequence with flanking positions -----
+    // Left prefix: right-justified position number, padded so the sequence
+    // column aligns with lines 3 & 4.
+    let extra_left = left_prefix_width.saturating_sub(pos_w + 1);
+    let extra_right = left_prefix_width.saturating_sub(pos_w + 1);
     let line2 = format!(
-        "{:<nw$}{:>pw$} {}",
-        "", "", match_aln,
-        nw = name_w, pw = pos_w,
+        "{:>el$}{} {} {:<er$}",
+        "",
+        tstart_str,
+        template_aln,
+        tend_str,
+        el = extra_left,
+        er = extra_right,
     );
-    let pstart_str = pstart.to_string();
-    let pend_str = pend.to_string();
 
-    let line3 = if is_rev {
-        // (3') with a space before the start number.
-        let label_left = format!("(3') {}", pstart_str);
-        let name_chars = (name_w + pos_w + 1)
-            .saturating_sub(label_left.len() + 1)
-            .max(primer_name.len());
-        format!(
-            "{:nw$}(3') {} {} {} (5')",
-            primer_name, pstart_str, primer_aln, pend_str,
-            nw = name_chars,
-        )
-    } else {
-        let label_left = format!("(5') {}", pstart_str);
-        let name_chars = (name_w + pos_w + 1)
-            .saturating_sub(label_left.len() + 1)
-            .max(primer_name.len());
-        format!(
-            "{:nw$}(5') {} {} {} (3')",
-            primer_name, pstart_str, primer_aln, pend_str,
-            nw = name_chars,
-        )
-    };
+    // ----- Line 3: match / mismatch indicators -----
+    let line3 = format!("{:>lw$}{}", "", match_aln, lw = left_prefix_width);
 
-    format!("{}\n{}\n{}", line1, line2, line3)
+    // ----- Line 4: primer sequence with arrow indicators -----
+    let arrow_right_str = if is_rev { "< 5'" } else { "> 3'" };
+    // Left arrow part padded to left_prefix_width
+    let left_arrow = format!("{:>lw$}", arrow_left_str, lw = left_prefix_width);
+    let line4 = format!("{}{} {}", left_arrow, primer_aln, arrow_right_str);
+
+    // ----- Line 5: primer name centred over the sequence -----
+    let line5_seq_centred = centre(primer_name, seq_len);
+    let line5 = format!("{:>lw$}{}", "", line5_seq_centred, lw = left_prefix_width);
+
+    format!("{}\n{}\n{}\n{}\n{}", line1, line2, line3, line4, line5)
+}
+
+/// Pad `text` with spaces so it appears centred within `width`.
+fn centre(text: &str, width: usize) -> String {
+    if text.len() >= width {
+        return text.to_string();
+    }
+    let left = (width - text.len()) / 2;
+    let right = width - text.len() - left;
+    format!("{:>l$}{}{:<r$}", "", text, "", l = left, r = right)
 }
 
 /// Compute melting temperature from the aligned primer bases in an
@@ -164,7 +172,7 @@ mod tests {
         let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false);
 
         assert!(text.contains("ATGCAT"));
-        assert!(text.lines().nth(1).unwrap().contains(" "), "expected a space in match line for mismatch");
+        assert!(text.lines().nth(2).unwrap().contains(" "), "expected a space in match line for mismatch");
         println!("\n=== With mismatch ===\n{}", text);
     }
 
@@ -187,17 +195,20 @@ mod tests {
         let result = align(primer, template).unwrap();
         let text = format_alignment_text(primer, template, &result, "Tpl", "Rev", 8, true);
 
-        // Rev mode: primer line should have (3') before start, (5') after end.
-        let primer_line = text.lines().nth(2).unwrap();
-        assert!(primer_line.contains("(3')"), "expected (3') in rev primer line");
-        assert!(primer_line.contains("(5')"), "expected (5') in rev primer line");
-        let three_pos = primer_line.find("(3')").unwrap();
-        let five_pos = primer_line.rfind("(5')").unwrap();
-        let end_pos = primer_line.rfind("8").unwrap();
-        assert!(three_pos < primer_line.find('1').unwrap(),
-            "(3') should be before start position");
-        assert!(five_pos > end_pos,
-            "(5') should be after end position");
+        // Line 4 (index 3) is the primer arrow line.
+        let primer_line = text.lines().nth(3).unwrap();
+        assert!(primer_line.contains("3' <"), "expected 3' < in rev primer line");
+        assert!(primer_line.contains("< 5'"), "expected < 5' in rev primer line");
+        let arrow_pos = primer_line.find("3'").unwrap();
+        let end_arrow_pos = primer_line.rfind("5'").unwrap();
+        let first_base = primer_line.find('A').unwrap();
+        assert!(arrow_pos < first_base,
+            "3' should be before the sequence");
+        assert!(end_arrow_pos > primer_line.rfind('C').unwrap_or(0),
+            "5' should be after the sequence");
+        // Line 5 (index 4) is the primer name.
+        let name_line = text.lines().nth(4).unwrap();
+        assert!(name_line.contains("Rev"), "expected Rev on the name line");
         println!("\n=== Rev direction ===\n{}", text);
     }
 }
