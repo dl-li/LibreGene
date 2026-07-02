@@ -3,6 +3,66 @@ import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, co
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import { computePrimerAlignment } from './tauriApi';
+import { AlertTriangle } from 'lucide-react';
+
+// ---------------------------------------------------------------------------
+// PrimerWarningBadge — floating indicator in top-right corner for primers
+// that have no binding sites.  Expands on hover to show their names.
+// ---------------------------------------------------------------------------
+function PrimerWarningBadge({ primers }) {
+  const [hovered, setHovered] = useState(false);
+  const onEnter = useCallback(() => setHovered(true), []);
+  const onLeave = useCallback(() => setHovered(false), []);
+
+  if (hovered) {
+    return (
+      <div
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        style={{
+          position: 'fixed', top: 8, right: 8, zIndex: 9999,
+          backgroundColor: '#fef3c7', color: '#92400e',
+          border: '1px solid #fde68a', borderRadius: 8,
+          fontSize: '12px', lineHeight: '1.4',
+          padding: '6px 10px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+          maxWidth: 320,
+        }}
+      >
+        <div className="flex items-center gap-1.5 mb-1">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          <span className="font-semibold">引物未匹配到模板</span>
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
+          {primers.map(p => (
+            <li key={p.id} style={{ fontFamily: '"Cascadia Code", ui-monospace, monospace', fontSize: '11px' }}>
+              {p.name || p.id}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      style={{
+        position: 'fixed', top: 8, right: 8, zIndex: 9999,
+        backgroundColor: '#fef3c7', color: '#92400e',
+        border: '1px solid #fde68a', borderRadius: 8,
+        fontSize: '11px', lineHeight: '1.2',
+        padding: '3px 7px',
+        cursor: 'default',
+        display: 'flex', alignItems: 'center', gap: 3,
+      }}
+    >
+      <AlertTriangle className="size-3.5" />
+      <span>{primers.length}</span>
+    </div>
+  );
+}
 
 const complementStr = (s) => s.split('').map(c => complement(c)).join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
@@ -276,6 +336,11 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       displaySequence: ds,
     };
   }), [primers, cleanSeq]);
+
+  // Primers that have no binding sites at all — won't appear on the sequence
+  const unmatchedPrimers = useMemo(() => {
+    return (primers || []).filter(p => !p.bindingSites?.length);
+  }, [primers]);
 
   const numRows = Math.max(1, Math.ceil(cleanSeq.length / charsPerLine));
   numRowsRef.current = numRows;
@@ -2101,6 +2166,10 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   return (
     <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
       <div style={{ width: svgWidth }}>
+        {/* Unmatched primers warning — floating badge, expands on hover */}
+        {unmatchedPrimers.length > 0 && (
+          <PrimerWarningBadge primers={unmatchedPrimers} />
+        )}
         <svg ref={svgRef} width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible', willChange: 'transform', transform: 'translateZ(0)' }}
           onMouseDown={handleSvgMouseDown} onMouseMove={handleSvgMouseMove} onMouseLeave={handleSvgMouseLeave}>
           {renderedCursor}

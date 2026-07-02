@@ -25,8 +25,9 @@ use super::formatter;
 use super::matcher::{self, DEFAULT_LIMIT};
 use super::thermodynamics;
 
-/// Minimum fraction of primer length that must anneal for a valid site.
-const MIN_MATCH_FRACTION: f64 = 0.6;
+// No minimum footprint filter — any 3'-anchor match is accepted.
+// Primers with long 5' tails (adapters, overhangs) commonly have
+// short binding footprints; qualify by Tm instead.
 
 // ---------------------------------------------------------------------------
 // Main entry point
@@ -50,7 +51,6 @@ pub fn compute_binding_sites(
     }
 
     let primer_seq = primer_seq.to_ascii_uppercase();
-    let min_align = ((plen as f64) * MIN_MATCH_FRACTION).max(1.0) as usize;
     let is_circular = topology == "circular";
 
     let mut results: Vec<PrimerBindingSite> = Vec::new();
@@ -58,14 +58,14 @@ pub fn compute_binding_sites(
     // Fwd (strand 1): primer matches top strand directly.
     results.extend(search_one_strand(
         template, &primer_seq, primer_id, 1, false,
-        plen, min_align, is_circular, tm_threshold,
+        plen, is_circular, tm_threshold,
     ));
 
     // Rev (strand -1): primer complements top strand.
     // Search the primer AS-IS with complement regex on the template.
     results.extend(search_one_strand(
         template, &primer_seq, primer_id, -1, true,
-        plen, min_align, is_circular, tm_threshold,
+        plen, is_circular, tm_threshold,
     ));
 
     // Sort by Tm descending (best first), then dedup by position.
@@ -88,7 +88,6 @@ fn search_one_strand(
     strand: i8,
     use_complement: bool,
     plen: usize,
-    min_align: usize,
     is_circular: bool,
     tm_threshold: f64,
 ) -> Vec<PrimerBindingSite> {
@@ -107,9 +106,6 @@ fn search_one_strand(
     let mut seen: HashSet<usize> = HashSet::new();
 
     for site in &annealing_sites {
-        if site.footprint_len < min_align {
-            continue;
-        }
         if seen.contains(&site.template_start) {
             continue;
         }

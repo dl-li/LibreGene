@@ -776,7 +776,9 @@ async fn compute_primer_alignment(
     let is_circular = project.topology == "circular";
     // Use custom_seq for live preview if provided, otherwise use stored sequence.
     let active_seq: String = custom_seq.unwrap_or_else(|| primer.primer_seq.clone());
-    let primer_bytes = active_seq.as_bytes();
+    let orig_bytes = active_seq.as_bytes();              // original case for display
+    let active_upper = active_seq.to_ascii_uppercase();
+    let primer_bytes = active_upper.as_bytes();           // uppercase for matching
     let plen = primer_bytes.len();
 
     let seed_len = seed_length.unwrap_or(10).clamp(6, plen.min(20));
@@ -789,6 +791,7 @@ async fn compute_primer_alignment(
     // Pre-compute reverse primer and RC seed (for R-mode search).
     let seed = &primer_bytes[plen - seed_len..];
     let rev_bytes: Vec<u8> = primer_bytes.iter().rev().copied().collect();
+    let orig_rev_bytes: Vec<u8> = orig_bytes.iter().rev().copied().collect(); // for display
     // RC of the 3' seed — this is what we search for in R mode.
     let rc_seed: Vec<u8> = seed.iter()
         .rev()
@@ -895,7 +898,7 @@ async fn compute_primer_alignment(
                     &rev_bytes, &template_region,
                 ).map(|result| {
                     let text = primer::display::format_alignment_text(
-                        &rev_bytes, &template_region, &result,
+                        &orig_rev_bytes, &template_region, &result,
                         "Template", &primer.name, win_start, true,
                     );
                     let sw_tm = primer::display::compute_tm_from_alignment(&rev_bytes, &result);
@@ -912,7 +915,7 @@ async fn compute_primer_alignment(
                     primer_bytes, &template_region,
                 ).map(|result| {
                     let text = primer::display::format_alignment_text(
-                        primer_bytes, &template_region, &result,
+                        orig_bytes, &template_region, &result,
                         "Template", &primer.name, win_start, false,
                     );
                     let sw_tm = primer::display::compute_tm_from_alignment(primer_bytes, &result);

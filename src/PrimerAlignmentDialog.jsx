@@ -14,14 +14,26 @@ const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 function AlignmentView({ data }) {
   if (!data?.alignment) return null;
   const lines = data.alignment.split('\n');
-  const primerLine = lines[2] || '';
-  const isRev = primerLine.match(/\([53]'\)/)?.[0] === "(3')";
-  const color = isRev ? COLORS.rev : COLORS.fwd;
+  // Line 4 (index 3) has the arrow indicators → detect rev from "3' <".
+  const primerArrowLine = lines[3] || '';
+  const isRev = primerArrowLine.includes("3' <");
+  const primerColor = isRev ? COLORS.rev : COLORS.fwd;
   return (
-    <div style={{ fontFamily: MONO, fontSize: '13px', lineHeight: '1.6' }}>
-      {lines.map((line, i) => (
-        <div key={i} style={{ whiteSpace: 'pre', color: i === 2 ? color : undefined }}>{line}</div>
-      ))}
+    <div style={{ fontFamily: MONO, fontSize: '13px', lineHeight: '1.6', display: 'inline-block', textAlign: 'left' }}>
+      {lines.map((line, i) => {
+        let color;
+        if (i === 3 || i === 4) {
+          // Primer arrow line + name: primer colour
+          color = primerColor;
+        } else if (i === 2) {
+          // Match line: gray
+          color = '#888';
+        }
+        // All lines use the same font weight for visual alignment.
+        return (
+          <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>{line}</div>
+        );
+      })}
     </div>
   );
 }
@@ -49,18 +61,51 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   const cur = preview?.data?.current || data?.current;
   const alts = preview?.data?.alternatives || data?.alternatives || [];
   const hasChanges = editSeq !== (primer?.primerSeq || '');
-  const isPreviewStale = hasChanges && !preview;
 
-  const handlePreview = useCallback(async () => {
-    if (!editSeq || editSeq.length < 6) return;
-    setPreview({ data: null, loading: true, error: null });
-    try {
-      const result = await computePrimerAlignment(primer.id, seedLength, editSeq);
-      setPreview({ data: result, loading: false, error: null });
-    } catch (e) {
-      setPreview({ data: null, loading: false, error: String(e) });
+  const IUPAC = useMemo(() => new Set('ACGTURYSWKMBDHVNacgturyswkmbdhvn'), []);
+  const invalidChars = useMemo(() => {
+    const bad = [];
+    for (const ch of editSeq) {
+      if (ch === ' ' || ch === '\t') continue; // whitespace is ignorable
+      if (!IUPAC.has(ch)) bad.push(ch);
     }
-  }, [editSeq, primer?.id, seedLength]);
+    return [...new Set(bad)]; // unique list
+  }, [editSeq, IUPAC]);
+  const isInvalid = invalidChars.length > 0;
+
+  const stripIUPAC = useCallback((s) => {
+    // Remove whitespace and keep only valid DNA/IUPAC chars (including degenerate)
+    return [...s].filter(ch => ch !== ' ' && ch !== '\t' && IUPAC.has(ch)).join('');
+  }, [IUPAC]);
+
+  // ── Auto-preview on sequence change (debounced) ──
+  const debounceRef = useRef(null);
+  const autoPreviewKey = useRef(0); // tracks latest request to avoid stale results
+  const isInitialRender = useRef(true); // skip the very first render
+  useEffect(() => {
+    if (!open || !primer) return;
+    if (isInitialRender.current) { isInitialRender.current = false; return; }
+    // Cancel previous debounce
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const stripped = stripIUPAC(editSeq);
+    if (stripped.length < 6) { setPreview({ data: null, loading: false, error: null }); return; }
+
+    const key = ++autoPreviewKey.current;
+    debounceRef.current = setTimeout(async () => {
+      setPreview({ data: null, loading: true, error: null });
+      try {
+        const result = await computePrimerAlignment(primer.id, seedLength, editSeq);
+        if (key === autoPreviewKey.current) {
+          setPreview({ data: result, loading: false, error: null });
+        }
+      } catch (e) {
+        if (key === autoPreviewKey.current) {
+          setPreview({ data: null, loading: false, error: String(e) });
+        }
+      }
+    }, 350);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [editSeq, open, primer, seedLength, stripIUPAC]);
 
   const handleApply = useCallback(async () => {
     if (!hasChanges) { onOpenChange(false); return; }
@@ -69,7 +114,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         id: primer.id,
         name: primer.name,
         type: primer.type,
-        primerSeq: editSeq,
+        primerSeq: stripIUPAC(editSeq),
         color: primer.color || '#166534',
       });
       onOpenChange(false);
@@ -119,7 +164,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             <span className="text-xs font-bold text-muted-foreground mr-1.5">5'</span>
             <input
               value={editSeq}
-              onChange={e => setEditSeq(e.target.value.toUpperCase().replace(/[^ATCG]/g, ''))}
+              onChange={e => setEditSeq(e.target.value)}
               className="flex-1 h-8 px-2 py-1 text-xs font-mono border rounded"
               style={{ borderColor: hasChanges ? '#f59e0b' : '#d1d5db' }}
               spellCheck={false}
@@ -127,32 +172,22 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             />
             <span className="text-xs font-bold text-muted-foreground ml-1.5">3'</span>
           </div>
-          {isPreviewStale && (
-            <div className="text-[11px] text-amber-600 mt-0.5">Modified — preview may be stale</div>
-          )}
         </div>
 
-        {/* Tm + Preview button */}
+        {/* Tm display */}
         <div className="px-1 mb-2 flex items-center gap-2 text-sm">
           {cur && (
             <span className="font-semibold mr-auto">
               Tm = <span style={{ color: COLORS.fwd }}>{cur.tm}°C</span>
-              {preview && <span className="text-xs text-muted-foreground ml-1">(preview)</span>}
+              {preview?.loading && <span className="text-xs text-muted-foreground ml-2 italic">Computing…</span>}
             </span>
           )}
-          <Button
-            variant="outline" size="sm" className="text-xs h-7"
-            onClick={handlePreview}
-            disabled={!hasChanges || preview?.loading || editSeq.length < 6}
-          >
-            {preview?.loading ? 'Loading…' : 'Preview Alignment'}
-          </Button>
         </div>
 
         {/* Alignment box */}
         <div className="flex-1 overflow-auto rounded border p-4" style={{ backgroundColor: COLORS.bg, position: 'relative' }}>
           {preview?.error && <div className="text-sm text-red-600 font-mono">{preview.error}</div>}
-          {cur && <AlignmentView data={cur} />}
+          {cur && <div className="flex justify-center"><AlignmentView data={cur} /></div>}
           {!cur && preview?.loading && <div className="text-sm text-muted-foreground italic">Computing alignment…</div>}
           {!cur && !preview?.loading && preview?.data && !preview.data.current && (
             <div className="text-sm text-red-600 font-mono">No candidate binding sites found.</div>
@@ -185,6 +220,15 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
           </div>
         )}
 
+        {/* Invalid character warning */}
+        {isInvalid && (
+          <div className="mx-1 mt-2 px-2 py-1 rounded text-[11px] flex items-center gap-1"
+            style={{ backgroundColor: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
+            <span>⚠ Invalid character(s):</span>
+            <span className="font-mono">{invalidChars.join(', ')}</span>
+          </div>
+        )}
+
         {/* Bottom buttons */}
         <div className="px-1 mt-3 flex justify-end gap-2">
           {hasChanges && (
@@ -193,7 +237,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             </Button>
           )}
           {hasChanges && (
-            <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6}>
+            <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid}>
               Apply
             </Button>
           )}
