@@ -99,16 +99,12 @@ export async function getFeatures() {
   return tauriInvoke('get_features');
 }
 
-export async function addFeature(feature) {
-  return tauriInvoke('add_feature', { feature });
+export async function addFeature(feature, locationStr) {
+  return tauriInvoke('add_feature', { feature, locationStr: locationStr || null });
 }
 
 export async function deleteFeature(id) {
   return tauriInvoke('delete_feature', { id });
-}
-
-export async function validateFeatureLocation(locationStr) {
-  return tauriInvoke('validate_feature_location', { locationStr });
 }
 
 export async function updateFeatureFtype(featureId, newFtype) {
@@ -125,6 +121,10 @@ export async function updateFeatureLocation(featureId, locationStr) {
 
 export async function updateFeatureName(featureId, newName) {
   return tauriInvoke('update_feature_name', { featureId, newName });
+}
+
+export async function updateFeatureStrand(featureId, strand) {
+  return tauriInvoke('update_feature_strand', { featureId, strand });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, addFeature, addPrimer, validateFeatureLocation, deleteProject, setWindowTitle } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, updateFeatureStrand, addPrimer, addFeature, deleteProject, setWindowTitle } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -560,29 +560,6 @@ export default function App() {
     }
   }, [activeId, sequence, features]);
 
-  const handleFeatureAdd = useCallback(async (featureData) => {
-    const gen = operationGenRef.current;
-    try {
-      // Push current state to undo history before mutating
-      editHistoryRef.current.push({
-        sequence,
-        features: features || EMPTY_ARRAY,
-        cursorIndex: null, selStart: null, selEnd: null,
-      });
-      const data = await addFeature(featureData);
-      if (operationGenRef.current !== gen) return;
-      if (data && data.features) {
-        setFeatures(data.features);
-        if (data.projects) setProjects(data.projects);
-        if (data.activeId !== undefined) setActiveId(data.activeId);
-        setIsDirty(true);
-        if (activeId) dirtyStateRef.current[activeId] = true;
-      }
-    } catch (e) {
-      console.error('add feature error:', e);
-    }
-  }, [activeId, sequence, features]);
-
   const handlePrimerChange = useCallback(async (primerData) => {
     const gen = operationGenRef.current;
     try {
@@ -607,6 +584,52 @@ export default function App() {
       console.error('add primer error:', e);
     }
   }, [activeId, sequence, features, primers]);
+
+  const handleFeatureAdd = useCallback(async (featureData) => {
+    const gen = operationGenRef.current;
+    const { locationStr, ...feature } = featureData;
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        primers: primers || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await addFeature(feature, locationStr);
+      if (operationGenRef.current !== gen) return;
+      if (data && data.features) {
+        setFeatures(data.features);
+        if (data.enzymes) setEnzymes(data.enzymes);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+      }
+    } catch (e) {
+      throw e; // re-throw so dialog can display error
+    }
+  }, [activeId, sequence, features, primers]);
+
+  const handleFeatureStrandChange = useCallback(async (featureId, strand) => {
+    const gen = operationGenRef.current;
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await updateFeatureStrand(featureId, strand);
+      if (operationGenRef.current !== gen) return;
+      if (data && data.features) {
+        setFeatures(data.features);
+        if (data.enzymes) setEnzymes(data.enzymes);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      console.error('update feature strand error:', e);
+    }
+  }, [activeId, sequence, features]);
 
   const handleFeatureLocationChange = useCallback(async (featureId, locationStr) => {
     const gen = operationGenRef.current;
@@ -1186,6 +1209,7 @@ export default function App() {
                 onFeatureColorChange={handleFeatureColorChange}
                 onFeatureLocationChange={handleFeatureLocationChange}
                 onFeatureNameChange={handleFeatureNameChange}
+                onFeatureStrandChange={handleFeatureStrandChange}
                 onFeatureAdd={handleFeatureAdd}
                 onPrimerChange={handlePrimerChange}
                 primerSeedLength={primerSeedLength}

@@ -416,7 +416,9 @@ async fn get_features(
 async fn add_feature(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     feature: Feature,
+    location_str: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await;
     let project_id = match project_id {
@@ -424,29 +426,57 @@ async fn add_feature(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    let (feats, projects, active_id) = {
+    {
         let mut pm = state.pm.write().await;
         let mut feats: Vec<Feature> = pm
             .get_project_by_id(&project_id)
             .map(|p| p.features.clone())
             .unwrap_or_default();
-        if let Some(pos) = feats.iter().position(|f| f.id == feature.id) {
-            feats[pos] = feature;
+
+        // If location_str is provided, parse and validate it
+        let mut resolved = feature;
+        if let Some(loc_str) = location_str {
+            let trimmed = loc_str.trim().to_string();
+            if trimmed.is_empty() {
+                return Ok(serde_json::json!({"error": "Location cannot be empty".to_string()}));
+            }
+            let parsed = geneie_core::file_io::gbk::parse_location_string(&trimmed)
+                .ok_or_else(|| format!("Invalid location: {}", trimmed))?;
+            let (segments, start, end, strand) = parsed;
+            resolved.segments = segments;
+            resolved.start = start;
+            resolved.end = end;
+            resolved.strand = strand;
+        }
+
+        if let Some(pos) = feats.iter().position(|f| f.id == resolved.id) {
+            feats[pos] = resolved;
         } else {
-            feats.push(feature);
+            feats.push(resolved);
         }
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.features = feats.clone();
+            p.features = feats;
         }
         pm.mark_dirty(&project_id);
-        (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-    };
+    }
 
-    Ok(with_projects_list(
-        serde_json::json!({ "features": feats }),
-        &projects,
-        active_id.as_deref(),
-    ))
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
+
+    // Return updated project
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
 }
 
 #[tauri::command]
@@ -605,6 +635,56 @@ async fn update_feature_name(
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — feature strand
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn update_feature_strand(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    feature_id: String,
+    strand: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    let valid = strand == "." || strand == "+" || strand == "-";
+    if !valid {
+        return Ok(serde_json::json!({"error": "Invalid strand: must be ., +, or -".to_string()}));
+    }
+
+    {
+        let mut pm = state.pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                f.strand = strand;
+            }
+            pm.mark_dirty(&project_id);
+        }
+    }
+
+    broadcast_project(&app_handle, &state).await;
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — feature location
 // ---------------------------------------------------------------------------
 
@@ -650,26 +730,6 @@ async fn update_feature_location(
         }
         None => Ok(serde_json::json!({"error": "Project not found"})),
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tauri commands — feature location validation
-// ---------------------------------------------------------------------------
-
-#[tauri::command]
-async fn validate_feature_location(
-    location_str: String,
-) -> Result<serde_json::Value, String> {
-    let parsed = geneie_core::file_io::gbk::parse_location_string(&location_str)
-        .ok_or_else(|| format!("Invalid location: {}", location_str))?;
-    let (segments, start, end, strand) = parsed;
-    Ok(serde_json::json!({
-        "valid": true,
-        "segments": segments,
-        "start": start,
-        "end": end,
-        "strand": strand,
-    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,12 +1380,12 @@ pub fn run() {
             update_feature_ftype,
             update_feature_color,
             update_feature_name,
+            update_feature_strand,
             update_feature_location,
             get_primers,
             add_primer,
             delete_primer,
             compute_primer_alignment,
-            validate_feature_location,
             set_methylation,
             get_projects,
             activate_project,
