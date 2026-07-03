@@ -87,7 +87,7 @@ const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 function SelectionLengthBadge({
   selectionMode, isEnzymeSelection, selStart, selEnd, cleanSeq,
   selectedPrimerIds, enrichedPrimers,
-  enzymeActiveBlue, amplimerGreen,
+  enzymeActiveBlue, amplimerGreen, dimmed,
 }) {
   // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
@@ -154,6 +154,8 @@ function SelectionLengthBadge({
         minWidth: minBadgeWidth,
         textAlign: 'center',
         userSelect: 'none',
+        opacity: dimmed ? 0.25 : 1,
+        transition: 'opacity 0.15s',
       }}
     >
       <div>{line1}</div>
@@ -2298,6 +2300,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         enrichedPrimers={enrichedPrimers}
         enzymeActiveBlue={enzymeActiveBlue}
         amplimerGreen={amplimerGreen}
+        dimmed={featureInfoFeature !== null || (primerAlignmentPrimer !== null || createPrimerSeq !== null)}
       />
       {unmatchedPrimers.length > 0 && (
         <PrimerWarningBadge primers={unmatchedPrimers} />
