@@ -363,6 +363,7 @@ async fn set_roi(
             let mut pm = state.pm.write().await;
             if let Some(p) = pm.get_project_mut_by_id(&id) {
                 p.roi = Some((start, end));
+                pm.mark_dirty(&id);
             }
             Ok(serde_json::json!({"status": "ok"}))
         }
@@ -381,6 +382,7 @@ async fn clear_roi(
             let mut pm = state.pm.write().await;
             if let Some(p) = pm.get_project_mut_by_id(&id) {
                 p.roi = None;
+                pm.mark_dirty(&id);
             }
             Ok(serde_json::json!({"status": "ok"}))
         }
@@ -436,11 +438,12 @@ async fn add_feature(
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             p.features = feats.clone();
         }
+        pm.mark_dirty(&project_id);
         (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
 
     Ok(with_projects_list(
-        serde_json::to_value(&feats).unwrap_or(serde_json::json!([])),
+        serde_json::json!({ "features": feats }),
         &projects,
         active_id.as_deref(),
     ))
@@ -467,11 +470,12 @@ async fn delete_feature(
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             p.features = feats.clone();
         }
+        pm.mark_dirty(&project_id);
         (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
 
     Ok(with_projects_list(
-        serde_json::to_value(&feats).unwrap_or(serde_json::json!([])),
+        serde_json::json!({ "features": feats }),
         &projects,
         active_id.as_deref(),
     ))
@@ -762,11 +766,12 @@ async fn delete_primer(
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             p.primers = primers.clone();
         }
+        pm.mark_dirty(&project_id);
         (primers, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
 
     Ok(with_projects_list(
-        serde_json::to_value(&primers).unwrap_or(serde_json::json!([])),
+        serde_json::json!({ "primers": primers }),
         &projects,
         active_id.as_deref(),
     ))
@@ -1044,6 +1049,7 @@ async fn set_methylation(
 
         let mut pm = state.pm.write().await;
         pm.open_project(project_id.clone(), computed);
+        pm.mark_dirty(&project_id);
     }
 
     // Return full project data + projects list
@@ -1109,10 +1115,20 @@ async fn get_project_by_id(
 
 #[tauri::command]
 async fn activate_project(
+    webview_window: tauri::WebviewWindow,
     _app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
+    // Project windows must not change the global active project —
+    // they are bound to a single project via window_projects mapping.
+    {
+        let wp = state.window_projects.read().await;
+        if wp.contains_key(webview_window.label()) {
+            return Ok(serde_json::json!({"error": "Project windows cannot change the active project"}));
+        }
+    }
+
     let activated = {
         let mut pm = state.pm.write().await;
         pm.activate_project(&id)
