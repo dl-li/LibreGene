@@ -107,6 +107,10 @@ export async function deleteFeature(id) {
   return tauriInvoke('delete_feature', { id });
 }
 
+export async function validateFeatureLocation(locationStr) {
+  return tauriInvoke('validate_feature_location', { locationStr });
+}
+
 export async function updateFeatureFtype(featureId, newFtype) {
   return tauriInvoke('update_feature_ftype', { featureId, newFtype });
 }

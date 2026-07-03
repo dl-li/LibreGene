@@ -653,6 +653,26 @@ async fn update_feature_location(
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — feature location validation
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn validate_feature_location(
+    location_str: String,
+) -> Result<serde_json::Value, String> {
+    let parsed = geneie_core::file_io::gbk::parse_location_string(&location_str)
+        .ok_or_else(|| format!("Invalid location: {}", location_str))?;
+    let (segments, start, end, strand) = parsed;
+    Ok(serde_json::json!({
+        "valid": true,
+        "segments": segments,
+        "start": start,
+        "end": end,
+        "strand": strand,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — primers
 // ---------------------------------------------------------------------------
 
@@ -1305,6 +1325,7 @@ pub fn run() {
             add_primer,
             delete_primer,
             compute_primer_alignment,
+            validate_feature_location,
             set_methylation,
             get_projects,
             activate_project,

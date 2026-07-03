@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, addPrimer, deleteProject, setWindowTitle } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, addFeature, addPrimer, validateFeatureLocation, deleteProject, setWindowTitle } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -557,6 +557,29 @@ export default function App() {
       }
     } catch (e) {
       console.error('update feature name error:', e);
+    }
+  }, [activeId, sequence, features]);
+
+  const handleFeatureAdd = useCallback(async (featureData) => {
+    const gen = operationGenRef.current;
+    try {
+      // Push current state to undo history before mutating
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await addFeature(featureData);
+      if (operationGenRef.current !== gen) return;
+      if (data && data.features) {
+        setFeatures(data.features);
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      console.error('add feature error:', e);
     }
   }, [activeId, sequence, features]);
 
@@ -1163,6 +1186,7 @@ export default function App() {
                 onFeatureColorChange={handleFeatureColorChange}
                 onFeatureLocationChange={handleFeatureLocationChange}
                 onFeatureNameChange={handleFeatureNameChange}
+                onFeatureAdd={handleFeatureAdd}
                 onPrimerChange={handlePrimerChange}
                 primerSeedLength={primerSeedLength}
                 onSelectionChange={handleSelectionChange}

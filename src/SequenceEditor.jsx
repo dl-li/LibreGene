@@ -27,7 +27,7 @@ function PrimerWarningBadge({ primers }) {
   }, [expanded]);
 
   return (
-    <div ref={ref} style={{ position: 'fixed', top: 8, right: 8, zIndex: 9999 }}>
+    <div ref={ref} style={{ position: 'fixed', top: 8, right: 8, zIndex: 40 }}>
       {/* Collapsed badge */}
       {!expanded && (
         <div
@@ -87,7 +87,7 @@ const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 function SelectionLengthBadge({
   selectionMode, isEnzymeSelection, selStart, selEnd, cleanSeq,
   selectedPrimerIds, enrichedPrimers,
-  enzymeActiveBlue, amplimerGreen, dimmed,
+  enzymeActiveBlue, amplimerGreen,
 }) {
   // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
@@ -145,7 +145,7 @@ function SelectionLengthBadge({
   return (
     <div
       style={{
-        position: 'fixed', top: 36, right: 8, zIndex: 9998,
+        position: 'fixed', top: 36, right: 8, zIndex: 40,
         backgroundColor: bg, color: bgColor,
         border: `1px solid ${bg}`, borderRadius: 5,
         fontSize: '11px', lineHeight: '1.2',
@@ -154,8 +154,6 @@ function SelectionLengthBadge({
         minWidth: minBadgeWidth,
         textAlign: 'center',
         userSelect: 'none',
-        opacity: dimmed ? 0.25 : 1,
-        transition: 'opacity 0.15s',
       }}
     >
       <div>{line1}</div>
@@ -214,7 +212,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onPrimerChange, primerSeedLength, onSelectionChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureAdd, onPrimerChange, primerSeedLength, onSelectionChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -222,6 +220,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const [featureInfoFeature, setFeatureInfoFeature] = useState(null); // for FeatureInfoDialog
   const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog (edit mode)
   const [createPrimerSeq, setCreatePrimerSeq] = useState(null); // for PrimerAlignmentDialog (create mode, null=closed, '' or string=sequence)
+  const [createFeatureLocation, setCreateFeatureLocation] = useState(null); // for FeatureInfoDialog (create mode, null=closed)
   const [primerAlignmentCache, setPrimerAlignmentCache] = useState({});
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
@@ -1092,6 +1091,19 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         }
         return;
       }
+
+      // --- Cmd/Ctrl+T: Create new feature from selection (or empty) ---
+      if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+        e.preventDefault();
+        setFeatureInfoFeature(null); // clear edit mode
+        if (hasSelection && selectionMode === 'text') {
+          // Generate 1-based GenBank location from 0-based inclusive selection
+          setCreateFeatureLocation(`${selStart + 1}..${selEnd + 1}`);
+        } else {
+          setCreateFeatureLocation('');
+        }
+        return;
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1288,7 +1300,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                   if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
                   setPrimerDimActive(false);
                 }}
-                onDoubleClick={(e) => { e.stopPropagation(); setFeatureInfoFeature(f); }}
+                onDoubleClick={(e) => { e.stopPropagation(); setCreateFeatureLocation(null); setFeatureInfoFeature(f); }}
                 className="cursor-pointer">
                 <rect x={x} y={(isHovered && !isGap) ? sy - 18 : y} width={w}
                   height={(isHovered && !isGap) ? y - (sy - 18) : 0} fill={v.color}
@@ -1366,7 +1378,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                 if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
                 setPrimerDimActive(false);
               }}
-              onDoubleClick={(e) => { e.stopPropagation(); setFeatureInfoFeature(f); }}
+              onDoubleClick={(e) => { e.stopPropagation(); setCreateFeatureLocation(null); setFeatureInfoFeature(f); }}
               className="cursor-pointer">
               <text x={xr + 8} {...textProps} textAnchor="start" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
               <text x={xr + 8} {...textProps} textAnchor="start" fill={labelColor} stroke="none">{labelText}</text>
@@ -1389,7 +1401,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               if (primerDimTimerRef.current) { clearTimeout(primerDimTimerRef.current); primerDimTimerRef.current = null; }
               setPrimerDimActive(false);
             }}
-            onDoubleClick={(e) => { e.stopPropagation(); setFeatureInfoFeature(f); }}
+            onDoubleClick={(e) => { e.stopPropagation(); setCreateFeatureLocation(null); setFeatureInfoFeature(f); }}
             className="cursor-pointer">
             <text x={x - 8} {...textProps} textAnchor="end" fill="none" stroke={bgColor} strokeWidth="5">{labelText}</text>
             <text x={x - 8} {...textProps} textAnchor="end" fill={labelColor} stroke="none">{labelText}</text>
@@ -2300,7 +2312,6 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         enrichedPrimers={enrichedPrimers}
         enzymeActiveBlue={enzymeActiveBlue}
         amplimerGreen={amplimerGreen}
-        dimmed={featureInfoFeature !== null || (primerAlignmentPrimer !== null || createPrimerSeq !== null)}
       />
       {unmatchedPrimers.length > 0 && (
         <PrimerWarningBadge primers={unmatchedPrimers} />
@@ -2327,12 +2338,15 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       </div>
       <FeatureInfoDialog
         feature={featureInfoFeature}
-        open={featureInfoFeature !== null}
-        onOpenChange={(open) => { if (!open) setFeatureInfoFeature(null); }}
+        open={featureInfoFeature !== null || createFeatureLocation !== null}
+        onOpenChange={(open) => { if (!open) { setFeatureInfoFeature(null); setCreateFeatureLocation(null); } }}
         onFtypeChange={onFeatureFtypeChange}
         onFeatureColorChange={onFeatureColorChange}
         onFeatureLocationChange={onFeatureLocationChange}
         onFeatureNameChange={onFeatureNameChange}
+        onFeatureAdd={onFeatureAdd}
+        newFeatureLocation={createFeatureLocation}
+        sequence={sequence}
       />
       <PrimerAlignmentDialog
         primer={primerAlignmentPrimer}
