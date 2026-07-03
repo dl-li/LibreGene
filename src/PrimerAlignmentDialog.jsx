@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { computePrimerAlignment, addPrimer } from './tauriApi';
+import { computePrimerAlignment } from './tauriApi';
 
 const MONO = '"Cascadia Code", ui-monospace, monospace';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
@@ -38,29 +38,48 @@ function AlignmentView({ data }) {
   );
 }
 
-export default function PrimerAlignmentDialog({ primer, alignmentData, open, onOpenChange, seedLength }) {
+export default function PrimerAlignmentDialog({ primer, alignmentData, open, onOpenChange, seedLength, newPrimerSeq, onPrimerChange, primers = [] }) {
   const [editSeq, setEditSeq] = useState('');
+  const [editName, setEditName] = useState('');
   const [data, setData] = useState(null);
   const [preview, setPreview] = useState(null); // { data, loading, error }
   const [confirmClose, setConfirmClose] = useState(false);
 
+  const isNewPrimer = !primer && newPrimerSeq !== undefined;
+
   // Initialize when dialog opens
   useEffect(() => {
-    if (!open || !primer) return;
-    const seq = primer.primerSeq || '';
-    setEditSeq(seq);
-    setPreview(null);
-    if (alignmentData) {
-      setData(alignmentData);
-    } else {
+    if (!open) return;
+    if (isNewPrimer) {
+      setEditSeq(newPrimerSeq || '');
+      setEditName('New Primer');
       setData(null);
-      computePrimerAlignment(primer.id, seedLength).then(setData).catch(() => {});
+      // No alignment computation yet — auto-preview will handle it on type
+      setPreview(null);
+    } else if (primer) {
+      const seq = primer.primerSeq || '';
+      setEditSeq(seq);
+      setEditName(primer.name || '');
+      setPreview(null);
+      if (alignmentData) {
+        setData(alignmentData);
+      } else {
+        setData(null);
+        computePrimerAlignment(primer.id, seedLength).then(setData).catch(() => {});
+      }
     }
-  }, [open, primer?.id]);
+  }, [open, primer?.id, isNewPrimer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cur = preview?.data?.current || data?.current;
   const alts = preview?.data?.alternatives || data?.alternatives || [];
-  const hasChanges = editSeq !== (primer?.primerSeq || '');
+
+  const initialSeq = isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || '');
+  const initialName = isNewPrimer ? 'New Primer' : (primer?.name || '');
+
+  // For new primers: changes = has any input; for existing: changes = seq or name differs
+  const hasChanges = isNewPrimer
+    ? (editSeq !== '')
+    : (editSeq !== initialSeq || editName !== initialName);
 
   const IUPAC = useMemo(() => new Set('ACGTURYSWKMBDHVNacgturyswkmbdhvn'), []);
   const invalidChars = useMemo(() => {
@@ -73,6 +92,16 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   }, [editSeq, IUPAC]);
   const isInvalid = invalidChars.length > 0;
 
+  // Check if the edited name conflicts with any other existing primer
+  const nameConflict = useMemo(() => {
+    const trimmed = editName.trim();
+    if (!trimmed) return false;
+    return primers.some(p => {
+      if (isNewPrimer) return p.name === trimmed;
+      return p.id !== primer?.id && p.name === trimmed;
+    });
+  }, [editName, primers, isNewPrimer, primer?.id]);
+
   const stripIUPAC = useCallback((s) => {
     // Remove whitespace and keep only valid DNA/IUPAC chars (including degenerate)
     return [...s].filter(ch => ch !== ' ' && ch !== '\t' && IUPAC.has(ch)).join('');
@@ -81,9 +110,13 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   // ── Auto-preview on sequence change (debounced) ──
   const debounceRef = useRef(null);
   const autoPreviewKey = useRef(0); // tracks latest request to avoid stale results
-  const isInitialRender = useRef(true); // skip the very first render
+  const isInitialRender = useRef(true); // skip the very first render for edit mode (data already loaded)
   useEffect(() => {
-    if (!open || !primer) return;
+    if (!open) return;
+    // For create mode with pre-filled sequence, allow immediate preview
+    if (isNewPrimer && newPrimerSeq && newPrimerSeq.length >= 6) {
+      isInitialRender.current = false;
+    }
     if (isInitialRender.current) { isInitialRender.current = false; return; }
     // Cancel previous debounce
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -94,7 +127,9 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
     debounceRef.current = setTimeout(async () => {
       setPreview({ data: null, loading: true, error: null });
       try {
-        const result = await computePrimerAlignment(primer.id, seedLength, editSeq);
+        const result = isNewPrimer
+          ? await computePrimerAlignment(null, seedLength, editSeq, editName)
+          : await computePrimerAlignment(primer.id, seedLength, editSeq);
         if (key === autoPreviewKey.current) {
           setPreview({ data: result, loading: false, error: null });
         }
@@ -105,23 +140,35 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
       }
     }, 350);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [editSeq, open, primer, seedLength, stripIUPAC]);
+  }, [editSeq, open, primer, seedLength, stripIUPAC, isNewPrimer, editName]);
 
   const handleApply = useCallback(async () => {
     if (!hasChanges) { onOpenChange(false); return; }
+    if (!onPrimerChange) { onOpenChange(false); return; }
+    // Reject duplicate names
+    if (nameConflict) return;
     try {
-      await addPrimer({
-        id: primer.id,
-        name: primer.name,
-        type: primer.type,
-        primerSeq: stripIUPAC(editSeq),
-        color: primer.color || '#166534',
-      });
+      const primerData = isNewPrimer
+        ? {
+            id: `primer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: editName || 'New Primer',
+            type: 'fwd',
+            primerSeq: stripIUPAC(editSeq),
+            color: '#166534',
+          }
+        : {
+            id: primer.id,
+            name: editName || primer.name,
+            type: primer.type,
+            primerSeq: stripIUPAC(editSeq),
+            color: primer.color || '#166534',
+          };
+      await onPrimerChange(primerData);
       onOpenChange(false);
     } catch (e) {
       setPreview({ data: null, loading: false, error: String(e) });
     }
-  }, [editSeq, hasChanges, primer, onOpenChange]);
+  }, [editSeq, editName, hasChanges, isNewPrimer, primer, onOpenChange, onPrimerChange, stripIUPAC, nameConflict]);
 
   const handleClose = useCallback(() => {
     if (hasChanges) {
@@ -153,8 +200,23 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         style={{ maxWidth: dialogWidth, width: dialogWidth }}
       >
         <DialogHeader>
-          <DialogTitle className="text-base">
-            Primer: <span className="font-mono">{primer?.name || primer?.id || ''}</span>
+          <DialogTitle className="text-base flex items-center gap-2" style={{ paddingRight: '16px' }}>
+            <span className="whitespace-nowrap">Primer: </span>
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.target.blur();
+                else if (e.key === 'Escape') setEditName(initialName);
+              }}
+              style={{
+                fontWeight: 600, fontSize: 'inherit',
+                border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
+                background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
+                fontFamily: MONO,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
           </DialogTitle>
         </DialogHeader>
 
@@ -193,7 +255,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             <div className="text-sm text-red-600 font-mono">No candidate binding sites found.</div>
           )}
           {!cur && !preview && !data && (
-            <div className="text-sm text-muted-foreground italic">Click "Preview Alignment" to see results.</div>
+            <div className="text-sm text-muted-foreground italic">Type a DNA sequence to see alignment preview.</div>
           )}
           {preview?.loading && cur && (
             <div className="absolute inset-0 flex items-center justify-center rounded"
@@ -232,13 +294,21 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         {/* Bottom buttons */}
         <div className="px-1 mt-3 flex justify-end gap-2">
           {hasChanges && (
-            <Button variant="outline" size="sm" onClick={() => { setEditSeq(primer?.primerSeq || ''); setPreview(null); }}>
+            <Button variant="outline" size="sm" onClick={() => {
+              setEditSeq(isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || ''));
+              setPreview(null);
+            }}>
               Reset
             </Button>
           )}
+          {nameConflict && (
+            <div className="text-xs text-red-600 mr-auto" style={{ fontFamily: MONO }}>
+              Name "{editName}" is already used by another primer
+            </div>
+          )}
           {hasChanges && (
-            <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid}>
-              Apply
+            <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid || nameConflict}>
+              {isNewPrimer ? 'Create Primer' : 'Apply'}
             </Button>
           )}
         </div>

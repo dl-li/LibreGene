@@ -681,6 +681,7 @@ async fn get_primers(
 async fn add_primer(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     primer: Primer,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await;
@@ -689,12 +690,20 @@ async fn add_primer(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    let (primers, projects, active_id) = {
+    {
         let mut pm = state.pm.write().await;
-        let mut primers: Vec<Primer> = pm
+        let existing_primers: Vec<Primer> = pm
             .get_project_by_id(&project_id)
             .map(|p| p.primers.clone())
             .unwrap_or_default();
+        // Reject duplicate names (same name, different id)
+        let name_conflict = existing_primers.iter().any(|p| {
+            p.id != primer.id && p.name == primer.name
+        });
+        if name_conflict {
+            return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists", primer.name)}));
+        }
+        let mut primers = existing_primers;
         if let Some(pos) = primers.iter().position(|p| p.id == primer.id) {
             primers[pos] = primer;
         } else {
@@ -705,19 +714,31 @@ async fn add_primer(
             let topology = p.topology.clone();
             let updated = geneie_core::primer::align::recompute_all_primers(&template, &topology, &primers);
             if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-                p.primers = updated.clone();
+                p.primers = updated;
             }
         } else if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.primers = primers.clone();
+            p.primers = primers;
         }
-        (pm.get_project_by_id(&project_id).map(|p| p.primers.clone()).unwrap_or_default(), pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-    };
+        pm.mark_dirty(&project_id);
+    }
 
-    Ok(with_projects_list(
-        serde_json::to_value(&primers).unwrap_or(serde_json::json!([])),
-        &projects,
-        active_id.as_deref(),
-    ))
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
+
+    // Return updated project
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
 }
 
 #[tauri::command]
@@ -755,9 +776,10 @@ async fn delete_primer(
 async fn compute_primer_alignment(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-    primer_id: String,
+    primer_id: Option<String>,
     seed_length: Option<usize>,
     custom_seq: Option<String>,
+    custom_name: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await
         .ok_or_else(|| "No project loaded".to_string())?;
@@ -766,16 +788,28 @@ async fn compute_primer_alignment(
     let project = pm.get_project_by_id(&project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
-    let primer = project.primers.iter()
-        .find(|p| p.id == primer_id)
-        .ok_or_else(|| "Primer not found".to_string())?;
+    // Resolve primer: if primer_id is set, look up existing primer; otherwise use custom data.
+    let primer_name: String;
+    let primer_seq: String;
+    match &primer_id {
+        Some(pid) => {
+            let existing = project.primers.iter()
+                .find(|p| p.id == *pid)
+                .ok_or_else(|| "Primer not found".to_string())?;
+            primer_name = existing.name.clone();
+            primer_seq = custom_seq.clone().unwrap_or_else(|| existing.primer_seq.clone());
+        }
+        None => {
+            primer_name = custom_name.clone().unwrap_or_else(|| "New Primer".to_string());
+            primer_seq = custom_seq.clone().ok_or_else(|| "Sequence required for new primer alignment".to_string())?;
+        }
+    }
 
     let template = &project.sequence;
     let tpl_bytes = template.as_bytes();
     let tlen = tpl_bytes.len();
     let is_circular = project.topology == "circular";
-    // Use custom_seq for live preview if provided, otherwise use stored sequence.
-    let active_seq: String = custom_seq.unwrap_or_else(|| primer.primer_seq.clone());
+    let active_seq = primer_seq;
     let orig_bytes = active_seq.as_bytes();              // original case for display
     let active_upper = active_seq.to_ascii_uppercase();
     let primer_bytes = active_upper.as_bytes();           // uppercase for matching
@@ -899,7 +933,7 @@ async fn compute_primer_alignment(
                 ).map(|result| {
                     let text = primer::display::format_alignment_text(
                         &orig_rev_bytes, &template_region, &result,
-                        "Template", &primer.name, win_start, true,
+                        "Template", &primer_name, win_start, true,
                     );
                     let sw_tm = primer::display::compute_tm_from_alignment(&rev_bytes, &result);
                     results.push(serde_json::json!({
@@ -916,7 +950,7 @@ async fn compute_primer_alignment(
                 ).map(|result| {
                     let text = primer::display::format_alignment_text(
                         orig_bytes, &template_region, &result,
-                        "Template", &primer.name, win_start, false,
+                        "Template", &primer_name, win_start, false,
                     );
                     let sw_tm = primer::display::compute_tm_from_alignment(primer_bytes, &result);
                     results.push(serde_json::json!({

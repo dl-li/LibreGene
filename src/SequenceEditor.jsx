@@ -144,15 +144,19 @@ function SelectionLengthBadge({
 
   let label;
   if (copied) {
-    label = '✓';
+    label = 'Copied ✓';
   } else if (hovered) {
     label = 'Copy';
   } else {
-    label = `${len} bp`;
+    // Compute GC content from the selected sequence
+    const gc = (seqToCopy.match(/[GC]/gi) || []).length;
+    const gcPct = seqToCopy.length > 0 ? Math.round(gc / seqToCopy.length * 100) : 0;
+    label = `${len} bp  |  ${gcPct}% GC`;
   }
 
-  // Measure "xx bp" width to prevent the badge from shrinking on state change
-  const lenTextWidth = measureWidth(`${len} bp`, `600 11px ${monoFont}`);
+  // Measure the default label width so hover/copied states don't shrink the badge
+  const defaultLabel = `${len} bp  |  100% GC`;
+  const minBadgeWidth = measureWidth(defaultLabel, `600 11px ${monoFont}`) + 14;
 
   return (
     <div
@@ -165,7 +169,8 @@ function SelectionLengthBadge({
         border: `1px solid ${bg}`, borderRadius: 8,
         fontSize: '11px', lineHeight: '1.2',
         padding: '3px 7px',
-        minWidth: lenTextWidth + 14,
+        fontFamily: monoFont,
+        minWidth: minBadgeWidth,
         textAlign: 'center',
         cursor: 'pointer',
         userSelect: 'none',
@@ -226,13 +231,14 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, primerSeedLength, onSelectionChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onPrimerChange, primerSeedLength, onSelectionChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
   const featureLeaveRef = useRef(null);
   const [featureInfoFeature, setFeatureInfoFeature] = useState(null); // for FeatureInfoDialog
-  const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog
+  const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog (edit mode)
+  const [createPrimerSeq, setCreatePrimerSeq] = useState(null); // for PrimerAlignmentDialog (create mode, null=closed, '' or string=sequence)
   const [primerAlignmentCache, setPrimerAlignmentCache] = useState({});
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
@@ -1091,6 +1097,18 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           navigator.clipboard.writeText(cleanSeq.substring(selStart, selEnd + 1)).catch(() => {});
         }
       }
+
+      // --- Cmd/Ctrl+R: Create new primer from selection (or empty) ---
+      if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+        e.preventDefault();
+        setPrimerAlignmentPrimer(null); // clear edit mode
+        if (hasSelection && selectionMode === 'text') {
+          setCreatePrimerSeq(cleanSeq.substring(selStart, selEnd + 1));
+        } else {
+          setCreatePrimerSeq('');
+        }
+        return;
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1597,9 +1615,9 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                       didDrag: false,
                       hoveredPrimerId: p.id,
                     };
-                    // Delay dimming other primers by 100ms to prevent flash on click
+                    // Delay dimming other primers by 500ms to prevent flash on click
                     if (primerDimTimerRef.current) clearTimeout(primerDimTimerRef.current);
-                    primerDimTimerRef.current = setTimeout(() => setPrimerDimActive(true), 100);
+                    primerDimTimerRef.current = setTimeout(() => setPrimerDimActive(true), 500);
                     clearCursorTimer();
                   }}
                   onMouseEnter={() => {
@@ -1619,6 +1637,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
                     // Prevent drag activation on double-click
                     setPrimerDimActive(false);
                     if (primerDimTimerRef.current) clearTimeout(primerDimTimerRef.current);
+                    setCreatePrimerSeq(null); // clear create mode
                     setPrimerAlignmentPrimer(enrichedPrimers.find(ep => ep.id === p.id) || null);
                   }}
                   className="cursor-pointer" />
@@ -2334,9 +2353,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       <PrimerAlignmentDialog
         primer={primerAlignmentPrimer}
         alignmentData={primerAlignmentCache[primerAlignmentPrimer?.id]}
-        open={primerAlignmentPrimer !== null}
-        onOpenChange={(open) => { if (!open) setPrimerAlignmentPrimer(null); }}
+        open={primerAlignmentPrimer !== null || createPrimerSeq !== null}
+        onOpenChange={(open) => { if (!open) { setPrimerAlignmentPrimer(null); setCreatePrimerSeq(null); } }}
         seedLength={primerSeedLength}
+        newPrimerSeq={createPrimerSeq}
+        onPrimerChange={onPrimerChange}
+        primers={primers}
       />
     </div>
     </>
