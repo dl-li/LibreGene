@@ -112,9 +112,11 @@ function SelectionLengthBadge({
     bg = amplimerGreen;
   } else if (selectionMode === 'primer' && selectedPrimerIds.length === 1) {
     const p = enrichedPrimers.find(pr => pr.id === selectedPrimerIds[0]);
-    if (!p || p.matchStart === undefined || p.matchEnd === undefined) return null;
-    len = p.matchEnd - p.matchStart + 1;
-    seqToCopy = p.primerSeq || cleanSeq.substring(p.matchStart, p.matchEnd + 1);
+    if (!p) return null;
+    seqToCopy = p.primerSeq || (p.matchStart !== undefined && p.matchEnd !== undefined
+      ? cleanSeq.substring(p.matchStart, p.matchEnd + 1) : '');
+    len = (p.primerSeq || '').length || (p.matchStart !== undefined && p.matchEnd !== undefined
+      ? p.matchEnd - p.matchStart + 1 : 0);
     bg = (p.isFwd === false) ? '#4A148C' : '#166534';
   } else if (isEnzymeSelection) {
     if (selStart === null || selEnd === null) return null;

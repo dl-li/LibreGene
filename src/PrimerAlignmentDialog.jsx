@@ -64,6 +64,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   const [data, setData] = useState(null);
   const [preview, setPreview] = useState(null); // { data, loading, error }
   const [confirmClose, setConfirmClose] = useState(false);
+  const [primerType, setPrimerType] = useState('fwd');
 
   const isNewPrimer = !primer && newPrimerSeq !== undefined;
 
@@ -73,6 +74,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
     if (isNewPrimer) {
       setEditSeq(newPrimerSeq || '');
       setEditName('New Primer');
+      setPrimerType('fwd');
       setData(null);
       // No alignment computation yet — auto-preview will handle it on type
       setPreview(null);
@@ -80,6 +82,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
       const seq = primer.primerSeq || '';
       setEditSeq(seq);
       setEditName(primer.name || '');
+      setPrimerType(primer.type || 'fwd');
       setPreview(null);
       if (alignmentData) {
         setData(alignmentData);
@@ -179,16 +182,16 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         : {
             id: primer.id,
             name: editName || primer.name,
-            type: primer.type,
+            type: primerType,
             primerSeq: stripIUPAC(editSeq),
-            color: primer.color || '#166534',
+            color: '#166534',
           };
       await onPrimerChange(primerData);
       onOpenChange(false);
     } catch (e) {
       setPreview({ data: null, loading: false, error: String(e) });
     }
-  }, [editSeq, editName, hasChanges, isNewPrimer, primer, onOpenChange, onPrimerChange, stripIUPAC, nameConflict]);
+  }, [editSeq, editName, hasChanges, isNewPrimer, primer, onOpenChange, onPrimerChange, stripIUPAC, nameConflict, primerType]);
 
   const handleClose = useCallback(() => {
     if (hasChanges) {
@@ -259,7 +262,10 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             <span className="text-xs font-bold text-muted-foreground ml-1.5">3'</span>
             <button
               type="button"
-              onClick={() => setEditSeq(reverseComplement(editSeq))}
+              onClick={() => {
+                setEditSeq(reverseComplement(editSeq));
+                setPrimerType(t => t === 'fwd' ? 'rev' : 'fwd');
+              }}
               className="ml-2 p-1.5 rounded hover:bg-muted transition-colors"
               style={{ color: '#666', lineHeight: 0 }}
               title="Reverse complement"
