@@ -4,7 +4,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 /* ---------- GenBank location helpers ---------- */
 function gbLocation(feature) {
@@ -98,12 +100,14 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
   const [locInput, setLocInput] = useState('');
   const [locError, setLocError] = useState('');
   const [nameInput, setNameInput] = useState('');
+  const [nameDirty, setNameDirty] = useState(false);
 
-  // Sync name input when feature changes
+  // Sync when feature changes
   const prevFeatureId = useRef(null);
   if (feature?.id !== prevFeatureId.current) {
     prevFeatureId.current = feature?.id;
     if (feature) setNameInput(feature.name || '');
+    setNameDirty(false);
   }
 
   const currentFtype = feature?.ftype || 'misc_feature';
@@ -132,55 +136,79 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     }
   };
 
+  const handleCancel = () => {
+    setNameInput(feature?.name || '');
+    setNameDirty(false);
+    onOpenChange(false);
+  };
+
+  const handleApply = async () => {
+    if (nameDirty && onFeatureNameChange) {
+      await onFeatureNameChange(feature.id, nameInput);
+    }
+    setNameDirty(false);
+    onOpenChange(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={(open) => {
-      if (!open) { setEditingFtype(false); setEditingLoc(false); setLocError(''); }
+      if (!open) {
+        setEditingFtype(false);
+        setEditingLoc(false);
+        setLocError('');
+        setNameInput(feature?.name || '');
+        setNameDirty(false);
+      }
       onOpenChange(open);
     }}>
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-base flex items-center gap-2" style={{ paddingRight: '16px' }}>
-            <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18 }}>
-              <span
-                style={{
-                  position: 'absolute', inset: 0,
-                  backgroundColor: feature.color || '#60A5FA',
-                  border: '2px solid #000',
-                  borderRadius: 2,
-                  pointerEvents: 'none',
-                }}
-              />
-              <input
-                type="color"
-                value={feature.color || '#60A5FA'}
-                onChange={(e) => onFeatureColorChange?.(feature.id, e.target.value)}
-                style={{
-                  position: 'absolute', inset: 0,
-                  width: '100%', height: '100%',
-                  padding: 0, border: 'none',
-                  opacity: 0, cursor: 'pointer',
-                }}
-              />
-            </span>
-            <input
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              onBlur={() => {
-                if (nameInput !== feature.name) onFeatureNameChange?.(feature.id, nameInput);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.target.blur(); }
-                else if (e.key === 'Escape') { setNameInput(feature.name); e.target.blur(); }
-              }}
-              style={{
-                fontWeight: 600, fontSize: 'inherit',
-                border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-                background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </DialogTitle>
+          <DialogTitle className="text-base">Feature</DialogTitle>
         </DialogHeader>
+
+        {/* Name + Color row */}
+        <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
+          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
+          <input
+            value={nameInput}
+            onChange={(e) => { setNameInput(e.target.value); setNameDirty(true); }}
+            onBlur={() => {
+              if (nameInput !== feature.name) setNameDirty(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { handleApply(); }
+              else if (e.key === 'Escape') { setNameInput(feature.name); setNameDirty(false); e.target.blur(); }
+            }}
+            style={{
+              fontWeight: 600, fontSize: 'inherit',
+              border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
+              background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, flexShrink: 0 }}>
+            <span
+              style={{
+                position: 'absolute', inset: 0,
+                backgroundColor: feature.color || '#60A5FA',
+                border: '2px solid #000',
+                borderRadius: 2,
+                pointerEvents: 'none',
+              }}
+            />
+            <input
+              type="color"
+              value={feature.color || '#60A5FA'}
+              onChange={(e) => onFeatureColorChange?.(feature.id, e.target.value)}
+              style={{
+                position: 'absolute', inset: 0,
+                width: '100%', height: '100%',
+                padding: 0, border: 'none',
+                opacity: 0, cursor: 'pointer',
+              }}
+            />
+          </span>
+        </div>
 
         {/* Type & Location outside the box */}
         <div className="flex flex-col gap-1.5 mt-1.5 mb-0.5 px-1">
@@ -262,6 +290,14 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
             <div className="text-sm text-muted-foreground italic">No qualifiers</div>
           )}
         </div>
+
+        {/* Footer */}
+        <DialogFooter className="mt-3">
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
+            <Button size="sm" onClick={handleApply}>Apply</Button>
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

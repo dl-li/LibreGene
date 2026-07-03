@@ -89,10 +89,7 @@ function SelectionLengthBadge({
   selectedPrimerIds, enrichedPrimers,
   enzymeActiveBlue, amplimerGreen,
 }) {
-  const [hovered, setHovered] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  // Compute the sequence to copy and the display length + colour.
+  // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
 
   if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
@@ -132,51 +129,33 @@ function SelectionLengthBadge({
     return null;
   }
 
-  const handleMouseEnter = () => setHovered(true);
-  const handleMouseLeave = () => { setHovered(false); setCopied(false); };
-  const handleClick = async () => {
-    if (!seqToCopy) return;
-    try {
-      await navigator.clipboard.writeText(seqToCopy);
-      setCopied(true);
-    } catch { /* clipboard not available */ }
-  };
+  // Compute GC content from the selected sequence
+  const gc = (seqToCopy.match(/[GC]/gi) || []).length;
+  const gcPct = seqToCopy.length > 0 ? Math.round(gc / seqToCopy.length * 100) : 0;
 
-  let label;
-  if (copied) {
-    label = 'Copied ✓';
-  } else if (hovered) {
-    label = 'Copy';
-  } else {
-    // Compute GC content from the selected sequence
-    const gc = (seqToCopy.match(/[GC]/gi) || []).length;
-    const gcPct = seqToCopy.length > 0 ? Math.round(gc / seqToCopy.length * 100) : 0;
-    label = `${len} bp  |  ${gcPct}% GC`;
-  }
-
-  // Measure the default label width so hover/copied states don't shrink the badge
-  const defaultLabel = `${len} bp  |  100% GC`;
-  const minBadgeWidth = measureWidth(defaultLabel, `600 11px ${monoFont}`) + 14;
+  // Measure the default label width so the badge has stable width
+  const line1 = `${len} bp`;
+  const line2 = '100% GC';
+  const w1 = measureWidth(line1, `600 11px ${monoFont}`);
+  const w2 = measureWidth(line2, `600 11px ${monoFont}`);
+  const minBadgeWidth = Math.max(w1, w2) + 10;
 
   return (
     <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onClick={handleClick}
       style={{
         position: 'fixed', top: 36, right: 8, zIndex: 9998,
         backgroundColor: bg, color: bgColor,
-        border: `1px solid ${bg}`, borderRadius: 8,
+        border: `1px solid ${bg}`, borderRadius: 5,
         fontSize: '11px', lineHeight: '1.2',
-        padding: '3px 7px',
+        padding: '1px 5px',
         fontFamily: monoFont,
         minWidth: minBadgeWidth,
         textAlign: 'center',
-        cursor: 'pointer',
         userSelect: 'none',
       }}
     >
-      {label}
+      <div>{line1}</div>
+      <div>{`${gcPct}% GC`}</div>
     </div>
   );
 }

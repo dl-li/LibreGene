@@ -4,12 +4,32 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Repeat } from 'lucide-react';
 import { computePrimerAlignment } from './tauriApi';
 
 const MONO = '"Cascadia Code", ui-monospace, monospace';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
+
+/* Reverse complement (preserves case, supports IUPAC degenerate bases) */
+const COMP_MAP = {
+  'A': 'T', 'a': 't', 'T': 'A', 't': 'a',
+  'C': 'G', 'c': 'g', 'G': 'C', 'g': 'c',
+  'U': 'A', 'u': 'a',
+  'R': 'Y', 'r': 'y', 'Y': 'R', 'y': 'r',
+  'S': 'S', 's': 's',
+  'W': 'W', 'w': 'w',
+  'K': 'M', 'k': 'm', 'M': 'K', 'm': 'k',
+  'B': 'V', 'b': 'v', 'V': 'B', 'v': 'b',
+  'D': 'H', 'd': 'h', 'H': 'D', 'h': 'd',
+  'N': 'N', 'n': 'n',
+  '.': '.',
+};
+function reverseComplement(seq) {
+  return [...seq].reverse().map(ch => COMP_MAP[ch] || ch).join('');
+}
 
 function AlignmentView({ data }) {
   if (!data?.alignment) return null;
@@ -200,28 +220,32 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         style={{ maxWidth: dialogWidth, width: dialogWidth }}
       >
         <DialogHeader>
-          <DialogTitle className="text-base flex items-center gap-2" style={{ paddingRight: '16px' }}>
-            <span className="whitespace-nowrap">Primer: </span>
-            <input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.target.blur();
-                else if (e.key === 'Escape') setEditName(initialName);
-              }}
-              style={{
-                fontWeight: 600, fontSize: 'inherit',
-                border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-                background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-                fontFamily: MONO,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </DialogTitle>
+          <DialogTitle className="text-base">Primer</DialogTitle>
         </DialogHeader>
+
+        {/* Name row */}
+        <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
+          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setEditName(initialName);
+            }}
+            style={{
+              fontWeight: 600, fontSize: 'inherit',
+              border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
+              background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
 
         {/* Sequence input */}
         <div className="px-1 mb-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-muted-foreground">Sequence</span>
+          </div>
           <div className="flex items-center gap-0">
             <span className="text-xs font-bold text-muted-foreground mr-1.5">5'</span>
             <input
@@ -233,6 +257,15 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
               placeholder="Enter primer sequence…"
             />
             <span className="text-xs font-bold text-muted-foreground ml-1.5">3'</span>
+            <button
+              type="button"
+              onClick={() => setEditSeq(reverseComplement(editSeq))}
+              className="ml-2 p-1.5 rounded hover:bg-muted transition-colors"
+              style={{ color: '#666', lineHeight: 0 }}
+              title="Reverse complement"
+            >
+              <Repeat size={16} />
+            </button>
           </div>
         </div>
 
@@ -292,26 +325,31 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         )}
 
         {/* Bottom buttons */}
-        <div className="px-1 mt-3 flex justify-end gap-2">
-          {hasChanges && (
-            <Button variant="outline" size="sm" onClick={() => {
-              setEditSeq(isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || ''));
-              setPreview(null);
-            }}>
-              Reset
+        <DialogFooter className="px-1 mt-3">
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={handleClose}>
+              Cancel
             </Button>
-          )}
-          {nameConflict && (
-            <div className="text-xs text-red-600 mr-auto" style={{ fontFamily: MONO }}>
-              Name "{editName}" is already used by another primer
-            </div>
-          )}
-          {hasChanges && (
-            <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid || nameConflict}>
-              {isNewPrimer ? 'Create Primer' : 'Apply'}
-            </Button>
-          )}
-        </div>
+            {hasChanges && (
+              <Button variant="outline" size="sm" onClick={() => {
+                setEditSeq(isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || ''));
+                setPreview(null);
+              }}>
+                Reset
+              </Button>
+            )}
+            {nameConflict && (
+              <div className="text-xs text-red-600 mr-auto" style={{ fontFamily: MONO }}>
+                Name "{editName}" is already used by another primer
+              </div>
+            )}
+            {hasChanges && (
+              <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid || nameConflict}>
+                {isNewPrimer ? 'Create Primer' : 'Apply'}
+              </Button>
+            )}
+          </div>
+        </DialogFooter>
 
         {/* Confirm discard dialog */}
         {confirmClose && (
