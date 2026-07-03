@@ -1,12 +1,12 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { validateFeatureLocation } from './tauriApi';
 
 /* ---------- GenBank location helpers ---------- */
 function gbLocation(feature) {
@@ -18,16 +18,14 @@ function gbLocation(feature) {
   return feature.strand === '-' ? `complement(${joined})` : joined;
 }
 
-// Strip complement(...) wrapper, return inner string (or the original if not wrapped)
-function stripComplement(loc) {
-  const m = loc.match(/^complement\((.+)\)$/);
+function unwrapComplement(loc) {
+  const m = loc.match(/^complement\((.+)\)$/i);
   return m ? m[1] : loc;
 }
 
-// Wrap with complement(...) if not already wrapped
 function wrapComplement(loc) {
-  if (loc.startsWith('complement(')) return loc;
-  return `complement(${loc})`;
+  if (/^complement\(/i.test(loc.trim())) return loc;
+  return `complement(${loc.trim()})`;
 }
 
 /* ---------- Ftype options ---------- */
@@ -101,66 +99,63 @@ function extractQualifiers(feature) {
   return quals;
 }
 
+/* ---------- Strand cycle ---------- */
+const STRAND_CYCLE = { 'both': '+', '+': '-', '-': 'both' };
+const STRAND_LABEL = { 'both': 'both', '+': '+', '-': '-' };
+
 /* ---------- Styles ---------- */
 const HIGHLIGHT = '#1E40AF';
 const MONO = '"Cascadia Code", ui-monospace, monospace';
 
-/* ---------- Direction options ---------- */
-const DIR_OPTIONS = [
-  { value: '.', label: 'None' },
-  { value: '+', label: 'Forward (+)', desc: '5\' → 3\'' },
-  { value: '-', label: 'Reverse (-)', desc: '3\' → 5\'' },
-];
-
 /* ---------- Component ---------- */
-export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureAdd, newFeatureLocation }) {
+export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, newFeatureLoc, onFeatureAdd, features }) {
+  // --- Shared state ---
+  const [qualifiersOpen, setQualifiersOpen] = useState(false);
+
+  // --- Edit mode state ---
   const [editingFtype, setEditingFtype] = useState(false);
   const [editingLoc, setEditingLoc] = useState(false);
   const [locInput, setLocInput] = useState('');
   const [locError, setLocError] = useState('');
   const [nameInput, setNameInput] = useState('');
+  const [nameDirty, setNameDirty] = useState(false);
 
-  // Create mode state
-  const [createLocInput, setCreateLocInput] = useState('');
-  const [createStrand, setCreateStrand] = useState('.');
+  // --- Create mode state ---
+  const isNewFeature = !feature && newFeatureLoc !== undefined;
+  const [createLoc, setCreateLoc] = useState('');
   const [createFtype, setCreateFtype] = useState('misc_feature');
   const [createColor, setCreateColor] = useState('#60A5FA');
-  const [createName, setCreateName] = useState('');
+  const [createStrandDir, setCreateStrandDir] = useState('both'); // 'both' | '+' | '-'
+  const [createName, setCreateName] = useState('New Feature');
+  const [createLocError, setCreateLocError] = useState('');
   const [createError, setCreateError] = useState('');
-  const [createValidating, setCreateValidating] = useState(false);
 
-  const isNewFeature = !feature && newFeatureLocation !== undefined;
-
-  // Initialize create mode when dialog opens
+  // Sync when dialog opens in create mode
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current && isNewFeature) {
     prevOpenRef.current = true;
-    const initial = newFeatureLocation || '';
-    setCreateLocInput(initial);
-    setCreateStrand('.');
+    setCreateLoc(newFeatureLoc || '');
+    setCreateName('New Feature');
     setCreateFtype('misc_feature');
     setCreateColor('#60A5FA');
-    setCreateName('New Feature');
+    setCreateStrandDir('both');
+    setCreateLocError('');
     setCreateError('');
-    setLocError('');
-  }
-  if (!open) {
+  } else if (!open) {
     prevOpenRef.current = false;
   }
 
-  // Sync name input when feature changes (edit mode)
+  // Sync when feature changes (edit mode)
   const prevFeatureId = useRef(null);
   if (feature?.id !== prevFeatureId.current) {
     prevFeatureId.current = feature?.id;
     if (feature) setNameInput(feature.name || '');
+    setNameDirty(false);
   }
 
-  const currentFtype = isNewFeature ? createFtype : (feature?.ftype || 'misc_feature');
+  const currentFtype = feature?.ftype || 'misc_feature';
 
-  const locLabel = useMemo(() => {
-    if (isNewFeature) return createLocInput || '(set location)';
-    return feature ? gbLocation(feature) : '';
-  }, [feature, isNewFeature, createLocInput]);
+  const locLabel = useMemo(() => feature ? gbLocation(feature) : '', [feature]);
 
   const qualifierLines = useMemo(() => {
     if (!feature) return [];
@@ -171,63 +166,52 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     });
   }, [feature]);
 
-  if (!feature && !isNewFeature) return null;
+  // Name conflict check for create mode
+  const nameConflict = useMemo(() => {
+    if (!isNewFeature) return false;
+    const trimmed = createName.trim();
+    if (!trimmed) return false;
+    return (features || []).some(f => f.name === trimmed);
+  }, [createName, features, isNewFeature]);
 
-  // ── Direction change handler (create mode) ──
-  const handleStrandChange = useCallback((newStrand) => {
-    setCreateError('');
-    setCreateStrand(newStrand);
-    if (newStrand === '-') {
-      // Wrap with complement()
-      setCreateLocInput(prev => wrapComplement(stripComplement(prev)));
-    } else {
-      // Strip complement() wrapper
-      setCreateLocInput(prev => stripComplement(prev));
+  // --- Create mode --------------------------------
+  const handleStrandCycle = () => {
+    const next = STRAND_CYCLE[createStrandDir];
+    let newLoc = createLoc;
+    if (createStrandDir === '-' && next !== '-') {
+      newLoc = unwrapComplement(createLoc);
+    } else if (createStrandDir !== '-' && next === '-') {
+      newLoc = wrapComplement(createLoc);
     }
-  }, []);
+    setCreateStrandDir(next);
+    setCreateLoc(newLoc);
+    setCreateLocError('');
+  };
 
-  // ── Location input change (create mode) ──
-  const handleCreateLocChange = useCallback((val) => {
-    setCreateLocInput(val);
-    setCreateError('');
-    // Auto-detect strand from location string
-    if (val.startsWith('complement(')) {
-      setCreateStrand('-');
+  const handleCreateApply = async () => {
+    const trimmedLoc = createLoc.trim();
+    if (!trimmedLoc) {
+      setCreateLocError('请填写 location');
+      return;
     }
-  }, []);
-
-  // ── Create feature ──
-  const handleCreate = useCallback(async () => {
-    if (!onFeatureAdd || !createLocInput.trim()) return;
-    setCreateValidating(true);
+    if (!onFeatureAdd) return;
     setCreateError('');
     try {
-      const result = await validateFeatureLocation(createLocInput.trim());
-      if (result && result.valid) {
-        const segments = result.segments || [{ start: result.start, end: result.end }];
-        const id = `feat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        await onFeatureAdd({
-          id,
-          name: createName || 'New Feature',
-          start: result.start,
-          end: result.end,
-          color: createColor,
-          ftype: createFtype,
-          segments,
-          strand: result.strand || '.',
-          notes: '',
-          translation: '',
-          qualifiers: [],
-        });
-        onOpenChange(false);
-      } else {
-        setCreateError(result?.error || 'Invalid location');
-      }
+      await onFeatureAdd({
+        id: `feature_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: createName || 'New Feature',
+        ftype: createFtype,
+        color: createColor,
+        locationStr: trimmedLoc,
+      });
+      onOpenChange(false);
     } catch (e) {
       setCreateError(String(e));
     }
-    setCreateValidating(false);
-  }, [createLocInput, createName, createColor, createFtype, onFeatureAdd, onOpenChange]);
+  };
+
+  // --- Edit mode --------------------------------
+  if (!feature && !isNewFeature) return null;
 
   const submitLocation = async (value) => {
     setEditingLoc(false);
@@ -240,114 +224,210 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     }
   };
 
-  // ── Render ──
+  const handleCancel = () => {
+    if (isNewFeature) {
+      onOpenChange(false);
+      return;
+    }
+    setNameInput(feature?.name || '');
+    setNameDirty(false);
+    onOpenChange(false);
+  };
+
+  const handleApply = async () => {
+    if (nameDirty && onFeatureNameChange) {
+      await onFeatureNameChange(feature.id, nameInput);
+    }
+    setNameDirty(false);
+    onOpenChange(false);
+  };
+
+  // --- Render create mode ---
+  if (isNewFeature) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onOpenChange(false); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-base">New Feature</DialogTitle>
+          </DialogHeader>
+
+          {/* Name + Color row */}
+          <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
+            <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
+            <input
+              value={createName}
+              onChange={(e) => { setCreateName(e.target.value); setCreateError(''); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateApply();
+                else if (e.key === 'Escape') { setCreateName('New Feature'); e.target.blur(); }
+              }}
+              style={{
+                fontWeight: 600, fontSize: 'inherit',
+                border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
+                background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, flexShrink: 0 }}>
+              <span style={{ position: 'absolute', inset: 0, backgroundColor: createColor, border: '2px solid #000', borderRadius: 2, pointerEvents: 'none' }} />
+              <input
+                type="color"
+                value={createColor}
+                onChange={(e) => setCreateColor(e.target.value)}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', padding: 0, border: 'none', opacity: 0, cursor: 'pointer' }}
+              />
+            </span>
+          </div>
+
+          {/* Type row */}
+          <div className="flex items-center gap-2 px-1 mb-3" style={{ fontSize: '14px', lineHeight: '1.4' }}>
+            <span style={{ fontWeight: 600, color: '#6B7280' }}>Type: </span>
+            <select
+              value={createFtype}
+              onChange={(e) => setCreateFtype(e.target.value)}
+              className="text-sm border rounded px-1 py-0.5"
+              style={{ fontWeight: 700, fontFamily: MONO }}
+            >
+              {FTYPE_OPTIONS.map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Location row */}
+          <div className="flex items-start gap-2 px-1 mb-3 flex-col" style={{ fontSize: '14px', lineHeight: '1.4' }}>
+            <div className="flex items-center gap-2 w-full">
+              <span style={{ fontWeight: 600, color: '#6B7280', whiteSpace: 'nowrap' }}>Location: </span>
+              <input
+                value={createLoc}
+                onChange={(e) => { setCreateLoc(e.target.value); setCreateLocError(''); setCreateError(''); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateApply();
+                }}
+                autoFocus
+                className="text-sm border rounded px-1 py-0.5 flex-1"
+                style={{ fontWeight: 700, fontFamily: MONO, minWidth: 200 }}
+                placeholder="e.g. 11..456"
+              />
+            </div>
+            {createLocError && (
+              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: MONO }}>{createLocError}</div>
+            )}
+          </div>
+
+          {/* Strand — single cycling button */}
+          <div className="flex items-center gap-2 px-1 mb-3" style={{ fontSize: '14px', lineHeight: '1.4' }}>
+            <span style={{ fontWeight: 600, color: '#6B7280' }}>Strand: </span>
+            <button
+              onClick={handleStrandCycle}
+              title="Click to cycle: both → + → - → both"
+              style={{
+                padding: '2px 14px', borderRadius: 4, cursor: 'pointer',
+                fontWeight: 700, fontFamily: MONO, fontSize: '13px',
+                border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
+              }}
+            >
+              {STRAND_LABEL[createStrandDir]}
+            </button>
+          </div>
+
+          {/* Create error */}
+          {createError && (
+            <div className="mx-1 mb-2 px-2 py-1 rounded text-xs"
+              style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
+              {createError}
+            </div>
+          )}
+
+          {/* Name conflict warning */}
+          {nameConflict && (
+            <div className="mx-1 mb-2 px-2 py-1 rounded text-xs"
+              style={{ backgroundColor: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
+              Name "{createName}" is already used by another feature
+            </div>
+          )}
+
+          {/* Footer */}
+          <DialogFooter className="mt-3">
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
+              <Button size="sm" onClick={handleCreateApply} disabled={!createLoc.trim() || !!nameConflict}>
+                Create Feature
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // --- Render edit mode ---
   return (
     <Dialog open={open} onOpenChange={(open) => {
-      if (!open) { setEditingFtype(false); setEditingLoc(false); setLocError(''); setCreateError(''); }
+      if (!open) {
+        setEditingFtype(false);
+        setEditingLoc(false);
+        setLocError('');
+        setNameInput(feature?.name || '');
+        setNameDirty(false);
+        setQualifiersOpen(false);
+      }
       onOpenChange(open);
     }}>
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-base flex items-center gap-2" style={{ paddingRight: '16px' }}>
-            {isNewFeature && (
-              <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18 }}>
-                <span
-                  style={{
-                    position: 'absolute', inset: 0,
-                    backgroundColor: createColor,
-                    border: '2px solid #000',
-                    borderRadius: 2,
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  type="color"
-                  value={createColor}
-                  onChange={(e) => setCreateColor(e.target.value)}
-                  style={{
-                    position: 'absolute', inset: 0,
-                    width: '100%', height: '100%',
-                    padding: 0, border: 'none',
-                    opacity: 0, cursor: 'pointer',
-                  }}
-                />
-              </span>
-            )}
-            {!isNewFeature && (
-              <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18 }}>
-                <span
-                  style={{
-                    position: 'absolute', inset: 0,
-                    backgroundColor: feature.color || '#60A5FA',
-                    border: '2px solid #000',
-                    borderRadius: 2,
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  type="color"
-                  value={feature.color || '#60A5FA'}
-                  onChange={(e) => onFeatureColorChange?.(feature.id, e.target.value)}
-                  style={{
-                    position: 'absolute', inset: 0,
-                    width: '100%', height: '100%',
-                    padding: 0, border: 'none',
-                    opacity: 0, cursor: 'pointer',
-                  }}
-                />
-              </span>
-            )}
-            {isNewFeature ? (
-              <input
-                value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
-                placeholder="Feature name"
-                style={{
-                  fontWeight: 600, fontSize: 'inherit',
-                  border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-                  background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <input
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                onBlur={() => {
-                  if (nameInput !== feature.name) onFeatureNameChange?.(feature.id, nameInput);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.target.blur(); }
-                  else if (e.key === 'Escape') { setNameInput(feature.name); e.target.blur(); }
-                }}
-                style={{
-                  fontWeight: 600, fontSize: 'inherit',
-                  border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-                  background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            )}
-          </DialogTitle>
+          <DialogTitle className="text-base">Feature</DialogTitle>
         </DialogHeader>
 
-        {/* Type & Location */}
+        {/* Name + Color row */}
+        <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
+          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
+          <input
+            value={nameInput}
+            onChange={(e) => { setNameInput(e.target.value); setNameDirty(true); }}
+            onBlur={() => {
+              if (nameInput !== feature.name) setNameDirty(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { handleApply(); }
+              else if (e.key === 'Escape') { setNameInput(feature.name); setNameDirty(false); e.target.blur(); }
+            }}
+            style={{
+              fontWeight: 600, fontSize: 'inherit',
+              border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
+              background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, flexShrink: 0 }}>
+            <span
+              style={{
+                position: 'absolute', inset: 0,
+                backgroundColor: feature.color || '#60A5FA',
+                border: '2px solid #000',
+                borderRadius: 2,
+                pointerEvents: 'none',
+              }}
+            />
+            <input
+              type="color"
+              value={feature.color || '#60A5FA'}
+              onChange={(e) => onFeatureColorChange?.(feature.id, e.target.value)}
+              style={{
+                position: 'absolute', inset: 0,
+                width: '100%', height: '100%',
+                padding: 0, border: 'none',
+                opacity: 0, cursor: 'pointer',
+              }}
+            />
+          </span>
+        </div>
+
+        {/* Type & Location outside the box */}
         <div className="flex flex-col gap-1.5 mt-1.5 mb-0.5 px-1">
-          {/* Type */}
           <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
             <span style={{ fontWeight: 600, color: '#6B7280' }}>Type: </span>
-            {isNewFeature ? (
-              <select
-                value={createFtype}
-                onChange={(e) => setCreateFtype(e.target.value)}
-                className="text-sm border rounded px-1 py-0.5"
-                style={{ fontWeight: 700, fontFamily: MONO }}
-              >
-                {FTYPE_OPTIONS.map(o => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            ) : editingFtype ? (
+            {editingFtype ? (
               <select
                 value={currentFtype}
                 onChange={(e) => {
@@ -370,23 +450,9 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               >{currentFtype}</span>
             )}
           </div>
-
-          {/* Location */}
           <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
             <span style={{ fontWeight: 600, color: '#6B7280' }}>Location: </span>
-            {isNewFeature ? (
-              <input
-                value={createLocInput}
-                onChange={(e) => handleCreateLocChange(e.target.value)}
-                placeholder="e.g. 100..200 or complement(300..400)"
-                className="text-sm border rounded px-1 py-0.5"
-                style={{
-                  fontWeight: 700, fontFamily: MONO, width: 'auto', minWidth: 200,
-                  borderColor: createError ? '#dc2626' : undefined,
-                }}
-                autoFocus
-              />
-            ) : editingLoc ? (
+            {editingLoc ? (
               <span className="inline-flex items-center gap-2">
                 <input
                   value={locInput}
@@ -421,73 +487,77 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
             )}
           </div>
 
-          {/* Direction selector (create mode only) */}
-          {isNewFeature && (
-            <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
-              <span style={{ fontWeight: 600, color: '#6B7280' }}>Direction: </span>
-              <span className="inline-flex items-center gap-1 ml-1">
-                {DIR_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleStrandChange(opt.value)}
-                    style={{
-                      fontSize: '12px', fontWeight: 700, fontFamily: MONO,
-                      padding: '2px 8px',
-                      cursor: 'pointer',
-                      background: createStrand === opt.value ? '#1f2937' : '#f3f4f6',
-                      color: createStrand === opt.value ? '#fff' : '#374151',
-                      border: `1px solid ${createStrand === opt.value ? '#1f2937' : '#d1d5db'}`,
-                      borderRadius: 4,
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </span>
-              <span className="text-xs text-muted-foreground ml-2">
-                {createStrand === '-' ? 'Location will be wrapped in complement(...)' : ''}
-              </span>
+          {/* Strand — single cycling button (edit mode) */}
+          <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
+            <span style={{ fontWeight: 600, color: '#6B7280' }}>Strand: </span>
+            <button
+              onClick={() => {
+                const cur = feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both');
+                const next = STRAND_CYCLE[cur];
+                const newStrand = next === 'both' ? '.' : next;
+                let newLoc = locLabel;
+                if (cur === '-' && next !== '-') {
+                  newLoc = unwrapComplement(locLabel);
+                } else if (cur !== '-' && next === '-') {
+                  newLoc = wrapComplement(locLabel);
+                }
+                // Update location if complement changed
+                if (newLoc !== locLabel && onFeatureLocationChange) {
+                  submitLocation(newLoc);
+                }
+                // Update strand directly for both transitions
+                if (onFeatureStrandChange && (cur === 'both' || next === 'both')) {
+                  onFeatureStrandChange(feature.id, newStrand);
+                }
+              }}
+              title="Click to cycle: both → + → - → both"
+              style={{
+                padding: '2px 14px', borderRadius: 4, cursor: 'pointer',
+                fontWeight: 700, fontFamily: MONO, fontSize: '13px',
+                border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
+              }}
+            >
+              {STRAND_LABEL[feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both')]}
+            </button>
+          </div>
+        </div>
+
+        {/* Qualifiers — collapsible, default collapsed */}
+        <div className="mt-2 rounded border" style={{ backgroundColor: '#faf9f7' }}>
+          <div
+            onClick={() => setQualifiersOpen(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px', cursor: 'pointer',
+              fontSize: '12px', fontWeight: 600, color: '#6B7280',
+              userSelect: 'none',
+            }}
+          >
+            <span style={{ transform: qualifiersOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s', fontSize: '10px' }}>▶</span>
+            Qualifiers {qualifierLines.length > 0 && `(${qualifierLines.length})`}
+          </div>
+          {qualifiersOpen && (
+            <div className="p-4 pt-2 overflow-y-auto" style={{ maxHeight: 240 }}>
+              {qualifierLines.map((line, i) => (
+                <div key={i} className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{line.label}</span>
+                  <span>{line.children}</span>
+                </div>
+              ))}
+              {qualifierLines.length === 0 && (
+                <div className="text-sm text-muted-foreground italic">No qualifiers</div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Qualifiers (edit mode only) */}
-        {!isNewFeature && (
-          <div
-            className="flex-1 overflow-y-auto rounded border p-4 mt-2"
-            style={{ backgroundColor: '#faf9f7' }}
-          >
-            {qualifierLines.length > 0 ? qualifierLines.map((line, i) => (
-              <div key={i} className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{line.label}</span>
-                <span>{line.children}</span>
-              </div>
-            )) : (
-              <div className="text-sm text-muted-foreground italic">No qualifiers</div>
-            )}
+        {/* Footer */}
+        <DialogFooter className="mt-3">
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
+            <Button size="sm" onClick={handleApply}>Apply</Button>
           </div>
-        )}
-
-        {/* Create error */}
-        {createError && (
-          <div className="mx-1 mt-2 px-2 py-1 rounded text-[11px] flex items-center gap-1"
-            style={{ backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' }}>
-            <span>⚠ {createError}</span>
-          </div>
-        )}
-
-        {/* Create button (create mode only) */}
-        {isNewFeature && (
-          <div className="px-1 mt-3 flex justify-end gap-2">
-            <Button
-              size="sm"
-              onClick={handleCreate}
-              disabled={!createLocInput.trim() || createValidating}
-            >
-              {createValidating ? 'Validating…' : 'Create Feature'}
-            </Button>
-          </div>
-        )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
