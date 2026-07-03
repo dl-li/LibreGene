@@ -55,6 +55,8 @@ export default function App() {
   const [restoreState, setRestoreState] = useState({ version: 0, cursorIndex: null, selStart: null, selEnd: null });
   const undoVersionRef = useRef(0);
   const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+  const activeIdRef = useRef(null);
   const dirtyStateRef = useRef({}); // per-project dirty state
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
   const unsavedPendingRef = useRef(null); // ref mirror of pendingAction for stale-closure-safe access
@@ -66,6 +68,9 @@ export default function App() {
   const methKey = useMemo(() => methylationSystems.join(',') + '|' + methylationOverlap, [methylationSystems, methylationOverlap]);
   const methKeyRef = useRef(methKey);
   useEffect(() => { methKeyRef.current = methKey; }, [methKey]);
+  // Sync refs for stale-closure-safe access in event listeners
+  useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   // Keep cache in sync with latest state (captures post-methylation enzymes)
   useEffect(() => {
@@ -197,14 +202,9 @@ export default function App() {
     if (windowInfo.type === 'main') {
       listener = listenProjectUpdates((msg) => {
         if (cancelled) return;
-        // Always keep the project list and dirty flags in sync
+        // Update the project list only — dirtyStateRef is managed by mutation handlers
         if (msg.projects) {
           setProjects(msg.projects);
-          for (const p of msg.projects) {
-            if (p.dirty !== undefined) {
-              dirtyStateRef.current[p.id] = p.dirty;
-            }
-          }
         }
         if (msg.activeId !== undefined) {
           setActiveId(msg.activeId);
@@ -221,11 +221,9 @@ export default function App() {
             methKey: methKeyRef.current,
           };
           baselinePerProjectRef.current[msg.activeId] = msg.data.sequence;
-          if (msg.data.dirty === true) {
-            dirtyStateRef.current[msg.activeId] = true;
-          }
           // Only update UI if this is the currently active project
-          if (msg.activeId === activeId) {
+          // (use ref to avoid stale closure on activeId)
+          if (msg.activeId === activeIdRef.current) {
             setSequence(msg.data.sequence);
             setFeatures(msg.data.features || []);
             setEnzymes(msg.data.enzymes || []);
@@ -478,14 +476,10 @@ export default function App() {
     }
   }, [methKey, syncMethylation, activeId, isDirty]);
 
-  // Project switch with dirty check — used by sidebar onClick
+  // Switch projects freely — dirty state is tracked per-project and shown in sidebar (*)
   const handleSwitchProject = useCallback((targetId) => {
-    if (activeId && activeId !== targetId && isDirty) {
-      openUnsavedDialog({ type: 'switch', targetId });
-      return;
-    }
     handleActivateProject(targetId);
-  }, [activeId, isDirty, openUnsavedDialog, handleActivateProject]);
+  }, [handleActivateProject]);
 
   // --- Edit request from SequenceEditor: open the confirmation dialog ---
   const handleEditRequest = useCallback((request) => {
@@ -986,9 +980,7 @@ export default function App() {
     setUnsavedDialog({ open: false, pendingAction: null });
     unsavedPendingRef.current = null;
     await handleSave();
-    if (pending?.type === 'switch' && pending.targetId) {
-      handleActivateProject(pending.targetId);
-    } else if (pending?.type === 'open') {
+    if (pending?.type === 'open') {
       handleOpenFile();
     } else if (pending?.type === 'close' && pending.targetId) {
       doCloseProject(pending.targetId);
@@ -999,9 +991,7 @@ export default function App() {
     const pending = unsavedPendingRef.current;
     setUnsavedDialog({ open: false, pendingAction: null });
     unsavedPendingRef.current = null;
-    if (pending?.type === 'switch' && pending.targetId) {
-      handleActivateProject(pending.targetId);
-    } else if (pending?.type === 'open') {
+    if (pending?.type === 'open') {
       handleOpenFile();
     } else if (pending?.type === 'close' && pending.targetId) {
       doCloseProject(pending.targetId);
