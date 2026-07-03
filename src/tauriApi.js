@@ -139,8 +139,13 @@ export async function deletePrimer(id) {
   return tauriInvoke('delete_primer', { id });
 }
 
-export async function computePrimerAlignment(primerId, seedLength, customSeq) {
-  return tauriInvoke('compute_primer_alignment', { primerId, seedLength, customSeq: customSeq || null });
+export async function computePrimerAlignment(primerId, seedLength, customSeq, customName) {
+  return tauriInvoke('compute_primer_alignment', {
+    primerId: primerId || null,
+    seedLength,
+    customSeq: customSeq || null,
+    customName: customName || null,
+  });
 }
 
 // ---------------------------------------------------------------------------

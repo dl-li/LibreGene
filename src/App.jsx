@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, deleteProject, setWindowTitle } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, addPrimer, deleteProject, setWindowTitle } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -516,6 +516,21 @@ export default function App() {
       console.error('update feature name error:', e);
     }
   }, [activeId, sequence, features]);
+
+  const handlePrimerChange = useCallback(async (primerData) => {
+    try {
+      const data = await addPrimer(primerData);
+      if (data && data.primers) {
+        setPrimers(data.primers);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+      }
+    } catch (e) {
+      console.error('add primer error:', e);
+    }
+  }, [activeId]);
 
   const handleFeatureLocationChange = useCallback(async (featureId, locationStr) => {
     try {
@@ -1091,6 +1106,7 @@ export default function App() {
                 onFeatureColorChange={handleFeatureColorChange}
                 onFeatureLocationChange={handleFeatureLocationChange}
                 onFeatureNameChange={handleFeatureNameChange}
+                onPrimerChange={handlePrimerChange}
                 primerSeedLength={primerSeedLength}
                 onSelectionChange={handleSelectionChange}
               />
