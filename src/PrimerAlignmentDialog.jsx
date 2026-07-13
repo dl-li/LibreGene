@@ -8,9 +8,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Repeat } from 'lucide-react';
+import { monoFont } from './editorConstants';
 import { computePrimerAlignment } from './tauriApi';
-
-const MONO = '"Cascadia Code", ui-monospace, monospace';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
 /* Reverse complement (preserves case, supports IUPAC degenerate bases) */
@@ -39,7 +38,7 @@ function AlignmentView({ data }) {
   const isRev = primerArrowLine.includes("3' <");
   const primerColor = isRev ? COLORS.rev : COLORS.fwd;
   return (
-    <div style={{ fontFamily: MONO, fontSize: '13px', lineHeight: '1.6', display: 'inline-block', textAlign: 'left' }}>
+    <div style={{ fontFamily: monoFont, fontSize: '13px', lineHeight: '1.6', display: 'inline-block', textAlign: 'left' }}>
       {lines.map((line, i) => {
         let color;
         if (i === 3 || i === 4) {
@@ -345,7 +344,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
               </Button>
             )}
             {nameConflict && (
-              <div className="text-xs text-red-600 mr-auto" style={{ fontFamily: MONO }}>
+              <div className="text-xs text-red-600 mr-auto" style={{ fontFamily: monoFont }}>
                 Name "{editName}" is already used by another primer
               </div>
             )}
