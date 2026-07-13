@@ -12,6 +12,9 @@ export const sansFont = 'sans-serif';
 export const springAnim = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
 
 const _ctx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+if (_ctx) {
+  _ctx.fontFeatureSettings = '"calt" on, "ss01" on';
+}
 const _wCache = new Map();
 const CACHE_MAX = 2000;
 const CACHE_PRUNE = 300;
@@ -38,7 +41,7 @@ export const measureWidth = (text, font) => {
   return w;
 };
 
-export const enzLabelW = (name, isUnique) => measureWidth(name, `${isUnique ? '700 ' : '350 '}14px Cascadia Code`) + 4;
+export const enzLabelW = (name, isUnique) => measureWidth(name, `${isUnique ? '700 ' : '350 '}14px ${monoFont}`) + 4;
 export const primerLabelW = (name) => measureWidth(name, 'italic 600 12px TeX Gyre Heros');
 export const featLabelW = (name) => measureWidth(name, 'italic 600 12px TeX Gyre Heros');
 

@@ -7,6 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { monoFont } from './editorConstants';
 
 /* ---------- GenBank location helpers ---------- */
 function gbLocation(feature) {
@@ -105,7 +106,6 @@ const STRAND_LABEL = { 'both': 'both', '+': '+', '-': '-' };
 
 /* ---------- Styles ---------- */
 const HIGHLIGHT = '#1E40AF';
-const MONO = '"Cascadia Code", ui-monospace, monospace';
 
 /* ---------- Component ---------- */
 export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, newFeatureLoc, onFeatureAdd, features }) {
@@ -286,7 +286,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               value={createFtype}
               onChange={(e) => setCreateFtype(e.target.value)}
               className="text-sm border rounded px-1 py-0.5"
-              style={{ fontWeight: 700, fontFamily: MONO }}
+              style={{ fontWeight: 700, fontFamily: monoFont }}
             >
               {FTYPE_OPTIONS.map(o => (
                 <option key={o} value={o}>{o}</option>
@@ -306,12 +306,12 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                 }}
                 autoFocus
                 className="text-sm border rounded px-1 py-0.5 flex-1"
-                style={{ fontWeight: 700, fontFamily: MONO, minWidth: 200 }}
+                style={{ fontWeight: 700, fontFamily: monoFont, minWidth: 200 }}
                 placeholder="e.g. 11..456"
               />
             </div>
             {createLocError && (
-              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: MONO }}>{createLocError}</div>
+              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: monoFont }}>{createLocError}</div>
             )}
           </div>
 
@@ -323,7 +323,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               title="Click to cycle: both → + → - → both"
               style={{
                 padding: '2px 14px', borderRadius: 4, cursor: 'pointer',
-                fontWeight: 700, fontFamily: MONO, fontSize: '13px',
+                fontWeight: 700, fontFamily: monoFont, fontSize: '13px',
                 border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
               }}
             >
@@ -437,7 +437,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                 onBlur={() => setEditingFtype(false)}
                 autoFocus
                 className="text-sm border rounded px-1 py-0.5"
-                style={{ fontWeight: 700, fontFamily: MONO }}
+                style={{ fontWeight: 700, fontFamily: monoFont }}
               >
                 {FTYPE_OPTIONS.map(o => (
                   <option key={o} value={o}>{o}</option>
@@ -445,7 +445,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               </select>
             ) : (
               <span
-                style={{ fontWeight: 700, fontFamily: MONO, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
+                style={{ fontWeight: 700, fontFamily: monoFont, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
                 onClick={() => { setEditingLoc(false); setEditingFtype(true); }}
               >{currentFtype}</span>
             )}
@@ -462,13 +462,13 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                   }}
                   autoFocus
                   className="text-sm border rounded px-1 py-0.5 inline-block"
-                  style={{ fontWeight: 700, fontFamily: MONO, width: 'auto', minWidth: 200 }}
+                  style={{ fontWeight: 700, fontFamily: monoFont, width: 'auto', minWidth: 200 }}
                 />
                 <button
                   onClick={() => submitLocation(locInput)}
                   disabled={!!locError}
                   style={{
-                    fontSize: '14px', fontWeight: 700, fontFamily: MONO,
+                    fontSize: '14px', fontWeight: 700, fontFamily: monoFont,
                     padding: '2px 10px', cursor: 'pointer',
                     background: '#000', color: '#fff', border: 'none', borderRadius: 4,
                   }}
@@ -476,12 +476,12 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               </span>
             ) : (
               <span
-                style={{ fontWeight: 700, fontFamily: MONO, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
+                style={{ fontWeight: 700, fontFamily: monoFont, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
                 onClick={() => { setEditingFtype(false); setLocInput(locLabel); setEditingLoc(true); setLocError(''); }}
               >{locLabel}</span>
             )}
             {locError && editingLoc && (
-              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: MONO, marginTop: 2 }}>
+              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: monoFont, marginTop: 2 }}>
                 {locError}
               </div>
             )}
@@ -513,7 +513,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               title="Click to cycle: both → + → - → both"
               style={{
                 padding: '2px 14px', borderRadius: 4, cursor: 'pointer',
-                fontWeight: 700, fontFamily: MONO, fontSize: '13px',
+                fontWeight: 700, fontFamily: monoFont, fontSize: '13px',
                 border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
               }}
             >
@@ -539,7 +539,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
           {qualifiersOpen && (
             <div className="p-4 pt-2 overflow-y-auto" style={{ maxHeight: 240 }}>
               {qualifierLines.map((line, i) => (
-                <div key={i} className="leading-6" style={{ fontFamily: MONO, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                <div key={i} className="leading-6" style={{ fontFamily: monoFont, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                   <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{line.label}</span>
                   <span>{line.children}</span>
                 </div>

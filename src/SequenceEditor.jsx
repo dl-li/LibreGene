@@ -6,6 +6,75 @@ import { computePrimerAlignment } from './tauriApi';
 import { AlertTriangle } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
+// Standard genetic code table
+// ---------------------------------------------------------------------------
+const GENETIC_CODE = {
+  'ATA': 'I', 'ATC': 'I', 'ATT': 'I', 'ATG': 'M',
+  'ACA': 'T', 'ACC': 'T', 'ACG': 'T', 'ACT': 'T',
+  'AAC': 'N', 'AAT': 'N', 'AAA': 'K', 'AAG': 'K',
+  'AGC': 'S', 'AGT': 'S', 'AGA': 'R', 'AGG': 'R',
+  'CTA': 'L', 'CTC': 'L', 'CTG': 'L', 'CTT': 'L',
+  'CCA': 'P', 'CCC': 'P', 'CCG': 'P', 'CCT': 'P',
+  'CAC': 'H', 'CAT': 'H', 'CAA': 'Q', 'CAG': 'Q',
+  'CGA': 'R', 'CGC': 'R', 'CGG': 'R', 'CGT': 'R',
+  'GTA': 'V', 'GTC': 'V', 'GTG': 'V', 'GTT': 'V',
+  'GCA': 'A', 'GCC': 'A', 'GCG': 'A', 'GCT': 'A',
+  'GAC': 'D', 'GAT': 'D', 'GAA': 'E', 'GAG': 'E',
+  'GGA': 'G', 'GGC': 'G', 'GGG': 'G', 'GGT': 'G',
+  'TCA': 'S', 'TCC': 'S', 'TCG': 'S', 'TCT': 'S',
+  'TTC': 'F', 'TTT': 'F', 'TTA': 'L', 'TTG': 'L',
+  'TAC': 'Y', 'TAT': 'Y', 'TAA': '*', 'TAG': '*',
+  'TGC': 'C', 'TGT': 'C', 'TGA': '*', 'TGG': 'W',
+};
+
+/**
+ * Compute CDS translation for a feature from the DNA sequence.
+ * Never uses feature.translation — always calculates from scratch.
+ * Returns array of { aa, templatePos2 } for each codon.
+ * templatePos2 is the middle base position — the AA is centered on it.
+ */
+function translateCDS(feature, sequence) {
+  const segs = feature.segments;
+  if (!segs || !segs.length) return [];
+
+  const isRev = feature.strand === '-';
+
+  // Build CDS bases as template indices in 5'→3' order
+  const cdsBases = [];
+  if (isRev) {
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const seg = segs[i];
+      for (let j = seg.end; j >= seg.start; j--) {
+        if (j >= 0 && j < sequence.length) cdsBases.push(j);
+      }
+    }
+  } else {
+    for (const seg of segs) {
+      for (let j = seg.start; j <= seg.end; j++) {
+        if (j >= 0 && j < sequence.length) cdsBases.push(j);
+      }
+    }
+  }
+
+  const result = [];
+  for (let i = 0; i + 2 < cdsBases.length; i += 3) {
+    const t1 = cdsBases[i];
+    const t2 = cdsBases[i + 1];
+    const t3 = cdsBases[i + 2];
+
+    const b1 = isRev ? complement(sequence[t1]) : sequence[t1];
+    const b2 = isRev ? complement(sequence[t2]) : sequence[t2];
+    const b3 = isRev ? complement(sequence[t3]) : sequence[t3];
+
+    const codon = (b1 + b2 + b3).toUpperCase();
+    const aa = GENETIC_CODE[codon] || '?';
+    result.push({ aa, templatePos2: t2 });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // PrimerWarningBadge — floating indicator in top-right corner for primers
 // that have no binding sites.  Click to expand, mouse-leave to close.
 // ---------------------------------------------------------------------------
@@ -65,7 +134,7 @@ function PrimerWarningBadge({ primers }) {
           </div>
           <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
             {primers.map(p => (
-              <li key={p.id} style={{ fontFamily: '"Cascadia Code", ui-monospace, monospace', fontSize: '11px' }}>
+              <li key={p.id} style={{ fontFamily: monoFont, fontSize: '11px' }}>
                 {p.name || p.id}
               </li>
             ))}
@@ -1243,6 +1312,17 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
   // --- enzyme track assignment is now in the spacing memo (enzymeRowTracks) ---
 
+  // Pre-compute CDS translation data for features with ftype === 'CDS'
+  const cdsTranslationData = useMemo(() => {
+    const map = {};
+    for (const f of normFeatures) {
+      if (f.ftype !== 'CDS') continue;
+      const trans = translateCDS(f, sequence);
+      if (trans.length > 0) map[f.id] = trans;
+    }
+    return map;
+  }, [normFeatures, sequence]);
+
   const renderedFeatures = useMemo(() => {
     if (!visibleFeatures.length) return null;
     return visibleFeatures.map(f => {
@@ -1312,10 +1392,37 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               </g>
             );
           })}
+
+          {/* CDS translation — 1-letter AA centered on middle base of each codon */}
+          {f.ftype === 'CDS' && (cdsTranslationData[f.id] || []).flatMap(t => {
+            const r = Math.floor(t.templatePos2 / charsPerLine);
+            const c = t.templatePos2 % charsPerLine;
+            const inVisual = visuals.some(v => v.row === r && c >= v.colStart && c <= v.colEnd && v.type !== 'gap');
+            if (!inVisual) return [];
+            const sy = getSeqY(r);
+            const rowTo = ((featureRowTracks[f.id] || {})[r] || 0) * lp.featTrackHeight;
+            const y = sy + lp.featBaseOffset + rowTo;
+            return (
+              <text key={`tr-${t.templatePos2}`}
+                x={getX(c) + cw / 2}
+                y={y}
+                fontSize={11}
+                fontWeight="900"
+                fontFamily={monoFont}
+                fill={f.dominantColor}
+                stroke={bgColor}
+                strokeWidth={5}
+                paintOrder="stroke"
+                textAnchor="middle"
+                dominantBaseline="central"
+                style={{ pointerEvents: 'none' }}
+              >{t.aa}</text>
+            );
+          })}
         </g>
       );
     });
-  }, [visibleFeatures, hoveredFeature, featureRowTracks, getSeqY, sp, charsPerLine, clearCursorTimer, lp]);
+  }, [visibleFeatures, hoveredFeature, featureRowTracks, getSeqY, sp, charsPerLine, clearCursorTimer, lp, cdsTranslationData]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
     const full = isRev ? `< ${name}` : isFwd ? `${name} >` : name;
@@ -1694,7 +1801,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
 
         // Pre-compute exact label width (italic + normal parts)
         const s = splitEnzName(e.name);
-        const baseFont = `${e.isUnique ? '700' : '350'} 14px Cascadia Code`;
+        const baseFont = `${e.isUnique ? '700' : '350'} 14px ${monoFont}`;
         let exactW;
         if (s.normal) {
           exactW = measureWidth(s.italic, `italic ${baseFont}`) + measureWidth(s.normal, baseFont);
@@ -1888,7 +1995,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
           style={{ cursor: 'pointer' }}>
           <rect x={l.cutX + 3} y={l.yTop - 10} width={l.enzW + (showTwo ? 10 : 2)} height={18} fill="transparent" />
           {(() => {
-            const enzText = { x: l.cutX + 6, y: l.yTop + 5, fontSize: "14px", fontFamily: "Cascadia Code", fontWeight: l.isUnique ? '700' : '350', style: { pointerEvents: 'none' } };
+            const enzText = { x: l.cutX + 6, y: l.yTop + 5, fontSize: "14px", fontFamily: monoFont, fontWeight: l.isUnique ? '700' : '350', style: { pointerEvents: 'none' } };
             const nameContent = (() => { const s = splitEnzName(l.name); return s.normal ? [<tspan key="i" fontStyle="italic">{s.italic}</tspan>, <tspan key="n">{s.normal}</tspan>] : l.name; })();
             const content = showTwo ? [...(Array.isArray(nameContent) ? nameContent : [nameContent]), <tspan key="two" fontSize="12" dy="-2">²</tspan>] : nameContent;
             return <>
@@ -1972,12 +2079,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         {hoverTextContent && (
           <React.Fragment>
             <text x={hoverTextContent.hoveredEntry.cutX + 6} y={hoverTextContent.hoveredEntry.yTop + 5} fill="none" stroke={bgColor} strokeWidth="5"
-              fontSize="14px" fontFamily="Cascadia Code" fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}>
+              fontSize="14px" fontFamily={monoFont} fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}>
               {hoverTextContent.ovNameContent}
               {hoverTextContent.methText}
             </text>
             <text x={hoverTextContent.hoveredEntry.cutX + 6} y={hoverTextContent.hoveredEntry.yTop + 5} fill={hoverTextContent.ovColor} stroke="none"
-              fontSize="14px" fontFamily="Cascadia Code" fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}>
+              fontSize="14px" fontFamily={monoFont} fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}>
               {hoverTextContent.ovNameContent}
               {hoverTextContent.methText}
             </text>
@@ -2318,7 +2425,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       )}
       <div ref={containerRef} style={{ backgroundColor: bgColor, width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '0 1rem 4rem 1rem', overflowX: 'auto', userSelect: 'none', contain: 'layout style' }}>
       <div style={{ width: svgWidth }}>
-        <svg ref={svgRef} width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible', willChange: 'transform', transform: 'translateZ(0)' }}
+        <svg ref={svgRef} width="100%" height={svgHeight} style={{ display: 'block', overflow: 'visible', willChange: 'transform', transform: 'translateZ(0)', fontFeatureSettings: '"calt" on, "ss01" on' }}
           onMouseDown={handleSvgMouseDown} onMouseMove={handleSvgMouseMove} onMouseLeave={handleSvgMouseLeave}>
           {renderedCursor}
           {renderedSelection}
