@@ -1194,14 +1194,7 @@ export default function App() {
                           <span className="truncate hover:overflow-x-auto hover:[text-overflow:clip] [scrollbar-width:none] [&::-webkit-scrollbar]:[display:none]">{fileName(p)}{(p.id === activeId && isDirty) || dirtyStateRef.current[p.id] ? ' *' : ''}</span>
                         </SidebarMenuButton>
                         <div className="flex items-center gap-0.5 shrink-0 group-data-[state=collapsed]:hidden">
-                          <button
-                            className="size-4 shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
-                            onClick={(e) => { e.stopPropagation(); handleOpenInNewWindow(p.id); }}
-                            title="Open in new window"
-                            hidden={projects.length <= 1}
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </button>
+                          {/* "Open in new window" button removed — multi-window sync is incomplete */}
                           <button
                             className="size-4 shrink-0 opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
                             onClick={(e) => { e.stopPropagation(); handleCloseProject(p.id); }}
