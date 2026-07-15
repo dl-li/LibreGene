@@ -483,6 +483,7 @@ async fn add_feature(
 async fn delete_feature(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await;
@@ -504,6 +505,9 @@ async fn delete_feature(
         (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
 
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
+
     Ok(with_projects_list(
         serde_json::json!({ "features": feats }),
         &projects,
@@ -515,6 +519,7 @@ async fn delete_feature(
 async fn update_feature_ftype(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     feature_id: String,
     new_ftype: String,
 ) -> Result<serde_json::Value, String> {
@@ -533,6 +538,9 @@ async fn update_feature_ftype(
             pm.mark_dirty(&project_id);
         }
     }
+
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
 
     // Return updated project
     let pm = state.pm.read().await;
@@ -558,6 +566,7 @@ async fn update_feature_ftype(
 async fn update_feature_color(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     feature_id: String,
     new_color: String,
 ) -> Result<serde_json::Value, String> {
@@ -576,6 +585,9 @@ async fn update_feature_color(
             pm.mark_dirty(&project_id);
         }
     }
+
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -600,6 +612,7 @@ async fn update_feature_color(
 async fn update_feature_name(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     feature_id: String,
     new_name: String,
 ) -> Result<serde_json::Value, String> {
@@ -618,6 +631,9 @@ async fn update_feature_name(
             pm.mark_dirty(&project_id);
         }
     }
+
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -692,6 +708,7 @@ async fn update_feature_strand(
 async fn update_feature_location(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     feature_id: String,
     location_str: String,
 ) -> Result<serde_json::Value, String> {
@@ -716,6 +733,9 @@ async fn update_feature_location(
             pm.mark_dirty(&project_id);
         }
     }
+
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -829,6 +849,7 @@ async fn add_primer(
 async fn delete_primer(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await;
@@ -849,6 +870,9 @@ async fn delete_primer(
         pm.mark_dirty(&project_id);
         (primers, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
+
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state).await;
 
     Ok(with_projects_list(
         serde_json::json!({ "primers": primers }),
