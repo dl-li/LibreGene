@@ -305,9 +305,13 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 /// Serialize primers in SnapGene format.
 fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
     for p in &project.primers {
-        let best = p.binding_sites.first();
-        let ms = best.map(|b| b.template_start).unwrap_or(0);
-        let me = best.map(|b| b.template_end).unwrap_or(0);
+        let best = match p.binding_sites.first() {
+            Some(bs) => bs,
+            // Skip primers without binding sites — no valid template position to serialize.
+            None => continue,
+        };
+        let ms = best.template_start;
+        let me = best.template_end;
 
         let color = if p.color.is_empty() {
             "#166534"
@@ -318,7 +322,7 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
         // SnapGene primer note with full primer_seq
         let note = format!("color: {}; sequence: {}", color, p.primer_seq);
 
-        let loc = Location::Range((ms, Before(false)), (me + 1, After(false)));
+        let loc = Location::Range((ms, Before(false)), (me, After(false)));
         let loc = if p.r#type == "rev" {
             Location::Complement(Box::new(loc))
         } else {
