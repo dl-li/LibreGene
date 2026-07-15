@@ -893,35 +893,54 @@ async fn compute_primer_alignment(
     let project_id = resolve_project_id(&state, webview_window.label()).await
         .ok_or_else(|| "No project loaded".to_string())?;
 
-    let pm = state.pm.read().await;
-    let project = pm.get_project_by_id(&project_id)
-        .ok_or_else(|| "Project not found".to_string())?;
+    // Clone all needed data while holding the read lock, then drop it before spawn_blocking.
+    let (template, topology, existing_primers) = {
+        let pm = state.pm.read().await;
+        let project = pm.get_project_by_id(&project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        (project.sequence.clone(), project.topology.clone(), project.primers.clone())
+    };
 
-    // Resolve primer: if primer_id is set, look up existing primer; otherwise use custom data.
-    let primer_name: String;
-    let primer_seq: String;
-    match &primer_id {
+    // Resolve primer outside the lock.
+    let (primer_name, primer_seq) = match &primer_id {
         Some(pid) => {
-            let existing = project.primers.iter()
+            let existing = existing_primers.iter()
                 .find(|p| p.id == *pid)
                 .ok_or_else(|| "Primer not found".to_string())?;
-            primer_name = existing.name.clone();
-            primer_seq = custom_seq.clone().unwrap_or_else(|| existing.primer_seq.clone());
+            let seq = custom_seq.clone().unwrap_or_else(|| existing.primer_seq.clone());
+            (existing.name.clone(), seq)
         }
         None => {
-            primer_name = custom_name.clone().unwrap_or_else(|| "New Primer".to_string());
-            primer_seq = custom_seq.clone().ok_or_else(|| "Sequence required for new primer alignment".to_string())?;
+            let name = custom_name.clone().unwrap_or_else(|| "New Primer".to_string());
+            let seq = custom_seq.clone().ok_or_else(|| "Sequence required for new primer alignment".to_string())?;
+            (name, seq)
         }
-    }
+    };
 
-    let template = &project.sequence;
+    let is_circular = topology == "circular";
+
+    // Move heavy computation to blocking thread pool.
+    tokio::task::spawn_blocking(move || {
+        compute_primer_alignment_sync(
+            &template, is_circular, &primer_name, &primer_seq, seed_length,
+        )
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?
+}
+
+fn compute_primer_alignment_sync(
+    template: &str,
+    is_circular: bool,
+    primer_name: &str,
+    primer_seq: &str,
+    seed_length: Option<usize>,
+) -> Result<serde_json::Value, String> {
     let tpl_bytes = template.as_bytes();
     let tlen = tpl_bytes.len();
-    let is_circular = project.topology == "circular";
-    let active_seq = primer_seq;
-    let orig_bytes = active_seq.as_bytes();              // original case for display
-    let active_upper = active_seq.to_ascii_uppercase();
-    let primer_bytes = active_upper.as_bytes();           // uppercase for matching
+    let active_upper = primer_seq.to_ascii_uppercase();
+    let primer_bytes = active_upper.as_bytes();
+    let orig_bytes = primer_seq.as_bytes();
     let plen = primer_bytes.len();
 
     let seed_len = seed_length.unwrap_or(10).clamp(6, plen.min(20));
@@ -931,12 +950,9 @@ async fn compute_primer_alignment(
         return Err(format!("Primer too short ({}bp < {}bp seed)", plen, seed_len));
     }
 
-    // Pre-compute reverse primer and RC seed (for R-mode search).
-    let seed = &primer_bytes[plen - seed_len..];
     let rev_bytes: Vec<u8> = primer_bytes.iter().rev().copied().collect();
-    let orig_rev_bytes: Vec<u8> = orig_bytes.iter().rev().copied().collect(); // for display
-    // RC of the 3' seed — this is what we search for in R mode.
-    let rc_seed: Vec<u8> = seed.iter()
+    let orig_rev_bytes: Vec<u8> = orig_bytes.iter().rev().copied().collect();
+    let rc_seed: Vec<u8> = primer_bytes[plen - seed_len..].iter()
         .rev()
         .map(|&b| libregene_core::utils::complement_char(b as char) as u8)
         .collect();
@@ -950,7 +966,6 @@ async fn compute_primer_alignment(
 
     let mut candidates: Vec<BindingSiteCandidate> = Vec::new();
 
-    // Search BOTH exact seed (F mode) and RC seed (R mode).
     for mode in &[SearchMode::Forward, SearchMode::Reverse] {
         let (needle, is_rev) = match mode {
             SearchMode::Forward => (&primer_bytes[plen - seed_len..], false),
@@ -962,8 +977,6 @@ async fn compute_primer_alignment(
                 continue;
             }
 
-            // For F mode: 3' end is the LAST base of the seed match on template.
-            // For R mode: 3' end is the FIRST base of the RC-seed match on template.
             let seed_tstart = if is_circular { i % tlen } else { i };
             let tp_3prime = if is_rev { seed_tstart } else { seed_tstart + seed_len - 1 };
 
@@ -972,9 +985,6 @@ async fn compute_primer_alignment(
                 d <= 3
             }) { continue; }
 
-            // Greedy 5'-ward extension.
-            // F: extend LEFT  on template (seed_start-1, seed_start-2, …)
-            // R: extend RIGHT on template (seed_start+seed_len, seed_start+seed_len+1, …)
             let mut ext = 0usize;
             let max_ext = plen.saturating_sub(seed_len);
             while ext < max_ext {
@@ -1029,22 +1039,21 @@ async fn compute_primer_alignment(
         };
 
         let template_region = if is_circular {
-            primer::alignment::wrap_template_region(tpl_bytes, win_start, win_end)
+            libregene_core::primer::alignment::wrap_template_region(tpl_bytes, win_start, win_end)
         } else {
             tpl_bytes[win_start..win_end].to_vec()
         };
 
         if idx == 0 {
-            // Best site: full SW alignment.
             let sw_ok = if c.is_rev {
-                primer::alignment::align_first_base_constrained_rev(
+                libregene_core::primer::alignment::align_first_base_constrained_rev(
                     &rev_bytes, &template_region,
                 ).map(|result| {
-                    let text = primer::display::format_alignment_text(
+                    let text = libregene_core::primer::display::format_alignment_text(
                         &orig_rev_bytes, &template_region, &result,
-                        "Template", &primer_name, win_start, true,
+                        "Template", primer_name, win_start, true,
                     );
-                    let sw_tm = primer::display::compute_tm_from_alignment(&rev_bytes, &result);
+                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment(&rev_bytes, &result);
                     results.push(serde_json::json!({
                         "tm": (sw_tm * 10.0).round() / 10.0,
                         "strand": -1,
@@ -1054,14 +1063,14 @@ async fn compute_primer_alignment(
                     }));
                 })
             } else {
-                primer::alignment::align_3prime_constrained(
+                libregene_core::primer::alignment::align_3prime_constrained(
                     primer_bytes, &template_region,
                 ).map(|result| {
-                    let text = primer::display::format_alignment_text(
+                    let text = libregene_core::primer::display::format_alignment_text(
                         orig_bytes, &template_region, &result,
-                        "Template", &primer_name, win_start, false,
+                        "Template", primer_name, win_start, false,
                     );
-                    let sw_tm = primer::display::compute_tm_from_alignment(primer_bytes, &result);
+                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment(primer_bytes, &result);
                     results.push(serde_json::json!({
                         "tm": (sw_tm * 10.0).round() / 10.0,
                         "strand": 1,
@@ -1081,7 +1090,6 @@ async fn compute_primer_alignment(
                 }));
             }
         } else {
-            // Alternative: just list position + Tm, no alignment.
             results.push(serde_json::json!({
                 "tm": (c.est_tm * 10.0).round() / 10.0,
                 "strand": if c.is_rev { -1 } else { 1 },
