@@ -1406,12 +1406,12 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
               <text key={`tr-${t.templatePos2}`}
                 x={getX(c) + cw / 2}
                 y={y}
-                fontSize={11}
+                fontSize={10}
                 fontWeight="900"
                 fontFamily={monoFont}
                 fill={f.dominantColor}
                 stroke={bgColor}
-                strokeWidth={5}
+                strokeWidth={3}
                 paintOrder="stroke"
                 textAnchor="middle"
                 dominantBaseline="central"
