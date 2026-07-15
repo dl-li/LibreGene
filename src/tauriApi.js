@@ -1,5 +1,5 @@
 /**
- * Geneie Tauri IPC API layer.
+ * LibreGene Tauri IPC API layer.
  *
  * Tauri-desktop-only. Uses invoke() for IPC commands and listen() for events.
  */

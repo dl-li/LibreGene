@@ -1,4 +1,4 @@
-# Geneie — 质粒编辑器
+# LibreGene — 质粒编辑器
 
 基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注。默认输出 SnapGene 风格 GenBank 文件。
 
@@ -9,13 +9,13 @@
 - **前端**: React 19 + Vite 8，shadcn v4 (Radix UI)，lucide-react 图标，Tailwind CSS v4
 - **渲染**: 纯 SVG，Cascadia Code / TeX Gyre Heros 字体
 - **后端**: Rust (edition 2021), tokio 1, gb-io 0.9
-- **桌面壳**: Tauri v2，内嵌 geneie-core
+- **桌面壳**: Tauri v2，内嵌 libregene-core
 - **无测试框架**（前端无测试，后端仅 Rust 单元测试 + golden tests）
 
 ## 文件结构
 
 ```
-Geneie/
+LibreGene/
 ├── index.html                  # Vite 入口，含 @font-face 定义
 ├── vite.config.js              # Vite 配置（es2022 target, vendor chunk, @ alias）
 ├── package.json                # React 19, Vite 8, shadcn v4, lucide-react
@@ -46,7 +46,7 @@ Geneie/
 │   └── lib/
 │       └── utils.js            # cn() 工具（clsx + tailwind-merge）
 ├── backend/                    # Rust 后端 (workspace)
-│   ├── geneie-core/            # 核心库
+│   ├── libregene-core/            # 核心库
 │   │   ├── data/comm_only_enzymes.json  # 623 酶数据库（编译时嵌入）
 │   │   └── src/
 │   │       ├── models.rs       # ProjectData, Enzyme, Feature, Primer, BindingSite
@@ -57,7 +57,7 @@ Geneie/
 │   │       └── file_io/        # 文件解析/序列化：gbk, dna, fasta, ab1, color
 │   └── test_data/              # Golden 测试数据
 └── src-tauri/                  # Tauri v2 桌面壳
-    ├── Cargo.toml              # Tauri 依赖 + 内嵌 geneie-core
+    ├── Cargo.toml              # Tauri 依赖 + 内嵌 libregene-core
     ├── tauri.conf.json         # Tauri 配置 (窗口 1400x900, bundle, CSP)
     ├── capabilities/           # 权限配置
     ├── icons/                  # 应用图标
@@ -74,8 +74,8 @@ npx shadcn add <component>     # 添加 shadcn 组件
 
 # 后端
 cd backend
-cargo test -p geneie-core --lib                  # 单元测试
-cargo test -p geneie-core --test golden_tests     # Golden 测试
+cargo test -p libregene-core --lib                  # 单元测试
+cargo test -p libregene-core --test golden_tests     # Golden 测试
 ```
 
 ## 前端架构

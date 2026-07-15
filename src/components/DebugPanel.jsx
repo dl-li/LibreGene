@@ -91,7 +91,7 @@ export default function DebugPanel({
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {['test/pUC-GW-Amp.gb', 'test/flySWARM.dna'].map(f => (
                     <Button key={f} variant="secondary" size="sm" className="text-[10px] h-6 px-2"
-                      onClick={() => setOpenPath('/Users/lidonglin/Documents/Geneie/' + f)}>{f}</Button>
+                      onClick={() => setOpenPath('/Users/lidonglin/Documents/LibreGene/' + f)}>{f}</Button>
                   ))}
                 </div>
               </>

@@ -41,7 +41,7 @@ export default function App() {
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
-  const [openPath, setOpenPath] = useState('/Users/lidonglin/Documents/Geneie/test/pUC-GW-Amp.gb');
+  const [openPath, setOpenPath] = useState('/Users/lidonglin/Documents/LibreGene/test/pUC-GW-Amp.gb');
   const [fileStatus, setFileStatus] = useState('');
   const sequenceRef = useRef(sequence);
   const projectCacheRef = useRef({}); // { [id]: { sequence, features, enzymes, primers, methKey } }
@@ -1001,7 +1001,7 @@ export default function App() {
             const fn = newData.activeId.split('/').pop().split('\\').pop();
             setWindowTitle(fn);
           } else {
-            setWindowTitle('Geneie');
+            setWindowTitle('LibreGene');
           }
         }
       }
@@ -1111,7 +1111,7 @@ export default function App() {
     <Sidebar collapsible="icon" variant="sidebar" className="transition-[width] duration-300 ease-out">
       <SidebarHeader className="flex flex-row items-center gap-2 px-3 py-2">
         <Dna className="size-5 shrink-0 text-primary" />
-        <span className="font-semibold text-sm group-data-[state=collapsed]:hidden">Geneie</span>
+        <span className="font-semibold text-sm group-data-[state=collapsed]:hidden">LibreGene</span>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

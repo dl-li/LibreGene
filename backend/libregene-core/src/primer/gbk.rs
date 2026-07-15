@@ -26,8 +26,8 @@ pub struct PrimerGbEntry {
 
 /// Parse a single `primer_bind` feature from GenBank qualifiers.
 ///
-/// Only extracts `label`, `geneie_primer_id`, `geneie_primer_type`,
-/// `geneie_primer_seq`, and `geneie_color`. All binding site
+/// Only extracts `label`, `libregene_primer_id`, `libregene_primer_type`,
+/// `libregene_primer_seq`, and `libregene_color`. All binding site
 /// information is recomputed by the alignment engine — stored values
 /// are ignored.
 ///
@@ -44,19 +44,19 @@ pub fn parse_gbk_feature(
         .map(|s| s.as_str())
         .unwrap_or("unknown");
     let primer_id = qualifiers
-        .get("geneie_primer_id")
+        .get("libregene_primer_id")
         .map(|s| s.as_str())
         .unwrap_or(label);
     let ptype = qualifiers
-        .get("geneie_primer_type")
+        .get("libregene_primer_type")
         .map(|s| s.as_str())
         .unwrap_or("fwd");
     let color = qualifiers
-        .get("geneie_color")
+        .get("libregene_color")
         .map(|s| s.as_str())
         .unwrap_or("#166534");
     let primer_seq = qualifiers
-        .get("geneie_primer_seq")
+        .get("libregene_primer_seq")
         .map(|s| s.as_str())
         .unwrap_or("");
 
@@ -107,9 +107,9 @@ mod tests {
     fn test_parse_basic() {
         let qual = qualifiers_from_pairs(&[
             ("label", "M13F(-47)"),
-            ("geneie_primer_id", "M13F(-47)"),
-            ("geneie_primer_type", "fwd"),
-            ("geneie_primer_seq", "CGCCAGGGTTTTCCCAGTCACGAC"),
+            ("libregene_primer_id", "M13F(-47)"),
+            ("libregene_primer_type", "fwd"),
+            ("libregene_primer_seq", "CGCCAGGGTTTTCCCAGTCACGAC"),
         ]);
         let primer = parse_gbk_feature(&qual, 0, 0, "").unwrap();
         assert_eq!(primer.name, "M13F(-47)");
@@ -169,8 +169,8 @@ mod tests {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
         assert_eq!(qual_map.get("label"), Some(&"Primer1"));
-        assert_eq!(qual_map.get("geneie_primer_id"), Some(&"P1"));
-        assert_eq!(qual_map.get("geneie_primer_seq"), Some(&"AAAACGTACGCTAG"));
-        assert_eq!(qual_map.get("geneie_bindings"), Some(&"10,19,32.0"));
+        assert_eq!(qual_map.get("libregene_primer_id"), Some(&"P1"));
+        assert_eq!(qual_map.get("libregene_primer_seq"), Some(&"AAAACGTACGCTAG"));
+        assert_eq!(qual_map.get("libregene_bindings"), Some(&"10,19,32.0"));
     }
 }
