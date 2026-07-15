@@ -108,7 +108,7 @@ const STRAND_LABEL = { 'both': 'both', '+': '+', '-': '-' };
 const HIGHLIGHT = '#1E40AF';
 
 /* ---------- Component ---------- */
-export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, newFeatureLoc, onFeatureAdd, features }) {
+export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, newFeatureLoc, onFeatureAdd, onDeleteFeature, features }) {
   // --- Shared state ---
   const [qualifiersOpen, setQualifiersOpen] = useState(false);
 
@@ -554,6 +554,10 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
         {/* Footer */}
         <DialogFooter className="mt-3">
           <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive"
+              onClick={async () => { await onDeleteFeature(feature.id); onOpenChange(false); }}>
+              Delete
+            </Button>
             <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
             <Button size="sm" onClick={handleApply}>Apply</Button>
           </div>

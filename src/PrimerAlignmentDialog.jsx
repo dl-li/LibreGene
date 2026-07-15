@@ -57,7 +57,7 @@ function AlignmentView({ data }) {
   );
 }
 
-export default function PrimerAlignmentDialog({ primer, alignmentData, open, onOpenChange, seedLength, newPrimerSeq, onPrimerChange, primers = [] }) {
+export default function PrimerAlignmentDialog({ primer, alignmentData, open, onOpenChange, seedLength, newPrimerSeq, onPrimerChange, onDeletePrimer, primers = [] }) {
   const [editSeq, setEditSeq] = useState('');
   const [editName, setEditName] = useState('');
   const [data, setData] = useState(null);
@@ -332,6 +332,12 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         {/* Bottom buttons */}
         <DialogFooter className="px-1 mt-3">
           <div className="flex justify-end gap-2">
+            {!isNewPrimer && onDeletePrimer && (
+              <Button variant="outline" size="sm" className="text-destructive hover:text-destructive"
+                onClick={async () => { await onDeletePrimer(primer.id); onOpenChange(false); }}>
+                Delete
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={handleClose}>
               Cancel
             </Button>
