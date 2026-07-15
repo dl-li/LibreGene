@@ -1,6 +1,6 @@
 /**
- * Geneie backend API client — lightweight fetch wrapper.
- * Default base URL matches the backend server (geneie serve).
+ * LibreGene backend API client — lightweight fetch wrapper.
+ * Default base URL matches the backend server (libregene serve).
  */
 const BASE = "http://127.0.0.1:8765";
 

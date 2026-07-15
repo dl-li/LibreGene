@@ -104,11 +104,11 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         // Collect all notes (SnapGene stores color/direction in notes)
         let note_values: Vec<&str> = f.qualifier_values("note").collect();
 
-        // Resolve colour: try ApE/geneie qualifiers first, then SnapGene note format
+        // Resolve colour: try ApE/libregene qualifiers first, then SnapGene note format
         let mut color = normalize_color(
             f.qualifier_values("ApEinfo_fwdcolor")
                 .next()
-                .or_else(|| f.qualifier_values("geneie_color").next())
+                .or_else(|| f.qualifier_values("libregene_color").next())
                 .unwrap_or(""),
         );
         if color.is_empty() {
@@ -156,8 +156,8 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         // Collect remaining qualifiers (filter out ones we store separately or add synthetically)
         let skip_keys: std::collections::HashSet<&str> = [
             "label", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
-            "geneie_color", "direction", "geneie_primer_id", "geneie_primer_seq",
-            "geneie_primer_type",
+            "libregene_color", "direction", "libregene_primer_id", "libregene_primer_seq",
+            "libregene_primer_type",
         ].into_iter().collect();
         // Keep "note" in qualifiers — the notes field is a ";"-joined copy that can't
         // round-trip note values whose content contains "; ".  The dialog uses qualifiers
@@ -206,7 +206,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     let mut record = Seq::empty();
 
-    record.name = Some("geneie".to_string());
+    record.name = Some("libregene".to_string());
     record.topology = if project.topology == "circular" {
         Topology::Circular
     } else {
@@ -498,7 +498,7 @@ pub fn parse_location_string(s: &str) -> Option<(Vec<Segment>, i64, i64, String)
 //  Fallback primer parser / serializer
 // ---------------------------------------------------------------------------
 
-/// Build the core qualifier pairs for a primer (geneie format).
+/// Build the core qualifier pairs for a primer (libregene format).
 ///
 /// Shared between [`serialize_primers_fallback`] and
 /// `crate::primer::gbk::serialize_primers_gbk` to avoid duplicating
@@ -514,10 +514,10 @@ pub(crate) fn build_primer_qualifier_pairs(
 
     let mut qualifiers: Vec<(String, String)> = Vec::new();
     qualifiers.push(("label".to_string(), p.name.clone()));
-    qualifiers.push(("geneie_primer_id".to_string(), p.id.clone()));
-    qualifiers.push(("geneie_primer_type".to_string(), p.r#type.clone()));
-    qualifiers.push(("geneie_primer_seq".to_string(), p.primer_seq.clone()));
-    qualifiers.push(("geneie_color".to_string(), p.color.clone()));
+    qualifiers.push(("libregene_primer_id".to_string(), p.id.clone()));
+    qualifiers.push(("libregene_primer_type".to_string(), p.r#type.clone()));
+    qualifiers.push(("libregene_primer_seq".to_string(), p.primer_seq.clone()));
+    qualifiers.push(("libregene_color".to_string(), p.color.clone()));
 
     if !p.binding_sites.is_empty() {
         let parts: Vec<String> = p
@@ -525,7 +525,7 @@ pub(crate) fn build_primer_qualifier_pairs(
             .iter()
             .map(|bs| format!("{},{},{:.1}", bs.template_start, bs.template_end, bs.tm))
             .collect();
-        qualifiers.push(("geneie_bindings".to_string(), parts.join(";")));
+        qualifiers.push(("libregene_bindings".to_string(), parts.join(";")));
     }
 
     (match_start, match_end, qualifiers)
@@ -536,18 +536,18 @@ pub(crate) fn build_primer_qualifier_pairs(
 fn parse_primer_feature_fallback(f: &GbFeature, _seq: &str) -> Option<Primer> {
     let label = f.qualifier_values("label").next().unwrap_or("unknown");
     let primer_id = f
-        .qualifier_values("geneie_primer_id")
+        .qualifier_values("libregene_primer_id")
         .next()
         .unwrap_or(label);
     let ptype = f
-        .qualifier_values("geneie_primer_type")
+        .qualifier_values("libregene_primer_type")
         .next()
         .unwrap_or("fwd");
-    let color = f.qualifier_values("geneie_color").next().unwrap_or("#166534");
+    let color = f.qualifier_values("libregene_color").next().unwrap_or("#166534");
 
     // Read primer_seq from qualifier (preferred) or try SnapGene note.
     let primer_seq = f
-        .qualifier_values("geneie_primer_seq")
+        .qualifier_values("libregene_primer_seq")
         .next()
         .map(|s| s.to_string())
         .or_else(|| {
@@ -722,10 +722,10 @@ fn split_snapgene_primer_seq(seq: &str) -> (String, String) {
 /// Only extracts name, type, color, and primer_seq.
 /// Binding sites are recomputed later by the alignment engine.
 fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
-    // First, try the standard geneie_* qualifier format
-    let has_geneie = f.qualifier_values("geneie_primer_id").next().is_some()
-        || f.qualifier_values("geneie_primer_seq").next().is_some();
-    if has_geneie {
+    // First, try the standard libregene_* qualifier format
+    let has_libregene = f.qualifier_values("libregene_primer_id").next().is_some()
+        || f.qualifier_values("libregene_primer_seq").next().is_some();
+    if has_libregene {
         return parse_primer_feature_fallback(f, seq);
     }
 
@@ -748,7 +748,7 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
 
     let label = f.qualifier_values("label").next().unwrap_or("unknown");
     let primer_id = f
-        .qualifier_values("geneie_primer_id")
+        .qualifier_values("libregene_primer_id")
         .next()
         .unwrap_or(label);
 

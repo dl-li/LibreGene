@@ -11,7 +11,7 @@ fn roundtrip_feature_edit() {
         .join("pUC-GW-Amp.gb");
 
     // 1) Parse original
-    let mut original = geneie_core::file_io::gbk::parse_gbk(&test_file)
+    let mut original = libregene_core::file_io::gbk::parse_gbk(&test_file)
         .expect("parse original");
     let feat_name;
     {
@@ -24,13 +24,13 @@ fn roundtrip_feature_edit() {
     } // drop mutable borrow
 
     // 3) Write to temp file
-    let tmp = std::env::temp_dir().join("geneie_roundtrip_test.gbk");
-    geneie_core::file_io::gbk::write_gbk(&original, &tmp)
+    let tmp = std::env::temp_dir().join("libregene_roundtrip_test.gbk");
+    libregene_core::file_io::gbk::write_gbk(&original, &tmp)
         .expect("write gbk");
     let original_seq = original.sequence.clone();
 
     // 4) Parse the written file back
-    let reloaded = geneie_core::file_io::gbk::parse_gbk(&tmp)
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp)
         .expect("parse written gbk");
 
     // 5) Verify the modification survived

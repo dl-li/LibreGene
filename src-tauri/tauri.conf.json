@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Geneie",
+  "productName": "LibreGene",
   "version": "1.0.0",
-  "identifier": "com.geneie.app",
+  "identifier": "com.libregene.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Geneie",
+        "title": "LibreGene",
         "width": 1400,
         "height": 900,
         "resizable": true,

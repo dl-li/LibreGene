@@ -82,7 +82,7 @@ print(f"Total enzymes exported: {len(results)}", file=sys.stderr)
 for ct, cnt in sorted(cut_types.items()):
     print(f"  {ct}: {cnt}", file=sys.stderr)
 
-out_path = "/Users/lidonglin/Documents/Geneie/backend-rs/geneie-core/data/comm_only_enzymes.json"
+out_path = "/Users/lidonglin/Documents/LibreGene/backend-rs/libregene-core/data/comm_only_enzymes.json"
 with open(out_path, "w") as f:
     json.dump(results, f, indent=2)
 print(f"Written to {out_path}", file=sys.stderr)

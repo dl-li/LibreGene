@@ -4,11 +4,11 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::RwLock;
 
-use geneie_core::enzyme;
-use geneie_core::file_io;
-use geneie_core::models::{Feature, Primer, ProjectData};
-use geneie_core::primer;
-use geneie_core::project::ProjectManager;
+use libregene_core::enzyme;
+use libregene_core::file_io;
+use libregene_core::models::{Feature, Primer, ProjectData};
+use libregene_core::primer;
+use libregene_core::project::ProjectManager;
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -103,7 +103,7 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
     let row_start = params.row_start.map(|rs| rs.max(0));
     let row_end = params.row_end.map(|re| re.max(0));
 
-    let enzymes: Vec<&geneie_core::models::Enzyme> = if filter == "all" {
+    let enzymes: Vec<&libregene_core::models::Enzyme> = if filter == "all" {
         let all: Vec<_> = project.enzymes.iter().collect();
         if let (Some(rs), Some(re)) = (row_start, row_end) {
             let idx_s = rs * cpl;
@@ -115,11 +115,11 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
             all
         }
     } else {
-        let mut seen: HashMap<&str, Vec<&geneie_core::models::Enzyme>> = HashMap::new();
+        let mut seen: HashMap<&str, Vec<&libregene_core::models::Enzyme>> = HashMap::new();
         for e in &project.enzymes {
             seen.entry(&e.name).or_default().push(e);
         }
-        let mut unique: Vec<&geneie_core::models::Enzyme> = seen
+        let mut unique: Vec<&libregene_core::models::Enzyme> = seen
             .into_values()
             .filter(|v| v.len() == 1)
             .map(|v| v[0])
@@ -440,7 +440,7 @@ async fn add_feature(
             if trimmed.is_empty() {
                 return Ok(serde_json::json!({"error": "Location cannot be empty".to_string()}));
             }
-            let parsed = geneie_core::file_io::gbk::parse_location_string(&trimmed)
+            let parsed = libregene_core::file_io::gbk::parse_location_string(&trimmed)
                 .ok_or_else(|| format!("Invalid location: {}", trimmed))?;
             let (segments, start, end, strand) = parsed;
             resolved.segments = segments;
@@ -703,7 +703,7 @@ async fn update_feature_location(
 
     {
         let mut pm = state.pm.write().await;
-        let parsed = geneie_core::file_io::gbk::parse_location_string(&location_str)
+        let parsed = libregene_core::file_io::gbk::parse_location_string(&location_str)
             .ok_or_else(|| format!("Invalid location: {}", location_str))?;
         let (segments, start, end, strand) = parsed;
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
@@ -796,7 +796,7 @@ async fn add_primer(
         if let Some(p) = pm.get_project_by_id(&project_id) {
             let template = p.sequence.clone();
             let topology = p.topology.clone();
-            let updated = geneie_core::primer::align::recompute_all_primers(&template, &topology, &primers);
+            let updated = libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers);
             if let Some(p) = pm.get_project_mut_by_id(&project_id) {
                 p.primers = updated;
             }
@@ -914,7 +914,7 @@ async fn compute_primer_alignment(
     // RC of the 3' seed — this is what we search for in R mode.
     let rc_seed: Vec<u8> = seed.iter()
         .rev()
-        .map(|&b| geneie_core::utils::complement_char(b as char) as u8)
+        .map(|&b| libregene_core::utils::complement_char(b as char) as u8)
         .collect();
 
     let search_len = if is_circular { tlen + seed_len } else { tlen };
@@ -962,7 +962,7 @@ async fn compute_primer_alignment(
                 };
                 if t_pos >= tlen { break; }
                 let ok = if is_rev {
-                    geneie_core::primer::iupac::bases_pair(primer_bytes[p_pos], tpl_bytes[t_pos])
+                    libregene_core::primer::iupac::bases_pair(primer_bytes[p_pos], tpl_bytes[t_pos])
                 } else {
                     primer_bytes[p_pos] == tpl_bytes[t_pos]
                 };
@@ -974,7 +974,7 @@ async fn compute_primer_alignment(
             let footprint_seq: String = primer_bytes[plen - footprint_len..]
                 .iter().map(|&b| b.to_ascii_uppercase() as char).collect();
             let est_tm = if footprint_seq.len() >= 2 {
-                geneie_core::primer::thermodynamics::compute_tm(&footprint_seq)
+                libregene_core::primer::thermodynamics::compute_tm(&footprint_seq)
             } else { 0.0 };
 
             candidates.push(BindingSiteCandidate { is_rev, tp_3prime, footprint_len, est_tm });
@@ -1313,7 +1313,7 @@ async fn open_in_new_window(
         &window_label,
         WebviewUrl::App("index.html".into()),
     )
-    .title("Geneie - Plasmid Editor")
+    .title("LibreGene - Plasmid Editor")
     .inner_size(1400.0, 900.0)
     .build()
     .map_err(|e| format!("failed to create window: {e}"))?;

@@ -315,7 +315,7 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                 let color = if color.is_empty() {
                     // Fallback to qualifiers
                     let from_qual = sf.qualifiers.iter().find_map(|q| {
-                        if q.name == "ApEinfo_fwdcolor" || q.name == "geneie_color" {
+                        if q.name == "ApEinfo_fwdcolor" || q.name == "libregene_color" {
                             q.values.first().and_then(|v| {
                                 v.text
                                     .as_deref()
@@ -380,8 +380,8 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                 // Collect raw qualifier key-value pairs (filter out internal ones like gbk.rs does)
                 let skip_keys: std::collections::HashSet<&str> = [
                     "label", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
-                    "geneie_color", "direction", "directionality",
-                    "geneie_primer_id", "geneie_primer_seq", "geneie_primer_type",
+                    "libregene_color", "direction", "directionality",
+                    "libregene_primer_id", "libregene_primer_seq", "libregene_primer_type",
                 ].into_iter().collect();
                 let qualifiers: Vec<(String, String)> = sf
                     .qualifiers
