@@ -998,7 +998,7 @@ fn compute_primer_alignment_sync(
                 let ok = if is_rev {
                     libregene_core::primer::iupac::bases_pair(primer_bytes[p_pos], tpl_bytes[t_pos])
                 } else {
-                    primer_bytes[p_pos] == tpl_bytes[t_pos]
+                    libregene_core::primer::iupac::bases_overlap(primer_bytes[p_pos], tpl_bytes[t_pos])
                 };
                 if ok { ext += 1; } else { break; }
             }
