@@ -281,7 +281,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, onPrimerChange, onFeatureAdd, primerSeedLength, onSelectionChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, onPrimerChange, onFeatureAdd, onFeatureDelete, onPrimerDelete, primerSeedLength, onSelectionChange }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -2454,6 +2454,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         onFeatureStrandChange={onFeatureStrandChange}
         newFeatureLoc={createFeatureLoc}
         onFeatureAdd={onFeatureAdd}
+        onDeleteFeature={onFeatureDelete}
         features={features}
       />
       <PrimerAlignmentDialog
@@ -2464,6 +2465,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
         seedLength={primerSeedLength}
         newPrimerSeq={createPrimerSeq}
         onPrimerChange={onPrimerChange}
+        onDeletePrimer={onPrimerDelete}
         primers={primers}
       />
     </div>

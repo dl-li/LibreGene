@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SequenceEditor from './SequenceEditor';
-import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, updateFeatureStrand, addPrimer, addFeature, deleteProject, setWindowTitle } from './tauriApi';
+import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, updateFeatureStrand, addPrimer, addFeature, deleteFeature, deletePrimer, deleteProject, setWindowTitle } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
@@ -653,6 +653,51 @@ export default function App() {
     }
   }, [activeId, sequence, features]);
 
+  const handleDeleteFeature = useCallback(async (featureId) => {
+    const gen = operationGenRef.current;
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await deleteFeature(featureId);
+      if (operationGenRef.current !== gen) return;
+      if (data && data.features) {
+        setFeatures(data.features);
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      console.error('delete feature error:', e);
+    }
+  }, [activeId, sequence, features]);
+
+  const handleDeletePrimer = useCallback(async (primerId) => {
+    const gen = operationGenRef.current;
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        primers: primers || EMPTY_ARRAY,
+        cursorIndex: null, selStart: null, selEnd: null,
+      });
+      const data = await deletePrimer(primerId);
+      if (operationGenRef.current !== gen) return;
+      if (data && data.primers) {
+        setPrimers(data.primers);
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    } catch (e) {
+      console.error('delete primer error:', e);
+    }
+  }, [activeId, sequence, features, primers]);
+
   /**
    * 调整特征/注释放置位置以适配编辑后的序列。
    * 编辑会删除 [editStart, editEnd] 区间（oldLen 个碱基），
@@ -1211,7 +1256,9 @@ export default function App() {
                 onFeatureNameChange={handleFeatureNameChange}
                 onFeatureStrandChange={handleFeatureStrandChange}
                 onFeatureAdd={handleFeatureAdd}
+                onFeatureDelete={handleDeleteFeature}
                 onPrimerChange={handlePrimerChange}
+                onPrimerDelete={handleDeletePrimer}
                 primerSeedLength={primerSeedLength}
                 onSelectionChange={handleSelectionChange}
               />
