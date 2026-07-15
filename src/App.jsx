@@ -813,7 +813,7 @@ export default function App() {
     if (!snapshot) return;
 
     // Restore cursor/selection in SequenceEditor (use ref for atomic version)
-    setUndoRestore({
+    setRestoreState({
       version: ++undoVersionRef.current,
       cursorIndex: snapshot.cursorIndex,
       selStart: snapshot.selStart,
@@ -871,7 +871,7 @@ export default function App() {
     const snapshot = editHistoryRef.current.redo();
     if (!snapshot) return;
 
-    setUndoRestore({
+    setRestoreState({
       version: ++undoVersionRef.current,
       cursorIndex: snapshot.cursorIndex,
       selStart: snapshot.selStart,
