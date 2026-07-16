@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SequenceEditor from './SequenceEditor';
 import { getProject, getProjectById, openFile, setMethylation, isTauri, openFileDialog, listenProjectUpdates, getProjects, activateProject, getWindowProjectId, openInNewWindow, updateSequence, saveFile, saveFileDialog, updateFeatureFtype, updateFeatureColor, updateFeatureName, updateFeatureLocation, updateFeatureStrand, addPrimer, addFeature, deleteFeature, deletePrimer, deleteProject, setWindowTitle } from './tauriApi';
 import { createEditHistory } from './editHistory';
