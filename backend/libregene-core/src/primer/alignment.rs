@@ -206,13 +206,19 @@ pub fn wrap_template_region(template: &[u8], start: usize, end: usize) -> Vec<u8
     }
     let start = start % tlen;
     let end = end % tlen;
-    if start <= end {
+    if start < end {
+        // Linear region within template bounds.
         template[start..end].to_vec()
-    } else {
+    } else if start > end {
+        // Region wraps around the origin.
         let mut v = Vec::with_capacity((tlen - start) + end);
         v.extend_from_slice(&template[start..]);
         v.extend_from_slice(&template[..end]);
         v
+    } else {
+        // start == end: region spans the entire remainder of the template.
+        // e.g. start=0, end=0 after modulo means end originally == tlen.
+        template[start..].to_vec()
     }
 }
 
