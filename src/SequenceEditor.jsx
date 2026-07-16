@@ -1191,6 +1191,11 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     }
   }, [features, featureInfoFeature]);
 
+  // Clear alignment cache when primers change to avoid stale data.
+  useEffect(() => {
+    setPrimerAlignmentCache({});
+  }, [primers]);
+
   // Pre-compute primer alignment data so the dialog has zero flash/width-jump.
   useEffect(() => {
     let cancelled = false;
