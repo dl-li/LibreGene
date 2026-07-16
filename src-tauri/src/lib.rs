@@ -1100,9 +1100,6 @@ fn compute_primer_alignment_sync(
         }
     }
 
-    if results.is_empty() {
-        return Err("No valid binding sites found".to_string());
-    }
     let current = results.remove(0);
     Ok(serde_json::json!({ "current": current, "alternatives": results }))
 }
