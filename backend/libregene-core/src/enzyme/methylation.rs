@@ -74,6 +74,7 @@ pub fn apply_methylation(
     enzyme.methylation_required = false;
 
     let tpl = template.as_bytes();
+    let tlen = tpl.len();
     let rec_s = enzyme.rec_start as usize;
     let rec_e = enzyme.rec_end as usize;
     let ov = overlap as usize;
@@ -92,13 +93,22 @@ pub fn apply_methylation(
                 "ecoki" => (rec_s.saturating_sub(13), rec_e + 13 + ov),
                 _ => continue,
             };
-            let window = if let Some(w) = tpl.get(win_start..win_end) {
-                w
+            let window: Vec<u8> = if win_end <= tlen {
+                match tpl.get(win_start..win_end) {
+                    Some(w) => w.to_vec(),
+                    None => continue,
+                }
             } else {
-                continue;
+                // Window extends beyond the template — wrap around for circular support.
+                let prefix_start = win_start % tlen;
+                let wrapped_end = win_end % tlen;
+                let mut v = Vec::with_capacity(win_end - win_start);
+                v.extend_from_slice(&tpl[prefix_start..]);
+                v.extend_from_slice(&tpl[..wrapped_end]);
+                v
             };
 
-            if find_site_in_window(window, sys) {
+            if find_site_in_window(&window, sys) {
                 enzyme.methylation_blocked = true;
                 let name = match sys.as_str() {
                     "dam" => "Dam",
