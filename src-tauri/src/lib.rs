@@ -1033,7 +1033,7 @@ fn compute_primer_alignment_sync(
             raw_start.max(0) as usize
         };
         let win_end = if is_circular {
-            (tp + expansion) % tlen
+            tp + expansion
         } else {
             (tp + expansion).min(tlen)
         };
