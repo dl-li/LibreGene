@@ -10,7 +10,24 @@
 - **渲染**: 纯 SVG，Cascadia Code / TeX Gyre Heros 字体
 - **后端**: Rust (edition 2021), tokio 1, gb-io 0.9
 - **桌面壳**: Tauri v2，内嵌 libregene-core
-- **无测试框架**（前端无测试，后端仅 Rust 单元测试 + golden tests）
+- **无测试框架**（前端无测试，后端仅 Rust 单元测试 + 集成测试）
+
+## 开发命令
+
+```bash
+npx tauri dev                  # 启动桌面应用（唯一正确的开发方式）
+npx vite build                 # 仅前端编译检查
+
+# 后端
+cd backend
+cargo test -p libregene-core --lib             # 单元测试（117 项）
+cargo test -p libregene-core --test roundtrip_test      # 读写往返测试
+cargo test -p libregene-core --test swarm_primer_test   # 引物绑定测试
+cargo build -p libregene                     # 构建 Tauri 后端
+
+# shadcn
+npx shadcn add <component>
+```
 
 ## 文件结构
 
@@ -21,187 +38,149 @@ LibreGene/
 ├── package.json                # React 19, Vite 8, shadcn v4, lucide-react
 ├── components.json             # shadcn 配置 (new-york style, neutral base)
 ├── jsconfig.json               # 路径别名 (@/ → src/)
-├── .gitignore
 ├── assets/Fonts/               # 10 个字体文件 (Cascadia Code, TeX Gyre Heros/Termes)
 ├── test/                       # 测试文件 (.dna, .gbk)
 ├── src/                        # 前端 React 源码
 │   ├── main.jsx                # 入口，ReactDOM.createRoot
-│   ├── App.jsx                 # 顶层：Empty(无文件)/Sidebar+Editor(有文件)，状态管理
+│   ├── App.jsx                 # 顶层状态管理，Sidebar + 路由
 │   ├── SequenceEditor.jsx      # 核心编辑器：SVG 渲染、选择/光标、酶/引物/特征渲染
 │   ├── editorConstants.js      # 共享常量与工具函数（cw, getX, measureWidth, splitRange）
-│   ├── editHistory.js          # 撤销/重做历史栈（快照: { sequence, features, cursorIndex, selStart, selEnd }）
+│   ├── editHistory.js          # 撤销/重做历史栈
 │   ├── tauriApi.js             # Tauri IPC API 客户端
-│   ├── FeatureInfoDialog.jsx   # 双击特征弹窗：GenBank信息、ftype/color/location编辑
-│   ├── ErrorBoundary.jsx       # React Error Boundary
+│   ├── FeatureInfoDialog.jsx   # 特征编辑弹窗
+│   ├── SequenceEditDialog.jsx  # 序列编辑（插入/删除/替换）确认弹窗
+│   ├── PrimerAlignmentDialog.jsx # 引物添加/编辑弹窗
 │   ├── primerRenderer.jsx      # 引物几何计算（segment path, hover background）
-│   ├── PrimerSegmentRenderer.jsx # 引物 segment 渲染组件
+│   ├── PrimerSegmentRenderer.jsx # 引物 segment 渲染组件（v2，与内联 v1 并存）
+│   ├── ErrorBoundary.jsx       # React Error Boundary
+│   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
-│   │   ├── DebugDialog.jsx     # 调试面板（酶过滤器、甲基化、引物参数等）
+│   │   ├── DebugPanel.jsx      # 调试面板
 │   │   └── ui/                 # shadcn UI 组件
-│   │       ├── button.jsx, checkbox.jsx, dialog.jsx, input.jsx
-│   │       ├── label.jsx, select.jsx, separator.jsx, sheet.jsx
-│   │       ├── sidebar.jsx, tooltip.jsx, empty.jsx, skeleton.jsx
 │   ├── hooks/
 │   │   └── use-mobile.js       # 移动端断点检测（768px）
 │   └── lib/
 │       └── utils.js            # cn() 工具（clsx + tailwind-merge）
 ├── backend/                    # Rust 后端 (workspace)
-│   ├── libregene-core/            # 核心库
-│   │   ├── data/comm_only_enzymes.json  # 623 酶数据库（编译时嵌入）
+│   ├── Cargo.toml
+│   ├── libregene-core/         # 核心库
 │   │   └── src/
-│   │       ├── models.rs       # ProjectData, Enzyme, Feature, Primer, BindingSite
-│   │       ├── project.rs      # ProjectManager（HashMap, max 24, eviction）
-│   │       ├── utils.rs        # complement, reverse_complement, DNA_COMP
-│   │       ├── enzyme/         # 酶切引擎：search, matching, cut, methylation, data
-│   │       ├── primer/         # 引物引擎：align, gbk, dna, tm
-│   │       └── file_io/        # 文件解析/序列化：gbk, dna, fasta, ab1, color
-│   └── test_data/              # Golden 测试数据
+│   │       ├── models.rs       # 数据模型
+│   │       ├── project.rs      # ProjectManager
+│   │       ├── utils.rs        # complement / reverse_complement
+│   │       ├── enzyme/         # 酶切引擎
+│   │       ├── primer/         # 引物引擎
+│   │       └── file_io/        # 文件解析/序列化
+│   └── test_data/
 └── src-tauri/                  # Tauri v2 桌面壳
-    ├── Cargo.toml              # Tauri 依赖 + 内嵌 libregene-core
-    ├── tauri.conf.json         # Tauri 配置 (窗口 1400x900, bundle, CSP)
-    ├── capabilities/           # 权限配置
-    ├── icons/                  # 应用图标
+    ├── Cargo.toml
+    ├── tauri.conf.json
     └── src/
-        └── lib.rs              # 21 个 Tauri commands，多窗口路由，ProjectManager
+        ├── lib.rs              # Tauri commands + AppState
+        └── main.rs             # 入口
 ```
 
-## 开发命令
+## 编码准则
 
-```bash
-npx tauri dev                  # 启动桌面应用（唯一正确的开发方式）
-npx vite build                 # 仅前端编译检查
-npx shadcn add <component>     # 添加 shadcn 组件
+### 通用
 
-# 后端
-cd backend
-cargo test -p libregene-core --lib                  # 单元测试
-cargo test -p libregene-core --test golden_tests     # Golden 测试
-```
+- **尽量不写注释**——代码本身应该表意清晰。必要时写简短注释说明 Why（不是 What）。
+- 先读后改：改任何文件前，先 `Read` 理解上下文。
+- 改完后必须编译/构建验证。前端：`npx vite build`。后端：`cargo test -p libregene-core --lib`。
+- Rust 代码同时跑 `cargo build -p libregene` 确保 Tauri 壳也编译。
 
-## 前端架构
+### Bug 修复流程
 
-### 布局（App.jsx）
-- **无文件打开**：全屏 shadcn Empty 组件（DNA 图标 + Open File 按钮）
-- **有文件打开**：左侧绝对定位浮层 Sidebar（可折叠为图标）+ 全宽 SequenceEditor
-- Sidebar 宽度 `12rem`（展开）/ `3rem`（折叠为图标），展开时浮于序列上方
-- TooltipProvider 包裹全局
-- 侧边栏：Open File 按钮 + 已打开文件列表（点击 `activateProject` 切换）
-- 无 demo 数据，初始 `sequence` 为 `null`
+1. 开始修复前先用 `git status` + `git log --oneline -5` 确认当前状态
+2. **每修一个 Bug 就单独提交一次**（`git add` 只包含相关的改动文件）
+3. 提交前跑对应的测试和构建
+4. 提交信息用英文，格式：`fix: 简短描述` 或 `refactor: 简短描述`
+5. 对于涉及 UI 的改动，告知用户可以用 `npx tauri dev` 验证
 
-### 序列选择（SequenceEditor.jsx）
-- **普通选择**：棕黑色 `#3E2723` 背景 + 白色文字，`selStart`/`selEnd` inclusive
-- **光标**：棕黑竖线 + bgColor 描边，覆盖整行高度，5 秒不动自动消失
-- **交互**：
-  - 单击 → 光标定位；拖拽 → 选中序列；松开 → 光标消失
-  - Shift+单击 → 从光标处扩展到点击处
-  - 方向键 → 移动光标并清除选区
-  - Ctrl/Cmd+C → 复制选中序列
-  - 点击特征/标签 → 选中特征完整序列区域
-- **有选区时不显示光标**（拖拽过程除外）
-- `clientToSeqIndex` 检测字符格左/右半侧精确定位
-- 逐字符 `<tspan>` 渲染，`textAnchor="middle"` 精确对齐网格
+### 前端
 
-### 常量（editorConstants.js）
-- `cw = 14`（字符宽度 px）, `startX = 220`（左边距）, `baseSeqY = 100`
-- `getX(col)` = `startX + col * cw`（列左边缘）
-- `measureWidth(text, font)` — Canvas 2D 缓存测量
-- `splitRange(start, end, charsPerLine)` — 索引范围 → 按行 segment
+- **React 函数组件 + hooks**，无 class 组件（ErrorBoundary 除外）
+- 用 `useCallback` 包裹传递给子组件的函数，依赖数组必须完整
+- 用 `useMemo` 缓存计算开销大的派生数据
+- 状态管理集中到 `App.jsx`，`SequenceEditor.jsx` 只管理 UI 状态（选择、光标、弹窗）
+- 所有 JSON 字段使用 camelCase（Rust 端 serde `rename_all = "camelCase"`）
+- `EMPTY_ARRAY = []` 作为共享空数组引用，避免重复创建
+- 引用类型用 `useRef`，跨渲染保持引用稳定性
+- 操作计数器 `operationGenRef` + `switchGenRef` 防止异步请求交叉污染
 
-### 渲染层 Z-Index（低→高）
-```
-Cursor → SelectionBg → FeatureLayer → EnzymeLines → PrimerLayer →
-EnzymeLabels → EnzymeOverlay → HoveredFwdPrimer → SelectedPrimerOverlay →
-SequenceRows → EnzymeTooltip
-```
+#### Constants（editorConstants.js）
 
-### 特征编辑（FeatureInfoDialog）
-- 双击 feature 弹窗展示 ftype / location / qualifiers（GenBank 格式）
-- ftype：双击下拉菜单切换类型；color：弹窗标题栏取色器；location：双击编辑 + 后端校验
-- 所有特征修改推入 `editHistory.push()`，支持 Cmd+Z 撤销并标记 dirty
-- Feature 模型新增 `qualifiers: Vec<(String, String)>` 存储原始 GenBank 键值对
+- `cw = 12`（字符宽度 px），`startX = 220`，`baseSeqY = 100`
+- 所有坐标计算依赖这四个常量
+- `measureWidth()` 使用 Canvas 2D 缓存测量，`CACHE_MAX = 2000`
 
-### 序列选择增强
-- 拖拽选择时在光标左侧显示 `N bp, ~Tm°C`（等宽字体、bgColor stroke、底部对齐竖线底端）
-- Tm 估算：Wallace rule (<20bp) / Marmur-Doty (≥20bp)
-- 悬浮碱基上方显示 1-based 序号（低透明度深棕色、bgColor stroke）
-- 序号仅在非拖拽时显示（选择完成后仍可看到）
+### 后端（Rust）
 
-### 引物颜色安全
-- 前端 `safePrimerColor(c)` 过滤 `#000000`/`#000`/`black`，兜底为 `#166534`（绿色）
-- 前端 `p.color || '#166534'` + `PrimerSegmentRenderer` 均有安全兜底
+- **异步锁的顺序**：永远先获取 `window_projects` 读锁再获取 `pm` 锁，反之亦然。防止死锁。
+- **重计算在 spawn_blocking 里做**：酶和引物的计算是 CPU 密集的，必须用 `tokio::task::spawn_blocking`。
+- **广播通知**：所有 mutation 命令都需要调用 `broadcast_project()` 以同步多窗口。
+- **坐标约定**：模型坐标是 0-based inclusive；gb-io Range 是 0-based end-exclusive。
+- **引物模型**：`template_start` 0-based inclusive，`template_end` 0-based exclusive。
+- **环状序列**：Window/region 计算时注意 `% tlen` 可能产生 0，导致空切片。用 `wrap_template_region` 做环状拼接。
 
-### 重要约定
-- `matchStart/End` inclusive；`cutIndex` 0-based，切口在 `cutIndex-1` 与 `cutIndex` 之间
-- Rev 引物前端从右到左遍历，显示 5'→3'
-- 酶 hover 事件在稳定的 `<g>` 元素上
-- 引物选中后 hover 事件禁用
-- 所有 JSON 使用 camelCase（serde `rename_all`）
+### 关于多窗口的注意事项
+
+- 主窗口 label 是 `"main"`（不在 `window_projects` map 里）
+- 项目窗口 label 是 `"project-{safe_id}-{timestamp}"`
+- 项目窗口通过 `resolve_project_id()` 按 label 查找项目
+- `broadcast_project()` 只广播主窗口可见的项目（排除项目窗口拥有的）
+
+## 已修复的 Bug 清单（无需再改）
+
+以下 Bug 已在历史提交中修复：
+
+| # | 提交 | 问题 |
+|---|------|------|
+| 1 | `edd6be5` | `setUndoRestore` 未定义导致撤销/重做崩溃 |
+| 2 | `73d6427` | 多数变异命令缺少 `broadcast_project`，多窗口不同步 |
+| 3 | `9fc5dd2` | `compute_primer_alignment` 未用 `spawn_blocking` 阻塞事件循环 |
+| 4 | `4520b2d` | 前向引物扩展用 `==` 非 IUPAC 匹配 |
+| 5 | `ac4d48a` | 前端没有删除特征/引物的入口 |
+| 6 | `e3ba202` | 无结合位点的引物序列化为 1..1 位置 |
+| 7 | `9003a6c` | `wrap_template_region` 在 `start==end==0` 时返回空 |
+| 8 | `4c3cd8f` | `extract_location_bounds` 对简单 Range 返回空的 segments |
+| 9 | `b59e39e` | EcoKI 甲基化检测在线性窗口外静默跳过 |
+| 10 | `41a8432` | `evict_one` 每次驱逐不必要地克隆整个 `ordered_ids` |
+| 11 | `92e3a19` | `primerAlignmentCache` 跨项目不清理 |
+| 12 | `695f002` | `compute_primer_alignment` 中不可达的 `results.is_empty()` 分支 |
+
+## 仍有改进空间的地方（非 Bug）
+
+- **SequenceEditor.jsx ~2474 行** — 需拆分组件（如 FeatureLayer、PrimerLayer、EnzymeLayer 等）
+- **两套引物渲染** — `PrimerSegmentRenderer.jsx` v2 与 `SequenceEditor.jsx` 内联 v1 并存
+- **SVG 容器 `contain: 'layout style'`** — 创建新层叠上下文，可能影响固定定位元素
+- **`useMemo` 隐式依赖 `window.innerHeight`** — resize 时不会更新
+- **`list_projects` JSON 构建** — 可用序列化替代 `serde_json::json!` 宏
+- **前端纯 JS** — TypeScript 迁移收益约 3-5 天
+- **引物编辑未接入 undo/redo** — 需扩展 `editHistory` 快照格式以包含 `primers`
 
 ## API
 
 ### Tauri Commands（24 个）
+
 ```
 get_project, get_project_by_id, open_file, save_file, update_sequence,
 set_roi, clear_roi,
-get_features, add_feature, delete_feature, update_feature_ftype, update_feature_color,
-update_feature_location,
-get_primers, add_primer, delete_primer,
+get_features, add_feature, delete_feature,
+update_feature_ftype, update_feature_color, update_feature_name,
+update_feature_strand, update_feature_location,
+get_primers, add_primer, delete_primer, compute_primer_alignment,
 set_methylation,
 get_projects, activate_project, delete_project,
 open_in_new_window, get_window_project_id
 ```
 
-## 核心模型
+## 核心模型约定
 
-### ProjectData
-`sequence`, `length`, `topology` ("circular"/"linear"), `features`, `primers`, `enzymes`, `methylation_systems`, `roi`
-
-### BindingSite
-`matchStart/End` (inclusive), `tm`, `fivePrimeTail`, `threePrimeTail`, `alignment: [{ templateCol, kind: "match"|"mismatch"|"gap", primerBase, templateBase, insertionAfter }]`
-
-### Enzyme
-`rec_seq`, `rec_seq_pattern` (含 IUPAC), `rec_start/end`, `display_start/end`, `cut_index`, `bot_cut_index`, `cut_pairs: [{ topCutIndex, botCutIndex }]`, `recognition_strand`, `cut_type`, `cut_twice`, `is_palindromic`, `methylation_blocked`, `methylated_offsets`, `methylation_required`, `methyl_required_sources`
-
-## 酶切引擎
-
-1. 全局 IUPAC 正则搜索所有识别位点（正链 + 反链互补，含重叠）
-2. 匹配 Biopython ci_1b 到对应识别位点（最小距离）
-3. 从识别位点计算切点坐标
-4. 环状序列：扩展序列搜索，坐标取模
-
-**切点计算（0-based）**：
-- 上链：`top_cut = rec_start + fst5`, `bot_cut = rec_start + rec_len + fst3`
-- 下链：`top_cut = rec_start - fst3`, `bot_cut = rec_start + rec_len - fst5`
-- cut-twice 酶：第二对用 scd5/scd3 替换 fst5/fst3
-- 回文酶：上链/下链去重归一化为上链
-
-## 甲基化
-
-| 甲基化酶 | 靶点 | 修饰位置 |
-|---------|------|---------|
-| Dam | GATC | A (offset 2) |
-| Dcm | CCWGG | C (offset 1) |
-| EcoKI | AACN₆GTGC | A (offset 2) |
-
-- 阻断：`methylation_blocked=true` → 前端灰显 + `[Blocked]`
-- 依赖：`methylation_required=true` → `[Methyl Required]`
-- 依赖酶检测始终自动计算，不受用户甲基化选择影响
-
-## 多文件 & 多窗口支持
-
-- `ProjectManager` 内部 `HashMap<String, ProjectData>`，上限 24 个，超出自动驱逐
-- **主窗口**：有 Sidebar，通过 `activate_project` 切换 active 项目
-- **项目窗口**（label: `project-{id}-{ts}`）：每个 OS 窗口绑定一个特定项目，无 Sidebar，独立操作
-- 每个 Tauri 命令通过调用窗口的 label 路由到正确的项目（`webview_window` 参数注入）
-- mutation 命令返回完整数据，前端直接用返回值更新状态（不依赖事件广播）
-- 关闭 active 项目时自动切换到下一个
-
-## 待优化项
-
-| 优先级 | 问题 | 说明 |
-|--------|------|------|
-| 中 | SequenceEditor.jsx ~1500 行 | 需拆分组件 |
-| 中 | PrimerLayer 重复代码 | 三个组件共享渲染逻辑需抽象 |
-| 中 | 引物编辑未接入 undo/redo | 需扩展 editHistory 快照格式 |
-| 低 | 前端纯 JS | TypeScript 迁移成本 3-5 天 |
-| 低 | FeatureLayer O(n²) 边界检测 | 实际特征数量少，不紧急 |
+- `Feature.start/end` — 0-based inclusive
+- `Feature.segments[]` — 分段特征的多段列表，每个 `{ start, end }` 0-based inclusive
+- `PrimerBindingSite.template_start` — 0-based inclusive
+- `PrimerBindingSite.template_end` — 0-based exclusive
+- `Enzyme.cut_index / bot_cut_index` — 切口在 cutIndex-1 与 cutIndex 之间，0-based
+- `BindingSite.matchStart/End` — inclusive
+- 环状序列坐标用 `% tlen` 归一化，`wrap_template_region` 负责处理环状拼接
