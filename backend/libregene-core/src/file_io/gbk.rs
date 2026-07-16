@@ -385,9 +385,9 @@ fn extract_location_bounds(loc: &Location) -> (Vec<Segment>, i64, i64) {
             (segs, s, e)
         }
         Location::Range((s, _), (e, _)) => {
-            let start = *s;
-            let end = e - 1;
-            (vec![], start, end)
+            let seg_end = e - 1;
+            let seg = Segment { start: *s, end: seg_end, color: None };
+            (vec![seg], *s, seg_end)
         }
         _ => (vec![], 0, 0),
     }
@@ -406,7 +406,11 @@ fn model_range_to_gb_location(f: &Feature) -> Location {
     // Model coordinates: 0-based inclusive start/end
     // gb-io Range: 0-based, end-exclusive
 
-    if f.segments.is_empty() {
+    let is_simple = f.segments.len() <= 1
+        && (f.segments.is_empty()
+            || (f.segments[0].start == f.start && f.segments[0].end == f.end));
+
+    if is_simple {
         let loc = Location::Range(
             (f.start, Before(false)),
             (f.end + 1, After(false)),
