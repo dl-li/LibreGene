@@ -28,13 +28,13 @@ impl ProjectManager {
             return;
         }
         // Evict the oldest non-active project (first in insertion order that isn't active)
-        for k in &self.ordered_ids.clone() {
-            if Some(k.as_str()) != self.active.as_deref() {
-                self.projects.remove(k);
-                self.ordered_ids.retain(|i| i != k);
-                self.dirty_projects.remove(k);
-                return;
-            }
+        let idx = self.ordered_ids.iter().position(|k| {
+            Some(k.as_str()) != self.active.as_deref()
+        });
+        if let Some(i) = idx {
+            let id = self.ordered_ids.remove(i);
+            self.projects.remove(&id);
+            self.dirty_projects.remove(&id);
         }
     }
 
