@@ -1,0 +1,53 @@
+{
+  // ── Rust Analyzer ──────────────────────────────────────────────
+  "rust-analyzer.cargo.features": [],
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": ["--", "-W", "clippy::pedantic"],
+  "rust-analyzer.server.path": "/opt/homebrew/bin/rust-analyzer",
+  "rust-analyzer.linkedProjects": [
+    "backend/Cargo.toml",
+    "src-tauri/Cargo.toml"
+  ],
+  "[rust]": {
+    "editor.formatOnSave": true
+  },
+
+  // ── Tailwind CSS IntelliSense ──────────────────────────────────
+  "tailwindCSS.experimental.classRegex": [],
+  "tailwindCSS.classAttributes": ["class", "className", "classList"],
+  "tailwindCSS.includeLanguages": {
+    "javascript": "javascript",
+    "jsx": "javascript"
+  },
+
+  // ── Editor ─────────────────────────────────────────────────────
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/target": true,
+    "**/dist": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/target": true,
+    "**/dist": true,
+    "**/*.snap": true
+  },
+  "files.watcherExclude": {
+    "**/target/**": true
+  },
+
+  // ── Spell Checker ──────────────────────────────────────────────
+  "cSpell.words": [
+    "fwd", "rev", "ftype", "fst5", "fst3", "scd5", "scd3",
+    "serde", "gbk", "dna", "ab1", "gbio", "IUPAC",
+    "snapgene", "genbank", "libregene", "tauri", "shadcn",
+    "lucide", "camelCase", "Cascadia", "tailwindcss"
+  ],
+
+  // ── Files ──────────────────────────────────────────────────────
+  "files.associations": {
+    "*.dna": "xml"
+  }
+}
