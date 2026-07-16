@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "rust": true,
+    "typescript": true,
+    "eslint": {
+      "initialization": {
+        "rules": {
+          "no-unused-vars": "warn",
+          "no-console": "off"
+        }
+      }
+    },
+    "yaml-ls": true,
+    "bash": true
+  }
+}

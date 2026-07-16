@@ -18,6 +18,10 @@
 npx tauri dev                  # 启动桌面应用（唯一正确的开发方式）
 npx vite build                 # 仅前端编译检查
 
+# 代码质量
+npm run format                 # Prettier 格式化所有 src/
+npm run lint                   # ESLint 检查所有 src/
+
 # 后端
 cd backend
 cargo test -p libregene-core --lib             # 单元测试（117 项）
