@@ -785,11 +785,6 @@ export default function App() {
     // Close dialog
     setEditDialog(prev => ({ ...prev, open: false }));
 
-    // Optimistic UI update
-    setSequence(newSeq);
-    setIsDirty(true);
-    if (activeId) dirtyStateRef.current[activeId] = true;
-
     // Compute adjusted features BEFORE backend call (for history and optimistic update)
     const adjustedFeatures = adjustAnnotations(features || EMPTY_ARRAY, editStart, editEnd, oldLen, newLen);
 
