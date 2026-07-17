@@ -22,9 +22,7 @@ export default class ErrorBoundary extends React.Component {
             <button onClick={() => this.setState({ hasError: false, error: null })}>
               Try again
             </button>
-            <button onClick={() => window.location.reload()}>
-              Reload page
-            </button>
+            <button onClick={() => window.location.reload()}>Reload page</button>
           </div>
         </div>
       );

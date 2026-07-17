@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -6,74 +6,84 @@ import {
   DialogTitle,
   DialogFooter,
   DialogClose,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { AlertTriangle, Repeat } from 'lucide-react'
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { AlertTriangle, Repeat } from 'lucide-react';
 
 // IUPAC 核苷酸字符集（含简并碱基）
-const IUPAC_BASES = new Set('ATGCURYSWKMBDHVN')
+const IUPAC_BASES = new Set('ATGCURYSWKMBDHVN');
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {
-  'A': 'T', 'T': 'A', 'U': 'A', 'C': 'G', 'G': 'C',
-  'R': 'Y', 'Y': 'R',
-  'S': 'S', 'W': 'W',
-  'K': 'M', 'M': 'K',
-  'B': 'V', 'D': 'H', 'H': 'D', 'V': 'B',
-  'N': 'N',
-}
+  A: 'T',
+  T: 'A',
+  U: 'A',
+  C: 'G',
+  G: 'C',
+  R: 'Y',
+  Y: 'R',
+  S: 'S',
+  W: 'W',
+  K: 'M',
+  M: 'K',
+  B: 'V',
+  D: 'H',
+  H: 'D',
+  V: 'B',
+  N: 'N',
+};
 
 function reverseComplement(seq) {
-  let result = ''
+  let result = '';
   for (let i = seq.length - 1; i >= 0; i--) {
-    const ch = seq[i]
-    const upper = ch.toUpperCase()
-    const comp = IUPAC_COMP[upper] || upper
-    result += ch === upper ? comp : comp.toLowerCase()
+    const ch = seq[i];
+    const upper = ch.toUpperCase();
+    const comp = IUPAC_COMP[upper] || upper;
+    result += ch === upper ? comp : comp.toLowerCase();
   }
-  return result
+  return result;
 }
 
 /**
  * 去掉空白字符
  */
 function stripWhitespace(s) {
-  return s.replace(/\s/g, '')
+  return s.replace(/\s/g, '');
 }
 
 /**
  * 返回输入字符串中的非法字符列表（去重、保留大小写显示）
  */
 function getInvalidChars(s) {
-  const seen = new Set()
+  const seen = new Set();
   for (const ch of s) {
     if (ch.trim() && !IUPAC_BASES.has(ch.toUpperCase())) {
-      seen.add(ch)
+      seen.add(ch);
     }
   }
-  return [...seen]
+  return [...seen];
 }
 
 /**
  * 标记序列中的非法字符位置 → 返回 { chars, positions } 用于显示
  */
 function getInvalidCharDetails(s) {
-  const results = []
+  const results = [];
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i]
+    const ch = s[i];
     if (ch.trim() && !IUPAC_BASES.has(ch.toUpperCase())) {
-      results.push({ char: ch, pos: i })
+      results.push({ char: ch, pos: i });
     }
   }
-  return results
+  return results;
 }
 
 const MODE_TITLE = {
   insert: 'Insert Sequence',
   delete: 'Delete Sequence',
   replace: 'Edit Sequence',
-}
+};
 
 /**
  * SequenceEditDialog — 序列编辑确认弹窗
@@ -101,70 +111,78 @@ export default function SequenceEditDialog({
   onCancel,
 }) {
   // 输入框中的文本
-  const [inputText, setInputText] = useState('')
-  const inputRef = useRef(null)
+  const [inputText, setInputText] = useState('');
+  const inputRef = useRef(null);
 
   // 每次打开弹窗时预填文本（粘贴场景用 initialText，手打时保持清空）
   useEffect(() => {
     if (open) {
-      setInputText(initialText)
+      setInputText(initialText);
     }
-  }, [open, initialText])
+  }, [open, initialText]);
 
   // 打开后自动聚焦输入框
   useEffect(() => {
     if (open && (mode === 'insert' || mode === 'replace')) {
       // 小延迟确保 DOM 渲染完成
       const timer = setTimeout(() => {
-        inputRef.current?.focus()
-      }, 50)
-      return () => clearTimeout(timer)
+        inputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [open, mode])
+  }, [open, mode]);
 
-  const cleaned = stripWhitespace(inputText)
-  const insertLen = cleaned.length
-  const deleteLen = mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0
-  const netChange = mode === 'replace' ? insertLen - deleteLen : 0
+  const cleaned = stripWhitespace(inputText);
+  const insertLen = cleaned.length;
+  const deleteLen =
+    mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0;
+  const netChange = mode === 'replace' ? insertLen - deleteLen : 0;
 
-  const invalidChars = mode !== 'delete' && inputText ? getInvalidChars(inputText) : []
-  const hasInvalid = invalidChars.length > 0
+  const invalidChars = mode !== 'delete' && inputText ? getInvalidChars(inputText) : [];
+  const hasInvalid = invalidChars.length > 0;
 
   // 可提交条件：非删除模式需要内容不为空且无非法字符
-  const canConfirm = mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0 && !hasInvalid)
+  const canConfirm =
+    mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0 && !hasInvalid);
 
   const handleConfirm = () => {
-    if (!canConfirm) return
+    if (!canConfirm) return;
 
-    const result = { type: mode }
+    const result = { type: mode };
     if (mode !== 'delete') {
-      result.sequence = cleaned
+      result.sequence = cleaned;
     }
-    onConfirm(result)
-  }
+    onConfirm(result);
+  };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleConfirm()
+      e.preventDefault();
+      handleConfirm();
     }
-  }
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => { if (!open) onCancel() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
       <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{MODE_TITLE[mode] || 'Edit Sequence'}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
-
           {/* 光标/选区位置信息 */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {mode === 'insert' && cursorIndex !== null && (
               <>
                 <span>Cursor</span>
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">{cursorIndex}</code>
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
+                  {cursorIndex}
+                </code>
               </>
             )}
             {(mode === 'delete' || mode === 'replace') && selStart !== null && selEnd !== null && (
@@ -233,9 +251,14 @@ export default function SequenceEditDialog({
                   Insert
                   <span className="font-semibold tabular-nums">+{insertLen} bp</span>
                 </span>
-                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${netChange > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : netChange < 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-border bg-muted text-muted-foreground'}`}>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${netChange > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : netChange < 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-border bg-muted text-muted-foreground'}`}
+                >
                   Net
-                  <span className="font-semibold tabular-nums">{netChange > 0 ? '+' : ''}{netChange} bp</span>
+                  <span className="font-semibold tabular-nums">
+                    {netChange > 0 ? '+' : ''}
+                    {netChange} bp
+                  </span>
                 </span>
               </>
             )}
@@ -248,30 +271,38 @@ export default function SequenceEditDialog({
               <div>
                 <span className="font-medium">Non-standard characters:</span>{' '}
                 {invalidChars.map((ch, i) => (
-                  <code key={i} className="mx-0.5 px-1 bg-amber-100 dark:bg-amber-900 rounded text-[11px]">
-                    {'`'}{ch}{'`'}
+                  <code
+                    key={i}
+                    className="mx-0.5 px-1 bg-amber-100 dark:bg-amber-900 rounded text-[11px]"
+                  >
+                    {'`'}
+                    {ch}
+                    {'`'}
                   </code>
                 ))}
               </div>
             </div>
           )}
-
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          {(mode === 'insert' || mode === 'replace') && inputText.trim().length > 0 && !hasInvalid && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setInputText(reverseComplement(inputText))}
-              className="mr-auto"
-            >
-              <Repeat className="size-3.5" />
-              Reverse Complement
-            </Button>
-          )}
+          {(mode === 'insert' || mode === 'replace') &&
+            inputText.trim().length > 0 &&
+            !hasInvalid && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setInputText(reverseComplement(inputText))}
+                className="mr-auto"
+              >
+                <Repeat className="size-3.5" />
+                Reverse Complement
+              </Button>
+            )}
           <DialogClose asChild>
-            <Button variant="outline" onClick={onCancel}>Cancel</Button>
+            <Button variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
           </DialogClose>
           <Button
             variant={mode === 'delete' ? 'destructive' : 'default'}
@@ -285,5 +316,5 @@ export default function SequenceEditDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

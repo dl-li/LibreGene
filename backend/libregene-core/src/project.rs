@@ -122,6 +122,31 @@ impl ProjectManager {
         self.dirty_projects.contains(id)
     }
 
+    /// Rename a project's ID (e.g. after Save As to a new file path).
+    /// Returns false if old_id doesn't exist or new_id already exists.
+    pub fn rename_id(&mut self, old_id: &str, new_id: &str) -> bool {
+        if !self.projects.contains_key(old_id) || self.projects.contains_key(new_id) {
+            return false;
+        }
+        let project = self.projects.remove(old_id).unwrap();
+        self.projects.insert(new_id.to_string(), project);
+        if let Some(pos) = self.ordered_ids.iter().position(|i| i == old_id) {
+            self.ordered_ids[pos] = new_id.to_string();
+        }
+        if self.active.as_deref() == Some(old_id) {
+            self.active = Some(new_id.to_string());
+        }
+        if self.dirty_projects.remove(old_id) {
+            self.dirty_projects.insert(new_id.to_string());
+        }
+        true
+    }
+
+    /// Return the ordered list of all project IDs.
+    pub fn all_project_ids(&self) -> Vec<String> {
+        self.ordered_ids.clone()
+    }
+
     pub fn close_project(&mut self, id: &str) -> bool {
         let existed = self.projects.remove(id).is_some();
         self.ordered_ids.retain(|i| i != id);

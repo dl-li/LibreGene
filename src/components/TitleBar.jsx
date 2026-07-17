@@ -15,7 +15,16 @@ const isMac = /mac os x/i.test(navigator.userAgent);
 // Inline SVG for the Windows restore icon (two overlapping squares)
 function RestoreIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="3" y="3" width="7" height="7" rx="0.5" />
       <path d="M1 7V1h6" />
     </svg>
@@ -29,21 +38,58 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
     if (!isTauri || isMac) return undefined;
     let unlisten;
     let cancelled = false;
-    getAppWindow().then(async (w) => {
-      try { setMaximized(await w.isMaximized()); } catch {}
-      return w.onResized(() => {
-        if (!cancelled) w.isMaximized().then(setMaximized).catch(() => {});
-      });
-    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; }).catch(() => {});
-    return () => { cancelled = true; if (unlisten) unlisten(); };
+    getAppWindow()
+      .then(async (w) => {
+        try {
+          setMaximized(await w.isMaximized());
+        } catch {}
+        return w.onResized(() => {
+          if (!cancelled)
+            w.isMaximized()
+              .then(setMaximized)
+              .catch(() => {});
+        });
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
   }, []);
 
-  const doMinimize = useCallback(() => { getAppWindow().then((w) => w.minimize()).catch(() => {}); }, []);
-  const doZoom = useCallback(() => { getAppWindow().then((w) => w.toggleMaximize()).catch(() => {}); }, []);
-  const doClose = useCallback(() => { getAppWindow().then((w) => w.close()).catch(() => {}); }, []);
+  const doMinimize = useCallback(() => {
+    getAppWindow()
+      .then((w) => w.minimize())
+      .catch(() => {});
+  }, []);
+  const doZoom = useCallback(() => {
+    getAppWindow()
+      .then((w) => w.toggleMaximize())
+      .catch(() => {});
+  }, []);
+  const doClose = useCallback(() => {
+    getAppWindow()
+      .then((w) => w.close())
+      .catch(() => {});
+  }, []);
 
-  const statusColor = backendStatus === 'online' || isTauri ? '#22c55e' : backendStatus === 'connecting' ? '#f59e0b' : '#9ca3af';
-  const statusTip = isTauri ? 'Desktop mode' : backendStatus === 'online' ? 'Backend connected' : backendStatus === 'connecting' ? 'Connecting...' : 'Offline';
+  const statusColor =
+    backendStatus === 'online' || isTauri
+      ? '#22c55e'
+      : backendStatus === 'connecting'
+        ? '#f59e0b'
+        : '#9ca3af';
+  const statusTip = isTauri
+    ? 'Desktop mode'
+    : backendStatus === 'online'
+      ? 'Backend connected'
+      : backendStatus === 'connecting'
+        ? 'Connecting...'
+        : 'Offline';
 
   return (
     <header
@@ -55,7 +101,8 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
 
       <div className="pointer-events-none absolute inset-x-0 flex justify-center">
         <span className="max-w-[45%] truncate text-[13px] font-medium leading-10 text-foreground/75">
-          {dirty ? '\u2022 ' : ''}{title || 'LibreGene'}
+          {dirty ? '\u2022 ' : ''}
+          {title || 'LibreGene'}
         </span>
       </div>
 
