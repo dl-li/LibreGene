@@ -79,6 +79,7 @@ LibreGene/
 └── src-tauri/                  # Tauri v2 桌面壳
     ├── Cargo.toml
     ├── tauri.conf.json
+    ├── tauri.macos.conf.json
     └── src/
         ├── lib.rs              # Tauri commands + AppState
         └── main.rs             # 入口
@@ -152,13 +153,16 @@ LibreGene/
 | 10 | `41a8432` | `evict_one` 每次驱逐不必要地克隆整个 `ordered_ids` |
 | 11 | `92e3a19` | `primerAlignmentCache` 跨项目不清理 |
 | 12 | `695f002` | `compute_primer_alignment` 中不可达的 `results.is_empty()` 分支 |
+| 13 | `6060fbf` | 关闭最后一个文件 tab 后编辑器不显示空页 |
+| 14 | `0298b8c` | 自窗口广播导致特征/引物改动后撤销历史被清空 |
+| 15 | `61655f3` | 点击当前活动 tab 重置 undo 历史；Save As 后路径/脏标记键控错误 |
+| 16 | `39fdabc` | 页面弹性滚动让标题栏跟着一起动 |
 
 ## 仍有改进空间的地方（非 Bug）
 
 - **SequenceEditor.jsx ~2474 行** — 需拆分组件（如 FeatureLayer、PrimerLayer、EnzymeLayer 等）
 - **两套引物渲染** — `PrimerSegmentRenderer.jsx` v2 与 `SequenceEditor.jsx` 内联 v1 并存
 - **SVG 容器 `contain: 'layout style'`** — 创建新层叠上下文，可能影响固定定位元素
-- **`useMemo` 隐式依赖 `window.innerHeight`** — resize 时不会更新
 - **`list_projects` JSON 构建** — 可用序列化替代 `serde_json::json!` 宏
 - **前端纯 JS** — TypeScript 迁移收益约 3-5 天
 - **引物编辑未接入 undo/redo** — 需扩展 `editHistory` 快照格式以包含 `primers`
