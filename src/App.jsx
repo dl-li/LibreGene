@@ -1246,7 +1246,7 @@ export default function App() {
         open={sidebarHover}
         style={{ "--sidebar-width": "14rem" }}
       >
-        <div className="relative min-h-screen w-full bg-background pt-10">
+        <div className="relative min-h-screen w-full bg-background">
           <TitleBar
             title={docTitle}
             dirty={isDirty}
