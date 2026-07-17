@@ -79,7 +79,6 @@ LibreGene/
 └── src-tauri/                  # Tauri v2 桌面壳
     ├── Cargo.toml
     ├── tauri.conf.json
-    ├── tauri.macos.conf.json
     └── src/
         ├── lib.rs              # Tauri commands + AppState
         └── main.rs             # 入口

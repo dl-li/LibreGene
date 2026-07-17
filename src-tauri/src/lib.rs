@@ -1363,17 +1363,8 @@ async fn open_in_new_window(
         WebviewUrl::App("index.html".into()),
     )
     .title("LibreGene - Plasmid Editor")
-    .inner_size(1400.0, 900.0);
-
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .decorations(true)
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(14.0, 14.0));
-
-    #[cfg(not(target_os = "macos"))]
-    let builder = builder.decorations(false);
+    .inner_size(1400.0, 900.0)
+    .decorations(false);
 
     let window = builder
         .build()
