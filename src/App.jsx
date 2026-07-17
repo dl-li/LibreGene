@@ -143,6 +143,19 @@ export default function App() {
     setWindowTitle(t);
   }, []);
 
+  // Reset the editor to the empty state (no project open)
+  const clearEditorState = useCallback(() => {
+    setSequence(null);
+    setFeatures(EMPTY_ARRAY);
+    setEnzymes(EMPTY_ARRAY);
+    setPrimers(EMPTY_ARRAY);
+    editHistoryRef.current.reset({ sequence: '', features: EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
+    baselineSequenceRef.current = '';
+    setIsDirty(false);
+    setActiveId(null);
+    applyTitle('LibreGene');
+  }, [applyTitle]);
+
   // Detect window type on mount
   useEffect(() => {
     if (!isTauri) {
@@ -216,6 +229,11 @@ export default function App() {
         if (msg.activeId !== undefined) {
           setActiveId(msg.activeId);
         }
+        // No active project exists — clear to the empty state
+        if (!msg.data && !msg.activeId) {
+          clearEditorState();
+          return;
+        }
         // Only apply full data update if it matches the currently active project
         // to prevent cross-contamination from other windows' modifications
         if (msg.data && msg.data.sequence && msg.activeId !== undefined) {
@@ -248,7 +266,7 @@ export default function App() {
     }
 
     return () => { cancelled = true; if (listener) listener.close(); };
-  }, [windowInfo]);
+  }, [windowInfo, clearEditorState]);
 
   // Sync methylation systems with backend, then fetch updated enzymes.
   // Only fires when methylation settings change (NOT on every project load).
@@ -1040,6 +1058,9 @@ export default function App() {
           editHistoryRef.current.reset({ sequence: newData.sequence, features: newData.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
           baselineSequenceRef.current = newData.sequence;
           setIsDirty(false);
+        } else {
+          // No project remains — show the empty state
+          clearEditorState();
         }
         if (newData && newData.projects) setProjects(newData.projects);
         if (newData && newData.activeId !== undefined) {
@@ -1052,10 +1073,11 @@ export default function App() {
           }
         }
       }
+      await refreshProjects();
     } catch (e) {
       console.error('close project error:', e);
     }
-  }, [activeId]);
+  }, [activeId, refreshProjects]);
 
   // Public close handler with dirty check
   const handleCloseProject = useCallback(async (id) => {
