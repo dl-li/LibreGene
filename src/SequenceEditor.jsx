@@ -281,7 +281,7 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
 };
 
-const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, onPrimerChange, onFeatureAdd, onFeatureDelete, onPrimerDelete, primerSeedLength, onSelectionChange }) {
+const SequenceEditor = React.memo(function SequenceEditor({ sequence, features = [], enzymes = [], primers = [], initialCharsPerLine = 60, layoutParams = {}, layoutKey, onEditRequest, restoreState, onFeatureFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, onPrimerChange, onFeatureAdd, onFeatureDelete, onPrimerDelete, primerSeedLength, onSelectionChange, scrollContainerRef }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -294,6 +294,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
+  const [viewportH, setViewportH] = useState(900);
   const scrollTickingRef = useRef(false);
   const lastVisibleStartRef = useRef(-1);
   const lastVisibleEndRef = useRef(-1);
@@ -394,20 +395,23 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   }), [layoutParams]);
 
   useEffect(() => {
+    const scroller = scrollContainerRef?.current;
     const handleResize = () => {
       if (containerRef.current) {
         setCharsPerLine(Math.max(20, Math.floor((containerRef.current.clientWidth - startX * 2) / cw)));
       }
+      if (scroller) setViewportH(scroller.clientHeight || 900);
     };
     const handleScroll = () => {
       if (!scrollTickingRef.current) {
         scrollTickingRef.current = true;
         requestAnimationFrame(() => {
-          const sy = window.scrollY;
-          const vh = window.innerHeight || 900;
+          const sy = scroller ? scroller.scrollTop : window.scrollY;
+          if (scroller) setViewportH(scroller.clientHeight || 900);
           const nr = numRowsRef.current;
           const estRowH = 60;
           const buf = 8;
+          const vh = scroller ? (scroller.clientHeight || 900) : (window.innerHeight || 900);
           const estStart = Math.max(0, Math.floor(sy / estRowH) - buf - 1);
           const estEnd = Math.min(nr - 1, Math.floor((sy + vh) / estRowH) + buf + 1);
           if (estStart !== lastVisibleStartRef.current || estEnd !== lastVisibleEndRef.current) {
@@ -421,12 +425,13 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
     };
     handleResize();
     window.addEventListener('resize', handleResize);
-    window.addEventListener('scroll', handleScroll, { passive: true });
+    const scrollTarget = scroller || window;
+    scrollTarget.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('scroll', handleScroll);
+      scrollTarget.removeEventListener('scroll', handleScroll);
     };
-  }, []);
+  }, [scrollContainerRef]);
 
   // Recalculate layout when parent padding changes (e.g. sidebar pin)
   useEffect(() => {
@@ -1259,7 +1264,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
   // Visible row range for enzyme virtualization
   const visibleRows = useMemo(() => {
     if (!rowY.length) return { start: 0, end: numRows - 1 };
-    const vh = window.innerHeight || 900;
+    const vh = viewportH || 900;
     const top = scrollY;
     const bot = top + vh;
     let start = 0, end = numRows - 1;
@@ -1270,7 +1275,7 @@ const SequenceEditor = React.memo(function SequenceEditor({ sequence, features =
       if (rowY[r] - (rowAbove[r] || 0) < bot) { end = Math.min(numRows - 1, r + 1); break; }
     }
     return { start, end };
-  }, [rowY, rowAbove, rowBelow, scrollY, numRows]);
+  }, [rowY, rowAbove, rowBelow, scrollY, viewportH, numRows]);
 
   // Filter enzymes to visible row range only
   const visibleEnzymes = useMemo(() => {
