@@ -15,7 +15,7 @@ function gbLocation(feature) {
   const segs = feature.segments?.length
     ? feature.segments
     : [{ start: feature.start, end: feature.end }];
-  const parts = segs.map(s => `${s.start + 1}..${s.end + 1}`);
+  const parts = segs.map((s) => `${s.start + 1}..${s.end + 1}`);
   const joined = parts.length > 1 ? `join(${parts.join(', ')})` : parts[0];
   return feature.strand === '-' ? `complement(${joined})` : joined;
 }
@@ -32,21 +32,63 @@ function wrapComplement(loc) {
 
 /* ---------- Ftype options ---------- */
 const FTYPE_OPTIONS = [
-  'CDS', 'gene', 'promoter', 'terminator', 'rep_origin', 'misc_feature',
-  'misc_binding', 'misc_recomb', 'misc_structure', 'misc_difference', 'misc_RNA',
-  'primer_bind', 'protein_bind',
-  'mRNA', 'rRNA', 'tRNA', 'snRNA', 'snoRNA', 'ncRNA', 'precursor_RNA', 'prim_transcript',
-  'exon', 'intron', "5'UTR", "3'UTR",
-  'sig_peptide', 'mat_peptide', 'transit_peptide', 'propeptide',
+  'CDS',
+  'gene',
+  'promoter',
+  'terminator',
+  'rep_origin',
+  'misc_feature',
+  'misc_binding',
+  'misc_recomb',
+  'misc_structure',
+  'misc_difference',
+  'misc_RNA',
+  'primer_bind',
+  'protein_bind',
+  'mRNA',
+  'rRNA',
+  'tRNA',
+  'snRNA',
+  'snoRNA',
+  'ncRNA',
+  'precursor_RNA',
+  'prim_transcript',
+  'exon',
+  'intron',
+  "5'UTR",
+  "3'UTR",
+  'sig_peptide',
+  'mat_peptide',
+  'transit_peptide',
+  'propeptide',
   'ribosome_binding_site',
-  'operator', 'enhancer', 'attenuator', 'regulatory',
-  'CAAT_signal', 'TATA_signal', '-35_signal', '-10_signal',
-  'polyA_signal', 'polyA_site',
-  'repeat_region', 'repeat_unit', 'satellite', 'LTR',
-  'mobile_element', 'transposon', 'insertion_seq',
-  'D-loop', 'STS', 'oriT',
-  'assembly_gap', 'centromere', 'telomere', 'gap', 'variation',
-  'modified_base', 'sequence_conflict',
+  'operator',
+  'enhancer',
+  'attenuator',
+  'regulatory',
+  'CAAT_signal',
+  'TATA_signal',
+  '-35_signal',
+  '-10_signal',
+  'polyA_signal',
+  'polyA_site',
+  'repeat_region',
+  'repeat_unit',
+  'satellite',
+  'LTR',
+  'mobile_element',
+  'transposon',
+  'insertion_seq',
+  'D-loop',
+  'STS',
+  'oriT',
+  'assembly_gap',
+  'centromere',
+  'telomere',
+  'gap',
+  'variation',
+  'modified_base',
+  'sequence_conflict',
   'source',
 ];
 
@@ -83,7 +125,7 @@ function extractQualifiers(feature) {
     for (const v of rawNotes) {
       const trimmed = v.trim();
       if (!trimmed) continue;
-      if (skipNotePrefixes.some(p => trimmed.startsWith(p))) continue;
+      if (skipNotePrefixes.some((p) => trimmed.startsWith(p))) continue;
       quals.push({ key: 'note', value: trimmed });
     }
   } else if (feature.notes) {
@@ -103,12 +145,13 @@ function extractQualifiers(feature) {
 
 /* ---------- Strand ---------- */
 const STRAND_OPTIONS = ['both', '+', '-'];
-const STRAND_LABEL = { 'both': 'both', '+': '+', '-': '-' };
+const STRAND_LABEL = { both: 'both', '+': '+', '-': '-' };
 
 /* ---------- Shared bits ---------- */
 const HIGHLIGHT = '#1E40AF';
 
-const LABEL_CLS = 'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
+const LABEL_CLS =
+  'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
 
 function ColorSwatch({ color, onChange }) {
   return (
@@ -130,7 +173,7 @@ function ColorSwatch({ color, onChange }) {
 function StrandSegmented({ value, onSelect }) {
   return (
     <div className="inline-flex rounded-lg border border-input bg-muted/50 p-0.5">
-      {STRAND_OPTIONS.map(s => (
+      {STRAND_OPTIONS.map((s) => (
         <button
           key={s}
           type="button"
@@ -159,8 +202,10 @@ function FtypeSelect({ value, onChange, autoFocus, onBlur }) {
         autoFocus={autoFocus}
         className="h-8 appearance-none rounded-md border border-input bg-background pl-2 pr-7 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
       >
-        {FTYPE_OPTIONS.map(o => (
-          <option key={o} value={o}>{o}</option>
+        {FTYPE_OPTIONS.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
         ))}
       </select>
       <ChevronDown className="pointer-events-none absolute right-2 size-3.5 text-muted-foreground" />
@@ -169,7 +214,20 @@ function FtypeSelect({ value, onChange, autoFocus, onBlur }) {
 }
 
 /* ---------- Component ---------- */
-export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, newFeatureLoc, onFeatureAdd, onDeleteFeature, features }) {
+export default function FeatureInfoDialog({
+  feature,
+  open,
+  onOpenChange,
+  onFtypeChange,
+  onFeatureColorChange,
+  onFeatureLocationChange,
+  onFeatureNameChange,
+  onFeatureStrandChange,
+  newFeatureLoc,
+  onFeatureAdd,
+  onDeleteFeature,
+  features,
+}) {
   // --- Shared state ---
   const [qualifiersOpen, setQualifiersOpen] = useState(false);
 
@@ -216,12 +274,12 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
 
   const currentFtype = feature?.ftype || 'misc_feature';
 
-  const locLabel = useMemo(() => feature ? gbLocation(feature) : '', [feature]);
+  const locLabel = useMemo(() => (feature ? gbLocation(feature) : ''), [feature]);
 
   const qualifierLines = useMemo(() => {
     if (!feature) return [];
     const quals = extractQualifiers(feature);
-    return quals.map(q => {
+    return quals.map((q) => {
       const escaped = q.value.includes('"') ? q.value.replace(/"/g, '\\"') : q.value;
       return { key: `/${q.key}`, label: `/${q.key}`, children: `="${escaped}"`, isKey: true };
     });
@@ -232,7 +290,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     if (!isNewFeature) return false;
     const trimmed = createName.trim();
     if (!trimmed) return false;
-    return (features || []).some(f => f.name === trimmed);
+    return (features || []).some((f) => f.name === trimmed);
   }, [createName, features, isNewFeature]);
 
   // --- Create mode --------------------------------
@@ -303,7 +361,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
   };
 
   const handleEditStrandSelect = (next) => {
-    const cur = feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both');
+    const cur = feature.strand === '-' ? '-' : feature.strand === '+' ? '+' : 'both';
     if (next === cur) return;
     const newStrand = next === 'both' ? '.' : next;
     let newLoc = locLabel;
@@ -325,7 +383,12 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
   // --- Render create mode ---
   if (isNewFeature) {
     return (
-      <Dialog open={open} onOpenChange={(o) => { if (!o) onOpenChange(false); }}>
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) onOpenChange(false);
+        }}
+      >
         <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>New Feature</DialogTitle>
@@ -337,10 +400,16 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
             <div className="flex items-center gap-3 min-w-0">
               <input
                 value={createName}
-                onChange={(e) => { setCreateName(e.target.value); setCreateError(''); }}
+                onChange={(e) => {
+                  setCreateName(e.target.value);
+                  setCreateError('');
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateApply();
-                  else if (e.key === 'Escape') { setCreateName('New Feature'); e.target.blur(); }
+                  else if (e.key === 'Escape') {
+                    setCreateName('New Feature');
+                    e.target.blur();
+                  }
                 }}
                 className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
                 onClick={(e) => e.stopPropagation()}
@@ -359,7 +428,11 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
             <div className="min-w-0">
               <input
                 value={createLoc}
-                onChange={(e) => { setCreateLoc(e.target.value); setCreateLocError(''); setCreateError(''); }}
+                onChange={(e) => {
+                  setCreateLoc(e.target.value);
+                  setCreateLocError('');
+                  setCreateError('');
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateApply();
                 }}
@@ -396,8 +469,14 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
           {/* Footer */}
           <DialogFooter className="mt-1">
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
-              <Button size="sm" onClick={handleCreateApply} disabled={!createLoc.trim() || !!nameConflict}>
+              <Button variant="outline" size="sm" onClick={handleCancel}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleCreateApply}
+                disabled={!createLoc.trim() || !!nameConflict}
+              >
                 Create Feature
               </Button>
             </div>
@@ -409,17 +488,20 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
 
   // --- Render edit mode ---
   return (
-    <Dialog open={open} onOpenChange={(open) => {
-      if (!open) {
-        setEditingFtype(false);
-        setEditingLoc(false);
-        setLocError('');
-        setNameInput(feature?.name || '');
-        setNameDirty(false);
-        setQualifiersOpen(false);
-      }
-      onOpenChange(open);
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) {
+          setEditingFtype(false);
+          setEditingLoc(false);
+          setLocError('');
+          setNameInput(feature?.name || '');
+          setNameDirty(false);
+          setQualifiersOpen(false);
+        }
+        onOpenChange(open);
+      }}
+    >
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Feature</DialogTitle>
@@ -431,13 +513,21 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
           <div className="flex items-center gap-3 min-w-0">
             <input
               value={nameInput}
-              onChange={(e) => { setNameInput(e.target.value); setNameDirty(true); }}
+              onChange={(e) => {
+                setNameInput(e.target.value);
+                setNameDirty(true);
+              }}
               onBlur={() => {
                 if (nameInput !== feature.name) setNameDirty(true);
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') { handleApply(); }
-                else if (e.key === 'Escape') { setNameInput(feature.name); setNameDirty(false); e.target.blur(); }
+                if (e.key === 'Enter') {
+                  handleApply();
+                } else if (e.key === 'Escape') {
+                  setNameInput(feature.name);
+                  setNameDirty(false);
+                  e.target.blur();
+                }
               }}
               className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
               onClick={(e) => e.stopPropagation()}
@@ -466,7 +556,10 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                 type="button"
                 className="rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
                 title="Click to change type"
-                onClick={() => { setEditingLoc(false); setEditingFtype(true); }}
+                onClick={() => {
+                  setEditingLoc(false);
+                  setEditingFtype(true);
+                }}
               >
                 {currentFtype}
               </button>
@@ -480,15 +573,26 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               <div className="flex items-center gap-2">
                 <input
                   value={locInput}
-                  onChange={(e) => { setLocInput(e.target.value); setLocError(''); }}
+                  onChange={(e) => {
+                    setLocInput(e.target.value);
+                    setLocError('');
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') submitLocation(locInput);
-                    else if (e.key === 'Escape') { setEditingLoc(false); setLocError(''); }
+                    else if (e.key === 'Escape') {
+                      setEditingLoc(false);
+                      setLocError('');
+                    }
                   }}
                   autoFocus
                   className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
                 />
-                <Button size="sm" className="h-8" onClick={() => submitLocation(locInput)} disabled={!!locError}>
+                <Button
+                  size="sm"
+                  className="h-8"
+                  onClick={() => submitLocation(locInput)}
+                  disabled={!!locError}
+                >
                   Apply
                 </Button>
               </div>
@@ -497,7 +601,12 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                 type="button"
                 className="max-w-full truncate rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
                 title="Click to edit location"
-                onClick={() => { setEditingFtype(false); setLocInput(locLabel); setEditingLoc(true); setLocError(''); }}
+                onClick={() => {
+                  setEditingFtype(false);
+                  setLocInput(locLabel);
+                  setEditingLoc(true);
+                  setLocError('');
+                }}
               >
                 {locLabel}
               </button>
@@ -511,7 +620,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
           <span className={LABEL_CLS}>Strand</span>
           <div>
             <StrandSegmented
-              value={feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both')}
+              value={feature.strand === '-' ? '-' : feature.strand === '+' ? '+' : 'both'}
               onSelect={handleEditStrandSelect}
             />
           </div>
@@ -521,10 +630,12 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
         <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/40">
           <button
             type="button"
-            onClick={() => setQualifiersOpen(v => !v)}
+            onClick={() => setQualifiersOpen((v) => !v)}
             className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ChevronRight className={`size-3.5 transition-transform duration-150 ${qualifiersOpen ? 'rotate-90' : ''}`} />
+            <ChevronRight
+              className={`size-3.5 transition-transform duration-150 ${qualifiersOpen ? 'rotate-90' : ''}`}
+            />
             Qualifiers
             {qualifierLines.length > 0 && (
               <span className="rounded-full bg-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-accent-foreground">
@@ -535,7 +646,16 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
           {qualifiersOpen && (
             <div className="max-h-60 overflow-y-auto border-t border-border/60 px-3.5 py-2.5">
               {qualifierLines.map((line, i) => (
-                <div key={i} className="leading-6" style={{ fontFamily: monoFont, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                <div
+                  key={i}
+                  className="leading-6"
+                  style={{
+                    fontFamily: monoFont,
+                    fontSize: '12px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                  }}
+                >
                   <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{line.label}</span>
                   <span>{line.children}</span>
                 </div>
@@ -554,13 +674,20 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
               variant="ghost"
               size="sm"
               className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={async () => { await onDeleteFeature(feature.id); onOpenChange(false); }}
+              onClick={async () => {
+                await onDeleteFeature(feature.id);
+                onOpenChange(false);
+              }}
             >
               <Trash2 className="size-3.5" />
               Delete
             </Button>
-            <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
-            <Button size="sm" onClick={handleApply}>Apply</Button>
+            <Button variant="outline" size="sm" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleApply}>
+              Apply
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>

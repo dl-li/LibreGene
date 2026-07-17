@@ -20,7 +20,9 @@ export async function setWindowTitle(title) {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().setTitle(title);
-  } catch (_) { /* ignore */ }
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 async function tauriInvoke(cmd, args) {
@@ -192,6 +194,10 @@ export async function getWindowProjectId() {
   return tauriInvoke('get_window_project_id');
 }
 
+export async function rekeyProject(oldId, newId) {
+  return tauriInvoke('rekey_project', { oldId, newId });
+}
+
 // ---------------------------------------------------------------------------
 // Tauri dialog helpers
 // ---------------------------------------------------------------------------
@@ -215,9 +221,7 @@ export async function saveFileDialog(defaultName = 'project.gbk') {
   return tauriSave({
     title: 'Save GenBank file',
     defaultPath: defaultName,
-    filters: [
-      { name: 'GenBank', extensions: ['gbk'] },
-    ],
+    filters: [{ name: 'GenBank', extensions: ['gbk'] }],
   });
 }
 
@@ -229,7 +233,7 @@ export function listenProjectUpdates(callback) {
   let unlistenFn = null;
   tauriListen('project-update', (event) => {
     callback(event.payload);
-  }).then(fn => {
+  }).then((fn) => {
     unlistenFn = fn;
   });
   return {

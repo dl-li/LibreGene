@@ -178,6 +178,20 @@ async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, 
             payload["data"] = filtered;
         }
     }
+    // Include all project data for multi-window sync (keyed by project ID)
+    let params = ProjectParams {
+        enzyme_filter: Some("all".to_string()),
+        row_start: None,
+        row_end: None,
+        cpl: None,
+    };
+    let mut project_data_map = serde_json::Map::new();
+    for id in pm.all_project_ids() {
+        if let Some(project) = pm.get_project_by_id(&id) {
+            project_data_map.insert(id, filter_project(project, &params));
+        }
+    }
+    payload["projectData"] = serde_json::Value::Object(project_data_map);
     let _ = app_handle.emit("project-update", payload);
 }
 
@@ -1400,6 +1414,36 @@ async fn get_window_project_id(
     Ok(wp.get(webview_window.label()).cloned())
 }
 
+/// Rename a project's ID (called after Save As to re-key the project).
+#[tauri::command]
+async fn rekey_project(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    old_id: String,
+    new_id: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+    if project_id != old_id {
+        return Ok(serde_json::json!({"error": "Project ID mismatch"}));
+    }
+
+    let ok = {
+        let mut pm = state.pm.write().await;
+        pm.rename_id(&old_id, &new_id)
+    };
+    if !ok {
+        return Ok(serde_json::json!({"error": "Rename failed (target may already exist)"}));
+    }
+
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+    Ok(serde_json::json!({"status": "ok", "newId": new_id}))
+}
+
 // ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
@@ -1439,6 +1483,7 @@ pub fn run() {
             delete_project,
             open_in_new_window,
             get_window_project_id,
+            rekey_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

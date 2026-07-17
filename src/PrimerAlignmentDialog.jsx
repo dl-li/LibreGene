@@ -14,20 +14,45 @@ const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
 /* Reverse complement (preserves case, supports IUPAC degenerate bases) */
 const COMP_MAP = {
-  'A': 'T', 'a': 't', 'T': 'A', 't': 'a',
-  'C': 'G', 'c': 'g', 'G': 'C', 'g': 'c',
-  'U': 'A', 'u': 'a',
-  'R': 'Y', 'r': 'y', 'Y': 'R', 'y': 'r',
-  'S': 'S', 's': 's',
-  'W': 'W', 'w': 'w',
-  'K': 'M', 'k': 'm', 'M': 'K', 'm': 'k',
-  'B': 'V', 'b': 'v', 'V': 'B', 'v': 'b',
-  'D': 'H', 'd': 'h', 'H': 'D', 'h': 'd',
-  'N': 'N', 'n': 'n',
+  A: 'T',
+  a: 't',
+  T: 'A',
+  t: 'a',
+  C: 'G',
+  c: 'g',
+  G: 'C',
+  g: 'c',
+  U: 'A',
+  u: 'a',
+  R: 'Y',
+  r: 'y',
+  Y: 'R',
+  y: 'r',
+  S: 'S',
+  s: 's',
+  W: 'W',
+  w: 'w',
+  K: 'M',
+  k: 'm',
+  M: 'K',
+  m: 'k',
+  B: 'V',
+  b: 'v',
+  V: 'B',
+  v: 'b',
+  D: 'H',
+  d: 'h',
+  H: 'D',
+  h: 'd',
+  N: 'N',
+  n: 'n',
   '.': '.',
 };
 function reverseComplement(seq) {
-  return [...seq].reverse().map(ch => COMP_MAP[ch] || ch).join('');
+  return [...seq]
+    .reverse()
+    .map((ch) => COMP_MAP[ch] || ch)
+    .join('');
 }
 
 function AlignmentView({ data }) {
@@ -38,7 +63,15 @@ function AlignmentView({ data }) {
   const isRev = primerArrowLine.includes("3' <");
   const primerColor = isRev ? COLORS.rev : COLORS.fwd;
   return (
-    <div style={{ fontFamily: monoFont, fontSize: '13px', lineHeight: '1.6', display: 'inline-block', textAlign: 'left' }}>
+    <div
+      style={{
+        fontFamily: monoFont,
+        fontSize: '13px',
+        lineHeight: '1.6',
+        display: 'inline-block',
+        textAlign: 'left',
+      }}
+    >
       {lines.map((line, i) => {
         let color;
         if (i === 3 || i === 4) {
@@ -50,16 +83,29 @@ function AlignmentView({ data }) {
         }
         // All lines use the same font weight for visual alignment.
         return (
-          <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>{line}</div>
+          <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>
+            {line}
+          </div>
         );
       })}
     </div>
   );
 }
 
-const LABEL_CLS = 'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
+const LABEL_CLS =
+  'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
 
-export default function PrimerAlignmentDialog({ primer, alignmentData, open, onOpenChange, seedLength, newPrimerSeq, onPrimerChange, onDeletePrimer, primers = [] }) {
+export default function PrimerAlignmentDialog({
+  primer,
+  alignmentData,
+  open,
+  onOpenChange,
+  seedLength,
+  newPrimerSeq,
+  onPrimerChange,
+  onDeletePrimer,
+  primers = [],
+}) {
   const [editSeq, setEditSeq] = useState('');
   const [editName, setEditName] = useState('');
   const [data, setData] = useState(null);
@@ -89,7 +135,9 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         setData(alignmentData);
       } else {
         setData(null);
-        computePrimerAlignment(primer.id, seedLength).then(setData).catch(() => {});
+        computePrimerAlignment(primer.id, seedLength)
+          .then(setData)
+          .catch(() => {});
       }
     }
   }, [open, primer?.id, isNewPrimer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -97,13 +145,13 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   const cur = preview?.data?.current || data?.current;
   const alts = preview?.data?.alternatives || data?.alternatives || [];
 
-  const initialSeq = isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || '');
-  const initialName = isNewPrimer ? 'New Primer' : (primer?.name || '');
+  const initialSeq = isNewPrimer ? newPrimerSeq || '' : primer?.primerSeq || '';
+  const initialName = isNewPrimer ? 'New Primer' : primer?.name || '';
 
   // For new primers: changes = has any input; for existing: changes = seq or name differs
   const hasChanges = isNewPrimer
-    ? (editSeq !== '')
-    : (editSeq !== initialSeq || editName !== initialName);
+    ? editSeq !== ''
+    : editSeq !== initialSeq || editName !== initialName;
 
   const IUPAC = useMemo(() => new Set('ACGTURYSWKMBDHVNacgturyswkmbdhvn'), []);
   const invalidChars = useMemo(() => {
@@ -120,16 +168,19 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   const nameConflict = useMemo(() => {
     const trimmed = editName.trim();
     if (!trimmed) return false;
-    return primers.some(p => {
+    return primers.some((p) => {
       if (isNewPrimer) return p.name === trimmed;
       return p.id !== primer?.id && p.name === trimmed;
     });
   }, [editName, primers, isNewPrimer, primer?.id]);
 
-  const stripIUPAC = useCallback((s) => {
-    // Remove whitespace and keep only valid DNA/IUPAC chars (including degenerate)
-    return [...s].filter(ch => ch !== ' ' && ch !== '\t' && IUPAC.has(ch)).join('');
-  }, [IUPAC]);
+  const stripIUPAC = useCallback(
+    (s) => {
+      // Remove whitespace and keep only valid DNA/IUPAC chars (including degenerate)
+      return [...s].filter((ch) => ch !== ' ' && ch !== '\t' && IUPAC.has(ch)).join('');
+    },
+    [IUPAC],
+  );
 
   // ── Auto-preview on sequence change (debounced) ──
   const debounceRef = useRef(null);
@@ -141,11 +192,17 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
     if (isNewPrimer && newPrimerSeq && newPrimerSeq.length >= 6) {
       isInitialRender.current = false;
     }
-    if (isInitialRender.current) { isInitialRender.current = false; return; }
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      return;
+    }
     // Cancel previous debounce
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const stripped = stripIUPAC(editSeq);
-    if (stripped.length < 6) { setPreview({ data: null, loading: false, error: null }); return; }
+    if (stripped.length < 6) {
+      setPreview({ data: null, loading: false, error: null });
+      return;
+    }
 
     const key = ++autoPreviewKey.current;
     debounceRef.current = setTimeout(async () => {
@@ -163,12 +220,20 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         }
       }
     }, 350);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [editSeq, open, primer, seedLength, stripIUPAC, isNewPrimer, editName]);
 
   const handleApply = useCallback(async () => {
-    if (!hasChanges) { onOpenChange(false); return; }
-    if (!onPrimerChange) { onOpenChange(false); return; }
+    if (!hasChanges) {
+      onOpenChange(false);
+      return;
+    }
+    if (!onPrimerChange) {
+      onOpenChange(false);
+      return;
+    }
     // Reject duplicate names
     if (nameConflict) return;
     try {
@@ -192,7 +257,18 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
     } catch (e) {
       setPreview({ data: null, loading: false, error: String(e) });
     }
-  }, [editSeq, editName, hasChanges, isNewPrimer, primer, onOpenChange, onPrimerChange, stripIUPAC, nameConflict, primerType]);
+  }, [
+    editSeq,
+    editName,
+    hasChanges,
+    isNewPrimer,
+    primer,
+    onOpenChange,
+    onPrimerChange,
+    stripIUPAC,
+    nameConflict,
+    primerType,
+  ]);
 
   const handleClose = useCallback(() => {
     if (hasChanges) {
@@ -218,7 +294,12 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
   }, [cur?.alignment, editSeq?.length]);
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) handleClose();
+      }}
+    >
       <DialogContent
         className="max-h-[80vh] flex flex-col"
         style={{ maxWidth: dialogWidth, width: dialogWidth }}
@@ -246,7 +327,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">5'</span>
             <input
               value={editSeq}
-              onChange={e => setEditSeq(e.target.value)}
+              onChange={(e) => setEditSeq(e.target.value)}
               className={
                 'h-8 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-xs outline-none transition-shadow focus:ring-[3px] ' +
                 (hasChanges
@@ -261,7 +342,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
               type="button"
               onClick={() => {
                 setEditSeq(reverseComplement(editSeq));
-                setPrimerType(t => t === 'fwd' ? 'rev' : 'fwd');
+                setPrimerType((t) => (t === 'fwd' ? 'rev' : 'fwd'));
               }}
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title="Reverse complement"
@@ -278,20 +359,30 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
               Tm
               <span className="font-semibold tabular-nums">{cur.tm}°C</span>
             </span>
-            {preview?.loading && <span className="text-xs text-muted-foreground italic">Computing…</span>}
+            {preview?.loading && (
+              <span className="text-xs text-muted-foreground italic">Computing…</span>
+            )}
           </div>
         )}
 
         {/* Alignment box */}
         <div className="relative flex-1 overflow-auto rounded-lg border border-border/70 bg-muted/40 p-4">
           {preview?.error && <div className="text-sm text-red-600 font-mono">{preview.error}</div>}
-          {cur && <div className="flex justify-center"><AlignmentView data={cur} /></div>}
-          {!cur && preview?.loading && <div className="text-sm text-muted-foreground italic">Computing alignment…</div>}
+          {cur && (
+            <div className="flex justify-center">
+              <AlignmentView data={cur} />
+            </div>
+          )}
+          {!cur && preview?.loading && (
+            <div className="text-sm text-muted-foreground italic">Computing alignment…</div>
+          )}
           {!cur && !preview?.loading && preview?.data && !preview.data.current && (
             <div className="text-sm text-red-600 font-mono">No candidate binding sites found.</div>
           )}
           {!cur && !preview && !data && (
-            <div className="text-sm text-muted-foreground italic">Type a DNA sequence to see alignment preview.</div>
+            <div className="text-sm text-muted-foreground italic">
+              Type a DNA sequence to see alignment preview.
+            </div>
           )}
           {preview?.loading && cur && (
             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-[1px]">
@@ -309,7 +400,9 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
               return (
                 <span key={i} className="inline-flex items-center gap-1">
                   <span className="font-semibold">{dir}</span>
-                  <span className="opacity-70 tabular-nums">{alt.start}..{alt.end}</span>
+                  <span className="opacity-70 tabular-nums">
+                    {alt.start}..{alt.end}
+                  </span>
                 </span>
               );
             })}
@@ -340,7 +433,10 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
                 variant="ghost"
                 size="sm"
                 className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={async () => { await onDeletePrimer(primer.id); onOpenChange(false); }}
+                onClick={async () => {
+                  await onDeletePrimer(primer.id);
+                  onOpenChange(false);
+                }}
               >
                 <Trash2 className="size-3.5" />
                 Delete
@@ -350,16 +446,24 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
               Cancel
             </Button>
             {hasChanges && (
-              <Button variant="outline" size="sm" onClick={() => {
-                setEditSeq(isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || ''));
-                setPreview(null);
-              }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditSeq(isNewPrimer ? newPrimerSeq || '' : primer?.primerSeq || '');
+                  setPreview(null);
+                }}
+              >
                 <RotateCcw className="size-3.5" />
                 Reset
               </Button>
             )}
             {hasChanges && (
-              <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid || nameConflict}>
+              <Button
+                size="sm"
+                onClick={handleApply}
+                disabled={editSeq.length < 6 || isInvalid || nameConflict}
+              >
                 {isNewPrimer ? 'Create Primer' : 'Apply'}
               </Button>
             )}
@@ -369,8 +473,10 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         {/* Confirm discard dialog */}
         {confirmClose && (
           <div className="absolute inset-0 z-50 flex items-center justify-center rounded-xl bg-black/35 backdrop-blur-[2px]">
-            <div className="mx-4 max-w-sm rounded-xl border bg-card p-5 shadow-2xl"
-              onClick={e => e.stopPropagation()}>
+            <div
+              className="mx-4 max-w-sm rounded-xl border bg-card p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
                 <AlertTriangle className="size-4 text-amber-500" />
                 Discard changes?

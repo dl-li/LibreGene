@@ -8,11 +8,13 @@ export const enzymeSelColor = '#e0f2fe';
 export const enzymeActiveBlue = '#1E40AF';
 export const amplimerGreen = '#166534';
 export const charHeight = cw;
-export const monoFont = '"Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+export const monoFont =
+  '"Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 export const sansFont = 'sans-serif';
 export const springAnim = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
 
-const _ctx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+const _ctx =
+  typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
 if (_ctx) {
   _ctx.fontFeatureSettings = '"calt" on, "ss01" on';
 }
@@ -22,7 +24,8 @@ const CACHE_PRUNE = 300;
 
 export const getX = (col) => startX + col * cw;
 
-export const complement = (c) => c === 'A' ? 'T' : c === 'T' ? 'A' : c === 'G' ? 'C' : c === 'C' ? 'G' : c;
+export const complement = (c) =>
+  c === 'A' ? 'T' : c === 'T' ? 'A' : c === 'G' ? 'C' : c === 'C' ? 'G' : c;
 
 export const measureWidth = (text, font) => {
   if (!_ctx) return text.length * 8;
@@ -42,7 +45,8 @@ export const measureWidth = (text, font) => {
   return w;
 };
 
-export const enzLabelW = (name, isUnique) => measureWidth(name, `${isUnique ? '700 ' : '350 '}14px ${monoFont}`) + 4;
+export const enzLabelW = (name, isUnique) =>
+  measureWidth(name, `${isUnique ? '700 ' : '350 '}14px ${monoFont}`) + 4;
 export const primerLabelW = (name) => measureWidth(name, 'italic 600 12px TeX Gyre Heros');
 export const featLabelW = (name) => measureWidth(name, 'italic 600 12px TeX Gyre Heros');
 

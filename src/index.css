@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -76,7 +76,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'TeX Gyre Heros', 'Helvetica Neue', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-family:
+      'TeX Gyre Heros',
+      'Helvetica Neue',
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -86,7 +92,8 @@
 }
 
 /* 全局禁用原生文本选择 */
-svg, svg * {
+svg,
+svg * {
   user-select: none !important;
   -webkit-user-select: none !important;
 }

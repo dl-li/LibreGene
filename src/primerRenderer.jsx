@@ -69,7 +69,10 @@ export function computePrimerSegments(primer, charsPerLine) {
       segCols.push(cols[i]);
       i++;
     }
-    if (!segCols.length) { i++; continue; }
+    if (!segCols.length) {
+      i++;
+      continue;
+    }
     segs.push({
       row,
       colStart: segCols[0].templateCol % charsPerLine,
@@ -112,8 +115,17 @@ export function computePrimerSegments(primer, charsPerLine) {
  * For rev primers, columns are traversed right-to-left.
  */
 export function buildSegmentPath(
-  seg, matchY, mismatchY, misY, isFwd, charsPerLine,
-  hasArrow, hasThreePrimeTail, threePrimeTail, arrowWidth, arrowHeight
+  seg,
+  matchY,
+  mismatchY,
+  misY,
+  isFwd,
+  charsPerLine,
+  hasArrow,
+  hasThreePrimeTail,
+  threePrimeTail,
+  arrowWidth,
+  arrowHeight,
 ) {
   const { alignmentCols } = seg;
   if (!alignmentCols?.length) return null;
@@ -121,14 +133,12 @@ export function buildSegmentPath(
   const N = alignmentCols.length;
 
   // For rev: traverse right→left (reverse order)
-  const order = isFwd
-    ? alignmentCols.map((_, k) => k)
-    : alignmentCols.map((_, k) => N - 1 - k);
+  const order = isFwd ? alignmentCols.map((_, k) => k) : alignmentCols.map((_, k) => N - 1 - k);
 
-  const cx = order.map(k => getX(alignmentCols[k].templateCol % charsPerLine) + cw / 2);
-  const cy = order.map(k => {
+  const cx = order.map((k) => getX(alignmentCols[k].templateCol % charsPerLine) + cw / 2);
+  const cy = order.map((k) => {
     const kind = alignmentCols[k].kind;
-    return (kind === 'mismatch' || kind === 'gap' || kind === 'insertion') ? mismatchY : matchY;
+    return kind === 'mismatch' || kind === 'gap' || kind === 'insertion' ? mismatchY : matchY;
   });
 
   const firstK = order[0];
@@ -143,7 +153,8 @@ export function buildSegmentPath(
     : getX(alignmentCols[lastK].templateCol % charsPerLine);
 
   // Arrow at 3' end
-  let tipX = null, tipY = null;
+  let tipX = null,
+    tipY = null;
   if (hasArrow) {
     tipX = isFwd ? edge3x - arrowWidth : edge3x + arrowWidth;
     tipY = isFwd ? cy[cy.length - 1] - arrowHeight : cy[cy.length - 1] + arrowHeight;
@@ -167,7 +178,7 @@ export function buildSegmentPath(
     pts.push([tailEndX, misY]);
   }
 
-  const d = `M ${pts.map(p => `${p[0]} ${p[1]}`).join(' L ')}`;
+  const d = `M ${pts.map((p) => `${p[0]} ${p[1]}`).join(' L ')}`;
   return { d, edge5x, edge3x, pts, cy, order, alignmentCols, firstK, lastK };
 }
 
@@ -176,21 +187,28 @@ export function buildSegmentPath(
  * Follows the line with offset for mismatches and gaps.
  */
 export function buildSegmentHoverPath(
-  seg, matchY, mismatchY, misY, isFwd, charsPerLine,
-  primerExpand, hasThreePrimeTail, threePrimeTail, hasFivePrimeTail, fivePrimeTail
+  seg,
+  matchY,
+  mismatchY,
+  misY,
+  isFwd,
+  charsPerLine,
+  primerExpand,
+  hasThreePrimeTail,
+  threePrimeTail,
+  hasFivePrimeTail,
+  fivePrimeTail,
 ) {
   const { alignmentCols } = seg;
   if (!alignmentCols?.length) return null;
 
   const N = alignmentCols.length;
-  const order = isFwd
-    ? alignmentCols.map((_, k) => k)
-    : alignmentCols.map((_, k) => N - 1 - k);
+  const order = isFwd ? alignmentCols.map((_, k) => k) : alignmentCols.map((_, k) => N - 1 - k);
 
-  const cx = order.map(k => getX(alignmentCols[k].templateCol % charsPerLine) + cw / 2);
-  const cy = order.map(k => {
+  const cx = order.map((k) => getX(alignmentCols[k].templateCol % charsPerLine) + cw / 2);
+  const cy = order.map((k) => {
     const kind = alignmentCols[k].kind;
-    return (kind === 'mismatch' || kind === 'gap' || kind === 'insertion') ? mismatchY : matchY;
+    return kind === 'mismatch' || kind === 'gap' || kind === 'insertion' ? mismatchY : matchY;
   });
 
   const firstK = order[0];
@@ -204,8 +222,8 @@ export function buildSegmentHoverPath(
     : getX(alignmentCols[lastK].templateCol % charsPerLine);
 
   // Expanded edge: away from main chain
-  const topCy = isFwd ? cy.map(y => y - primerExpand) : cy;
-  const botCy = isFwd ? cy : cy.map(y => y + primerExpand);
+  const topCy = isFwd ? cy.map((y) => y - primerExpand) : cy;
+  const botCy = isFwd ? cy : cy.map((y) => y + primerExpand);
 
   const parts = [];
 
@@ -254,5 +272,5 @@ export function buildSegmentHoverPath(
     parts.push([tailEndX, misY + (isFwd ? 0 : primerExpand)]);
   }
 
-  return `M ${parts.map(p => `${p[0]} ${p[1]}`).join(' L ')} Z`;
+  return `M ${parts.map((p) => `${p[0]} ${p[1]}`).join(' L ')} Z`;
 }
