@@ -7,6 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { monoFont } from './editorConstants';
 
 /* ---------- GenBank location helpers ---------- */
@@ -100,12 +101,72 @@ function extractQualifiers(feature) {
   return quals;
 }
 
-/* ---------- Strand cycle ---------- */
-const STRAND_CYCLE = { 'both': '+', '+': '-', '-': 'both' };
+/* ---------- Strand ---------- */
+const STRAND_OPTIONS = ['both', '+', '-'];
 const STRAND_LABEL = { 'both': 'both', '+': '+', '-': '-' };
 
-/* ---------- Styles ---------- */
+/* ---------- Shared bits ---------- */
 const HIGHLIGHT = '#1E40AF';
+
+const LABEL_CLS = 'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
+
+function ColorSwatch({ color, onChange }) {
+  return (
+    <span className="relative inline-block size-6 shrink-0">
+      <span
+        className="absolute inset-0 rounded-md shadow-sm ring-1 ring-inset ring-black/10"
+        style={{ backgroundColor: color }}
+      />
+      <input
+        type="color"
+        value={color}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 size-full cursor-pointer opacity-0"
+      />
+    </span>
+  );
+}
+
+function StrandSegmented({ value, onSelect }) {
+  return (
+    <div className="inline-flex rounded-lg border border-input bg-muted/50 p-0.5">
+      {STRAND_OPTIONS.map(s => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onSelect(s)}
+          className={
+            'min-w-10 rounded-md px-2.5 py-1 font-mono text-xs font-bold transition-colors ' +
+            (value === s
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+              : 'text-muted-foreground hover:text-foreground')
+          }
+        >
+          {STRAND_LABEL[s]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FtypeSelect({ value, onChange, autoFocus, onBlur }) {
+  return (
+    <div className="relative inline-flex items-center">
+      <select
+        value={value}
+        onChange={onChange}
+        onBlur={onBlur}
+        autoFocus={autoFocus}
+        className="h-8 appearance-none rounded-md border border-input bg-background pl-2 pr-7 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
+      >
+        {FTYPE_OPTIONS.map(o => (
+          <option key={o} value={o}>{o}</option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2 size-3.5 text-muted-foreground" />
+    </div>
+  );
+}
 
 /* ---------- Component ---------- */
 export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtypeChange, onFeatureColorChange, onFeatureLocationChange, onFeatureNameChange, onFeatureStrandChange, newFeatureLoc, onFeatureAdd, onDeleteFeature, features }) {
@@ -175,8 +236,7 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
   }, [createName, features, isNewFeature]);
 
   // --- Create mode --------------------------------
-  const handleStrandCycle = () => {
-    const next = STRAND_CYCLE[createStrandDir];
+  const handleStrandSelect = (next) => {
     let newLoc = createLoc;
     if (createStrandDir === '-' && next !== '-') {
       newLoc = unwrapComplement(createLoc);
@@ -242,62 +302,61 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     onOpenChange(false);
   };
 
+  const handleEditStrandSelect = (next) => {
+    const cur = feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both');
+    if (next === cur) return;
+    const newStrand = next === 'both' ? '.' : next;
+    let newLoc = locLabel;
+    if (cur === '-' && next !== '-') {
+      newLoc = unwrapComplement(locLabel);
+    } else if (cur !== '-' && next === '-') {
+      newLoc = wrapComplement(locLabel);
+    }
+    // Update location if complement changed
+    if (newLoc !== locLabel && onFeatureLocationChange) {
+      submitLocation(newLoc);
+    }
+    // Update strand directly for both transitions
+    if (onFeatureStrandChange && (cur === 'both' || next === 'both')) {
+      onFeatureStrandChange(feature.id, newStrand);
+    }
+  };
+
   // --- Render create mode ---
   if (isNewFeature) {
     return (
       <Dialog open={open} onOpenChange={(o) => { if (!o) onOpenChange(false); }}>
         <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="text-base">New Feature</DialogTitle>
+            <DialogTitle>New Feature</DialogTitle>
           </DialogHeader>
 
-          {/* Name + Color row */}
-          <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
-            <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
-            <input
-              value={createName}
-              onChange={(e) => { setCreateName(e.target.value); setCreateError(''); }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateApply();
-                else if (e.key === 'Escape') { setCreateName('New Feature'); e.target.blur(); }
-              }}
-              style={{
-                fontWeight: 600, fontSize: 'inherit',
-                border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-                background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-            <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, flexShrink: 0 }}>
-              <span style={{ position: 'absolute', inset: 0, backgroundColor: createColor, border: '2px solid #000', borderRadius: 2, pointerEvents: 'none' }} />
+          <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3.5">
+            {/* Name */}
+            <span className={LABEL_CLS}>Name</span>
+            <div className="flex items-center gap-3 min-w-0">
               <input
-                type="color"
-                value={createColor}
-                onChange={(e) => setCreateColor(e.target.value)}
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', padding: 0, border: 'none', opacity: 0, cursor: 'pointer' }}
+                value={createName}
+                onChange={(e) => { setCreateName(e.target.value); setCreateError(''); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateApply();
+                  else if (e.key === 'Escape') { setCreateName('New Feature'); e.target.blur(); }
+                }}
+                className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
+                onClick={(e) => e.stopPropagation()}
               />
-            </span>
-          </div>
+              <ColorSwatch color={createColor} onChange={setCreateColor} />
+            </div>
 
-          {/* Type row */}
-          <div className="flex items-center gap-2 px-1 mb-3" style={{ fontSize: '14px', lineHeight: '1.4' }}>
-            <span style={{ fontWeight: 600, color: '#6B7280' }}>Type: </span>
-            <select
-              value={createFtype}
-              onChange={(e) => setCreateFtype(e.target.value)}
-              className="text-sm border rounded px-1 py-0.5"
-              style={{ fontWeight: 700, fontFamily: monoFont }}
-            >
-              {FTYPE_OPTIONS.map(o => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </div>
+            {/* Type */}
+            <span className={LABEL_CLS}>Type</span>
+            <div>
+              <FtypeSelect value={createFtype} onChange={(e) => setCreateFtype(e.target.value)} />
+            </div>
 
-          {/* Location row */}
-          <div className="flex items-start gap-2 px-1 mb-3 flex-col" style={{ fontSize: '14px', lineHeight: '1.4' }}>
-            <div className="flex items-center gap-2 w-full">
-              <span style={{ fontWeight: 600, color: '#6B7280', whiteSpace: 'nowrap' }}>Location: </span>
+            {/* Location */}
+            <span className={LABEL_CLS}>Location</span>
+            <div className="min-w-0">
               <input
                 value={createLoc}
                 onChange={(e) => { setCreateLoc(e.target.value); setCreateLocError(''); setCreateError(''); }}
@@ -305,50 +364,37 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
                   if (e.key === 'Enter') handleCreateApply();
                 }}
                 autoFocus
-                className="text-sm border rounded px-1 py-0.5 flex-1"
-                style={{ fontWeight: 700, fontFamily: monoFont, minWidth: 200 }}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
                 placeholder="e.g. 11..456"
               />
+              {createLocError && (
+                <div className="mt-1 font-mono text-[11px] text-red-600">{createLocError}</div>
+              )}
             </div>
-            {createLocError && (
-              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: monoFont }}>{createLocError}</div>
-            )}
-          </div>
 
-          {/* Strand — single cycling button */}
-          <div className="flex items-center gap-2 px-1 mb-3" style={{ fontSize: '14px', lineHeight: '1.4' }}>
-            <span style={{ fontWeight: 600, color: '#6B7280' }}>Strand: </span>
-            <button
-              onClick={handleStrandCycle}
-              title="Click to cycle: both → + → - → both"
-              style={{
-                padding: '2px 14px', borderRadius: 4, cursor: 'pointer',
-                fontWeight: 700, fontFamily: monoFont, fontSize: '13px',
-                border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
-              }}
-            >
-              {STRAND_LABEL[createStrandDir]}
-            </button>
+            {/* Strand */}
+            <span className={LABEL_CLS}>Strand</span>
+            <div>
+              <StrandSegmented value={createStrandDir} onSelect={handleStrandSelect} />
+            </div>
           </div>
 
           {/* Create error */}
           {createError && (
-            <div className="mx-1 mb-2 px-2 py-1 rounded text-xs"
-              style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
               {createError}
             </div>
           )}
 
           {/* Name conflict warning */}
           {nameConflict && (
-            <div className="mx-1 mb-2 px-2 py-1 rounded text-xs"
-              style={{ backgroundColor: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Name "{createName}" is already used by another feature
             </div>
           )}
 
           {/* Footer */}
-          <DialogFooter className="mt-3">
+          <DialogFooter className="mt-1">
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>
               <Button size="sm" onClick={handleCreateApply} disabled={!createLoc.trim() || !!nameConflict}>
@@ -376,168 +422,118 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
     }}>
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-base">Feature</DialogTitle>
+          <DialogTitle>Feature</DialogTitle>
         </DialogHeader>
 
-        {/* Name + Color row */}
-        <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
-          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
-          <input
-            value={nameInput}
-            onChange={(e) => { setNameInput(e.target.value); setNameDirty(true); }}
-            onBlur={() => {
-              if (nameInput !== feature.name) setNameDirty(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { handleApply(); }
-              else if (e.key === 'Escape') { setNameInput(feature.name); setNameDirty(false); e.target.blur(); }
-            }}
-            style={{
-              fontWeight: 600, fontSize: 'inherit',
-              border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-              background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-          <span style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, flexShrink: 0 }}>
-            <span
-              style={{
-                position: 'absolute', inset: 0,
-                backgroundColor: feature.color || '#60A5FA',
-                border: '2px solid #000',
-                borderRadius: 2,
-                pointerEvents: 'none',
-              }}
-            />
+        <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3.5">
+          {/* Name */}
+          <span className={LABEL_CLS}>Name</span>
+          <div className="flex items-center gap-3 min-w-0">
             <input
-              type="color"
-              value={feature.color || '#60A5FA'}
-              onChange={(e) => onFeatureColorChange?.(feature.id, e.target.value)}
-              style={{
-                position: 'absolute', inset: 0,
-                width: '100%', height: '100%',
-                padding: 0, border: 'none',
-                opacity: 0, cursor: 'pointer',
+              value={nameInput}
+              onChange={(e) => { setNameInput(e.target.value); setNameDirty(true); }}
+              onBlur={() => {
+                if (nameInput !== feature.name) setNameDirty(true);
               }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { handleApply(); }
+                else if (e.key === 'Escape') { setNameInput(feature.name); setNameDirty(false); e.target.blur(); }
+              }}
+              className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
+              onClick={(e) => e.stopPropagation()}
             />
-          </span>
-        </div>
+            <ColorSwatch
+              color={feature.color || '#60A5FA'}
+              onChange={(c) => onFeatureColorChange?.(feature.id, c)}
+            />
+          </div>
 
-        {/* Type & Location outside the box */}
-        <div className="flex flex-col gap-1.5 mt-1.5 mb-0.5 px-1">
-          <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
-            <span style={{ fontWeight: 600, color: '#6B7280' }}>Type: </span>
+          {/* Type */}
+          <span className={LABEL_CLS}>Type</span>
+          <div>
             {editingFtype ? (
-              <select
+              <FtypeSelect
                 value={currentFtype}
+                autoFocus
+                onBlur={() => setEditingFtype(false)}
                 onChange={(e) => {
                   setEditingFtype(false);
                   onFtypeChange?.(feature.id, e.target.value);
                 }}
-                onBlur={() => setEditingFtype(false)}
-                autoFocus
-                className="text-sm border rounded px-1 py-0.5"
-                style={{ fontWeight: 700, fontFamily: monoFont }}
-              >
-                {FTYPE_OPTIONS.map(o => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
+              />
             ) : (
-              <span
-                style={{ fontWeight: 700, fontFamily: monoFont, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
+              <button
+                type="button"
+                className="rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
+                title="Click to change type"
                 onClick={() => { setEditingLoc(false); setEditingFtype(true); }}
-              >{currentFtype}</span>
+              >
+                {currentFtype}
+              </button>
             )}
           </div>
-          <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
-            <span style={{ fontWeight: 600, color: '#6B7280' }}>Location: </span>
+
+          {/* Location */}
+          <span className={LABEL_CLS}>Location</span>
+          <div className="min-w-0">
             {editingLoc ? (
-              <span className="inline-flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <input
                   value={locInput}
                   onChange={(e) => { setLocInput(e.target.value); setLocError(''); }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Escape') { setEditingLoc(false); setLocError(''); }
+                    if (e.key === 'Enter') submitLocation(locInput);
+                    else if (e.key === 'Escape') { setEditingLoc(false); setLocError(''); }
                   }}
                   autoFocus
-                  className="text-sm border rounded px-1 py-0.5 inline-block"
-                  style={{ fontWeight: 700, fontFamily: monoFont, width: 'auto', minWidth: 200 }}
+                  className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
                 />
-                <button
-                  onClick={() => submitLocation(locInput)}
-                  disabled={!!locError}
-                  style={{
-                    fontSize: '14px', fontWeight: 700, fontFamily: monoFont,
-                    padding: '2px 10px', cursor: 'pointer',
-                    background: '#000', color: '#fff', border: 'none', borderRadius: 4,
-                  }}
-                >Apply</button>
-              </span>
+                <Button size="sm" className="h-8" onClick={() => submitLocation(locInput)} disabled={!!locError}>
+                  Apply
+                </Button>
+              </div>
             ) : (
-              <span
-                style={{ fontWeight: 700, fontFamily: monoFont, color: '#1f2937', textDecoration: 'underline', cursor: 'pointer' }}
+              <button
+                type="button"
+                className="max-w-full truncate rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
+                title="Click to edit location"
                 onClick={() => { setEditingFtype(false); setLocInput(locLabel); setEditingLoc(true); setLocError(''); }}
-              >{locLabel}</span>
+              >
+                {locLabel}
+              </button>
             )}
             {locError && editingLoc && (
-              <div style={{ color: '#dc2626', fontSize: '11px', fontFamily: monoFont, marginTop: 2 }}>
-                {locError}
-              </div>
+              <div className="mt-1 font-mono text-[11px] text-red-600">{locError}</div>
             )}
           </div>
 
-          {/* Strand — single cycling button (edit mode) */}
-          <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
-            <span style={{ fontWeight: 600, color: '#6B7280' }}>Strand: </span>
-            <button
-              onClick={() => {
-                const cur = feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both');
-                const next = STRAND_CYCLE[cur];
-                const newStrand = next === 'both' ? '.' : next;
-                let newLoc = locLabel;
-                if (cur === '-' && next !== '-') {
-                  newLoc = unwrapComplement(locLabel);
-                } else if (cur !== '-' && next === '-') {
-                  newLoc = wrapComplement(locLabel);
-                }
-                // Update location if complement changed
-                if (newLoc !== locLabel && onFeatureLocationChange) {
-                  submitLocation(newLoc);
-                }
-                // Update strand directly for both transitions
-                if (onFeatureStrandChange && (cur === 'both' || next === 'both')) {
-                  onFeatureStrandChange(feature.id, newStrand);
-                }
-              }}
-              title="Click to cycle: both → + → - → both"
-              style={{
-                padding: '2px 14px', borderRadius: 4, cursor: 'pointer',
-                fontWeight: 700, fontFamily: monoFont, fontSize: '13px',
-                border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
-              }}
-            >
-              {STRAND_LABEL[feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both')]}
-            </button>
+          {/* Strand */}
+          <span className={LABEL_CLS}>Strand</span>
+          <div>
+            <StrandSegmented
+              value={feature.strand === '-' ? '-' : (feature.strand === '+' ? '+' : 'both')}
+              onSelect={handleEditStrandSelect}
+            />
           </div>
         </div>
 
         {/* Qualifiers — collapsible, default collapsed */}
-        <div className="mt-2 rounded border" style={{ backgroundColor: '#faf9f7' }}>
-          <div
+        <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/40">
+          <button
+            type="button"
             onClick={() => setQualifiersOpen(v => !v)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', cursor: 'pointer',
-              fontSize: '12px', fontWeight: 600, color: '#6B7280',
-              userSelect: 'none',
-            }}
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
           >
-            <span style={{ transform: qualifiersOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s', fontSize: '10px' }}>▶</span>
-            Qualifiers {qualifierLines.length > 0 && `(${qualifierLines.length})`}
-          </div>
+            <ChevronRight className={`size-3.5 transition-transform duration-150 ${qualifiersOpen ? 'rotate-90' : ''}`} />
+            Qualifiers
+            {qualifierLines.length > 0 && (
+              <span className="rounded-full bg-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-accent-foreground">
+                {qualifierLines.length}
+              </span>
+            )}
+          </button>
           {qualifiersOpen && (
-            <div className="p-4 pt-2 overflow-y-auto" style={{ maxHeight: 240 }}>
+            <div className="max-h-60 overflow-y-auto border-t border-border/60 px-3.5 py-2.5">
               {qualifierLines.map((line, i) => (
                 <div key={i} className="leading-6" style={{ fontFamily: monoFont, fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                   <span style={{ fontWeight: 700, color: HIGHLIGHT }}>{line.label}</span>
@@ -552,10 +548,15 @@ export default function FeatureInfoDialog({ feature, open, onOpenChange, onFtype
         </div>
 
         {/* Footer */}
-        <DialogFooter className="mt-3">
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive"
-              onClick={async () => { await onDeleteFeature(feature.id); onOpenChange(false); }}>
+        <DialogFooter className="mt-1">
+          <div className="flex w-full items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={async () => { await onDeleteFeature(feature.id); onOpenChange(false); }}
+            >
+              <Trash2 className="size-3.5" />
               Delete
             </Button>
             <Button variant="outline" size="sm" onClick={handleCancel}>Cancel</Button>

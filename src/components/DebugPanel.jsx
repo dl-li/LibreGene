@@ -10,7 +10,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, ChevronRight, SlidersHorizontal } from 'lucide-react';
+
+const SECTION_TITLE = 'text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5';
 
 function NumInput({ label, value, onChange, min, max, step }) {
   return (
@@ -28,12 +30,12 @@ function CollapsibleSection({ title, defaultOpen, children }) {
   return (
     <div>
       <button
-        className="flex items-center gap-1.5 w-full text-xs font-medium text-foreground py-1.5 hover:text-primary transition-colors cursor-pointer"
+        className="group flex w-full items-center gap-1.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
         onClick={() => setOpen(!open)}>
-        <span className="text-muted-foreground text-[10px]">{open ? '▾' : '▸'}</span>
+        <ChevronRight className={`size-3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
         {title}
       </button>
-      {open && <div className="space-y-1.5 mt-1 mb-3">{children}</div>}
+      {open && <div className="mb-3 mt-1 space-y-1.5 pl-1">{children}</div>}
     </div>
   );
 }
@@ -57,7 +59,10 @@ export default function DebugPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-80 sm:max-w-xs overflow-y-auto" showCloseButton={true}>
         <SheetHeader className="px-0 pt-2 pb-1">
-          <SheetTitle className="text-base">Debug 面板</SheetTitle>
+          <SheetTitle className="flex items-center gap-2 text-base">
+            <SlidersHorizontal className="size-4 text-muted-foreground" />
+            Debug 面板
+          </SheetTitle>
         </SheetHeader>
 
         <div className="space-y-3 text-sm">
@@ -79,7 +84,7 @@ export default function DebugPanel({
 
           {/* ── 文件加载 ── */}
           <div>
-            <div className="text-xs font-medium mb-1.5">文件</div>
+            <div className={SECTION_TITLE}>文件</div>
             <Button variant="default" size="sm" className="w-full h-8 text-xs" onClick={onOpenFile}>
               <FolderOpen className="h-3.5 w-3.5 mr-1.5" /> 打开文件
             </Button>
@@ -103,7 +108,7 @@ export default function DebugPanel({
 
           {/* ── 酶过滤器 ── */}
           <div>
-            <div className="text-xs font-medium mb-1.5">
+            <div className={SECTION_TITLE}>
               酶切位点 ({enzymes.length} 总, {displayEnzymes.length} 显示)
             </div>
             <select className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -130,7 +135,7 @@ export default function DebugPanel({
 
           {/* ── 甲基化 ── */}
           <div>
-            <div className="text-xs font-medium mb-1.5">甲基化</div>
+            <div className={SECTION_TITLE}>甲基化</div>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Checkbox id="dp-meth-dam" checked={methylationSystems.includes('dam')}
@@ -167,7 +172,7 @@ export default function DebugPanel({
 
           {/* ── 引物分析 ── */}
           <div>
-            <div className="text-xs font-medium mb-1.5">引物分析</div>
+            <div className={SECTION_TITLE}>引物分析</div>
             <NumInput label="种子区长度 (bp)" value={primerSeedLength}
               onChange={setPrimerSeedLength} min={6} max={20} />
           </div>
