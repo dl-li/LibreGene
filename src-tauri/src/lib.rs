@@ -943,6 +943,9 @@ fn compute_primer_alignment_sync(
     let orig_bytes = primer_seq.as_bytes();
     let plen = primer_bytes.len();
 
+    if plen < 6 {
+        return Err(format!("Primer too short ({}bp < 6bp seed)", plen));
+    }
     let seed_len = seed_length.unwrap_or(10).clamp(6, plen.min(20));
     let expansion: usize = 60;
 
