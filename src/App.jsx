@@ -48,6 +48,7 @@ export default function App() {
   const perProjectSelectionRef = useRef({}); // { [id]: { cursorIndex, selStart, selEnd, selectionMode, selectedPrimerIds, isEnzymeSelection, selectedEnzymeIds } }
   const switchGenRef = useRef(0);      // generation counter to cancel stale async responses
   const operationGenRef = useRef(0);   // generation counter for all mutations (prevents cross-contamination)
+  const mainScrollRef = useRef(null);  // scroll container for the editor
 
   // --- Sequence editing state ---
   const editHistoryRef = useRef(createEditHistory());
@@ -419,7 +420,7 @@ export default function App() {
       if (!perProjectSelectionRef.current[activeId]) {
         perProjectSelectionRef.current[activeId] = {};
       }
-      perProjectSelectionRef.current[activeId].scrollY = window.scrollY;
+      perProjectSelectionRef.current[activeId].scrollY = mainScrollRef.current?.scrollTop ?? 0;
     }
     // Retrieve the target project's saved selection (or empty defaults)
     const targetSel = id ? perProjectSelectionRef.current[id] : null;
@@ -459,7 +460,7 @@ export default function App() {
 
       // Restore scroll position for this project (or scroll to top for new projects)
       requestAnimationFrame(() => {
-        window.scrollTo(0, targetSel?.scrollY ?? 0);
+        mainScrollRef.current?.scrollTo(0, targetSel?.scrollY ?? 0);
       });
     }
 
@@ -504,7 +505,7 @@ export default function App() {
 
           // Restore scroll position for this project
           requestAnimationFrame(() => {
-            window.scrollTo(0, targetSel?.scrollY ?? 0);
+            mainScrollRef.current?.scrollTo(0, targetSel?.scrollY ?? 0);
           });
         }
 
@@ -1283,7 +1284,7 @@ export default function App() {
         open={sidebarHover}
         style={{ "--sidebar-width": "14rem" }}
       >
-        <div className="relative min-h-screen w-full bg-background">
+        <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
           <TitleBar
             title={docTitle}
             dirty={isDirty}
@@ -1300,7 +1301,7 @@ export default function App() {
               {sidebarContent}
             </div>
           )}
-          <main className="w-full transition-[padding] duration-300 ease-out">
+          <main ref={mainScrollRef} className="w-full flex-1 overflow-y-auto overscroll-contain transition-[padding] duration-300 ease-out">
             {hasProject ? (
               <SequenceEditor
                 sequence={sequence}
@@ -1322,9 +1323,10 @@ export default function App() {
                 onPrimerDelete={handleDeletePrimer}
                 primerSeedLength={primerSeedLength}
                 onSelectionChange={handleSelectionChange}
+                scrollContainerRef={mainScrollRef}
               />
             ) : (
-              <div className="flex min-h-[calc(100svh-2.5rem)] flex-col items-center justify-center gap-5 p-6 text-center">
+              <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
                 <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
                   <Dna className="size-8" />
                 </div>

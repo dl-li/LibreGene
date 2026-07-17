@@ -62,7 +62,7 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
   return (
     <header
       data-tauri-drag-region="deep"
-      className="sticky top-0 z-50 flex h-10 shrink-0 select-none items-center border-b border-border/70 bg-background"
+      className="relative z-50 flex h-10 shrink-0 select-none items-center border-b border-border/70 bg-background"
     >
       {isTauri && (
         <div className="group/traffic flex items-center gap-2 pl-3.5">
