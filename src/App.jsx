@@ -61,7 +61,7 @@ export default function App() {
   const dirtyStateRef = useRef({}); // per-project dirty state
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
   const unsavedPendingRef = useRef(null); // ref mirror of pendingAction for stale-closure-safe access
-  const lastSavePathRef = useRef(null); // 最后保存/打开的路径
+  const savePathMapRef = useRef({}); // { [projectId]: 最后保存/打开的路径 }
   const baselineSequenceRef = useRef(''); // 文件打开/保存时的基线序列（用于 undo/redo 后准确判断 dirty）
   const baselinePerProjectRef = useRef({}); // { [projectId]: baselineSequence } — per-project baseline tracking
 
@@ -196,7 +196,7 @@ export default function App() {
             editHistoryRef.current.reset({ sequence: data.sequence, features: data.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
             baselineSequenceRef.current = data.sequence;
             baselinePerProjectRef.current[pid] = data.sequence;
-            lastSavePathRef.current = pid;
+            savePathMapRef.current[pid] = pid;
             dirtyStateRef.current[pid] = false;
             setIsDirty(false);
           }
@@ -388,7 +388,7 @@ export default function App() {
           editHistoryRef.current.reset({ sequence: lastData.sequence, features: lastData.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
           baselineSequenceRef.current = lastData.sequence;
           baselinePerProjectRef.current[pid] = lastData.sequence;
-          lastSavePathRef.current = pid;
+          savePathMapRef.current[pid] = pid;
           dirtyStateRef.current[pid] = false;
           setIsDirty(false);
         }
@@ -409,6 +409,8 @@ export default function App() {
   }, [activeId]);
 
   const handleActivateProject = useCallback(async (id) => {
+    // No-op when already on this project
+    if (!id || id === activeIdRef.current) return;
     // Save current project's dirty state, baseline, selection, and scroll position before switching away
     if (activeId && activeId !== id) {
       dirtyStateRef.current[activeId] = isDirty;
@@ -446,7 +448,7 @@ export default function App() {
       // Reset undo history for the switched-to project
       editHistoryRef.current.reset({ sequence: cached.sequence, features: cached.features, cursorIndex: null, selStart: null, selEnd: null });
       baselineSequenceRef.current = baselinePerProjectRef.current[id] ?? cached.sequence;
-      lastSavePathRef.current = id;
+      savePathMapRef.current[id] = id;
       // Restore per-project dirty state and keep dirty indicator consistent
       setIsDirty(dirtyStateRef.current[id] === true);
       if (!methFresh) {
@@ -494,7 +496,7 @@ export default function App() {
           editHistoryRef.current.reset({ sequence: data.sequence, features: data.features || EMPTY_ARRAY, cursorIndex: null, selStart: null, selEnd: null });
           baselineSequenceRef.current = data.sequence;
           baselinePerProjectRef.current[id] = data.sequence;
-          lastSavePathRef.current = id;
+          savePathMapRef.current[id] = id;
           // Restore per-project dirty state instead of always setting clean
           setIsDirty(dirtyStateRef.current[id] === true);
           const fn = id.split('/').pop().split('\\').pop();
@@ -1009,10 +1011,10 @@ export default function App() {
     try {
       const result = await saveFile({ path });
       if (result && !result.error) {
-        lastSavePathRef.current = path;
+        if (activeId) savePathMapRef.current[activeId] = path;
         baselineSequenceRef.current = sequenceRef.current || sequence;
-        baselinePerProjectRef.current[path] = baselineSequenceRef.current;
-        dirtyStateRef.current[path] = false;
+        if (activeId) baselinePerProjectRef.current[activeId] = baselineSequenceRef.current;
+        if (activeId) dirtyStateRef.current[activeId] = false;
         setIsDirty(false);
       }
     } catch (e) {
@@ -1027,7 +1029,7 @@ export default function App() {
       return;
     }
 
-    const filePath = lastSavePathRef.current || activeId;
+    const filePath = (activeId && savePathMapRef.current[activeId]) || activeId;
     if (!filePath) {
       // No path known — fall back to Save As
       await handleSaveAs();
@@ -1058,6 +1060,7 @@ export default function App() {
       delete dirtyStateRef.current[id];
       delete baselinePerProjectRef.current[id];
       delete projectCacheRef.current[id];
+      delete savePathMapRef.current[id];
 
       // If the closed project was active, load the new active project's data
       if (id === activeId) {
