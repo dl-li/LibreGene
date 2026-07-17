@@ -220,49 +220,61 @@ export default function App() {
 
     // Event listener: main window syncs project list; project windows ignore
     if (windowInfo.type === 'main') {
-      listener = listenProjectUpdates((msg) => {
+      // Fetch own window label to filter out self-sent broadcasts
+      (async () => {
+        let ownLabel = null;
+        try {
+          if (isTauri) {
+            ownLabel = (await import('@tauri-apps/api/window')).getCurrentWindow().label;
+          }
+        } catch {}
         if (cancelled) return;
-        // Update the project list only — dirtyStateRef is managed by mutation handlers
-        if (msg.projects) {
-          setProjects(msg.projects);
-        }
-        if (msg.activeId !== undefined) {
-          setActiveId(msg.activeId);
-        }
-        // No active project exists — clear to the empty state
-        if (!msg.data && !msg.activeId) {
-          clearEditorState();
-          return;
-        }
-        // Only apply full data update if it matches the currently active project
-        // to prevent cross-contamination from other windows' modifications
-        if (msg.data && msg.data.sequence && msg.activeId !== undefined) {
-          // Update cache for the affected project regardless
-          projectCacheRef.current[msg.activeId] = {
-            sequence: msg.data.sequence,
-            features: msg.data.features || EMPTY_ARRAY,
-            enzymes: msg.data.enzymes || EMPTY_ARRAY,
-            primers: msg.data.primers || EMPTY_ARRAY,
-            methKey: methKeyRef.current,
-          };
-          baselinePerProjectRef.current[msg.activeId] = msg.data.sequence;
-          // Only update UI if this is the currently active project
-          // (use ref to avoid stale closure on activeId)
-          if (msg.activeId === activeIdRef.current) {
-            setSequence(msg.data.sequence);
-            setFeatures(msg.data.features || []);
-            setEnzymes(msg.data.enzymes || []);
-            setPrimers(msg.data.primers || []);
-            editHistoryRef.current.reset({
+        listener = listenProjectUpdates((msg) => {
+          if (cancelled) return;
+          // Update the project list only — dirtyStateRef is managed by mutation handlers
+          if (msg.projects) {
+            setProjects(msg.projects);
+          }
+          if (msg.activeId !== undefined) {
+            setActiveId(msg.activeId);
+          }
+          // No active project exists — clear to the empty state
+          if (!msg.data && !msg.activeId) {
+            clearEditorState();
+            return;
+          }
+          // Skip data block for messages from this window (applied by command response)
+          if (msg.source && msg.source === ownLabel) return;
+          // Only apply full data update if it matches the currently active project
+          // to prevent cross-contamination from other windows' modifications
+          if (msg.data && msg.data.sequence && msg.activeId !== undefined) {
+            // Update cache for the affected project regardless
+            projectCacheRef.current[msg.activeId] = {
               sequence: msg.data.sequence,
               features: msg.data.features || EMPTY_ARRAY,
-              cursorIndex: null, selStart: null, selEnd: null,
-            });
-            baselineSequenceRef.current = msg.data.sequence;
-            setIsDirty(msg.data.dirty === true);
+              enzymes: msg.data.enzymes || EMPTY_ARRAY,
+              primers: msg.data.primers || EMPTY_ARRAY,
+              methKey: methKeyRef.current,
+            };
+            baselinePerProjectRef.current[msg.activeId] = msg.data.sequence;
+            // Only update UI if this is the currently active project
+            // (use ref to avoid stale closure on activeId)
+            if (msg.activeId === activeIdRef.current) {
+              setSequence(msg.data.sequence);
+              setFeatures(msg.data.features || []);
+              setEnzymes(msg.data.enzymes || []);
+              setPrimers(msg.data.primers || []);
+              editHistoryRef.current.reset({
+                sequence: msg.data.sequence,
+                features: msg.data.features || EMPTY_ARRAY,
+                cursorIndex: null, selStart: null, selEnd: null,
+              });
+              baselineSequenceRef.current = msg.data.sequence;
+              setIsDirty(msg.data.dirty === true);
+            }
           }
-        }
-      });
+        });
+      })();
     }
 
     return () => { cancelled = true; if (listener) listener.close(); };

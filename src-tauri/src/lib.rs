@@ -150,7 +150,7 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
 }
 
 /// Emit the current project state + filtered project list as a Tauri event.
-async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>) {
+async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, source: Option<&str>) {
     let pm = state.pm.read().await;
     let wp = state.window_projects.read().await;
     let excluded = excluded_project_ids(&wp);
@@ -160,6 +160,7 @@ async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>) 
     let mut payload = serde_json::json!({
         "projects": filtered_projects,
         "activeId": active_id,
+        "source": source,
     });
     // Include project data if there's an active project in the main window
     if let Some(ref active) = active_id {
@@ -461,7 +462,7 @@ async fn add_feature(
     }
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     // Return updated project
     let pm = state.pm.read().await;
@@ -506,7 +507,7 @@ async fn delete_feature(
     };
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     Ok(with_projects_list(
         serde_json::json!({ "features": feats }),
@@ -540,7 +541,7 @@ async fn update_feature_ftype(
     }
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     // Return updated project
     let pm = state.pm.read().await;
@@ -587,7 +588,7 @@ async fn update_feature_color(
     }
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -633,7 +634,7 @@ async fn update_feature_name(
     }
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -683,7 +684,7 @@ async fn update_feature_strand(
         }
     }
 
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -735,7 +736,7 @@ async fn update_feature_location(
     }
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -827,7 +828,7 @@ async fn add_primer(
     }
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     // Return updated project
     let pm = state.pm.read().await;
@@ -872,7 +873,7 @@ async fn delete_primer(
     };
 
     // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     Ok(with_projects_list(
         serde_json::json!({ "primers": primers }),
@@ -1284,6 +1285,7 @@ async fn activate_project(
 
 #[tauri::command]
 async fn delete_project(
+    webview_window: tauri::WebviewWindow,
     app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
@@ -1298,7 +1300,7 @@ async fn delete_project(
             let mut wp = state.window_projects.write().await;
             wp.retain(|_, v| v != &id);
         }
-        broadcast_project(&app_handle, &state).await;
+        broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
         Ok(serde_json::json!({"status": "ok"}))
     } else {
         Ok(serde_json::json!({"error": "project not found"}))
@@ -1312,6 +1314,7 @@ async fn delete_project(
 /// Open the given project in a new OS window.
 #[tauri::command]
 async fn open_in_new_window(
+    webview_window: tauri::WebviewWindow,
     app_handle: AppHandle,
     state: State<'_, AppState>,
     project_id: String,
@@ -1364,13 +1367,13 @@ async fn open_in_new_window(
                     let mut wp = state.window_projects.write().await;
                     wp.remove(&lbl);
                 }
-                broadcast_project(&ah, &state).await;
+                broadcast_project(&ah, &state, None).await;
             });
         }
     });
 
     // Broadcast so the main window updates its sidebar immediately
-    broadcast_project(&app_handle, &state).await;
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     Ok(serde_json::json!({"status": "ok", "windowLabel": window_label}))
 }
