@@ -1342,17 +1342,28 @@ async fn open_in_new_window(
         wp.insert(window_label.clone(), project_id);
     }
 
-    // Create the new window
-    let window = WebviewWindowBuilder::new(
+    // Create the new window (platform-specific chrome)
+    let builder = WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
         WebviewUrl::App("index.html".into()),
     )
     .title("LibreGene - Plasmid Editor")
-    .inner_size(1400.0, 900.0)
-    .decorations(false)
-    .build()
-    .map_err(|e| format!("failed to create window: {e}"))?;
+    .inner_size(1400.0, 900.0);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .decorations(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 14.0));
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.decorations(false);
+
+    let window = builder
+        .build()
+        .map_err(|e| format!("failed to create window: {e}"))?;
 
     // When the project window is destroyed, restore the project to the main window
     let ah = app_handle.clone();

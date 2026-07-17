@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, Minus, Plus, SlidersHorizontal } from 'lucide-react';
+import { X, Minus, Square, SlidersHorizontal } from 'lucide-react';
 import { isTauri } from '@/tauriApi';
-import { cn } from '@/lib/utils';
 
 let windowPromise = null;
 function getAppWindow() {
@@ -11,44 +10,31 @@ function getAppWindow() {
   return windowPromise;
 }
 
-function TrafficLight({ label, onClick, focused, activeClass, dirty, icon }) {
+const isMac = /mac os x/i.test(navigator.userAgent);
+
+// Inline SVG for the Windows restore icon (two overlapping squares)
+function RestoreIcon() {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className={cn(
-        'relative flex size-3 shrink-0 items-center justify-center rounded-full border',
-        focused ? activeClass : 'border-black/[0.08] bg-[#dcdcdc]',
-      )}
-    >
-      {dirty ? (
-        <>
-          <span className="flex items-center justify-center text-black/60 opacity-0 group-hover/traffic:opacity-100">
-            {icon}
-          </span>
-          <span className="absolute size-1 rounded-full bg-black/60 group-hover/traffic:hidden" />
-        </>
-      ) : (
-        <span className="flex items-center justify-center text-black/60 opacity-0 transition-opacity group-hover/traffic:opacity-100">
-          {icon}
-        </span>
-      )}
-    </button>
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="0.5" />
+      <path d="M1 7V1h6" />
+    </svg>
   );
 }
 
 export default function TitleBar({ title, dirty = false, backendStatus, onOpenDebug }) {
-  const [focused, setFocused] = useState(true);
+  const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    if (!isTauri) return undefined;
+    if (!isTauri || isMac) return undefined;
     let unlisten;
     let cancelled = false;
-    getAppWindow()
-      .then((w) => w.onFocusChanged((e) => setFocused(e.payload)))
-      .then((fn) => { if (cancelled) fn(); else unlisten = fn; })
-      .catch(() => {});
+    getAppWindow().then(async (w) => {
+      try { setMaximized(await w.isMaximized()); } catch {}
+      return w.onResized(() => {
+        if (!cancelled) w.isMaximized().then(setMaximized).catch(() => {});
+      });
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; }).catch(() => {});
     return () => { cancelled = true; if (unlisten) unlisten(); };
   }, []);
 
@@ -64,45 +50,21 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
       data-tauri-drag-region="deep"
       className="relative z-50 flex h-10 shrink-0 select-none items-center border-b border-border/70 bg-background"
     >
-      {isTauri && (
-        <div className="group/traffic flex items-center gap-2 pl-3.5">
-          <TrafficLight
-            label="Close"
-            onClick={doClose}
-            focused={focused}
-            dirty={dirty}
-            activeClass="border-[#e0443e] bg-[#ff5f57]"
-            icon={<X className="size-2" strokeWidth={3.5} />}
-          />
-          <TrafficLight
-            label="Minimize"
-            onClick={doMinimize}
-            focused={focused}
-            activeClass="border-[#d89e24] bg-[#febc2e]"
-            icon={<Minus className="size-2" strokeWidth={3.5} />}
-          />
-          <TrafficLight
-            label="Zoom"
-            onClick={doZoom}
-            focused={focused}
-            activeClass="border-[#1dad2b] bg-[#28c840]"
-            icon={<Plus className="size-2" strokeWidth={3.5} />}
-          />
-        </div>
-      )}
+      {/* macOS: spacer for native traffic lights; non-Tauri: nothing */}
+      {isTauri && isMac && <div className="w-[72px] shrink-0" />}
 
       <div className="pointer-events-none absolute inset-x-0 flex justify-center">
         <span className="max-w-[45%] truncate text-[13px] font-medium leading-10 text-foreground/75">
-          {title || 'LibreGene'}
+          {dirty ? '\u2022 ' : ''}{title || 'LibreGene'}
         </span>
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5 pr-2.5">
+      <div className="ml-auto flex items-center pr-2.5">
         {onOpenDebug && (
           <button
             type="button"
             onClick={onOpenDebug}
-            title={`Debug 面板 · ${statusTip}`}
+            title={`Debug 面板 \u00b7 ${statusTip}`}
             className="relative flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <SlidersHorizontal className="size-3.5" />
@@ -111,6 +73,36 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
               style={{ background: statusColor }}
             />
           </button>
+        )}
+
+        {/* Windows/Linux caption buttons (right side) */}
+        {isTauri && !isMac && (
+          <div className="ml-1 flex items-center">
+            <button
+              type="button"
+              aria-label="Minimize"
+              onClick={doMinimize}
+              className="flex h-10 w-[46px] items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Minus className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label={maximized ? 'Restore' : 'Maximize'}
+              onClick={doZoom}
+              className="flex h-10 w-[46px] items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {maximized ? <RestoreIcon /> : <Square className="size-3.5" />}
+            </button>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={doClose}
+              className="flex h-10 w-[46px] items-center justify-center text-muted-foreground transition-colors hover:bg-[#c42b1c] hover:text-white"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
         )}
       </div>
     </header>
