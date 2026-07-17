@@ -1,6 +1,7 @@
 export const cw = 12;
 export const startX = 220;
 export const baseSeqY = 100;
+export const titleBarH = 40;
 export const bgColor = '#fdfbf7';
 export const selBgColor = '#fef3c7';
 export const enzymeSelColor = '#e0f2fe';

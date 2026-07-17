@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { cw, startX, baseSeqY, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange, enzymeActiveBlue, amplimerGreen } from './editorConstants';
+import { cw, startX, baseSeqY, titleBarH, bgColor, monoFont, sansFont, springAnim, getX, complement, measureWidth, enzLabelW, primerLabelW, splitRange, enzymeActiveBlue, amplimerGreen } from './editorConstants';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import { computePrimerAlignment } from './tauriApi';
@@ -96,7 +96,7 @@ function PrimerWarningBadge({ primers }) {
   }, [expanded]);
 
   return (
-    <div ref={ref} style={{ position: 'fixed', top: 8, right: 8, zIndex: 40 }}>
+    <div ref={ref} style={{ position: 'fixed', top: titleBarH + 8, right: 8, zIndex: 40 }}>
       {/* Collapsed badge */}
       {!expanded && (
         <div
@@ -214,7 +214,7 @@ function SelectionLengthBadge({
   return (
     <div
       style={{
-        position: 'fixed', top: 36, right: 8, zIndex: 40,
+        position: 'fixed', top: titleBarH + 36, right: 8, zIndex: 40,
         backgroundColor: bg, color: bgColor,
         border: `1px solid ${bg}`, borderRadius: 5,
         fontSize: '11px', lineHeight: '1.2',
