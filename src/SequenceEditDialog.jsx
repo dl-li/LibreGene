@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle, Repeat } from 'lucide-react'
 
 // IUPAC 核苷酸字符集（含简并碱基）
 const IUPAC_BASES = new Set('ATGCURYSWKMBDHVN')
@@ -160,25 +160,31 @@ export default function SequenceEditDialog({
         <div className="space-y-3">
 
           {/* 光标/选区位置信息 */}
-          <div className="text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {mode === 'insert' && cursorIndex !== null && (
-              <span>Cursor: <code className="font-mono text-foreground">{cursorIndex}</code></span>
+              <>
+                <span>Cursor</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">{cursorIndex}</code>
+              </>
             )}
             {(mode === 'delete' || mode === 'replace') && selStart !== null && selEnd !== null && (
-              <span>
-                Selection: <code className="font-mono text-foreground">{selStart} – {selEnd}</code>
-                {' '}({deleteLen} bp)
-              </span>
+              <>
+                <span>Selection</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
+                  {selStart} – {selEnd}
+                </code>
+                <span className="tabular-nums">({deleteLen} bp)</span>
+              </>
             )}
           </div>
 
           {/* 删除/替换：显示被选中的序列 */}
           {(mode === 'delete' || mode === 'replace') && selectedText && (
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">
-                {mode === 'delete' ? 'Region to delete:' : 'Region to replace (old):'}
+              <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {mode === 'delete' ? 'Region to delete' : 'Region to replace (old)'}
               </label>
-              <div className="font-mono text-xs bg-muted rounded p-2 break-all leading-relaxed select-all overflow-x-auto max-h-[120px] overflow-y-auto border">
+              <div className="max-h-[120px] overflow-auto select-all break-all rounded-lg border border-border/70 bg-muted/50 p-2.5 font-mono text-xs leading-relaxed">
                 {selectedText}
               </div>
             </div>
@@ -187,8 +193,8 @@ export default function SequenceEditDialog({
           {/* 插入/替换：输入新序列 */}
           {(mode === 'insert' || mode === 'replace') && (
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">
-                {mode === 'insert' ? 'Enter sequence to insert:' : 'Enter new sequence:'}
+              <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+                {mode === 'insert' ? 'Sequence to insert' : 'New sequence'}
               </label>
               <textarea
                 ref={inputRef}
@@ -198,48 +204,38 @@ export default function SequenceEditDialog({
                 placeholder="Enter DNA / RNA sequence…"
                 rows={4}
                 spellCheck={false}
-                className="font-mono text-sm w-full rounded-md border bg-transparent p-2 resize-y min-h-[80px] leading-relaxed outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="font-mono text-sm w-full rounded-lg border bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
               />
             </div>
           )}
 
           {/* 统计信息 */}
-          <div className="flex flex-wrap gap-3 text-xs">
+          <div className="flex flex-wrap gap-1.5 text-xs">
             {mode === 'insert' && (
-              <span className="inline-flex items-center gap-1">
-                <span className="text-muted-foreground">Insert</span>
-                {' '}
-                <span className="font-semibold text-emerald-600">{insertLen} bp</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                Insert
+                <span className="font-semibold tabular-nums">+{insertLen} bp</span>
               </span>
             )}
             {mode === 'delete' && (
-              <span className="inline-flex items-center gap-1">
-                <span className="text-muted-foreground">Delete</span>
-                {' '}
-                <span className="font-semibold text-destructive">{deleteLen} bp</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
+                Delete
+                <span className="font-semibold tabular-nums">−{deleteLen} bp</span>
               </span>
             )}
             {mode === 'replace' && (
               <>
-                <span className="inline-flex items-center gap-1">
-                  <span className="text-muted-foreground">Delete</span>
-                  {' '}
-                  <span className="font-semibold text-destructive">{deleteLen} bp</span>
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
+                  Delete
+                  <span className="font-semibold tabular-nums">−{deleteLen} bp</span>
                 </span>
-                <span className="text-muted-foreground">|</span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="text-muted-foreground">Insert</span>
-                  {' '}
-                  <span className="font-semibold text-emerald-600">{insertLen} bp</span>
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                  Insert
+                  <span className="font-semibold tabular-nums">+{insertLen} bp</span>
                 </span>
-                <span className="text-muted-foreground">|</span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="text-muted-foreground">Net</span>
-                  {' '}
-                  <span className={`font-semibold ${netChange > 0 ? 'text-emerald-600' : netChange < 0 ? 'text-destructive' : ''}`}>
-                    {netChange > 0 ? '+' : ''}{netChange}
-                  </span>{' '}
-                  <span className="text-muted-foreground">bp</span>
+                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${netChange > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : netChange < 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-border bg-muted text-muted-foreground'}`}>
+                  Net
+                  <span className="font-semibold tabular-nums">{netChange > 0 ? '+' : ''}{netChange} bp</span>
                 </span>
               </>
             )}
@@ -247,7 +243,7 @@ export default function SequenceEditDialog({
 
           {/* 非法字符警告 */}
           {hasInvalid && (
-            <div className="flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-2 text-xs text-amber-700 dark:text-amber-300">
+            <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-2.5 text-xs text-amber-700 dark:text-amber-300">
               <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
               <div>
                 <span className="font-medium">Non-standard characters:</span>{' '}
@@ -262,18 +258,17 @@ export default function SequenceEditDialog({
 
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-2">
           {(mode === 'insert' || mode === 'replace') && inputText.trim().length > 0 && !hasInvalid && (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setInputText(reverseComplement(inputText))}
-              style={{
-                fontSize: '12px', fontWeight: 600,
-                padding: '4px 12px', cursor: 'pointer',
-                background: '#f3f4f6', color: '#1f2937',
-                border: '1px solid #d1d5db', borderRadius: 4,
-              }}
-              className="hover:bg-gray-200 transition-colors mr-auto"
-            >Reverse Complement</button>
+              className="mr-auto"
+            >
+              <Repeat className="size-3.5" />
+              Reverse Complement
+            </Button>
           )}
           <DialogClose asChild>
             <Button variant="outline" onClick={onCancel}>Cancel</Button>

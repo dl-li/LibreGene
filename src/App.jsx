@@ -4,16 +4,16 @@ import { getProject, getProjectById, openFile, setMethylation, isTauri, openFile
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
+import TitleBar from './components/TitleBar';
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, DialogClose,
 } from '@/components/ui/dialog';
-import { Dna, FolderOpen, ChevronDown, ExternalLink, AlertTriangle, X } from 'lucide-react';
+import { Dna, FolderOpen, ChevronDown, AlertTriangle, X } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -55,6 +55,7 @@ export default function App() {
   const [restoreState, setRestoreState] = useState({ version: 0, cursorIndex: null, selStart: null, selEnd: null });
   const undoVersionRef = useRef(0);
   const [isDirty, setIsDirty] = useState(false);
+  const [docTitle, setDocTitle] = useState('LibreGene');
   const isDirtyRef = useRef(false);
   const activeIdRef = useRef(null);
   const dirtyStateRef = useRef({}); // per-project dirty state
@@ -136,6 +137,12 @@ export default function App() {
     } catch {}
   }, []);
 
+  // Update both the custom titlebar and the OS window title
+  const applyTitle = useCallback((t) => {
+    setDocTitle(t);
+    setWindowTitle(t);
+  }, []);
+
   // Detect window type on mount
   useEffect(() => {
     if (!isTauri) {
@@ -187,7 +194,7 @@ export default function App() {
           const pid = windowInfo.type === 'project' ? windowInfo.projectId : data.activeId;
           if (pid && pid !== 'all') {
             const fn = pid.split('/').pop().split('\\').pop();
-            setWindowTitle(fn);
+            applyTitle(fn);
           }
         }
         await refreshProjects();
@@ -357,7 +364,7 @@ export default function App() {
         }
       }
       const fn = paths[paths.length - 1].split('/').pop().split('\\').pop();
-      setWindowTitle(fn);
+      applyTitle(fn);
       setFileStatus('ok');
     } catch (e) {
       setFileStatus('error: ' + e.message);
@@ -416,7 +423,7 @@ export default function App() {
         syncMethylation();
       }
       const fn = id.split('/').pop().split('\\').pop();
-      setWindowTitle(fn);
+      applyTitle(fn);
 
       // Restore scroll position for this project (or scroll to top for new projects)
       requestAnimationFrame(() => {
@@ -461,7 +468,7 @@ export default function App() {
           // Restore per-project dirty state instead of always setting clean
           setIsDirty(dirtyStateRef.current[id] === true);
           const fn = id.split('/').pop().split('\\').pop();
-          setWindowTitle(fn);
+          applyTitle(fn);
 
           // Restore scroll position for this project
           requestAnimationFrame(() => {
@@ -1039,9 +1046,9 @@ export default function App() {
           setActiveId(newData.activeId);
           if (newData.activeId && newData.activeId !== 'all') {
             const fn = newData.activeId.split('/').pop().split('\\').pop();
-            setWindowTitle(fn);
+            applyTitle(fn);
           } else {
-            setWindowTitle('LibreGene');
+            applyTitle('LibreGene');
           }
         }
       }
@@ -1148,19 +1155,28 @@ export default function App() {
   const [filesOpen, setFilesOpen] = useState(true);
 
   const sidebarContent = (
-    <Sidebar collapsible="icon" variant="sidebar" className="transition-[width] duration-300 ease-out">
-      <SidebarHeader className="flex flex-row items-center gap-2 px-3 py-2">
-        <Dna className="size-5 shrink-0 text-primary" />
-        <span className="font-semibold text-sm group-data-[state=collapsed]:hidden">LibreGene</span>
+    <Sidebar collapsible="icon" variant="sidebar" className="pt-10 transition-[width] duration-300 ease-out">
+      <SidebarHeader className="flex flex-row items-center gap-2.5 px-3 pb-2 pt-1.5 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+          <Dna className="size-4" />
+        </div>
+        <div className="flex min-w-0 flex-col group-data-[state=collapsed]:hidden">
+          <span className="text-[13px] font-semibold leading-tight tracking-tight text-foreground">LibreGene</span>
+          <span className="text-[10px] leading-tight text-muted-foreground">Plasmid Editor</span>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={handleOpenFile}>
+                <SidebarMenuButton
+                  onClick={handleOpenFile}
+                  tooltip="Open File"
+                  className="border border-dashed border-sidebar-border text-muted-foreground hover:border-primary/40 hover:text-primary"
+                >
                   <FolderOpen className="size-4" />
-                  <span>Open File</span>
+                  <span>Open File…</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -1168,38 +1184,52 @@ export default function App() {
         </SidebarGroup>
         {projects.length > 0 && (
           <Collapsible open={filesOpen} onOpenChange={setFilesOpen}>
-            <SidebarGroup>
+            <SidebarGroup className="pt-0">
               <CollapsibleTrigger asChild>
-                <SidebarGroupLabel className="cursor-pointer">
-                  Opened Files
-                  <ChevronDown className={`ml-auto size-4 shrink-0 transition-transform ${filesOpen ? 'rotate-0' : '-rotate-90'}`} />
+                <SidebarGroupLabel className="cursor-pointer select-none hover:text-sidebar-foreground">
+                  <span className="uppercase tracking-wider text-[10px] font-semibold">Opened Files</span>
+                  <span className="ml-1.5 rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-sidebar-accent-foreground">
+                    {projects.length}
+                  </span>
+                  <ChevronDown className={`ml-auto size-3.5 shrink-0 transition-transform duration-200 ${filesOpen ? 'rotate-0' : '-rotate-90'}`} />
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {projects.map(p => (
-                      <SidebarMenuItem key={p.id} className="flex items-center">
-                        <SidebarMenuButton
-                          onClick={() => handleSwitchProject(p.id)}
-                          isActive={p.id === activeId}
-                          className="flex-1"
-                        >
-                          {(() => { const Icon = getFileIcon(fileName(p)); return <Icon className="size-4 shrink-0" />; })()}
-                          <span className="truncate hover:overflow-x-auto hover:[text-overflow:clip] [scrollbar-width:none] [&::-webkit-scrollbar]:[display:none]">{fileName(p)}{(p.id === activeId && isDirty) || dirtyStateRef.current[p.id] ? ' *' : ''}</span>
-                        </SidebarMenuButton>
-                        <div className="flex items-center gap-0.5 shrink-0 group-data-[state=collapsed]:hidden">
+                    {projects.map(p => {
+                      const isActiveProject = p.id === activeId;
+                      const isProjectDirty = (isActiveProject && isDirty) || dirtyStateRef.current[p.id];
+                      const name = fileName(p);
+                      const Icon = getFileIcon(name);
+                      return (
+                        <SidebarMenuItem key={p.id}>
+                          {isActiveProject && (
+                            <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
+                          )}
+                          <SidebarMenuButton
+                            onClick={() => handleSwitchProject(p.id)}
+                            isActive={isActiveProject}
+                            tooltip={name}
+                            className="flex-1 min-w-0 pr-5"
+                          >
+                            <Icon className="size-4 shrink-0" />
+                            <span className="truncate">{name}</span>
+                          </SidebarMenuButton>
+                          {isProjectDirty && (
+                            <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
+                          )}
                           {/* "Open in new window" button removed — multi-window sync is incomplete */}
                           <button
-                            className="size-4 shrink-0 opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                            className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
                             onClick={(e) => { e.stopPropagation(); handleCloseProject(p.id); }}
                             title="Close"
                           >
-                            <X className="size-3.5" />
+                            <X className="size-3" />
                           </button>
-                        </div>
-                      </SidebarMenuItem>
-                    ))}
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -1216,7 +1246,13 @@ export default function App() {
         open={sidebarHover}
         style={{ "--sidebar-width": "14rem" }}
       >
-        <div className="relative min-h-screen w-full bg-[#fdfbf7]">
+        <div className="relative min-h-screen w-full bg-background pt-10">
+          <TitleBar
+            title={docTitle}
+            dirty={isDirty}
+            backendStatus={backendStatus}
+            onOpenDebug={() => setDebugOpen(true)}
+          />
           {/* Only show sidebar in main window */}
           {hasProject && (!windowInfo || windowInfo.type !== 'project') && (
             <div
@@ -1251,21 +1287,28 @@ export default function App() {
                 onSelectionChange={handleSelectionChange}
               />
             ) : (
-              <Empty className="min-h-screen">
-                <EmptyMedia variant="icon">
-                  <Dna className="size-6" />
-                </EmptyMedia>
-                <EmptyTitle>No file opened</EmptyTitle>
-                <EmptyDescription>
-                  Open a GenBank (.gbk), SnapGene (.dna), or FASTA (.fasta) file to get started.
-                </EmptyDescription>
-                <EmptyContent>
-                  <Button onClick={handleOpenFile}>
-                    <FolderOpen className="size-4 mr-2" />
-                    Open File
-                  </Button>
-                </EmptyContent>
-              </Empty>
+              <div className="flex min-h-[calc(100svh-2.5rem)] flex-col items-center justify-center gap-5 p-6 text-center">
+                <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                  <Dna className="size-8" />
+                </div>
+                <div className="space-y-1.5">
+                  <h1 className="text-lg font-semibold tracking-tight">LibreGene</h1>
+                  <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+                    Open a sequence file to start viewing and editing your plasmid.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {['.gbk', '.dna', '.fasta', '.ab1'].map(ext => (
+                    <span key={ext} className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+                      {ext}
+                    </span>
+                  ))}
+                </div>
+                <Button onClick={handleOpenFile} size="lg" className="mt-1">
+                  <FolderOpen className="size-4" />
+                  Open File
+                </Button>
+              </div>
             )}
           </main>
         </div>
@@ -1303,32 +1346,28 @@ export default function App() {
 
         {/* --- Unsaved Changes Dialog --- */}
         <Dialog open={unsavedDialog.open} onOpenChange={(open) => { if (!open) handleUnsavedCancel(); }}>
-          <DialogContent onInteractOutside={(e) => e.preventDefault()}>
+          <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <AlertTriangle className="size-4 text-amber-500" />
+              <DialogTitle className="flex items-center gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                  <AlertTriangle className="size-4" />
+                </span>
                 Unsaved Changes
               </DialogTitle>
               <DialogDescription>
                 This project has unsaved changes. Save before continuing?
               </DialogDescription>
             </DialogHeader>
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 sm:gap-2">
               <DialogClose asChild>
                 <Button variant="outline" onClick={handleUnsavedCancel}>Cancel</Button>
               </DialogClose>
-              <Button variant="outline" onClick={handleUnsavedDiscard}>Don't Save</Button>
+              <Button variant="outline" className="text-destructive hover:text-destructive" onClick={handleUnsavedDiscard}>Don't Save</Button>
               <Button onClick={handleUnsavedSave}>Save</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        <button
-          className="fixed bottom-3 right-3 w-3.5 h-3.5 rounded-full z-50 opacity-60 hover:opacity-100 hover:scale-125 transition-all cursor-pointer border-0"
-          style={{ background: backendStatus === 'online' || isTauri ? '#22c55e' : backendStatus === 'connecting' ? '#f59e0b' : '#9ca3af' }}
-          onClick={() => setDebugOpen(true)}
-          title={isTauri ? 'Desktop mode — Click for debug' : backendStatus === 'online' ? 'Backend connected — Click for debug' : backendStatus === 'connecting' ? 'Connecting...' : 'Offline — Click for debug'}
-        />
       </SidebarProvider>
     </TooltipProvider>
   );

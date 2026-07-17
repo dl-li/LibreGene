@@ -39,32 +39,35 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* 暖纸底色，配合 SVG 画布的 #fdfbf7 */
+  --background: oklch(0.983 0.003 90);
+  --foreground: oklch(0.27 0.02 264);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.27 0.02 264);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: hsl(0 0% 98%);
-  --sidebar-foreground: hsl(240 5.3% 26.1%);
-  --sidebar-primary: hsl(240 5.9% 10%);
-  --sidebar-primary-foreground: hsl(0 0% 98%);
-  --sidebar-accent: hsl(240 4.8% 95.9%);
-  --sidebar-accent-foreground: hsl(240 5.9% 10%);
-  --sidebar-border: hsl(220 13% 91%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  --popover-foreground: oklch(0.27 0.02 264);
+  /* 深青主色 */
+  --primary: oklch(0.51 0.09 200);
+  --primary-foreground: oklch(0.985 0.01 190);
+  --secondary: oklch(0.952 0.006 90);
+  --secondary-foreground: oklch(0.33 0.02 240);
+  --muted: oklch(0.955 0.005 90);
+  --muted-foreground: oklch(0.54 0.015 264);
+  --accent: oklch(0.94 0.018 200);
+  --accent-foreground: oklch(0.37 0.05 205);
+  --destructive: oklch(0.577 0.215 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.913 0.005 90);
+  --input: oklch(0.9 0.005 90);
+  --ring: oklch(0.51 0.09 200 / 0.45);
+  --sidebar: oklch(0.962 0.004 90);
+  --sidebar-foreground: oklch(0.33 0.02 264);
+  --sidebar-primary: oklch(0.51 0.09 200);
+  --sidebar-primary-foreground: oklch(0.985 0.01 190);
+  --sidebar-accent: oklch(0.932 0.014 200);
+  --sidebar-accent-foreground: oklch(0.37 0.05 205);
+  --sidebar-border: oklch(0.898 0.005 90);
+  --sidebar-ring: oklch(0.51 0.09 200 / 0.45);
 }
 
 @layer base {
@@ -73,6 +76,12 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'TeX Gyre Heros', 'Helvetica Neue', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: oklch(0.51 0.09 200 / 0.18);
   }
 }
 
@@ -96,6 +105,29 @@ svg text {
 [data-sidebar] {
   will-change: transform;
   backface-visibility: hidden;
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--foreground) 16%, transparent);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--foreground) 30%, transparent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .dark {

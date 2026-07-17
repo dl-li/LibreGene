@@ -7,7 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Repeat } from 'lucide-react';
+import { Repeat, Trash2, AlertTriangle, RotateCcw } from 'lucide-react';
 import { monoFont } from './editorConstants';
 import { computePrimerAlignment } from './tauriApi';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
@@ -56,6 +56,8 @@ function AlignmentView({ data }) {
     </div>
   );
 }
+
+const LABEL_CLS = 'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
 
 export default function PrimerAlignmentDialog({ primer, alignmentData, open, onOpenChange, seedLength, newPrimerSeq, onPrimerChange, onDeletePrimer, primers = [] }) {
   const [editSeq, setEditSeq] = useState('');
@@ -222,70 +224,66 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
         style={{ maxWidth: dialogWidth, width: dialogWidth }}
       >
         <DialogHeader>
-          <DialogTitle className="text-base">Primer</DialogTitle>
+          <DialogTitle>Primer</DialogTitle>
         </DialogHeader>
 
-        {/* Name row */}
-        <div className="flex items-center gap-2 px-1 mb-3" style={{ minHeight: 28 }}>
-          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Name:</span>
+        <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3">
+          {/* Name */}
+          <span className={LABEL_CLS}>Name</span>
           <input
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setEditName(initialName);
             }}
-            style={{
-              fontWeight: 600, fontSize: 'inherit',
-              border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none',
-              background: 'transparent', padding: '0 0 2px 0', minWidth: 80, flex: 1,
-            }}
+            className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
             onClick={(e) => e.stopPropagation()}
           />
-        </div>
 
-        {/* Sequence input */}
-        <div className="px-1 mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium text-muted-foreground">Sequence</span>
-          </div>
-          <div className="flex items-center gap-0">
-            <span className="text-xs font-bold text-muted-foreground mr-1.5">5'</span>
+          {/* Sequence */}
+          <span className={LABEL_CLS}>Sequence</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">5'</span>
             <input
               value={editSeq}
               onChange={e => setEditSeq(e.target.value)}
-              className="flex-1 h-8 px-2 py-1 text-xs font-mono border rounded"
-              style={{ borderColor: hasChanges ? '#f59e0b' : '#d1d5db' }}
+              className={
+                'h-8 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-xs outline-none transition-shadow focus:ring-[3px] ' +
+                (hasChanges
+                  ? 'border-amber-400 focus:border-amber-400 focus:ring-amber-400/30'
+                  : 'border-input focus:border-ring focus:ring-ring/40')
+              }
               spellCheck={false}
               placeholder="Enter primer sequence…"
             />
-            <span className="text-xs font-bold text-muted-foreground ml-1.5">3'</span>
+            <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">3'</span>
             <button
               type="button"
               onClick={() => {
                 setEditSeq(reverseComplement(editSeq));
                 setPrimerType(t => t === 'fwd' ? 'rev' : 'fwd');
               }}
-              className="ml-2 p-1.5 rounded hover:bg-muted transition-colors"
-              style={{ color: '#666', lineHeight: 0 }}
+              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title="Reverse complement"
             >
-              <Repeat size={16} />
+              <Repeat className="size-4" />
             </button>
           </div>
         </div>
 
         {/* Tm display */}
-        <div className="px-1 mb-2 flex items-center gap-2 text-sm">
-          {cur && (
-            <span className="font-semibold mr-auto">
-              Tm = <span style={{ color: COLORS.fwd }}>{cur.tm}°C</span>
-              {preview?.loading && <span className="text-xs text-muted-foreground ml-2 italic">Computing…</span>}
+        {cur && (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+              Tm
+              <span className="font-semibold tabular-nums">{cur.tm}°C</span>
             </span>
-          )}
-        </div>
+            {preview?.loading && <span className="text-xs text-muted-foreground italic">Computing…</span>}
+          </div>
+        )}
 
         {/* Alignment box */}
-        <div className="flex-1 overflow-auto rounded border p-4" style={{ backgroundColor: COLORS.bg, position: 'relative' }}>
+        <div className="relative flex-1 overflow-auto rounded-lg border border-border/70 bg-muted/40 p-4">
           {preview?.error && <div className="text-sm text-red-600 font-mono">{preview.error}</div>}
           {cur && <div className="flex justify-center"><AlignmentView data={cur} /></div>}
           {!cur && preview?.loading && <div className="text-sm text-muted-foreground italic">Computing alignment…</div>}
@@ -296,8 +294,7 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
             <div className="text-sm text-muted-foreground italic">Type a DNA sequence to see alignment preview.</div>
           )}
           {preview?.loading && cur && (
-            <div className="absolute inset-0 flex items-center justify-center rounded"
-              style={{ backgroundColor: 'rgba(250,249,247,0.6)' }}>
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-[1px]">
               <div className="text-xs text-muted-foreground italic">Updating…</div>
             </div>
           )}
@@ -305,15 +302,14 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
 
         {/* Bottom banner: other binding sites */}
         {cur && alts.length > 0 && (
-          <div className="px-3 py-1.5 mt-2 rounded text-xs flex items-center flex-wrap gap-x-3 gap-y-1"
-            style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
             <span className="font-medium opacity-80">Other binding sites:</span>
             {alts.map((alt, i) => {
               const dir = alt.strand === -1 ? 'R' : 'F';
               return (
                 <span key={i} className="inline-flex items-center gap-1">
                   <span className="font-semibold">{dir}</span>
-                  <span className="opacity-70">{alt.start}..{alt.end}</span>
+                  <span className="opacity-70 tabular-nums">{alt.start}..{alt.end}</span>
                 </span>
               );
             })}
@@ -322,19 +318,31 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
 
         {/* Invalid character warning */}
         {isInvalid && (
-          <div className="mx-1 mt-2 px-2 py-1 rounded text-[11px] flex items-center gap-1"
-            style={{ backgroundColor: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
-            <span>⚠ Invalid character(s):</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span>Invalid character(s):</span>
             <span className="font-mono">{invalidChars.join(', ')}</span>
           </div>
         )}
 
+        {/* Name conflict */}
+        {nameConflict && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+            Name "{editName}" is already used by another primer
+          </div>
+        )}
+
         {/* Bottom buttons */}
-        <DialogFooter className="px-1 mt-3">
-          <div className="flex justify-end gap-2">
+        <DialogFooter className="mt-1">
+          <div className="flex w-full items-center gap-2">
             {!isNewPrimer && onDeletePrimer && (
-              <Button variant="outline" size="sm" className="text-destructive hover:text-destructive"
-                onClick={async () => { await onDeletePrimer(primer.id); onOpenChange(false); }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={async () => { await onDeletePrimer(primer.id); onOpenChange(false); }}
+              >
+                <Trash2 className="size-3.5" />
                 Delete
               </Button>
             )}
@@ -346,13 +354,9 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
                 setEditSeq(isNewPrimer ? (newPrimerSeq || '') : (primer?.primerSeq || ''));
                 setPreview(null);
               }}>
+                <RotateCcw className="size-3.5" />
                 Reset
               </Button>
-            )}
-            {nameConflict && (
-              <div className="text-xs text-red-600 mr-auto" style={{ fontFamily: monoFont }}>
-                Name "{editName}" is already used by another primer
-              </div>
             )}
             {hasChanges && (
               <Button size="sm" onClick={handleApply} disabled={editSeq.length < 6 || isInvalid || nameConflict}>
@@ -364,12 +368,14 @@ export default function PrimerAlignmentDialog({ primer, alignmentData, open, onO
 
         {/* Confirm discard dialog */}
         {confirmClose && (
-          <div className="absolute inset-0 flex items-center justify-center z-50 rounded"
-            style={{ backgroundColor: 'rgba(0,0,0,0.35)' }}>
-            <div className="bg-white rounded-lg shadow-xl p-5 mx-4 max-w-sm"
+          <div className="absolute inset-0 z-50 flex items-center justify-center rounded-xl bg-black/35 backdrop-blur-[2px]">
+            <div className="mx-4 max-w-sm rounded-xl border bg-card p-5 shadow-2xl"
               onClick={e => e.stopPropagation()}>
-              <div className="text-sm font-semibold mb-2">Discard changes?</div>
-              <div className="text-xs text-muted-foreground mb-4">
+              <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
+                <AlertTriangle className="size-4 text-amber-500" />
+                Discard changes?
+              </div>
+              <div className="mb-4 text-xs text-muted-foreground">
                 Primer sequence has been modified but not applied. Discard changes?
               </div>
               <div className="flex justify-end gap-2">
