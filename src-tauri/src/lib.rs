@@ -1344,6 +1344,7 @@ async fn open_in_new_window(
     )
     .title("LibreGene - Plasmid Editor")
     .inner_size(1400.0, 900.0)
+    .decorations(false)
     .build()
     .map_err(|e| format!("failed to create window: {e}"))?;
 
