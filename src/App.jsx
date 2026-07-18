@@ -30,6 +30,7 @@ import {
 } from './tauriApi';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
+import FeatureScrollbar from './FeatureScrollbar';
 import DebugPanel from './components/DebugPanel';
 import SettingsPage from './components/SettingsPage';
 import PrimerOverviewDialog from './components/PrimerOverviewDialog';
@@ -1647,75 +1648,84 @@ export default function App() {
               {sidebarContent}
             </div>
           )}
-          <main
-            ref={mainScrollRef}
-            className="w-full flex-1 overflow-y-auto overscroll-contain transition-[padding] duration-300 ease-out"
-          >
-            {hasProject ? (
-              <SequenceEditor
-                sequence={sequence}
-                features={editorFeatures}
-                enzymes={displayEnzymes}
-                primers={editorPrimers}
-                charsPerLine={60}
-                layoutParams={editorLayoutParams}
-                onEditRequest={handleEditRequest}
-                restoreState={restoreState}
-                onFeatureFtypeChange={handleFeatureFtypeChange}
-                onFeatureColorChange={handleFeatureColorChange}
-                onFeatureLocationChange={handleFeatureLocationChange}
-                onFeatureNameChange={handleFeatureNameChange}
-                onFeatureStrandChange={handleFeatureStrandChange}
-                onFeatureAdd={handleFeatureAdd}
-                onFeatureDelete={handleDeleteFeature}
-                onPrimerChange={handlePrimerChange}
-                onPrimerDelete={handleDeletePrimer}
-                primerSeedLength={primerSeedLength}
-                onSelectionChange={handleSelectionChange}
+          <div className="relative flex flex-1 min-h-0">
+            <main
+              ref={mainScrollRef}
+              className="w-full flex-1 overflow-y-auto overscroll-contain hide-scrollbar transition-[padding] duration-300 ease-out"
+            >
+              {hasProject ? (
+                <SequenceEditor
+                  sequence={sequence}
+                  features={editorFeatures}
+                  enzymes={displayEnzymes}
+                  primers={editorPrimers}
+                  charsPerLine={60}
+                  layoutParams={editorLayoutParams}
+                  onEditRequest={handleEditRequest}
+                  restoreState={restoreState}
+                  onFeatureFtypeChange={handleFeatureFtypeChange}
+                  onFeatureColorChange={handleFeatureColorChange}
+                  onFeatureLocationChange={handleFeatureLocationChange}
+                  onFeatureNameChange={handleFeatureNameChange}
+                  onFeatureStrandChange={handleFeatureStrandChange}
+                  onFeatureAdd={handleFeatureAdd}
+                  onFeatureDelete={handleDeleteFeature}
+                  onPrimerChange={handlePrimerChange}
+                  onPrimerDelete={handleDeletePrimer}
+                  primerSeedLength={primerSeedLength}
+                  onSelectionChange={handleSelectionChange}
+                  scrollContainerRef={mainScrollRef}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  showFeatures={showFeatures}
+                  onToggleFeatures={() => setShowFeatures((v) => !v)}
+                  showPrimers={showPrimers}
+                  onTogglePrimers={() => setShowPrimers((v) => !v)}
+                  showEnzymes={showEnzymes}
+                  onToggleEnzymes={() => setShowEnzymes((v) => !v)}
+                  enzymeFilter={enzymeFilter}
+                  onEnzymeFilterChange={setEnzymeFilter}
+                  openPrimerEditorRef={openPrimerEditorRef}
+                  alignmentCacheRef={alignmentCacheRef}
+                />
+              ) : (
+                <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
+                  <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                    <Dna className="size-8" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <h1 className="text-lg font-semibold tracking-tight">LibreGene</h1>
+                    <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+                      Open a sequence file to start viewing and editing your plasmid.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {['.gbk', '.dna', '.fasta', '.ab1'].map((ext) => (
+                      <span
+                        key={ext}
+                        className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
+                      >
+                        {ext}
+                      </span>
+                    ))}
+                  </div>
+                  <Button onClick={handleOpenFile} size="lg" className="mt-1">
+                    <FolderOpen className="size-4" />
+                    Open File
+                  </Button>
+                </div>
+              )}
+            </main>
+            {hasProject && (
+              <FeatureScrollbar
                 scrollContainerRef={mainScrollRef}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
-                canUndo={canUndo}
-                canRedo={canRedo}
-                showFeatures={showFeatures}
-                onToggleFeatures={() => setShowFeatures((v) => !v)}
-                showPrimers={showPrimers}
-                onTogglePrimers={() => setShowPrimers((v) => !v)}
-                showEnzymes={showEnzymes}
-                onToggleEnzymes={() => setShowEnzymes((v) => !v)}
-                enzymeFilter={enzymeFilter}
-                onEnzymeFilterChange={setEnzymeFilter}
-                openPrimerEditorRef={openPrimerEditorRef}
-                alignmentCacheRef={alignmentCacheRef}
+                features={editorFeatures}
+                sequenceLength={sequence.length}
               />
-            ) : (
-              <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
-                <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
-                  <Dna className="size-8" />
-                </div>
-                <div className="space-y-1.5">
-                  <h1 className="text-lg font-semibold tracking-tight">LibreGene</h1>
-                  <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
-                    Open a sequence file to start viewing and editing your plasmid.
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {['.gbk', '.dna', '.fasta', '.ab1'].map((ext) => (
-                    <span
-                      key={ext}
-                      className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
-                    >
-                      {ext}
-                    </span>
-                  ))}
-                </div>
-                <Button onClick={handleOpenFile} size="lg" className="mt-1">
-                  <FolderOpen className="size-4" />
-                  Open File
-                </Button>
-              </div>
             )}
-          </main>
+          </div>
         </div>
 
         <DebugPanel
