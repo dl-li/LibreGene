@@ -63,18 +63,12 @@ export default function DebugPanel({
   setEnzymeFilter,
   enzymes,
   displayEnzymes,
-  methylationSystems,
-  setMethylationSystems,
-  methylationOverlap,
-  setMethylationOverlap,
   isTauri,
   openPath,
   setOpenPath,
   fileStatus,
   layoutParams,
   setLP,
-  primerSeedLength,
-  setPrimerSeedLength,
   onOpenFile,
 }) {
   const lp = layoutParams;
@@ -185,87 +179,6 @@ export default function DebugPanel({
                 <option value="iis">Type IIS</option>
               </optgroup>
             </select>
-          </div>
-
-          {/* ── 甲基化 ── */}
-          <div>
-            <div className={SECTION_TITLE}>甲基化</div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="dp-meth-dam"
-                  checked={methylationSystems.includes('dam')}
-                  onCheckedChange={(v) =>
-                    setMethylationSystems(
-                      v
-                        ? [...methylationSystems, 'dam']
-                        : methylationSystems.filter((s) => s !== 'dam'),
-                    )
-                  }
-                />
-                <Label htmlFor="dp-meth-dam" className="cursor-pointer text-xs">
-                  Dam
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="dp-meth-dcm"
-                  checked={methylationSystems.includes('dcm')}
-                  onCheckedChange={(v) =>
-                    setMethylationSystems(
-                      v
-                        ? [...methylationSystems, 'dcm']
-                        : methylationSystems.filter((s) => s !== 'dcm'),
-                    )
-                  }
-                />
-                <Label htmlFor="dp-meth-dcm" className="cursor-pointer text-xs">
-                  Dcm
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="dp-meth-ecoki"
-                  checked={methylationSystems.includes('ecoki')}
-                  onCheckedChange={(v) =>
-                    setMethylationSystems(
-                      v
-                        ? [...methylationSystems, 'ecoki']
-                        : methylationSystems.filter((s) => s !== 'ecoki'),
-                    )
-                  }
-                />
-                <Label htmlFor="dp-meth-ecoki" className="cursor-pointer text-xs">
-                  EcoKI
-                </Label>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-1.5">
-              <Label className="text-xs text-muted-foreground">重叠：</Label>
-              <Input
-                className="w-14 h-7 px-1 py-0 text-xs text-right font-mono"
-                type="number"
-                min="0"
-                max="10"
-                value={methylationOverlap}
-                onChange={(e) => setMethylationOverlap(Number(e.target.value))}
-              />
-              <span className="text-[11px] text-muted-foreground">bp</span>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* ── 引物分析 ── */}
-          <div>
-            <div className={SECTION_TITLE}>引物分析</div>
-            <NumInput
-              label="种子区长度 (bp)"
-              value={primerSeedLength}
-              onChange={setPrimerSeedLength}
-              min={6}
-              max={20}
-            />
           </div>
 
           <Separator />
