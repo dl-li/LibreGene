@@ -12,13 +12,22 @@ const MAX_HISTORY = 50;
  */
 export function createEditHistory() {
   const stack = [];
+  const listeners = new Set();
   let cursor = -1;
 
+  const notify = () => listeners.forEach((fn) => fn());
+
   return {
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+
     reset(snapshot) {
       stack.length = 0;
       stack.push({ ...snapshot });
       cursor = 0;
+      notify();
     },
 
     /**
@@ -33,12 +42,14 @@ export function createEditHistory() {
         stack.shift();
       }
       cursor = stack.length - 1;
+      notify();
     },
 
     /** 返回前一个状态的快照（拷贝），无历史时返回 null */
     undo() {
       if (cursor <= 0) return null;
       cursor--;
+      notify();
       return { ...stack[cursor] };
     },
 
@@ -46,6 +57,7 @@ export function createEditHistory() {
     redo() {
       if (cursor >= stack.length - 1) return null;
       cursor++;
+      notify();
       return { ...stack[cursor] };
     },
 

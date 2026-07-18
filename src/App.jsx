@@ -1692,8 +1692,8 @@ export default function App() {
                 />
               ) : (
                 <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
-                  <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
-                    <Dna className="size-8" />
+                  <div className="flex size-16 items-center justify-center">
+                    <img src="/icon.png" alt="LibreGene" className="size-14" />
                   </div>
                   <div className="space-y-1.5">
                     <h1 className="text-lg font-semibold tracking-tight">LibreGene</h1>

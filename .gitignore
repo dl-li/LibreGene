@@ -7,3 +7,7 @@ __pycache__/
 .DS_Store
 .claude/settings.local.json
 .vscode/
+
+# Unpublished research data — replace with synthetic sequences for CI
+test/flySWARM.*
+backend/test_data/flySWARM.*
