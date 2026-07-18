@@ -114,7 +114,16 @@ svg text {
   backface-visibility: hidden;
 }
 
-/* 细滚动条 */
+/* 隐藏原生滚动条（编辑器区域用自定义 FeatureScrollbar） */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 细滚动条（其他区域） */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -135,6 +144,81 @@ svg text {
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* 导航菜单：丝滑非线性动画（回弹缓动 + 交错入场） */
+.nav-bar-enter {
+  animation: nav-bar-in 0.5s cubic-bezier(0.22, 1.36, 0.36, 1) both;
+}
+@keyframes nav-bar-in {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+    scale: 0.92;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+
+.nav-menu-content {
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+  will-change: opacity, translate, scale;
+}
+.nav-menu-content[data-state='open'] {
+  animation: nav-menu-in 0.35s cubic-bezier(0.22, 1.36, 0.36, 1);
+}
+.nav-menu-content[data-state='closed'] {
+  animation: nav-menu-out 0.16s cubic-bezier(0.4, 0, 1, 1);
+}
+@keyframes nav-menu-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.95;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+@keyframes nav-menu-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    translate: 0 4px;
+    scale: 0.97;
+  }
+}
+
+.nav-menu-content[data-state='open'] > * {
+  animation: nav-item-in 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+.nav-menu-content[data-state='open'] > *:nth-child(1) { animation-delay: 0.02s; }
+.nav-menu-content[data-state='open'] > *:nth-child(2) { animation-delay: 0.04s; }
+.nav-menu-content[data-state='open'] > *:nth-child(3) { animation-delay: 0.06s; }
+.nav-menu-content[data-state='open'] > *:nth-child(4) { animation-delay: 0.08s; }
+.nav-menu-content[data-state='open'] > *:nth-child(5) { animation-delay: 0.1s; }
+.nav-menu-content[data-state='open'] > *:nth-child(6) { animation-delay: 0.12s; }
+.nav-menu-content[data-state='open'] > *:nth-child(7) { animation-delay: 0.14s; }
+.nav-menu-content[data-state='open'] > *:nth-child(8) { animation-delay: 0.16s; }
+.nav-menu-content[data-state='open'] > *:nth-child(n + 9) { animation-delay: 0.18s; }
+@keyframes nav-item-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
 }
 
 .dark {

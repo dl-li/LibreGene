@@ -162,7 +162,7 @@ function PrimerWarningBadge({ primers }) {
   }, [expanded]);
 
   return (
-    <div ref={ref} style={{ position: 'fixed', top: titleBarH + 8, right: 8, zIndex: 40 }}>
+    <div ref={ref} style={{ position: 'fixed', bottom: 14, right: 28, zIndex: 40 }}>
       {/* Collapsed badge */}
       {!expanded && (
         <div
@@ -306,8 +306,8 @@ function SelectionLengthBadge({
     <div
       style={{
         position: 'fixed',
-        top: titleBarH + 36,
-        right: 8,
+        bottom: 42,
+        right: 28,
         zIndex: 40,
         backgroundColor: bg,
         color: bgColor,
