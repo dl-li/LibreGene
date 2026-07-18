@@ -1,10 +1,10 @@
 [package]
-name = "libregene"
+name = "LibreGene"
 version = "1.0.0"
 edition = "2021"
 description = "A desktop plasmid editor"
 authors = ["dl-li"]
-license = "ISC"
+license = "GPL-3.0-only"
 
 [lib]
 name = "libregene_lib"

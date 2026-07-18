@@ -1,6 +1,6 @@
 # LibreGene — 质粒编辑器
 
-基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注。默认输出 SnapGene 风格 GenBank 文件。
+基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注。默认输出增强型 GenBank 文件（含颜色和引物注释）。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
 
@@ -27,7 +27,7 @@ cd backend
 cargo test -p libregene-core --lib             # 单元测试（117 项）
 cargo test -p libregene-core --test roundtrip_test      # 读写往返测试
 cargo test -p libregene-core --test swarm_primer_test   # 引物绑定测试
-cargo build -p libregene                     # 构建 Tauri 后端
+cargo build -p LibreGene                    # 构建 Tauri 后端
 
 # shadcn
 npx shadcn add <component>
@@ -54,9 +54,8 @@ LibreGene/
 │   ├── FeatureInfoDialog.jsx   # 特征编辑弹窗
 │   ├── SequenceEditDialog.jsx  # 序列编辑（插入/删除/替换）确认弹窗
 │   ├── PrimerAlignmentDialog.jsx # 引物添加/编辑弹窗
-│   ├── primerRenderer.jsx      # 引物几何计算（segment path, hover background）
-│   ├── PrimerSegmentRenderer.jsx # 引物 segment 渲染组件（v2，与内联 v1 并存）
 │   ├── ErrorBoundary.jsx       # React Error Boundary
+│   ├── EditorNavMenu.jsx       # 底部居中悬浮导航菜单（编辑/特征/引物/酶切/搜索）
 │   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
 │   │   ├── DebugPanel.jsx      # 调试面板
@@ -91,7 +90,7 @@ LibreGene/
 - **尽量不写注释**——代码本身应该表意清晰。必要时写简短注释说明 Why（不是 What）。
 - 先读后改：改任何文件前，先 `Read` 理解上下文。
 - 改完后必须编译/构建验证。前端：`npx vite build`。后端：`cargo test -p libregene-core --lib`。
-- Rust 代码同时跑 `cargo build -p libregene` 确保 Tauri 壳也编译。
+- Rust 代码同时跑 `cargo build -p LibreGene` 确保 Tauri 壳也编译。
 
 ### Bug 修复流程
 
@@ -134,41 +133,26 @@ LibreGene/
 - 项目窗口通过 `resolve_project_id()` 按 label 查找项目
 - `broadcast_project()` 只广播主窗口可见的项目（排除项目窗口拥有的）
 
-## 已修复的 Bug 清单（无需再改）
-
-以下 Bug 已在历史提交中修复：
-
-| # | 提交 | 问题 |
-|---|------|------|
-| 1 | `edd6be5` | `setUndoRestore` 未定义导致撤销/重做崩溃 |
-| 2 | `73d6427` | 多数变异命令缺少 `broadcast_project`，多窗口不同步 |
-| 3 | `9fc5dd2` | `compute_primer_alignment` 未用 `spawn_blocking` 阻塞事件循环 |
-| 4 | `4520b2d` | 前向引物扩展用 `==` 非 IUPAC 匹配 |
-| 5 | `ac4d48a` | 前端没有删除特征/引物的入口 |
-| 6 | `e3ba202` | 无结合位点的引物序列化为 1..1 位置 |
-| 7 | `9003a6c` | `wrap_template_region` 在 `start==end==0` 时返回空 |
-| 8 | `4c3cd8f` | `extract_location_bounds` 对简单 Range 返回空的 segments |
-| 9 | `b59e39e` | EcoKI 甲基化检测在线性窗口外静默跳过 |
-| 10 | `41a8432` | `evict_one` 每次驱逐不必要地克隆整个 `ordered_ids` |
-| 11 | `92e3a19` | `primerAlignmentCache` 跨项目不清理 |
-| 12 | `695f002` | `compute_primer_alignment` 中不可达的 `results.is_empty()` 分支 |
-| 13 | `6060fbf` | 关闭最后一个文件 tab 后编辑器不显示空页 |
-| 14 | `0298b8c` | 自窗口广播导致特征/引物改动后撤销历史被清空 |
-| 15 | `61655f3` | 点击当前活动 tab 重置 undo 历史；Save As 后路径/脏标记键控错误 |
-| 16 | `39fdabc` | 页面弹性滚动让标题栏跟着一起动 |
-
 ## 仍有改进空间的地方（非 Bug）
 
 - **SequenceEditor.jsx ~2474 行** — 需拆分组件（如 FeatureLayer、PrimerLayer、EnzymeLayer 等）
-- **两套引物渲染** — `PrimerSegmentRenderer.jsx` v2 与 `SequenceEditor.jsx` 内联 v1 并存
 - **SVG 容器 `contain: 'layout style'`** — 创建新层叠上下文，可能影响固定定位元素
 - **`list_projects` JSON 构建** — 可用序列化替代 `serde_json::json!` 宏
-- **前端纯 JS** — TypeScript 迁移收益约 3-5 天
 - **引物编辑未接入 undo/redo** — 需扩展 `editHistory` 快照格式以包含 `primers`
+
+## 待实现功能（导航菜单占位）
+
+`EditorNavMenu.jsx` 中以下菜单项为占位（disabled，标注"即将推出"）：
+
+- 特征：始终展开特征（Always Expand Feature）
+- 引物：我的引物（My Primers）、PCR 分析、引物设计、选项
+- 酶切：自定义酶集合、酶数据库、酶切分析
+
+导航菜单使用 `src/components/ui/dropdown-menu.jsx`（基于 `@radix-ui/react-dropdown-menu`，通过 shadcn 方式添加）。
 
 ## API
 
-### Tauri Commands（24 个）
+### Tauri Commands
 
 ```
 get_project, get_project_by_id, open_file, save_file, update_sequence,
