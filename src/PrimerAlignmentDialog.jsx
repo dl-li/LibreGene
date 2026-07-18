@@ -7,7 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Repeat, Trash2, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Repeat, Trash2, AlertTriangle, RotateCcw, Copy, Check } from 'lucide-react';
 import { monoFont } from './editorConstants';
 import { computePrimerAlignment } from './tauriApi';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
@@ -89,6 +89,26 @@ function AlignmentView({ data }) {
         );
       })}
     </div>
+  );
+}
+
+function CopyBtn({ text }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  }, [text]);
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      title="Copy"
+    >
+      {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+    </button>
   );
 }
 
@@ -311,15 +331,18 @@ export default function PrimerAlignmentDialog({
         <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3">
           {/* Name */}
           <span className={LABEL_CLS}>Name</span>
-          <input
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setEditName(initialName);
-            }}
-            className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
-            onClick={(e) => e.stopPropagation()}
-          />
+          <div className="flex items-center gap-1 min-w-0">
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEditName(initialName);
+              }}
+              className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <CopyBtn text={editName} />
+          </div>
 
           {/* Sequence */}
           <span className={LABEL_CLS}>Sequence</span>
@@ -338,6 +361,7 @@ export default function PrimerAlignmentDialog({
               placeholder="Enter primer sequence…"
             />
             <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">3'</span>
+            <CopyBtn text={editSeq} />
             <button
               type="button"
               onClick={() => {

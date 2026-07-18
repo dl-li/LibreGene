@@ -19,6 +19,7 @@ import {
 } from './editorConstants';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
+import EditorNavMenu from './EditorNavMenu';
 import { computePrimerAlignment } from './tauriApi';
 import { AlertTriangle } from 'lucide-react';
 
@@ -439,6 +440,20 @@ const SequenceEditor = React.memo(function SequenceEditor({
   primerSeedLength,
   onSelectionChange,
   scrollContainerRef,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  showFeatures,
+  onToggleFeatures,
+  showPrimers,
+  onTogglePrimers,
+  showEnzymes,
+  onToggleEnzymes,
+  enzymeFilter,
+  onEnzymeFilterChange,
+  openPrimerEditorRef,
+  alignmentCacheRef,
 }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
@@ -449,6 +464,26 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog (edit mode)
   const [createPrimerSeq, setCreatePrimerSeq] = useState(null); // for PrimerAlignmentDialog (create mode, null=closed, '' or string=sequence)
   const [primerAlignmentCache, setPrimerAlignmentCache] = useState({});
+
+  // Sync alignment cache to parent ref (used by PrimerOverviewDialog)
+  useEffect(() => {
+    if (alignmentCacheRef) {
+      alignmentCacheRef.current = primerAlignmentCache;
+    }
+  }, [primerAlignmentCache, alignmentCacheRef]);
+
+  // Expose openPrimerEditor to parent via ref (used by PrimerOverviewDialog)
+  useEffect(() => {
+    if (openPrimerEditorRef) {
+      openPrimerEditorRef.current = (primer) => {
+        setCreatePrimerSeq(null);
+        setPrimerAlignmentPrimer(primer);
+      };
+    }
+    return () => {
+      if (openPrimerEditorRef) openPrimerEditorRef.current = null;
+    };
+  }, [openPrimerEditorRef]);
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
@@ -1336,6 +1371,80 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [isPrimerDragging, enrichedPrimers]);
 
+  // --- Copy selection: mode = 'sense' | 'antisense' | 'translation' ---
+  const copySelection = useCallback(
+    (mode) => {
+      if (!hasSelection) return;
+      const sense = cleanSeq.substring(selStart, selEnd + 1);
+      let text;
+      if (mode === 'antisense') {
+        text = reverseComplement(sense);
+      } else if (mode === 'translation') {
+        let aa = '';
+        const upper = sense.toUpperCase();
+        for (let i = 0; i + 2 < upper.length; i += 3) {
+          aa += GENETIC_CODE[upper.substring(i, i + 3)] || 'X';
+        }
+        text = aa;
+      } else {
+        text = sense;
+      }
+      navigator.clipboard.writeText(text).catch(() => {});
+    },
+    [hasSelection, cleanSeq, selStart, selEnd],
+  );
+
+  // --- Paste: build insert/replace request from clipboard text ---
+  const requestPaste = useCallback(
+    (clipboardText) => {
+      if (!clipboardText || !onEditRequest) return;
+      if (hasSelection) {
+        onEditRequest({
+          type: 'replace',
+          cursorIndex: selStart,
+          selStart,
+          selEnd,
+          selectedText: cleanSeq.substring(selStart, selEnd + 1),
+          clipboardText,
+        });
+      } else if (cursorIndex !== null) {
+        onEditRequest({
+          type: 'insert',
+          cursorIndex,
+          clipboardText,
+        });
+      }
+    },
+    [onEditRequest, hasSelection, cursorIndex, selStart, selEnd, cleanSeq],
+  );
+
+  const pasteFromClipboard = useCallback(() => {
+    navigator.clipboard
+      .readText()
+      .then((t) => t && requestPaste(t))
+      .catch(() => {});
+  }, [requestPaste]);
+
+  // --- Case conversion on the current text selection (goes through replace dialog) ---
+  const convertSelectionCase = useCallback(
+    (toUpper) => {
+      if (!hasSelection || selectionMode !== 'text' || !onEditRequest) return;
+      const selectedText = cleanSeq.substring(selStart, selEnd + 1);
+      onEditRequest({
+        type: 'replace',
+        cursorIndex: selStart,
+        selStart,
+        selEnd,
+        selectedText,
+        clipboardText: toUpper ? selectedText.toUpperCase() : selectedText.toLowerCase(),
+      });
+    },
+    [hasSelection, selectionMode, onEditRequest, cleanSeq, selStart, selEnd],
+  );
+
+  const toUppercase = useCallback(() => convertSelectionCase(true), [convertSelectionCase]);
+  const toLowercase = useCallback(() => convertSelectionCase(false), [convertSelectionCase]);
+
   useEffect(() => {
     const onKey = (e) => {
       // Ignore events from input/textarea (e.g. dialog textarea has focus)
@@ -1446,7 +1555,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         }
         if (hasSelection) {
           e.preventDefault();
-          navigator.clipboard.writeText(cleanSeq.substring(selStart, selEnd + 1)).catch(() => {});
+          copySelection('sense');
         }
       }
 
@@ -1489,6 +1598,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selectedPrimerIds,
     enrichedPrimers,
     onEditRequest,
+    copySelection,
   ]);
 
   useEffect(() => {
@@ -1545,11 +1655,49 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [primers, primerSeedLength]);
 
+  const createFeature = useCallback(() => {
+    setFeatureInfoFeature(null);
+    if (hasSelection && selectionMode === 'text') {
+      setCreateFeatureLoc(`${selStart + 1}..${selEnd + 1}`);
+    } else {
+      setCreateFeatureLoc('');
+    }
+  }, [hasSelection, selectionMode, selStart, selEnd]);
+
+  const createPrimer = useCallback(() => {
+    setPrimerAlignmentPrimer(null);
+    if (hasSelection && selectionMode === 'text') {
+      setCreatePrimerSeq(cleanSeq.substring(selStart, selEnd + 1));
+    } else {
+      setCreatePrimerSeq('');
+    }
+  }, [hasSelection, selectionMode, cleanSeq, selStart, selEnd]);
+
+  // --- Search: jump to next match (case-insensitive, wraps around) ---
+  const searchNext = useCallback(
+    (query) => {
+      if (!query || !cleanSeq) return;
+      const haystack = cleanSeq.toLowerCase();
+      const needle = query.toLowerCase();
+      const from = cursorIndex !== null ? cursorIndex + 1 : 0;
+      let i = haystack.indexOf(needle, from);
+      if (i === -1) i = haystack.indexOf(needle, 0);
+      if (i === -1) return;
+      setSelectionMode('text');
+      setIsEnzymeSelection(false);
+      setSelStart(i);
+      setSelEnd(i + needle.length - 1);
+      setCursorIndex(i + needle.length - 1);
+      resetCursorTimer();
+    },
+    [cleanSeq, cursorIndex, resetCursorTimer],
+  );
+
   // --- Paste event: read clipboard and trigger insert/replace dialog ---
   useEffect(() => {
     if (!onEditRequest) return;
     const onPaste = (e) => {
-      // Ignore paste in input/textarea (e.g. dialog textarea)
+      // Ignore paste in input/textarea (e.g. dialog textarea, search input)
       const tag = e.target?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
 
@@ -1558,26 +1706,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!clipboardText) return;
 
       e.preventDefault();
-      if (hasSelection) {
-        onEditRequest({
-          type: 'replace',
-          cursorIndex: selStart,
-          selStart,
-          selEnd,
-          selectedText: cleanSeq.substring(selStart, selEnd + 1),
-          clipboardText,
-        });
-      } else if (cursorIndex !== null) {
-        onEditRequest({
-          type: 'insert',
-          cursorIndex,
-          clipboardText,
-        });
-      }
+      requestPaste(clipboardText);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [onEditRequest, hasSelection, cursorIndex, selStart, selEnd, cleanSeq]);
+  }, [onEditRequest, requestPaste]);
 
   // Visible row range for enzyme virtualization
   const visibleRows = useMemo(() => {
@@ -3327,6 +3460,32 @@ const SequenceEditor = React.memo(function SequenceEditor({
         amplimerGreen={amplimerGreen}
       />
       {unmatchedPrimers.length > 0 && <PrimerWarningBadge primers={unmatchedPrimers} />}
+      <EditorNavMenu
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={onUndo}
+        onRedo={onRedo}
+        hasSelection={hasSelection}
+        hasTextSelection={hasSelection && selectionMode === 'text'}
+        canPaste={hasSelection || cursorIndex !== null}
+        onCopySense={() => copySelection('sense')}
+        onCopyAntisense={() => copySelection('antisense')}
+        onCopyTranslation={() => copySelection('translation')}
+        onPaste={pasteFromClipboard}
+        onToUppercase={toUppercase}
+        onToLowercase={toLowercase}
+        showFeatures={showFeatures}
+        onToggleFeatures={onToggleFeatures}
+        onCreateFeature={createFeature}
+        showPrimers={showPrimers}
+        onTogglePrimers={onTogglePrimers}
+        onCreatePrimer={createPrimer}
+        showEnzymes={showEnzymes}
+        onToggleEnzymes={onToggleEnzymes}
+        enzymeFilter={enzymeFilter}
+        onEnzymeFilterChange={onEnzymeFilterChange}
+        onSearch={searchNext}
+      />
       <div
         ref={containerRef}
         style={{

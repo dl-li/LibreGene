@@ -31,6 +31,8 @@ import {
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import DebugPanel from './components/DebugPanel';
+import SettingsPage from './components/SettingsPage';
+import PrimerOverviewDialog from './components/PrimerOverviewDialog';
 import TitleBar from './components/TitleBar';
 import {
   SidebarProvider,
@@ -56,7 +58,7 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
-import { Dna, FolderOpen, ChevronDown, AlertTriangle, X, ExternalLink } from 'lucide-react';
+import { Dna, FolderOpen, ChevronDown, AlertTriangle, X, ExternalLink, Settings, ArrowDownWideNarrow } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -78,8 +80,13 @@ export default function App() {
 
   // Debug toggles
   const [debugOpen, setDebugOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
+  const openPrimerEditorRef = useRef(null);
+  const alignmentCacheRef = useRef({});
   const [showFeatures, setShowFeatures] = useState(true);
   const [showPrimers, setShowPrimers] = useState(true);
+  const [showEnzymes, setShowEnzymes] = useState(true);
   const [enzymeFilter, setEnzymeFilter] = useState('unique');
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
@@ -97,6 +104,13 @@ export default function App() {
 
   // --- Sequence editing state ---
   const editHistoryRef = useRef(createEditHistory());
+  const [historyVersion, setHistoryVersion] = useState(0);
+  useEffect(
+    () => editHistoryRef.current.subscribe(() => setHistoryVersion((v) => v + 1)),
+    [],
+  );
+  const canUndo = historyVersion >= 0 && editHistoryRef.current.canUndo();
+  const canRedo = historyVersion >= 0 && editHistoryRef.current.canRedo();
   const [editDialog, setEditDialog] = useState({
     open: false,
     mode: 'insert',
@@ -453,6 +467,7 @@ export default function App() {
   }, [isDirty]);
 
   const displayEnzymes = useMemo(() => {
+    if (!showEnzymes) return EMPTY_ARRAY;
     const all = enzymes || [];
     if (enzymeFilter === 'all') return all;
     if (enzymeFilter === 'unique') return all.filter((e) => e.isUnique);
@@ -485,7 +500,7 @@ export default function App() {
     if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
     if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
     return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter]);
+  }, [enzymes, enzymeFilter, showEnzymes]);
 
   // Sync unsavedPendingRef alongside setUnsavedDialog for stale-closure-safe access
   const openUnsavedDialog = useCallback((pendingAction) => {
@@ -1582,6 +1597,32 @@ export default function App() {
             </SidebarGroup>
           </Collapsible>
         )}
+        <SidebarGroup className="mt-auto">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setPrimerOverviewOpen(true)}
+                  tooltip="Primer Overview"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <ArrowDownWideNarrow className="size-4" />
+                  <span>Primer Overview</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setSettingsOpen(true)}
+                  tooltip="Settings"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Settings className="size-4" />
+                  <span>Settings</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   );
@@ -1632,6 +1673,20 @@ export default function App() {
                 primerSeedLength={primerSeedLength}
                 onSelectionChange={handleSelectionChange}
                 scrollContainerRef={mainScrollRef}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                showFeatures={showFeatures}
+                onToggleFeatures={() => setShowFeatures((v) => !v)}
+                showPrimers={showPrimers}
+                onTogglePrimers={() => setShowPrimers((v) => !v)}
+                showEnzymes={showEnzymes}
+                onToggleEnzymes={() => setShowEnzymes((v) => !v)}
+                enzymeFilter={enzymeFilter}
+                onEnzymeFilterChange={setEnzymeFilter}
+                openPrimerEditorRef={openPrimerEditorRef}
+                alignmentCacheRef={alignmentCacheRef}
               />
             ) : (
               <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
@@ -1676,12 +1731,6 @@ export default function App() {
           setEnzymeFilter={setEnzymeFilter}
           enzymes={enzymes}
           displayEnzymes={displayEnzymes}
-          methylationSystems={methylationSystems}
-          setMethylationSystems={setMethylationSystems}
-          methylationOverlap={methylationOverlap}
-          setMethylationOverlap={setMethylationOverlap}
-          primerSeedLength={primerSeedLength}
-          setPrimerSeedLength={setPrimerSeedLength}
           isTauri={isTauri}
           openPath={openPath}
           setOpenPath={setOpenPath}
@@ -1689,6 +1738,27 @@ export default function App() {
           layoutParams={layoutParams}
           setLP={setLP}
           onOpenFile={handleOpenFile}
+        />
+
+        <SettingsPage
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          methylationSystems={methylationSystems}
+          setMethylationSystems={setMethylationSystems}
+          methylationOverlap={methylationOverlap}
+          setMethylationOverlap={setMethylationOverlap}
+          primerSeedLength={primerSeedLength}
+          setPrimerSeedLength={setPrimerSeedLength}
+        />
+
+        <PrimerOverviewDialog
+          open={primerOverviewOpen}
+          onOpenChange={setPrimerOverviewOpen}
+          primers={primers}
+          alignmentCacheRef={alignmentCacheRef}
+          onEditPrimer={(p) => {
+            openPrimerEditorRef.current?.(p);
+          }}
         />
 
         {/* --- Sequence Edit Dialog --- */}
