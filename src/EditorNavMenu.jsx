@@ -14,6 +14,8 @@ import {
   CaseUpper,
   CaseLower,
   Plus,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -93,31 +95,69 @@ export default function EditorNavMenu({
   enzymeFilter,
   onEnzymeFilterChange,
   onSearch,
+  searchNav,
+  openSearchRef,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [searchScope, setSearchScope] = useState('all');
   const inputRef = useRef(null);
+
+  const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
+  const SCOPE_WORDS = {
+    all: 'anything',
+    seq: 'sequences',
+    feature: 'features',
+    primer: 'primers',
+    enzyme: 'enzymes',
+  };
 
   useEffect(() => {
     if (searchOpen) inputRef.current?.focus();
   }, [searchOpen]);
 
+  useEffect(() => {
+    if (!openSearchRef) return;
+    openSearchRef.current = () => setSearchOpen(true);
+    return () => {
+      openSearchRef.current = null;
+    };
+  }, [openSearchRef]);
+
   const toggleSearch = useCallback(() => {
     setSearchOpen((v) => !v);
   }, []);
+
+  const onQueryChange = useCallback(
+    (e) => {
+      const q = e.target.value;
+      setQuery(q);
+      onSearch?.(q, 'reset', searchScope);
+    },
+    [onSearch, searchScope],
+  );
 
   const onSearchKeyDown = useCallback(
     (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (query) onSearch?.(query);
+        if (query) onSearch?.(query, e.shiftKey ? 'prev' : 'next', searchScope);
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const next =
+          SEARCH_SCOPES[(SEARCH_SCOPES.indexOf(searchScope) + 1) % SEARCH_SCOPES.length];
+        setSearchScope(next);
+        if (query) onSearch?.(query, 'reset', next);
       } else if (e.key === 'Escape') {
         e.preventDefault();
         setSearchOpen(false);
       }
     },
-    [query, onSearch],
+    [query, onSearch, searchScope],
   );
+
+  const navTotal = searchNav && searchNav.query === query ? searchNav.total : 0;
+  const navIndex = searchNav && searchNav.query === query ? searchNav.index : -1;
 
   return (
     <div
@@ -212,10 +252,7 @@ export default function EditorNavMenu({
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Choose Enzyme Set</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
-                <DropdownMenuRadioGroup
-                  value={enzymeFilter}
-                  onValueChange={onEnzymeFilterChange}
-                >
+                <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
                   {ENZYME_FILTER_OPTIONS.map((opt) => (
                     <DropdownMenuRadioItem key={opt.value} value={opt.value}>
                       {opt.label}
@@ -235,16 +272,37 @@ export default function EditorNavMenu({
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={onQueryChange}
             onKeyDown={onSearchKeyDown}
-            placeholder="Search sequence…"
+            placeholder={`Search ${SCOPE_WORDS[searchScope]} (Tab to switch)`}
             className={cn(
               'rounded-full bg-muted/60 text-sm outline-none transition-all duration-300 ease-[cubic-bezier(0.34,1.3,0.64,1)] placeholder:text-muted-foreground',
-              searchOpen ? 'mr-1 w-44 px-3 py-1.5' : 'w-0 px-0 py-1.5 opacity-0',
+              searchOpen ? 'mr-1 w-72 px-3 py-1.5' : 'w-0 px-0 py-1.5 opacity-0',
             )}
             style={{ border: 'none' }}
             tabIndex={searchOpen ? 0 : -1}
           />
+          {searchOpen && query && (
+            <span className="mr-0.5 flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
+              {navTotal > 0 ? `${navIndex + 1}/${navTotal}` : '0/0'}
+              <button
+                type="button"
+                aria-label="Previous match"
+                onClick={() => onSearch?.(query, 'prev', searchScope)}
+                className="rounded-full p-1 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <ChevronUp className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next match"
+                onClick={() => onSearch?.(query, 'next', searchScope)}
+                className="rounded-full p-1 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <ChevronDown className="size-3.5" />
+              </button>
+            </span>
+          )}
           <button
             type="button"
             onClick={toggleSearch}

@@ -1658,6 +1658,7 @@ export default function App() {
                   sequence={sequence}
                   features={editorFeatures}
                   enzymes={displayEnzymes}
+                  allEnzymes={enzymes}
                   primers={editorPrimers}
                   charsPerLine={60}
                   layoutParams={editorLayoutParams}
