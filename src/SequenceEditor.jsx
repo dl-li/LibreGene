@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import {
   cw,
   startX,
@@ -489,6 +489,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [scrollY, setScrollY] = useState(0);
   const [viewportH, setViewportH] = useState(900);
   const scrollTickingRef = useRef(false);
+  const liveScrollTopRef = useRef(0);
   const lastVisibleStartRef = useRef(-1);
   const lastVisibleEndRef = useRef(-1);
   const numRowsRef = useRef(1);
@@ -637,6 +638,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (scroller) setViewportH(scroller.clientHeight || 900);
     };
     const handleScroll = () => {
+      liveScrollTopRef.current = scroller ? scroller.scrollTop : window.scrollY;
       if (!scrollTickingRef.current) {
         scrollTickingRef.current = true;
         requestAnimationFrame(() => {
@@ -1130,6 +1132,34 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return y;
   }, [numRows, rowAbove, rowBelow, lp.minRowGap, lp.rowContentGap]);
   const getSeqY = useCallback((row) => rowY[Math.min(row, rowY.length - 1)], [rowY]);
+
+  // Keep the same rows in view when row spacing changes (feature/primer/enzyme toggles, resize)
+  const rowAnchorRef = useRef(null);
+  useLayoutEffect(() => {
+    const prev = rowAnchorRef.current;
+    rowAnchorRef.current = { rowY, rowAbove, charsPerLine };
+    if (!prev || !rowY.length || !prev.rowY.length) return;
+    const scroller = scrollContainerRef?.current;
+    // Use the last scroll-event value: after a shrink the DOM scrollTop may already
+    // be clamped to the new max, which would corrupt the anchor row
+    const st = liveScrollTopRef.current;
+    // Anchor row: the row whose block (sequence line + space above) contains the viewport top
+    let r = 0;
+    for (let i = 0; i < prev.rowY.length; i++) {
+      if (prev.rowY[i] - (prev.rowAbove[i] || 0) <= st) r = i;
+      else break;
+    }
+    const delta = st - (prev.rowY[r] - (prev.rowAbove[r] || 0));
+    const newR = Math.min(
+      rowY.length - 1,
+      Math.floor((r * prev.charsPerLine) / charsPerLine),
+    );
+    const newTop = Math.max(0, rowY[newR] - (rowAbove[newR] || 0) + delta);
+    if (Math.abs(newTop - st) < 1) return;
+    if (scroller) scroller.scrollTop = newTop;
+    else window.scrollTo(0, newTop);
+    setScrollY(newTop);
+  }, [rowY, rowAbove, charsPerLine, scrollContainerRef]);
 
   // --- selection: coordinate conversion & event handlers ---
   const clientToSeqIndex = useCallback(
