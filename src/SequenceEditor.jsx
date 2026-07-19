@@ -21,6 +21,7 @@ import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
 import { computePrimerAlignment } from './tauriApi';
+import { buildSearchResults } from './searchUtils';
 import { AlertTriangle } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -422,6 +423,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   sequence,
   features = [],
   enzymes = [],
+  allEnzymes = [],
   primers = [],
   initialCharsPerLine = 60,
   layoutParams = {},
@@ -1133,6 +1135,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
   }, [numRows, rowAbove, rowBelow, lp.minRowGap, lp.rowContentGap]);
   const getSeqY = useCallback((row) => rowY[Math.min(row, rowY.length - 1)], [rowY]);
 
+  // Scroll so the row containing `seqIndex` is inside the viewport (vertical only)
+  const scrollToSeqIndex = useCallback(
+    (seqIndex) => {
+      if (seqIndex == null || !rowY.length) return;
+      const row = Math.min(rowY.length - 1, Math.floor(seqIndex / charsPerLine));
+      const scroller = scrollContainerRef?.current;
+      const rowTop = rowY[row] - (rowAbove[row] || 0);
+      const rowBottom = rowY[row] + (rowBelow[row] || 0);
+      const st = liveScrollTopRef.current;
+      if (rowTop >= st && rowBottom <= st + viewportH) return;
+      const newTop = Math.max(0, rowTop - 40);
+      if (scroller) scroller.scrollTop = newTop;
+      else window.scrollTo(0, newTop);
+      liveScrollTopRef.current = newTop;
+      setScrollY(newTop);
+    },
+    [rowY, rowAbove, rowBelow, charsPerLine, scrollContainerRef, viewportH],
+  );
+
   // Keep the same rows in view when row spacing changes (feature/primer/enzyme toggles, resize)
   const rowAnchorRef = useRef(null);
   useLayoutEffect(() => {
@@ -1150,10 +1171,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       else break;
     }
     const delta = st - (prev.rowY[r] - (prev.rowAbove[r] || 0));
-    const newR = Math.min(
-      rowY.length - 1,
-      Math.floor((r * prev.charsPerLine) / charsPerLine),
-    );
+    const newR = Math.min(rowY.length - 1, Math.floor((r * prev.charsPerLine) / charsPerLine));
     const newTop = Math.max(0, rowY[newR] - (rowAbove[newR] || 0) + delta);
     if (Math.abs(newTop - st) < 1) return;
     if (scroller) scroller.scrollTop = newTop;
@@ -1703,24 +1721,119 @@ const SequenceEditor = React.memo(function SequenceEditor({
     }
   }, [hasSelection, selectionMode, cleanSeq, selStart, selEnd]);
 
-  // --- Search: jump to next match (case-insensitive, wraps around) ---
-  const searchNext = useCallback(
-    (query) => {
-      if (!query || !cleanSeq) return;
-      const haystack = cleanSeq.toLowerCase();
-      const needle = query.toLowerCase();
-      const from = cursorIndex !== null ? cursorIndex + 1 : 0;
-      let i = haystack.indexOf(needle, from);
-      if (i === -1) i = haystack.indexOf(needle, 0);
-      if (i === -1) return;
-      setSelectionMode('text');
-      setIsEnzymeSelection(false);
-      setSelStart(i);
-      setSelEnd(i + needle.length - 1);
-      setCursorIndex(i + needle.length - 1);
-      resetCursorTimer();
+  // --- Search: sequence (both strands, IUPAC) + feature/enzyme/primer names ---
+  const [searchNav, setSearchNav] = useState({ query: '', index: -1, total: 0 });
+  const searchStateRef = useRef({ query: '', scope: 'all', results: [], index: -1 });
+  const openSearchRef = useRef(null);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        openSearchRef.current?.();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const applySearchHit = useCallback(
+    (hit) => {
+      if (!hit) return;
+      lastEnzymeSelRef.current = null;
+      if (hit.type === 'primer') {
+        setSelStart(null);
+        setSelEnd(null);
+        setCursorIndex(null);
+        setIsEnzymeSelection(false);
+        setSelectedEnzymeIds([]);
+        setSelectionMode('primer');
+        setSelectedPrimerIds([hit.ref.id]);
+        clearCursorTimer();
+      } else if (hit.type === 'enzyme') {
+        const displayed = enzymes.some((x) => x.id === hit.ref.id);
+        setSelectedPrimerIds([]);
+        setSelStart(hit.start);
+        setSelEnd(hit.end);
+        setCursorIndex(null);
+        setSelectionMode('text');
+        if (displayed) {
+          const pairs = hit.ref.cutPairs || [];
+          setIsEnzymeSelection(true);
+          setSelectedEnzymeIds([pairs.length > 1 ? `${hit.ref.id}_p0` : hit.ref.id]);
+        } else {
+          setIsEnzymeSelection(false);
+          setSelectedEnzymeIds([]);
+        }
+        clearCursorTimer();
+      } else {
+        // 'seq' | 'feature'
+        setSelectionMode('text');
+        setIsEnzymeSelection(false);
+        setSelectedEnzymeIds([]);
+        setSelectedPrimerIds([]);
+        setSelStart(hit.start);
+        setSelEnd(hit.end);
+        setCursorIndex(hit.end + 1);
+        resetCursorTimer();
+      }
+      scrollToSeqIndex(hit.start);
     },
-    [cleanSeq, cursorIndex, resetCursorTimer],
+    [enzymes, clearCursorTimer, resetCursorTimer, scrollToSeqIndex],
+  );
+
+  const handleSearch = useCallback(
+    (query, direction = 'next', scope = 'all') => {
+      const st = searchStateRef.current;
+      if (st.query !== query || st.scope !== scope) {
+        st.query = query;
+        st.scope = scope;
+        st.results = query
+          ? buildSearchResults(
+              query,
+              {
+                seq: cleanSeq,
+                features: normFeatures,
+                allEnzymes,
+                primers,
+              },
+              scope,
+            )
+          : [];
+        st.index = -1;
+      }
+      const { results } = st;
+      if (direction === 'reset' || !results.length) {
+        st.index = -1;
+        setSearchNav({ query, index: -1, total: results.length });
+        return;
+      }
+      if (st.index === -1) {
+        const anchor = selStart !== null ? selStart : cursorIndex !== null ? cursorIndex : -1;
+        if (direction === 'prev') {
+          st.index = results.length - 1;
+          for (let i = results.length - 1; i >= 0; i--) {
+            if (results[i].start < anchor) {
+              st.index = i;
+              break;
+            }
+          }
+        } else {
+          st.index = 0;
+          for (let i = 0; i < results.length; i++) {
+            if (results[i].start > anchor) {
+              st.index = i;
+              break;
+            }
+          }
+        }
+      } else {
+        st.index = (st.index + (direction === 'prev' ? -1 : 1) + results.length) % results.length;
+      }
+      setSearchNav({ query, index: st.index, total: results.length });
+      applySearchHit(results[st.index]);
+    },
+    [cleanSeq, normFeatures, allEnzymes, primers, selStart, cursorIndex, applySearchHit],
   );
 
   // --- Paste event: read clipboard and trigger insert/replace dialog ---
@@ -3514,7 +3627,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         onToggleEnzymes={onToggleEnzymes}
         enzymeFilter={enzymeFilter}
         onEnzymeFilterChange={onEnzymeFilterChange}
-        onSearch={searchNext}
+        onSearch={handleSearch}
+        searchNav={searchNav}
+        openSearchRef={openSearchRef}
       />
       <div
         ref={containerRef}
