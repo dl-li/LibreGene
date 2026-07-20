@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, Minus, Plus, Square, SlidersHorizontal } from 'lucide-react';
+import { X, Minus, Plus, Square } from 'lucide-react';
 import { isTauri } from '@/tauriApi';
 import { cn } from '@/lib/utils';
 
@@ -60,7 +60,7 @@ function RestoreIcon() {
   );
 }
 
-export default function TitleBar({ title, dirty = false, backendStatus, onOpenDebug }) {
+export default function TitleBar({ title, dirty = false }) {
   const [focused, setFocused] = useState(true);
   const [maximized, setMaximized] = useState(false);
 
@@ -109,20 +109,6 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
       .catch(() => {});
   }, []);
 
-  const statusColor =
-    backendStatus === 'online' || isTauri
-      ? '#22c55e'
-      : backendStatus === 'connecting'
-        ? '#f59e0b'
-        : '#9ca3af';
-  const statusTip = isTauri
-    ? 'Desktop mode'
-    : backendStatus === 'online'
-      ? 'Backend connected'
-      : backendStatus === 'connecting'
-        ? 'Connecting...'
-        : 'Offline';
-
   return (
     <header
       data-tauri-drag-region="deep"
@@ -165,21 +151,6 @@ export default function TitleBar({ title, dirty = false, backendStatus, onOpenDe
       </div>
 
       <div className="ml-auto flex items-center pr-2.5">
-        {onOpenDebug && (
-          <button
-            type="button"
-            onClick={onOpenDebug}
-            title={`Debug 面板 \u00b7 ${statusTip}`}
-            className="relative flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <SlidersHorizontal className="size-3.5" />
-            <span
-              className="absolute right-1 top-1 size-1.5 rounded-full"
-              style={{ background: statusColor }}
-            />
-          </button>
-        )}
-
         {/* Windows/Linux caption buttons (right side) */}
         {isTauri && !isMac && (
           <div className="ml-1 flex items-center">

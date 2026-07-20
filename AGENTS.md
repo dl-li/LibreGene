@@ -11,11 +11,13 @@
 - **后端**: Rust (edition 2021), tokio 1, gb-io 0.9
 - **桌面壳**: Tauri v2，内嵌 libregene-core
 - **无测试框架**（前端无测试，后端仅 Rust 单元测试 + 集成测试）
+- **License**: GPL-3.0-only
 
 ## 开发命令
 
 ```bash
-npx tauri dev                  # 启动桌面应用（唯一正确的开发方式）
+tmux new-session -d -s libregene 'npx tauri dev'   # 后台启动桌面应用
+tmux attach -t libregene                            # 查看输出（Ctrl-B D 分离）
 npx vite build                 # 仅前端编译检查
 
 # 代码质量
@@ -24,9 +26,8 @@ npm run lint                   # ESLint 检查所有 src/
 
 # 后端
 cd backend
-cargo test -p libregene-core --lib             # 单元测试（117 项）
+cargo test -p libregene-core --lib             # 单元测试（全部）
 cargo test -p libregene-core --test roundtrip_test      # 读写往返测试
-cargo test -p libregene-core --test swarm_primer_test   # 引物绑定测试
 cargo build -p LibreGene                    # 构建 Tauri 后端
 
 # shadcn
@@ -43,22 +44,28 @@ LibreGene/
 ├── components.json             # shadcn 配置 (new-york style, neutral base)
 ├── jsconfig.json               # 路径别名 (@/ → src/)
 ├── assets/Fonts/               # 10 个字体文件 (Cascadia Code, TeX Gyre Heros/Termes)
-├── test/                       # 测试文件 (.dna, .gbk)
+├── test/                       # 公开合成测试序列 (.dna, .gbk)
 ├── src/                        # 前端 React 源码
 │   ├── main.jsx                # 入口，ReactDOM.createRoot
 │   ├── App.jsx                 # 顶层状态管理，Sidebar + 路由
 │   ├── SequenceEditor.jsx      # 核心编辑器：SVG 渲染、选择/光标、酶/引物/特征渲染
 │   ├── editorConstants.js      # 共享常量与工具函数（cw, getX, measureWidth, splitRange）
 │   ├── editHistory.js          # 撤销/重做历史栈
+│   ├── api.js                  # HTTP/WebSocket API 客户端（非 Tauri 模式）
 │   ├── tauriApi.js             # Tauri IPC API 客户端
+│   ├── searchUtils.js          # IUPAC 模糊搜索匹配引擎
 │   ├── FeatureInfoDialog.jsx   # 特征编辑弹窗
 │   ├── SequenceEditDialog.jsx  # 序列编辑（插入/删除/替换）确认弹窗
 │   ├── PrimerAlignmentDialog.jsx # 引物添加/编辑弹窗
+│   ├── FeatureScrollbar.jsx    # 特征颜色滚动条
 │   ├── ErrorBoundary.jsx       # React Error Boundary
 │   ├── EditorNavMenu.jsx       # 底部居中悬浮导航菜单（编辑/特征/引物/酶切/搜索）
 │   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
 │   │   ├── DebugPanel.jsx      # 调试面板
+│   │   ├── PrimerOverviewDialog.jsx  # 引物总览弹窗
+│   │   ├── SettingsPage.jsx    # 设置页面
+│   │   ├── TitleBar.jsx        # 无框窗口自定义标题栏
 │   │   └── ui/                 # shadcn UI 组件
 │   ├── hooks/
 │   │   └── use-mobile.js       # 移动端断点检测（768px）
@@ -68,6 +75,7 @@ LibreGene/
 │   ├── Cargo.toml
 │   ├── libregene-core/         # 核心库
 │   │   └── src/
+│   │       ├── lib.rs          # 模块导出
 │   │       ├── models.rs       # 数据模型
 │   │       ├── project.rs      # ProjectManager
 │   │       ├── utils.rs        # complement / reverse_complement
@@ -91,6 +99,7 @@ LibreGene/
 - 先读后改：改任何文件前，先 `Read` 理解上下文。
 - 改完后必须编译/构建验证。前端：`npx vite build`。后端：`cargo test -p libregene-core --lib`。
 - Rust 代码同时跑 `cargo build -p LibreGene` 确保 Tauri 壳也编译。
+- 默认已通过 `tmux` 在后台运行 `npx tauri dev`，改 UI 后切到 tmux 看效果即可。
 
 ### Bug 修复流程
 
@@ -98,7 +107,7 @@ LibreGene/
 2. **每修一个 Bug 就单独提交一次**（`git add` 只包含相关的改动文件）
 3. 提交前跑对应的测试和构建
 4. 提交信息用英文，格式：`fix: 简短描述` 或 `refactor: 简短描述`
-5. 对于涉及 UI 的改动，告知用户可以用 `npx tauri dev` 验证
+5. 涉及 UI 的改动用 tmux 中的 Tauri dev 验证
 
 ### 前端
 
@@ -138,7 +147,6 @@ LibreGene/
 - **SequenceEditor.jsx ~2474 行** — 需拆分组件（如 FeatureLayer、PrimerLayer、EnzymeLayer 等）
 - **SVG 容器 `contain: 'layout style'`** — 创建新层叠上下文，可能影响固定定位元素
 - **`list_projects` JSON 构建** — 可用序列化替代 `serde_json::json!` 宏
-- **引物编辑未接入 undo/redo** — 需扩展 `editHistory` 快照格式以包含 `primers`
 
 ## 待实现功能（导航菜单占位）
 
@@ -163,8 +171,12 @@ update_feature_strand, update_feature_location,
 get_primers, add_primer, delete_primer, compute_primer_alignment,
 set_methylation,
 get_projects, activate_project, delete_project,
-open_in_new_window, get_window_project_id
+open_in_new_window, get_window_project_id, rekey_project
 ```
+
+### HTTP API (libregene serve)
+
+统一前缀 `http://127.0.0.1:8765`，见 `src/api.js`。
 
 ## 核心模型约定
 
@@ -175,3 +187,4 @@ open_in_new_window, get_window_project_id
 - `Enzyme.cut_index / bot_cut_index` — 切口在 cutIndex-1 与 cutIndex 之间，0-based
 - `BindingSite.matchStart/End` — inclusive
 - 环状序列坐标用 `% tlen` 归一化，`wrap_template_region` 负责处理环状拼接
+
