@@ -14,6 +14,10 @@
 
 轻量级跨平台桌面质粒编辑器。纯 SVG 渲染，支持特征标注、引物设计与可视化、酶切分析——全部免费开源。
 
+<p align="center">
+  <img src="ScreenShot.png" alt="LibreGene 截图" width="700" />
+</p>
+
 ## 功能特性
 
 - **SVG 质粒图谱**，多行自适应换行显示

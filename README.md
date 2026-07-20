@@ -14,6 +14,10 @@
 
 A lightweight cross-platform desktop plasmid editor. SVG rendering, feature annotation, primer design & visualization, restriction digestion analysis — all free and open-source.
 
+<p align="center">
+  <img src="ScreenShot.png" alt="LibreGene Screenshot" width="700" />
+</p>
+
 ## Features
 
 - **SVG plasmid map** with multi-line wrapped sequence display
