@@ -90,9 +90,7 @@ export default function App() {
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
-  const [openPath, setOpenPath] = useState(
-    '/Users/lidonglin/Documents/LibreGene/test/pUC-GW-Amp.gb',
-  );
+  const [openPath, setOpenPath] = useState('');
   const [fileStatus, setFileStatus] = useState('');
   const sequenceRef = useRef(sequence);
   const projectCacheRef = useRef({}); // { [id]: { sequence, features, enzymes, primers, methKey } }
@@ -1484,11 +1482,11 @@ export default function App() {
     >
       <SidebarHeader className="flex flex-row items-center gap-2.5 px-3 pb-2 pt-1.5 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-          <div className="relative size-4">
-            <svg viewBox="0 0 24 24" className="absolute inset-0 size-4">
+          <div className="relative size-5">
+            <svg viewBox="0 0 24 24" className="absolute inset-0 size-5">
               <circle cx="12" cy="12" r="9" fill="none" stroke="white" strokeOpacity="0.3" strokeWidth="2" />
             </svg>
-            <LoaderCircle className="relative size-4 text-white" />
+            <LoaderCircle className="relative size-5 text-white" />
           </div>
         </div>
         <div className="flex min-w-0 flex-col group-data-[state=collapsed]:hidden">
