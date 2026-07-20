@@ -31,7 +31,6 @@ import {
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
-import DebugPanel from './components/DebugPanel';
 import SettingsPage from './components/SettingsPage';
 import PrimerOverviewDialog from './components/PrimerOverviewDialog';
 import TitleBar from './components/TitleBar';
@@ -59,7 +58,7 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
-import { Dna, FolderOpen, ChevronDown, AlertTriangle, X, ExternalLink, Settings, ArrowDownWideNarrow } from 'lucide-react';
+import { LoaderCircle, FolderOpen, ChevronDown, AlertTriangle, X, ExternalLink, Settings, ArrowDownWideNarrow } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -80,7 +79,6 @@ export default function App() {
   // { type: 'main' } or { type: 'project', projectId: '...' }
 
   // Debug toggles
-  const [debugOpen, setDebugOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
   const openPrimerEditorRef = useRef(null);
@@ -1486,7 +1484,12 @@ export default function App() {
     >
       <SidebarHeader className="flex flex-row items-center gap-2.5 px-3 pb-2 pt-1.5 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-          <Dna className="size-4" />
+          <div className="relative size-4">
+            <svg viewBox="0 0 24 24" className="absolute inset-0 size-4">
+              <circle cx="12" cy="12" r="9" fill="none" stroke="white" strokeOpacity="0.3" strokeWidth="2" />
+            </svg>
+            <LoaderCircle className="relative size-4 text-white" />
+          </div>
         </div>
         <div className="flex min-w-0 flex-col group-data-[state=collapsed]:hidden">
           <span className="text-[13px] font-semibold leading-tight tracking-tight text-foreground">
@@ -1636,7 +1639,6 @@ export default function App() {
             title={docTitle}
             dirty={isDirty}
             backendStatus={backendStatus}
-            onOpenDebug={() => setDebugOpen(true)}
           />
           {/* Only show sidebar in main window */}
           {hasProject && (!windowInfo || windowInfo.type !== 'project') && (
@@ -1728,28 +1730,6 @@ export default function App() {
             )}
           </div>
         </div>
-
-        <DebugPanel
-          open={debugOpen}
-          onOpenChange={setDebugOpen}
-          showFeatures={showFeatures}
-          setShowFeatures={setShowFeatures}
-          features={features}
-          showPrimers={showPrimers}
-          setShowPrimers={setShowPrimers}
-          primers={primers}
-          enzymeFilter={enzymeFilter}
-          setEnzymeFilter={setEnzymeFilter}
-          enzymes={enzymes}
-          displayEnzymes={displayEnzymes}
-          isTauri={isTauri}
-          openPath={openPath}
-          setOpenPath={setOpenPath}
-          fileStatus={fileStatus}
-          layoutParams={layoutParams}
-          setLP={setLP}
-          onOpenFile={handleOpenFile}
-        />
 
         <SettingsPage
           open={settingsOpen}
