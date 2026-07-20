@@ -136,7 +136,7 @@ export default function DebugPanel({
                       variant="secondary"
                       size="sm"
                       className="text-[10px] h-6 px-2"
-                      onClick={() => setOpenPath('/Users/lidonglin/Documents/LibreGene/' + f)}
+                      onClick={() => setOpenPath(f)}
                     >
                       {f}
                     </Button>
