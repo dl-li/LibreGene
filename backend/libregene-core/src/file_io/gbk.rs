@@ -27,9 +27,8 @@ use crate::models::{Feature, Primer, ProjectData, Segment};
 
 /// Create a [`Primer`] from individual qualifier values.
 ///
-/// Shared by [`parse_primer_feature_fallback`] and
-/// `crate::primer::gbk::parse_gbk_feature` to avoid duplicating the
-/// Primer construction logic.
+/// Shared with `crate::primer::gbk::parse_gbk_feature` to avoid duplicating
+/// the Primer construction logic.
 pub(crate) fn primer_from_qualifier_values(
     label: &str,
     primer_id: &str,
@@ -539,37 +538,7 @@ pub(crate) fn build_primer_qualifier_pairs(
     (match_start, match_end, qualifiers)
 }
 
-/// Fallback `.gbk` primer parser — only extracts name, type, primer_seq, and color.
-/// Binding sites are recomputed by the alignment engine after loading.
-fn parse_primer_feature_fallback(f: &GbFeature, _seq: &str) -> Option<Primer> {
-    let label = f.qualifier_values("label").next().unwrap_or("unknown");
-    let primer_id = f
-        .qualifier_values("libregene_primer_id")
-        .next()
-        .unwrap_or(label);
-    let ptype = f
-        .qualifier_values("libregene_primer_type")
-        .next()
-        .unwrap_or("fwd");
-    let color = f.qualifier_values("libregene_color").next().unwrap_or("#166534");
 
-    // Read primer_seq from qualifier (preferred) or try SnapGene note.
-    let primer_seq = f
-        .qualifier_values("libregene_primer_seq")
-        .next()
-        .map(|s| s.to_string())
-        .or_else(|| {
-            f.qualifier_values("note")
-                .filter_map(|n| parse_snapgene_primer_note(n))
-                .map(|(_, seq)| seq)
-                .next()
-        })
-        .unwrap_or_default();
-
-    Some(primer_from_qualifier_values(
-        label, primer_id, ptype, color, &primer_seq,
-    ))
-}
 
 /// Fallback `.gbk` primer serializer.
 #[allow(dead_code)]
@@ -726,57 +695,72 @@ fn split_snapgene_primer_seq(seq: &str) -> (String, String) {
     (mismatch, match_str)
 }
 
-/// Parse a SnapGene primer_bind feature from its notes.
-/// Only extracts name, type, color, and primer_seq.
+/// Parse a primer_bind feature into a [`Primer`].
+///
+/// Tries these sources for the primer sequence (in order):
+/// 1. `libregene_primer_seq` qualifier
+/// 2. SnapGene note format (`sequence: ...`)
+/// 3. Infer from template DNA at the feature's location
+///
 /// Binding sites are recomputed later by the alignment engine.
 fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
-    // First, try the standard libregene_* qualifier format
-    let has_libregene = f.qualifier_values("libregene_primer_id").next().is_some()
-        || f.qualifier_values("libregene_primer_seq").next().is_some();
-    if has_libregene {
-        return parse_primer_feature_fallback(f, seq);
-    }
-
-    // Try SnapGene note format
-    let notes: Vec<&str> = f.qualifier_values("note").collect();
-    let mut primer_seq = String::new();
-    let mut color = String::new();
-
-    for note in &notes {
-        if let Some((c, s)) = parse_snapgene_primer_note(note) {
-            primer_seq = s;
-            color = c;
-            break;
-        }
-    }
-
-    if primer_seq.is_empty() {
-        return parse_primer_feature_fallback(f, seq);
-    }
-
     let label = f.qualifier_values("label").next().unwrap_or("unknown");
-    let primer_id = f
-        .qualifier_values("libregene_primer_id")
-        .next()
-        .unwrap_or(label);
-
     let ptype = match &f.location {
         Location::Complement(_) => "rev",
         _ => "fwd",
     };
 
-    let primer_color = if color.is_empty() {
-        "#166534".to_string()
-    } else {
-        color
-    };
+    let primer_seq = f
+        .qualifier_values("libregene_primer_seq")
+        .next()
+        .map(|s| s.to_string())
+        .or_else(|| {
+            f.qualifier_values("note")
+                .filter_map(|n| parse_snapgene_primer_note(n))
+                .map(|(_, seq)| seq)
+                .next()
+        })
+        .or_else(|| {
+            let (segs, _, _) = extract_location_bounds(&f.location);
+            let seg = segs.first()?;
+            if seg.start < 0 || (seg.end as usize) >= seq.len() {
+                return None;
+            }
+            let sub = &seq[seg.start as usize..=seg.end as usize];
+            Some(if ptype == "rev" {
+                crate::utils::reverse_complement(sub)
+            } else {
+                sub.to_string()
+            })
+        })?;
+
+    if primer_seq.is_empty() {
+        return None;
+    }
+
+    let primer_id = f
+        .qualifier_values("libregene_primer_id")
+        .next()
+        .unwrap_or(label);
+
+    let color = f
+        .qualifier_values("libregene_color")
+        .next()
+        .map(|s| s.to_string())
+        .or_else(|| {
+            f.qualifier_values("note")
+                .filter_map(|n| parse_snapgene_primer_note(n))
+                .map(|(c, _)| c)
+                .next()
+        })
+        .unwrap_or_else(|| "#166534".to_string());
 
     Some(Primer {
         id: primer_id.to_string(),
         name: label.to_string(),
         r#type: ptype.to_string(),
         primer_seq,
-        color: primer_color,
+        color,
         binding_sites: Vec::new(),
     })
 }

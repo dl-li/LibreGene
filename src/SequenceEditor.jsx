@@ -149,17 +149,17 @@ function buildCDSData(feature, sequence) {
 }
 
 // ---------------------------------------------------------------------------
-// PrimerWarningBadge — floating indicator in top-right corner for primers
-// that have no binding sites.  Click to expand, mouse-leave to close.
+// WarningBadge — floating indicator in bottom-right corner for various
+// warnings (e.g. primers with no binding sites, CDS non-triplet length).
+// Click to expand, mouse-leave to close.
 // ---------------------------------------------------------------------------
-function PrimerWarningBadge({ primers }) {
+function WarningBadge({ warnings }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
 
   const onClick = useCallback(() => setExpanded((v) => !v), []);
   const onMouseLeave = useCallback(() => setExpanded(false), []);
 
-  // Close on mouse-leave of the expanded panel (only when expanded)
   useEffect(() => {
     if (!expanded) return;
     const el = ref.current;
@@ -169,9 +169,12 @@ function PrimerWarningBadge({ primers }) {
     return () => el.removeEventListener('mouseleave', handler);
   }, [expanded]);
 
+  const primerWarnings = warnings.filter((w) => w.type === 'primer');
+  const cdsLenWarnings = warnings.filter((w) => w.type === 'cds_len');
+  const cdsTransWarnings = warnings.filter((w) => w.type === 'cds_trans');
+
   return (
     <div ref={ref} style={{ position: 'fixed', bottom: 14, right: 28, zIndex: 40 }}>
-      {/* Collapsed badge */}
       {!expanded && (
         <div
           onClick={onClick}
@@ -190,10 +193,9 @@ function PrimerWarningBadge({ primers }) {
           }}
         >
           <AlertTriangle className="size-3.5" />
-          <span>{primers.length}</span>
+          <span>{warnings.length}</span>
         </div>
       )}
-      {/* Expanded detail panel */}
       {expanded && (
         <div
           onClick={onClick}
@@ -210,17 +212,37 @@ function PrimerWarningBadge({ primers }) {
             cursor: 'pointer',
           }}
         >
-          <div className="flex items-center gap-1.5 mb-1">
-            <AlertTriangle className="size-3.5 shrink-0" />
-            <span className="font-semibold">引物未匹配到模板</span>
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
-            {primers.map((p) => (
-              <li key={p.id} style={{ fontFamily: monoFont, fontSize: '11px' }}>
-                {p.name || p.id}
-              </li>
-            ))}
-          </ul>
+          {primerWarnings.length > 0 && (
+            <>
+              <div className="flex items-center gap-1.5 mb-1">
+                <AlertTriangle className="size-3.5 shrink-0" />
+                <span className="font-semibold">Unmatched Primers</span>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
+                {primerWarnings.map((w) => (
+                  <li key={w.id} style={{ fontFamily: monoFont, fontSize: '11px' }}>
+                    {w.name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {(cdsLenWarnings.length > 0 || cdsTransWarnings.length > 0) && (
+            <>
+              {primerWarnings.length > 0 && <div style={{ height: 6 }} />}
+              <div className="flex items-center gap-1.5 mb-1">
+                <AlertTriangle className="size-3.5 shrink-0" />
+                <span className="font-semibold">Check Translation:</span>
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
+                {[...cdsLenWarnings, ...cdsTransWarnings].map((w) => (
+                  <li key={w.id} style={{ fontFamily: monoFont, fontSize: '11px' }}>
+                    {w.name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -249,6 +271,7 @@ function SelectionLengthBadge({
   enrichedPrimers,
   enzymeActiveBlue,
   amplimerGreen,
+  hasWarningBelow,
 }) {
   // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
@@ -314,7 +337,7 @@ function SelectionLengthBadge({
     <div
       style={{
         position: 'fixed',
-        bottom: 42,
+        bottom: hasWarningBelow ? 42 : 14,
         right: 28,
         zIndex: 40,
         backgroundColor: bg,
@@ -818,6 +841,42 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const unmatchedPrimers = useMemo(() => {
     return (primers || []).filter((p) => !p.bindingSites?.length);
   }, [primers]);
+
+  const cdsWarnings = useMemo(() => {
+    const result = [];
+    for (const f of features || []) {
+      if (f.ftype !== 'CDS') continue;
+      const segs = f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
+      const totalLen = segs.reduce((sum, seg) => sum + (seg.end - seg.start + 1), 0);
+
+      if (totalLen % 3 !== 0) {
+        result.push({ type: 'cds_len', id: f.id, name: f.name || f.id });
+        continue;
+      }
+
+      if (f.translation) {
+        const fWithSegs = { ...f, segments: segs };
+        const data = buildCDSData(fWithSegs, cleanSeq);
+        const computedStr = data.trans.map((t) => t.aa).join('');
+        const stripAlpha = (s) => s.replace(/[^a-zA-Z]/g, '');
+        if (stripAlpha(computedStr) !== stripAlpha(f.translation)) {
+          result.push({ type: 'cds_trans', id: f.id, name: f.name || f.id });
+        }
+      }
+    }
+    return result;
+  }, [features, cleanSeq]);
+
+  const combinedWarnings = useMemo(() => {
+    const out = [];
+    for (const p of unmatchedPrimers) {
+      out.push({ type: 'primer', id: p.id, name: p.name || p.id });
+    }
+    for (const c of cdsWarnings) {
+      out.push(c);
+    }
+    return out;
+  }, [unmatchedPrimers, cdsWarnings]);
 
   const numRows = Math.max(1, Math.ceil(cleanSeq.length / charsPerLine));
   numRowsRef.current = numRows;
@@ -3928,8 +3987,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         enrichedPrimers={enrichedPrimers}
         enzymeActiveBlue={enzymeActiveBlue}
         amplimerGreen={amplimerGreen}
+        hasWarningBelow={combinedWarnings.length > 0}
       />
-      {unmatchedPrimers.length > 0 && <PrimerWarningBadge primers={unmatchedPrimers} />}
+      {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}
       <EditorNavMenu
         canUndo={canUndo}
         canRedo={canRedo}
