@@ -62,6 +62,10 @@ function AlignmentView({ data }) {
   const primerArrowLine = lines[3] || '';
   const isRev = primerArrowLine.includes("3' <");
   const primerColor = isRev ? COLORS.rev : COLORS.fwd;
+
+  // Forward: show primer on top, template on bottom (swap lines 1↔5, 2↔4)
+  const displayLines = isRev ? lines : [lines[4], lines[3], lines[2], lines[1], lines[0]];
+
   return (
     <div
       style={{
@@ -72,16 +76,15 @@ function AlignmentView({ data }) {
         textAlign: 'left',
       }}
     >
-      {lines.map((line, i) => {
+      {displayLines.map((line, i) => {
         let color;
-        if (i === 3 || i === 4) {
-          // Primer arrow line + name: primer colour
-          color = primerColor;
-        } else if (i === 2) {
+        if (i === 2) {
           // Match line: gray
           color = '#888';
+        } else if (isRev ? i >= 3 : i <= 1) {
+          // Primer lines: top two in forward mode, bottom two in reverse
+          color = primerColor;
         }
-        // All lines use the same font weight for visual alignment.
         return (
           <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>
             {line}

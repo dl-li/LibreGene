@@ -10,6 +10,11 @@ import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { monoFont } from './editorConstants';
 
+/* ---------- HTML tag stripping ---------- */
+function stripHtml(str) {
+  return str.replace(/<[^>]*>/g, '');
+}
+
 /* ---------- GenBank location helpers ---------- */
 function gbLocation(feature) {
   const segs = feature.segments?.length
@@ -116,27 +121,27 @@ function extractQualifiers(feature) {
   for (const [key, vals] of rawQuals) {
     if (key === 'note') continue;
     for (const v of vals) {
-      quals.push({ key, value: v });
+      quals.push({ key, value: stripHtml(v) });
     }
   }
 
   const rawNotes = rawQuals.get('note');
   if (rawNotes && rawNotes.length > 0) {
     for (const v of rawNotes) {
-      const trimmed = v.trim();
+      const trimmed = stripHtml(v).trim();
       if (!trimmed) continue;
       if (skipNotePrefixes.some((p) => trimmed.startsWith(p))) continue;
       quals.push({ key: 'note', value: trimmed });
     }
   } else if (feature.notes) {
-    const trimmed = feature.notes.trim();
+    const trimmed = stripHtml(feature.notes).trim();
     if (trimmed) quals.push({ key: 'note', value: trimmed });
   }
 
   if (feature.translation) {
     quals.push({
       key: 'translation',
-      value: feature.translation.replace(/\s+/g, ''),
+      value: stripHtml(feature.translation).replace(/\s+/g, ''),
     });
   }
 

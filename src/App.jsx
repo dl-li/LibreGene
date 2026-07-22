@@ -1275,7 +1275,7 @@ export default function App() {
     if (!path) return; // User cancelled
 
     try {
-      const result = await saveFile({ path });
+      const result = await saveFile(path);
       if (result && !result.error) {
         if (activeId) {
           const res = await rekeyProject(activeId, path);
@@ -1317,7 +1317,7 @@ export default function App() {
     }
 
     try {
-      const result = await saveFile({ path: filePath });
+      const result = await saveFile(filePath);
       if (result && !result.error) {
         baselineSequenceRef.current = sequenceRef.current || sequence;
         baselinePerProjectRef.current[filePath] = baselineSequenceRef.current;
