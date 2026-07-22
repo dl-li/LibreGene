@@ -58,7 +58,16 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
-import { LoaderCircle, FolderOpen, ChevronDown, AlertTriangle, X, ExternalLink, Settings, ArrowDownWideNarrow } from 'lucide-react';
+import {
+  LoaderCircle,
+  FolderOpen,
+  ChevronDown,
+  AlertTriangle,
+  X,
+  ExternalLink,
+  Settings,
+  ArrowDownWideNarrow,
+} from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
 const EMPTY_ARRAY = [];
@@ -102,10 +111,7 @@ export default function App() {
   // --- Sequence editing state ---
   const editHistoryRef = useRef(createEditHistory());
   const [historyVersion, setHistoryVersion] = useState(0);
-  useEffect(
-    () => editHistoryRef.current.subscribe(() => setHistoryVersion((v) => v + 1)),
-    [],
-  );
+  useEffect(() => editHistoryRef.current.subscribe(() => setHistoryVersion((v) => v + 1)), []);
   const canUndo = historyVersion >= 0 && editHistoryRef.current.canUndo();
   const canRedo = historyVersion >= 0 && editHistoryRef.current.canRedo();
   const [editDialog, setEditDialog] = useState({
@@ -122,6 +128,7 @@ export default function App() {
     cursorIndex: null,
     selStart: null,
     selEnd: null,
+    translationSel: null,
   });
   const undoVersionRef = useRef(0);
   const [isDirty, setIsDirty] = useState(false);
@@ -612,6 +619,7 @@ export default function App() {
           selectedPrimerIds: targetSel?.selectedPrimerIds ?? [],
           isEnzymeSelection: targetSel?.isEnzymeSelection ?? false,
           selectedEnzymeIds: targetSel?.selectedEnzymeIds ?? [],
+          translationSel: targetSel?.translationSel ?? null,
         });
         setSequence(cached.sequence);
         setFeatures(cached.features);
@@ -664,6 +672,7 @@ export default function App() {
               selectedPrimerIds: targetSel?.selectedPrimerIds ?? [],
               isEnzymeSelection: targetSel?.isEnzymeSelection ?? false,
               selectedEnzymeIds: targetSel?.selectedEnzymeIds ?? [],
+              translationSel: targetSel?.translationSel ?? null,
             });
             setSequence(data.sequence);
             setFeatures(data.features || EMPTY_ARRAY);
@@ -1484,7 +1493,15 @@ export default function App() {
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
           <div className="relative size-5">
             <svg viewBox="0 0 24 24" className="absolute inset-0 size-5">
-              <circle cx="12" cy="12" r="9" fill="none" stroke="white" strokeOpacity="0.3" strokeWidth="2" />
+              <circle
+                cx="12"
+                cy="12"
+                r="9"
+                fill="none"
+                stroke="white"
+                strokeOpacity="0.3"
+                strokeWidth="2"
+              />
             </svg>
             <LoaderCircle className="relative size-5 text-white" />
           </div>
@@ -1633,11 +1650,7 @@ export default function App() {
     <TooltipProvider>
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
-          <TitleBar
-            title={docTitle}
-            dirty={isDirty}
-            backendStatus={backendStatus}
-          />
+          <TitleBar title={docTitle} dirty={isDirty} backendStatus={backendStatus} />
           {/* Only show sidebar in main window */}
           {hasProject && (!windowInfo || windowInfo.type !== 'project') && (
             <div

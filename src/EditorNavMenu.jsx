@@ -82,6 +82,7 @@ export default function EditorNavMenu({
   onCopyAntisense,
   onCopyTranslation,
   onPaste,
+  hasTranslationSelection,
   onToUppercase,
   onToLowercase,
   showFeatures,
@@ -144,8 +145,7 @@ export default function EditorNavMenu({
         if (query) onSearch?.(query, e.shiftKey ? 'prev' : 'next', searchScope);
       } else if (e.key === 'Tab') {
         e.preventDefault();
-        const next =
-          SEARCH_SCOPES[(SEARCH_SCOPES.indexOf(searchScope) + 1) % SEARCH_SCOPES.length];
+        const next = SEARCH_SCOPES[(SEARCH_SCOPES.indexOf(searchScope) + 1) % SEARCH_SCOPES.length];
         setSearchScope(next);
         if (query) onSearch?.(query, 'reset', next);
       } else if (e.key === 'Escape') {
@@ -183,13 +183,19 @@ export default function EditorNavMenu({
               <DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!hasSelection} onSelect={onCopySense}>
+            <DropdownMenuItem
+              disabled={!hasSelection && !hasTranslationSelection}
+              onSelect={onCopySense}
+            >
               <CopyPlus /> Copy Sense
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={!hasSelection} onSelect={onCopyAntisense}>
+            <DropdownMenuItem
+              disabled={!hasSelection && !hasTranslationSelection}
+              onSelect={onCopyAntisense}
+            >
               <CopyMinus /> Copy Antisense
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={!hasSelection} onSelect={onCopyTranslation}>
+            <DropdownMenuItem disabled={!hasTranslationSelection} onSelect={onCopyTranslation}>
               <CopyX /> Copy Translation
             </DropdownMenuItem>
             <DropdownMenuItem disabled={!canPaste} onSelect={onPaste}>
