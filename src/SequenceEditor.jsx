@@ -95,39 +95,42 @@ const GENETIC_CODE = {
 };
 
 /**
- * Compute CDS translation for a feature from the DNA sequence.
+ * Build CDS data for a feature from the DNA sequence.
  * Never uses feature.translation — always calculates from scratch.
- * Returns array of { aa, templatePos2 } for each codon.
- * templatePos2 is the middle base position — the AA is centered on it.
+ * Returns { trans, codonMap, codingBases } where:
+ *   trans: array of { aa, templatePos2, codonIndex, bases } for each codon
+ *   codonMap: Map from template position to its codon index
+ *   codingBases: template positions in 5'→3' order
  */
-function translateCDS(feature, sequence) {
+function buildCDSData(feature, sequence) {
   const segs = feature.segments;
-  if (!segs || !segs.length) return [];
+  if (!segs || !segs.length) return { trans: [], codonMap: new Map(), codingBases: [] };
 
   const isRev = feature.strand === '-';
 
   // Build CDS bases as template indices in 5'→3' order
-  const cdsBases = [];
+  const codingBases = [];
   if (isRev) {
     for (let i = segs.length - 1; i >= 0; i--) {
       const seg = segs[i];
       for (let j = seg.end; j >= seg.start; j--) {
-        if (j >= 0 && j < sequence.length) cdsBases.push(j);
+        if (j >= 0 && j < sequence.length) codingBases.push(j);
       }
     }
   } else {
     for (const seg of segs) {
       for (let j = seg.start; j <= seg.end; j++) {
-        if (j >= 0 && j < sequence.length) cdsBases.push(j);
+        if (j >= 0 && j < sequence.length) codingBases.push(j);
       }
     }
   }
 
-  const result = [];
-  for (let i = 0; i + 2 < cdsBases.length; i += 3) {
-    const t1 = cdsBases[i];
-    const t2 = cdsBases[i + 1];
-    const t3 = cdsBases[i + 2];
+  const trans = [];
+  const codonMap = new Map();
+  for (let i = 0; i + 2 < codingBases.length; i += 3) {
+    const t1 = codingBases[i];
+    const t2 = codingBases[i + 1];
+    const t3 = codingBases[i + 2];
 
     const b1 = isRev ? complement(sequence[t1]) : sequence[t1];
     const b2 = isRev ? complement(sequence[t2]) : sequence[t2];
@@ -135,10 +138,14 @@ function translateCDS(feature, sequence) {
 
     const codon = (b1 + b2 + b3).toUpperCase();
     const aa = GENETIC_CODE[codon] || '?';
-    result.push({ aa, templatePos2: t2 });
+    const codonIndex = i / 3;
+    trans.push({ aa, templatePos2: t2, codonIndex, bases: [t1, t2, t3] });
+    codonMap.set(t1, codonIndex);
+    codonMap.set(t2, codonIndex);
+    codonMap.set(t3, codonIndex);
   }
 
-  return result;
+  return { trans, codonMap, codingBases };
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +514,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const hoveredIndexRef = useRef(null);
   const cursorTimerRef = useRef(null);
+
+  // --- translation (codon) selection state ---
+  const [translationSel, setTranslationSel] = useState(null); // { featureId, startCodon, endCodon }
+  const [isTranslationDragging, setIsTranslationDragging] = useState(false);
+  const translationDragRef = useRef(null); // { featureId, startCodon }
+  const cdsFeatureDataRef = useRef({}); // mirror of cdsFeatureData for early callbacks
   const resetCursorTimer = useCallback(() => {
     if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
     cursorTimerRef.current = setTimeout(() => setCursorIndex(null), 5000);
@@ -518,6 +531,31 @@ const SequenceEditor = React.memo(function SequenceEditor({
       cursorTimerRef.current = null;
     }
   }, []);
+
+  const startTranslationSelection = useCallback(
+    (featureId, codon) => {
+      setSelectionMode('translation');
+      setTranslationSel({ featureId, startCodon: codon, endCodon: codon });
+      translationDragRef.current = { featureId, startCodon: codon };
+      setIsTranslationDragging(true);
+      setSelStart(null);
+      setSelEnd(null);
+      setCursorIndex(null);
+      clearCursorTimer();
+      setIsEnzymeSelection(false);
+      setSelectedEnzymeIds([]);
+      lastEnzymeSelRef.current = null;
+      setSelectedPrimerIds([]);
+      isPrimerDraggingRef.current = false;
+      primerDragRef.current = null;
+      if (primerDimTimerRef.current) {
+        clearTimeout(primerDimTimerRef.current);
+        primerDimTimerRef.current = null;
+      }
+      setPrimerDimActive(false);
+    },
+    [clearCursorTimer],
+  );
 
   // Restore cursor/selection from undo/redo or project switch (external restoreState)
   const restoreVersionRef = useRef(0);
@@ -532,6 +570,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     setSelectedPrimerIds(restoreState.selectedPrimerIds ?? []);
     setIsEnzymeSelection(restoreState.isEnzymeSelection ?? false);
     setSelectedEnzymeIds(restoreState.selectedEnzymeIds ?? []);
+    setTranslationSel(restoreState.translationSel ?? null);
+    translationDragRef.current = null;
+    setIsTranslationDragging(false);
     if (restoreState.cursorIndex !== null) {
       resetCursorTimer();
     }
@@ -549,6 +590,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       selectedPrimerIds,
       isEnzymeSelection,
       selectedEnzymeIds,
+      translationSel,
     ]);
     if (snap === prevSelSnapshotRef.current) return;
     prevSelSnapshotRef.current = snap;
@@ -560,6 +602,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       selectedPrimerIds,
       isEnzymeSelection,
       selectedEnzymeIds,
+      translationSel,
     });
   });
 
@@ -585,6 +628,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selEnd !== null &&
     selStart <= selEnd &&
     (selectionMode === 'text' || isEnzymeSelection);
+  const hasTranslationSelection = selectionMode === 'translation' && translationSel !== null;
   const currentSelColor = isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
 
   const pp = useMemo(
@@ -1264,6 +1308,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
         primerDimTimerRef.current = null;
       }
       setPrimerDimActive(false);
+      // Reset translation selection
+      setTranslationSel(null);
+      translationDragRef.current = null;
+      setIsTranslationDragging(false);
       const idx = clientToSeqIndex(e.clientX, e.clientY);
       if (idx === null) return;
       if (e.shiftKey && cursorIndex !== null) {
@@ -1291,7 +1339,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   const handleSvgMouseMove = useCallback(
     (e) => {
-      if (isDraggingRef.current) {
+      if (isDraggingRef.current || translationDragRef.current) {
         if (hoveredIndexRef.current !== null) {
           hoveredIndexRef.current = null;
           setHoveredIndex(null);
@@ -1334,6 +1382,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   useEffect(() => {
     const onUp = () => {
+      // Handle translation (codon) drag end
+      if (translationDragRef.current) {
+        translationDragRef.current = null;
+        setIsTranslationDragging(false);
+        return;
+      }
       // Handle enzyme drag end
       if (enzymeDragRef.current?.active) {
         const dragData = enzymeDragRef.current;
@@ -1422,24 +1476,51 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // --- Copy selection: mode = 'sense' | 'antisense' | 'translation' ---
   const copySelection = useCallback(
     (mode) => {
+      if (mode === 'translation') {
+        if (!translationSel) return;
+        const cds = cdsFeatureDataRef.current[translationSel.featureId];
+        if (!cds) return;
+        const s = Math.min(translationSel.startCodon, translationSel.endCodon);
+        const e = Math.max(translationSel.startCodon, translationSel.endCodon);
+        const aa = cds.trans
+          .slice(s, e + 1)
+          .map((t) => t.aa)
+          .join('');
+        navigator.clipboard.writeText(aa).catch(() => {});
+        return;
+      }
+
+      // When translation selection is active, sense/antisense should copy the
+      // selected codon bases (without gap regions).
+      if (translationSel && (mode === 'sense' || mode === 'antisense')) {
+        const cds = cdsFeatureDataRef.current[translationSel.featureId];
+        if (cds) {
+          const start = Math.min(translationSel.startCodon, translationSel.endCodon);
+          const end = Math.max(translationSel.startCodon, translationSel.endCodon);
+          const posSet = new Set();
+          for (let i = start; i <= end; i++) {
+            const t = cds.trans[i];
+            if (t) for (const b of t.bases) posSet.add(b);
+          }
+          const positions = [...posSet].sort((a, b) => a - b);
+          const dna = positions.map((p) => cleanSeq[p]).join('');
+          const text = mode === 'antisense' ? reverseComplement(dna) : dna;
+          navigator.clipboard.writeText(text).catch(() => {});
+          return;
+        }
+      }
+
       if (!hasSelection) return;
       const sense = cleanSeq.substring(selStart, selEnd + 1);
       let text;
       if (mode === 'antisense') {
         text = reverseComplement(sense);
-      } else if (mode === 'translation') {
-        let aa = '';
-        const upper = sense.toUpperCase();
-        for (let i = 0; i + 2 < upper.length; i += 3) {
-          aa += GENETIC_CODE[upper.substring(i, i + 3)] || 'X';
-        }
-        text = aa;
       } else {
         text = sense;
       }
       navigator.clipboard.writeText(text).catch(() => {});
     },
-    [hasSelection, cleanSeq, selStart, selEnd],
+    [hasSelection, cleanSeq, selStart, selEnd, translationSel, cdsFeatureDataRef],
   );
 
   // --- Paste: build insert/replace request from clipboard text ---
@@ -1476,6 +1557,34 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // --- Case conversion on the current text selection (goes through replace dialog) ---
   const convertSelectionCase = useCallback(
     (toUpper) => {
+      if (hasTranslationSelection) {
+        // Use the min … max base range of selected codons (includes gaps).
+        const cds = cdsFeatureDataRef.current[translationSel.featureId];
+        if (!cds || !onEditRequest) return;
+        const start = Math.min(translationSel.startCodon, translationSel.endCodon);
+        const end = Math.max(translationSel.startCodon, translationSel.endCodon);
+        let minPos = Infinity,
+          maxPos = -Infinity;
+        for (let i = start; i <= end; i++) {
+          const t = cds.trans[i];
+          if (t)
+            for (const b of t.bases) {
+              if (b < minPos) minPos = b;
+              if (b > maxPos) maxPos = b;
+            }
+        }
+        if (minPos > maxPos) return;
+        const selectedText = cleanSeq.substring(minPos, maxPos + 1);
+        onEditRequest({
+          type: 'replace',
+          cursorIndex: minPos,
+          selStart: minPos,
+          selEnd: maxPos,
+          selectedText,
+          clipboardText: toUpper ? selectedText.toUpperCase() : selectedText.toLowerCase(),
+        });
+        return;
+      }
       if (!hasSelection || selectionMode !== 'text' || !onEditRequest) return;
       const selectedText = cleanSeq.substring(selStart, selEnd + 1);
       onEditRequest({
@@ -1487,7 +1596,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
         clipboardText: toUpper ? selectedText.toUpperCase() : selectedText.toLowerCase(),
       });
     },
-    [hasSelection, selectionMode, onEditRequest, cleanSeq, selStart, selEnd],
+    [
+      hasSelection,
+      selectionMode,
+      hasTranslationSelection,
+      translationSel,
+      onEditRequest,
+      cleanSeq,
+      selStart,
+      selEnd,
+    ],
   );
 
   const toUppercase = useCallback(() => convertSelectionCase(true), [convertSelectionCase]);
@@ -1519,6 +1637,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
           setCursorIndex(ni);
           setSelStart(null);
           setSelEnd(null);
+          setTranslationSel(null);
+          translationDragRef.current = null;
+          setIsTranslationDragging(false);
           resetCursorTimer();
         }
         return;
@@ -1601,6 +1722,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
           }
           return;
         }
+        if (selectionMode === 'translation' && translationSel) {
+          e.preventDefault();
+          copySelection('translation');
+          return;
+        }
         if (hasSelection) {
           e.preventDefault();
           copySelection('sense');
@@ -1647,6 +1773,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     enrichedPrimers,
     onEditRequest,
     copySelection,
+    translationSel,
   ]);
 
   useEffect(() => {
@@ -1741,6 +1868,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     (hit) => {
       if (!hit) return;
       lastEnzymeSelRef.current = null;
+      setTranslationSel(null);
+      translationDragRef.current = null;
+      setIsTranslationDragging(false);
       if (hit.type === 'primer') {
         setSelStart(null);
         setSelEnd(null);
@@ -1923,16 +2053,70 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // --- enzyme track assignment is now in the spacing memo (enzymeRowTracks) ---
 
-  // Pre-compute CDS translation data for features with ftype === 'CDS'
-  const cdsTranslationData = useMemo(() => {
+  // Pre-compute CDS data (translation + codon index map) for features with ftype === 'CDS'
+  const cdsFeatureData = useMemo(() => {
     const map = {};
     for (const f of normFeatures) {
       if (f.ftype !== 'CDS') continue;
-      const trans = translateCDS(f, sequence);
-      if (trans.length > 0) map[f.id] = trans;
+      const data = buildCDSData(f, sequence);
+      if (data.trans.length > 0) map[f.id] = data;
     }
     return map;
   }, [normFeatures, sequence]);
+
+  // Sync to a ref so early callbacks (e.g. copySelection) can read current CDS data
+  // without creating a TDZ by referencing this later-defined constant.
+  useEffect(() => {
+    cdsFeatureDataRef.current = cdsFeatureData;
+  }, [cdsFeatureData]);
+
+  // --- translation (codon) drag effect ---
+  // Placed after cdsFeatureData so the dependency array can reference it.
+  useEffect(() => {
+    const onMove = (e) => {
+      const drag = translationDragRef.current;
+      if (!drag || !svgRef.current) return;
+      const cds = cdsFeatureData[drag.featureId];
+      if (!cds) return;
+
+      // Compute row/col directly from SVG geometry so dragging works over the
+      // feature bar and not only over the sequence text.
+      const pt = svgRef.current.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const ctm = svgRef.current.getScreenCTM();
+      if (!ctm) return;
+      const svgPt = pt.matrixTransform(ctm.inverse());
+      const xRel = svgPt.x - startX;
+      if (xRel < -cw / 2 || xRel > charsPerLine * cw + cw / 2) return;
+      let col = Math.floor(xRel / cw);
+      if (xRel < 0) col = 0;
+      if (col >= charsPerLine) col = charsPerLine - 1;
+
+      let row = -1;
+      for (let r = 0; r < numRows; r++) {
+        const top = getSeqY(r) - rowAbove[r];
+        const bottom = r < numRows - 1 ? getSeqY(r + 1) - rowAbove[r + 1] : Infinity;
+        if (svgPt.y >= top && svgPt.y < bottom) {
+          row = r;
+          break;
+        }
+      }
+      if (row < 0) return;
+
+      const idx = row * charsPerLine + col;
+      const codon = cds.codonMap.get(idx);
+      if (codon === undefined) return;
+      const maxCodon = cds.trans.length - 1;
+      const clamped = Math.max(0, Math.min(maxCodon, codon));
+      setTranslationSel((prev) => {
+        if (!prev || prev.featureId !== drag.featureId) return prev;
+        return { featureId: drag.featureId, startCodon: drag.startCodon, endCodon: clamped };
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, [cdsFeatureData, charsPerLine, numRows, getSeqY, rowAbove]);
 
   const renderedFeatures = useMemo(() => {
     if (!visibleFeatures.length) return null;
@@ -2005,15 +2189,42 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
+
+                  // Translated (CDS) features: start codon-unit selection
+                  const cds = cdsFeatureData[f.id];
+                  if (cds) {
+                    // Compute clicked template index from the known visual row/column
+                    // instead of re-detecting the row, which can be unreliable over the
+                    // feature bar that sits below the sequence text.
+                    const pt = svgRef.current.createSVGPoint();
+                    pt.x = e.clientX;
+                    pt.y = e.clientY;
+                    const ctm = svgRef.current.getScreenCTM();
+                    if (ctm) {
+                      const svgPt = pt.matrixTransform(ctm.inverse());
+                      let col = Math.floor((svgPt.x - startX) / cw);
+                      col = Math.max(v.colStart, Math.min(v.colEnd, col));
+                      const idx = v.row * charsPerLine + col;
+                      const codon = cds.codonMap.get(idx);
+                      if (codon !== undefined && codon !== null) {
+                        startTranslationSelection(f.id, codon);
+                        return;
+                      }
+                    }
+                  }
+
                   const fStart = Math.min(...f.segments.map((s) => s.start));
                   const fEnd = Math.max(...f.segments.map((s) => s.end));
                   setSelStart(fStart);
                   setSelEnd(fEnd);
                   setCursorIndex(fEnd + 1);
                   clearCursorTimer();
-                  // Clear primer selection
+                  // Clear primer / translation selection
                   setSelectionMode('text');
                   setSelectedPrimerIds([]);
+                  setTranslationSel(null);
+                  translationDragRef.current = null;
+                  setIsTranslationDragging(false);
                   isPrimerDraggingRef.current = false;
                   primerDragRef.current = null;
                   if (primerDimTimerRef.current) {
@@ -2054,7 +2265,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
           {/* CDS translation — 1-letter AA centered on middle base of each codon */}
           {f.ftype === 'CDS' &&
-            (cdsTranslationData[f.id] || []).flatMap((t) => {
+            (cdsFeatureData[f.id]?.trans || []).flatMap((t) => {
               const r = Math.floor(t.templatePos2 / charsPerLine);
               const c = t.templatePos2 % charsPerLine;
               const inVisual = visuals.some(
@@ -2096,7 +2307,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
     charsPerLine,
     clearCursorTimer,
     lp,
-    cdsTranslationData,
+    cdsFeatureData,
+    setSelectionMode,
+    setTranslationSel,
+    startTranslationSelection,
   ]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
@@ -2174,6 +2388,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               onMouseDown={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
+
                 const fStart = Math.min(...f.segments.map((s) => s.start));
                 const fEnd = Math.max(...f.segments.map((s) => s.end));
                 setSelStart(fStart);
@@ -2182,6 +2397,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 clearCursorTimer();
                 setSelectionMode('text');
                 setSelectedPrimerIds([]);
+                setTranslationSel(null);
+                translationDragRef.current = null;
+                setIsTranslationDragging(false);
                 isPrimerDraggingRef.current = false;
                 primerDragRef.current = null;
                 if (primerDimTimerRef.current) {
@@ -2222,6 +2440,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             onMouseDown={(e) => {
               e.stopPropagation();
               e.preventDefault();
+
               const fStart = Math.min(...f.segments.map((s) => s.start));
               const fEnd = Math.max(...f.segments.map((s) => s.end));
               setSelStart(fStart);
@@ -2230,6 +2449,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
               clearCursorTimer();
               setSelectionMode('text');
               setSelectedPrimerIds([]);
+              setTranslationSel(null);
+              translationDragRef.current = null;
+              setIsTranslationDragging(false);
               isPrimerDraggingRef.current = false;
               primerDragRef.current = null;
               if (primerDimTimerRef.current) {
@@ -2271,6 +2493,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     clearCursorTimer,
     truncatedLabel,
     lp,
+    cdsFeatureData,
+    charsPerLine,
+    startTranslationSelection,
   ]);
 
   const renderedPrimers = useMemo(() => {
@@ -2600,6 +2825,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
                     setIsEnzymeSelection(false);
                     setSelectedEnzymeIds([]);
                     lastEnzymeSelRef.current = null;
+                    setTranslationSel(null);
+                    translationDragRef.current = null;
+                    setIsTranslationDragging(false);
                     // Start primer drag
                     setSelectionMode('primer');
                     setSelectedPrimerIds([p.id]);
@@ -2877,6 +3105,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
               primerDimTimerRef.current = null;
             }
             setPrimerDimActive(false);
+            // Clear translation selection
+            setTranslationSel(null);
+            translationDragRef.current = null;
+            setIsTranslationDragging(false);
             const enzyme = enzymes.find((x) => x.id === l.groupId);
             if (!enzyme) return;
             const pairs = enzyme.cutPairs || [
@@ -3414,7 +3646,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   ]);
 
   const renderedHoverIndex = useMemo(() => {
-    if (hoveredIndex === null || isDragging) return null;
+    if (hoveredIndex === null || isDragging || isTranslationDragging) return null;
     const row = Math.floor(hoveredIndex / charsPerLine);
     const col = hoveredIndex % charsPerLine;
     const sy = getSeqY(row);
@@ -3438,7 +3670,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         </text>
       </g>
     );
-  }, [hoveredIndex, isDragging, charsPerLine, getSeqY, currentSelColor]);
+  }, [hoveredIndex, isDragging, isTranslationDragging, charsPerLine, getSeqY, currentSelColor]);
 
   const renderedSelectionInfo = useMemo(() => {
     if (!isDragging || !hasSelection || cursorIndex === null) return null;
@@ -3587,6 +3819,101 @@ const SequenceEditor = React.memo(function SequenceEditor({
     });
   }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp, isEnzymeSelection]);
 
+  // --- translation (codon) selection render ---
+  const renderedTranslationSelection = useMemo(() => {
+    if (
+      selectionMode !== 'translation' ||
+      !translationSel ||
+      !cdsFeatureData[translationSel.featureId]
+    ) {
+      return null;
+    }
+    const cds = cdsFeatureData[translationSel.featureId];
+    const start = Math.min(translationSel.startCodon, translationSel.endCodon);
+    const end = Math.max(translationSel.startCodon, translationSel.endCodon);
+    const selectedBases = new Set();
+    for (let i = start; i <= end; i++) {
+      const t = cds.trans[i];
+      if (!t) continue;
+      for (const b of t.bases) selectedBases.add(b);
+    }
+    if (!selectedBases.size) return null;
+
+    const byRow = {};
+    for (const pos of selectedBases) {
+      const row = Math.floor(pos / charsPerLine);
+      const col = pos % charsPerLine;
+      (byRow[row] || (byRow[row] = [])).push(col);
+    }
+
+    const rects = [];
+    const texts = [];
+    for (const [rowStr, cols] of Object.entries(byRow)) {
+      const row = parseInt(rowStr, 10);
+      const sy = getSeqY(row);
+      const rowStart = row * charsPerLine;
+      cols.sort((a, b) => a - b);
+
+      const flush = (cs, ce) => {
+        rects.push(
+          <rect
+            key={`trselbg-${row}-${cs}`}
+            x={getX(cs)}
+            y={sy - 19}
+            width={(ce - cs + 1) * cw}
+            height={28}
+            fill={currentSelColor}
+            rx="1"
+          />,
+        );
+        const chars = cleanSeq.substring(rowStart + cs, rowStart + ce + 1).split('');
+        texts.push(
+          <text
+            key={`trseltxt-${row}-${cs}`}
+            y={sy}
+            fontFamily={monoFont}
+            fontSize="14px"
+            fontWeight="bold"
+            style={{ userSelect: 'none', pointerEvents: 'none' }}
+          >
+            {chars.map((c, i) => (
+              <tspan key={i} x={getX(cs + i) + cw / 2} textAnchor="middle" fill={bgColor}>
+                {c}
+              </tspan>
+            ))}
+          </text>,
+        );
+      };
+
+      let segStart = cols[0];
+      let prev = cols[0];
+      for (let i = 1; i < cols.length; i++) {
+        if (cols[i] === prev + 1) {
+          prev = cols[i];
+        } else {
+          flush(segStart, prev);
+          segStart = prev = cols[i];
+        }
+      }
+      flush(segStart, prev);
+    }
+
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {rects}
+        {texts}
+      </g>
+    );
+  }, [
+    selectionMode,
+    translationSel,
+    cdsFeatureData,
+    charsPerLine,
+    getSeqY,
+    cleanSeq,
+    currentSelColor,
+  ]);
+
   return (
     <>
       {/* Unmatched primers warning — rendered outside container to avoid contain: style breaking position: fixed */}
@@ -3609,8 +3936,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         onUndo={onUndo}
         onRedo={onRedo}
         hasSelection={hasSelection}
-        hasTextSelection={hasSelection && selectionMode === 'text'}
-        canPaste={hasSelection || cursorIndex !== null}
+        hasTextSelection={(hasSelection && selectionMode === 'text') || hasTranslationSelection}
+        hasTranslationSelection={hasTranslationSelection}
+        canPaste={hasSelection || cursorIndex !== null || hasTranslationSelection}
         onCopySense={() => copySelection('sense')}
         onCopyAntisense={() => copySelection('antisense')}
         onCopyTranslation={() => copySelection('translation')}
@@ -3672,6 +4000,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             {renderedEnzymeOverlay}
             {renderedSeqBg}
             {renderedSeqSel}
+            {renderedTranslationSelection}
             {renderedAmplimerRegion}
             {renderedTooltips}
             {renderedSelectionInfo}
