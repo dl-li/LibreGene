@@ -8,10 +8,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3" /></a>
 </p>
 
+<p align="center"><a href="README.md">English</a></p>
+
 > **⚠️ 早期开发阶段** — 接口和文件格式尚未稳定。
 > **仅在 macOS 上测试过** — Linux/Windows 版本尚未验证。
->
-> [English](README.md)
 
 轻量级跨平台桌面质粒编辑器。纯 SVG 渲染，支持特征标注、引物设计与可视化、酶切分析——全部免费开源。
 

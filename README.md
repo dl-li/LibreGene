@@ -8,10 +8,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3" /></a>
 </p>
 
+<p align="center"><a href="README.zh-CN.md">中文版</a></p>
+
 > **⚠️ Early Development** — APIs and file formats are not yet stable.
 > **Tested on macOS only** — Linux/Windows builds are not yet verified.
->
-> [中文版](README.zh-CN.md)
 
 A lightweight cross-platform desktop plasmid editor. SVG rendering, feature annotation, primer design & visualization, restriction digestion analysis — all free and open-source.
 
