@@ -338,6 +338,15 @@ pub struct Alignment {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectData {
+    /// LOCUS name (GenBank header)
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub definition: String,
+    #[serde(default)]
+    pub keywords: String,
+    #[serde(default)]
+    pub lab_host: String,
     pub sequence: String,
     pub length: i64,
     /// "circular" | "linear"
