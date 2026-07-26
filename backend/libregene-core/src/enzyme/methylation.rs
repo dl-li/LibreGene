@@ -14,29 +14,33 @@ use crate::models::Enzyme;
 
 /// Dam methylation: G(m6A)TC
 fn is_dam_site(seq: &[u8]) -> bool {
-    seq.len() >= 4 && seq[0] == b'G' && seq[1] == b'A' && seq[2] == b'T' && seq[3] == b'C'
+    seq.len() >= 4
+        && seq[0].eq_ignore_ascii_case(&b'G')
+        && seq[1].eq_ignore_ascii_case(&b'A')
+        && seq[2].eq_ignore_ascii_case(&b'T')
+        && seq[3].eq_ignore_ascii_case(&b'C')
 }
 
 /// Dcm methylation: C(m5C)WGG (W = A or T)
 fn is_dcm_site(seq: &[u8]) -> bool {
     seq.len() >= 5
-        && seq[0] == b'C'
-        && seq[1] == b'C'
-        && (seq[2] == b'A' || seq[2] == b'T')
-        && seq[3] == b'G'
-        && seq[4] == b'G'
+        && seq[0].eq_ignore_ascii_case(&b'C')
+        && seq[1].eq_ignore_ascii_case(&b'C')
+        && (seq[2].eq_ignore_ascii_case(&b'A') || seq[2].eq_ignore_ascii_case(&b'T'))
+        && seq[3].eq_ignore_ascii_case(&b'G')
+        && seq[4].eq_ignore_ascii_case(&b'G')
 }
 
 /// EcoKI methylation: A(m6A)CNNNNNNNGTGC (13 bp)
 fn is_ecoki_site(seq: &[u8]) -> bool {
     seq.len() >= 13
-        && seq[0] == b'A'
-        && seq[1] == b'A'
-        && seq[2] == b'C'
-        && seq[8] == b'G'
-        && seq[9] == b'T'
-        && seq[10] == b'G'
-        && seq[11] == b'C'
+        && seq[0].eq_ignore_ascii_case(&b'A')
+        && seq[1].eq_ignore_ascii_case(&b'A')
+        && seq[2].eq_ignore_ascii_case(&b'C')
+        && seq[8].eq_ignore_ascii_case(&b'G')
+        && seq[9].eq_ignore_ascii_case(&b'T')
+        && seq[10].eq_ignore_ascii_case(&b'G')
+        && seq[11].eq_ignore_ascii_case(&b'C')
 }
 
 /// Find a methylation target site anywhere within `window`.
