@@ -1395,7 +1395,8 @@ export default function App() {
   const handleSaveAs = useCallback(async () => {
     if (!isTauri) return;
 
-    const defaultName = activeId ? activeId.split('/').pop() : 'sequence.gbk';
+    const rawName = activeId ? activeId.split('/').pop() : 'sequence.gbk';
+    const defaultName = rawName.replace(/\.[^.]+$/, '') + '.gbk';
     const path = await saveFileDialog(defaultName);
     if (!path) return; // User cancelled
 
@@ -1437,6 +1438,14 @@ export default function App() {
     const filePath = (activeId && savePathMapRef.current[activeId]) || activeId;
     if (!filePath) {
       // No path known — fall back to Save As
+      await handleSaveAs();
+      return;
+    }
+
+    // Non-GenBank sources (.dna, .fasta, .ab1, ...) must not be overwritten
+    // with GenBank text — force Save As with a .gbk target.
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    if (ext !== 'gbk' && ext !== 'gb') {
       await handleSaveAs();
       return;
     }
