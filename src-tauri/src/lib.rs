@@ -140,6 +140,7 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
         "topology": &project.topology,
         "features": &project.features,
         "primers": &project.primers,
+        "alignments": &project.alignments,
         "methylation_systems": &project.methylation_systems,
         "methylation_overlap": project.methylation_overlap,
         "roi": &project.roi,
@@ -1132,6 +1133,198 @@ struct BindingSiteCandidate {
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — alignments
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn add_alignment(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    let project_clone = {
+        let pm = state.pm.read().await;
+        pm.get_project_by_id(&project_id).cloned()
+    };
+    let project_clone = match project_clone {
+        Some(p) => p,
+        None => return Ok(serde_json::json!({"error": "Project not found"})),
+    };
+
+    let path_buf = std::path::PathBuf::from(&path);
+    let name = path_buf
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("alignment")
+        .to_string();
+
+    let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
+        let read_project = file_io::parse_file(&path_buf).map_err(|e| e.to_string())?;
+        if read_project.sequence.is_empty() {
+            return Err("File contains no sequence".to_string());
+        }
+        let mut p = project_clone;
+        let circular = p.topology == "circular";
+        let mut aln = libregene_core::align::align_read(&p.sequence, &read_project.sequence, circular)
+            .ok_or_else(|| "No significant alignment found".to_string())?;
+        aln.name = name;
+        aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+        p.alignments.push(aln);
+        Ok(p)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+
+    let computed = match computed {
+        Ok(p) => p,
+        Err(e) if e == "No significant alignment found" => return Err(e),
+        Err(e) => return Ok(serde_json::json!({"error": e})),
+    };
+
+    {
+        let mut pm = state.pm.write().await;
+        pm.open_project(project_id.clone(), computed);
+        pm.mark_dirty(&project_id);
+    }
+
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+#[tauri::command]
+async fn add_alignment_seq(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    name: String,
+    seq: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    let project_clone = {
+        let pm = state.pm.read().await;
+        pm.get_project_by_id(&project_id).cloned()
+    };
+    let project_clone = match project_clone {
+        Some(p) => p,
+        None => return Ok(serde_json::json!({"error": "Project not found"})),
+    };
+
+    let clean_seq: String = seq
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_uppercase();
+    if clean_seq.is_empty() {
+        return Ok(serde_json::json!({"error": "Sequence is empty"}));
+    }
+
+    let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
+        let mut p = project_clone;
+        let circular = p.topology == "circular";
+        let mut aln = libregene_core::align::align_read(&p.sequence, &clean_seq, circular)
+            .ok_or_else(|| "No significant alignment found".to_string())?;
+        aln.name = if name.trim().is_empty() {
+            "alignment".to_string()
+        } else {
+            name.trim().to_string()
+        };
+        aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+        p.alignments.push(aln);
+        Ok(p)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+
+    let computed = match computed {
+        Ok(p) => p,
+        Err(e) if e == "No significant alignment found" => return Err(e),
+        Err(e) => return Ok(serde_json::json!({"error": e})),
+    };
+
+    {
+        let mut pm = state.pm.write().await;
+        pm.open_project(project_id.clone(), computed);
+        pm.mark_dirty(&project_id);
+    }
+
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+#[tauri::command]
+async fn remove_alignment(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    alignment_id: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    {
+        let mut pm = state.pm.write().await;
+        pm.remove_alignment(&project_id, &alignment_id);
+    }
+
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — methylation
 // ---------------------------------------------------------------------------
 
@@ -1468,6 +1661,9 @@ pub fn run() {
             add_primer,
             delete_primer,
             compute_primer_alignment,
+            add_alignment,
+            add_alignment_seq,
+            remove_alignment,
             set_methylation,
             get_projects,
             activate_project,

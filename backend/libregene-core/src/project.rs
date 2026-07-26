@@ -250,4 +250,31 @@ impl ProjectManager {
             p.methylation_systems = systems;
         }
     }
+
+    /// Align `seq` against project `id`'s sequence and store the result.
+    /// Returns the stored alignment, or None if there is no significant match.
+    pub fn add_alignment(&mut self, id: &str, name: &str, seq: &str) -> Option<crate::models::Alignment> {
+        let p = self.projects.get(id)?;
+        let circular = p.topology == "circular";
+        let mut aln = crate::align::align_read(&p.sequence, seq, circular)?;
+        aln.name = name.to_string();
+        aln.id = crate::align::next_alignment_id(&p.alignments);
+        let p = self.projects.get_mut(id)?;
+        p.alignments.push(aln.clone());
+        self.dirty_projects.insert(id.to_string());
+        Some(aln)
+    }
+
+    /// Remove an alignment by its id. Returns true if one was removed.
+    pub fn remove_alignment(&mut self, id: &str, alignment_id: &str) -> bool {
+        if let Some(p) = self.projects.get_mut(id) {
+            let before = p.alignments.len();
+            p.alignments.retain(|a| a.id != alignment_id);
+            if p.alignments.len() != before {
+                self.dirty_projects.insert(id.to_string());
+                return true;
+            }
+        }
+        false
+    }
 }

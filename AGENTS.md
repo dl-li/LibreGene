@@ -59,7 +59,9 @@ LibreGene/
 │   ├── PrimerAlignmentDialog.jsx # 引物添加/编辑弹窗
 │   ├── FeatureScrollbar.jsx    # 特征颜色滚动条
 │   ├── ErrorBoundary.jsx       # React Error Boundary
-│   ├── EditorNavMenu.jsx       # 底部居中悬浮导航菜单（编辑/特征/引物/酶切/搜索）
+│   ├── EditorNavMenu.jsx       # 底部居中悬浮导航菜单（编辑/特征/引物/酶切/比对/搜索）
+│   ├── plugins/                # 插件系统：index.js 注册表，每个插件 { id, name, dialogKey, sidebarItems, dialog }
+│   │   └── alignment/          # 序列比对插件（管理弹窗 + 文本新增弹窗）
 │   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
 │   │   ├── DebugPanel.jsx      # 调试面板
@@ -169,6 +171,7 @@ get_features, add_feature, delete_feature,
 update_feature_ftype, update_feature_color, update_feature_name,
 update_feature_strand, update_feature_location,
 get_primers, add_primer, delete_primer, compute_primer_alignment,
+add_alignment, add_alignment_seq, remove_alignment,
 set_methylation,
 get_projects, activate_project, delete_project,
 open_in_new_window, get_window_project_id, rekey_project

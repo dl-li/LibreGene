@@ -11,6 +11,7 @@ import {
   getX,
   complement,
   measureWidth,
+  featLabelW,
   enzLabelW,
   primerLabelW,
   splitRange,
@@ -486,6 +487,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onEnzymeFilterChange,
   openPrimerEditorRef,
   alignmentCacheRef,
+  alignmentTracks = [],
+  alignments = [],
+  alignmentEnabled = true,
+  showAlignments = true,
+  onToggleAlignments,
+  hiddenAlignIds = [],
+  onToggleAlignmentVisible,
+  onAddAlignmentFile,
+  onAddAlignmentText,
+  onManageAlignments,
 }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
@@ -517,6 +528,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [openPrimerEditorRef]);
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
+  const [insPopover, setInsPopover] = useState(null); // { x, y, bases } for alignment insertions
+  const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
+
+  useEffect(() => {
+    if (!insPopover) return;
+    const close = () => setInsPopover(null);
+    const onKey = (e) => {
+      if (e.key === 'Escape') close();
+    };
+    const timer = setTimeout(() => window.addEventListener('mousedown', close), 0);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [insPopover]);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
   const [viewportH, setViewportH] = useState(900);
@@ -884,6 +912,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   const sp = useCallback((s, e) => splitRange(s, e, charsPerLine), [charsPerLine]);
 
+  // Per-row compact lane assignment: an alignment only reserves a lane in
+  // rows where it actually has sequence, so partial alignments leave no gaps.
+  const alignLaneInfo = useMemo(() => {
+    const perRow = Array.from({ length: numRows }, () => new Map());
+    alignmentTracks.forEach((al, ti) => {
+      const rows = new Set();
+      for (const seg of al.segments || []) {
+        for (const v of sp(seg.start, seg.end)) rows.add(v.row);
+      }
+      for (const r of rows) {
+        if (r >= 0 && r < numRows && !perRow[r].has(ti)) perRow[r].set(ti, perRow[r].size);
+      }
+    });
+    const counts = perRow.map((m) => m.size);
+    return { perRow, counts };
+  }, [alignmentTracks, numRows, sp]);
+
   // --- collision avoidance: features + primers ---
   // Normalize features and pre-compute colors once
   const normFeatures = useMemo(
@@ -1178,7 +1223,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const hasTail = r === Math.floor(p.matchEnd / charsPerLine);
             const extra = hasTail ? pp.revBelowExtra : pp.revBelowNonTailExtra;
             const featOff = (revPrimerFeatOffsets[p.id] || {})[r] || 0;
-            be = Math.max(be, pp.revBelowBase + t * pp.trackGap + extra + featOff);
+            be = Math.max(
+              be,
+              pp.revBelowBase +
+                t * pp.trackGap +
+                extra +
+                featOff +
+                alignLaneInfo.counts[r] * lp.featTrackHeight,
+            );
           }
         }
       }
@@ -1202,12 +1254,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
         ae = Math.max(ae, enzBase + maxEnzTrack * lp.enzTrackHeight);
       }
 
-      // Features: below sequence
+      // Features: below sequence (shifted down by alignment lanes)
+      const nAlign = alignLaneInfo.counts[r];
+      if (nAlign > 0) {
+        be = Math.max(be, lp.featBaseOffset + nAlign * lp.featTrackHeight + lp.featLabelPad);
+      }
       const rowFeats = featuresByRow[r];
       if (rowFeats) {
         for (const { feature: f } of rowFeats) {
           const t = (featureRowTracks[f.id] || {})[r] || 0;
-          be = Math.max(be, lp.featBaseOffset + t * lp.featTrackHeight + lp.featLabelPad);
+          be = Math.max(
+            be,
+            lp.featBaseOffset + (t + nAlign) * lp.featTrackHeight + lp.featLabelPad,
+          );
         }
       }
 
@@ -1227,6 +1286,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     charsPerLine,
     pp,
     lp,
+    alignLaneInfo,
   ]);
 
   const rowY = useMemo(() => {
@@ -2230,7 +2290,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const x = getX(v.colStart);
             const w = (v.colEnd - v.colStart + 1) * cw;
             const sy = getSeqY(v.row);
-            const rowTo = ((featureRowTracks[f.id] || {})[v.row] || 0) * lp.featTrackHeight;
+            const rowTo =
+              (((featureRowTracks[f.id] || {})[v.row] || 0) + alignLaneInfo.counts[v.row]) *
+              lp.featTrackHeight;
             const y = sy + lp.featBaseOffset + rowTo;
             const isGap = v.type === 'gap';
 
@@ -2332,7 +2394,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
               );
               if (!inVisual) return [];
               const sy = getSeqY(r);
-              const rowTo = ((featureRowTracks[f.id] || {})[r] || 0) * lp.featTrackHeight;
+              const rowTo =
+                (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
+                lp.featTrackHeight;
               const y = sy + lp.featBaseOffset + rowTo;
               return (
                 <text
@@ -2370,6 +2434,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     setSelectionMode,
     setTranslationSel,
     startTranslationSelection,
+    alignLaneInfo,
   ]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
@@ -2423,7 +2488,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         if (seen.has(key)) return null;
         seen.add(key);
         const sy = getSeqY(vs.row);
-        const rowTo = ((featureRowTracks[f.id] || {})[vs.row] || 0) * lp.featTrackHeight;
+        const rowTo =
+          (((featureRowTracks[f.id] || {})[vs.row] || 0) + alignLaneInfo.counts[vs.row]) *
+          lp.featTrackHeight;
         const y = sy + lp.featBaseOffset + rowTo;
         const textProps = {
           y: y + 4,
@@ -2555,7 +2622,210 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cdsFeatureData,
     charsPerLine,
     startTranslationSelection,
+    alignLaneInfo,
   ]);
+
+  const renderedAlignments = useMemo(() => {
+    if (!alignmentTracks.length) return null;
+    const vs = Math.max(0, visibleRows.start - ROW_BUF);
+    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
+    return alignmentTracks.map((al, ti) => {
+      const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
+      const rows = [];
+      for (const seg of al.segments || []) {
+        for (const v of sp(seg.start, seg.end)) {
+          if (v.row < vs || v.row > ve) continue;
+          const sy = getSeqY(v.row);
+          const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
+          const y = sy + lp.featBaseOffset + lane * lp.featTrackHeight + 8;
+          const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
+          const mismatches = [];
+          chars.forEach((c, i) => {
+            const col = v.colStart + i;
+            const gIdx = v.row * charsPerLine + col;
+            if (
+              insMap.has(gIdx) ||
+              insMap.has(gIdx + 1) ||
+              c === '-' ||
+              c.toUpperCase() !== (sequence[gIdx] || '').toUpperCase()
+            ) {
+              mismatches.push(col);
+            }
+          });
+          rows.push(
+            <g key={`${v.row}-${v.colStart}`}>
+              {mismatches.map((col) => (
+                <rect
+                  key={col}
+                  x={getX(col)}
+                  y={y - 11}
+                  width={cw}
+                  height={14}
+                  fill="#fecaca"
+                  fillOpacity={0.6}
+                  style={{ pointerEvents: 'none' }}
+                />
+              ))}
+              <text
+                y={y}
+                fontFamily="Cascadia Code"
+                fontSize="13px"
+                fontStyle="italic"
+                fontWeight="350"
+                style={{ userSelect: 'none' }}
+              >
+                {chars.map((c, i) => {
+                  const col = v.colStart + i;
+                  const gIdx = v.row * charsPerLine + col;
+                  const insPos = insMap.has(gIdx) ? gIdx : insMap.has(gIdx + 1) ? gIdx + 1 : -1;
+                  if (insPos >= 0) {
+                    const insBases = insMap.get(insPos);
+                    const display =
+                      (insPos > 0 ? sequence[insPos - 1] || '' : '') +
+                      insBases +
+                      (sequence[insPos] || '');
+                    return (
+                      <tspan
+                        key={col}
+                        x={getX(col) + cw / 2}
+                        textAnchor="middle"
+                        fill="#1f2937"
+                        fillOpacity={0.55}
+                        style={{ cursor: 'pointer' }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const insCol = insPos % charsPerLine;
+                          setInsPopover({
+                            x: insCol > 0 ? getX(insCol) : getX(col) + cw / 2,
+                            y,
+                            bases: display,
+                          });
+                        }}
+                      >
+                        ·
+                      </tspan>
+                    );
+                  }
+                  return (
+                    <tspan
+                      key={col}
+                      x={getX(col) + cw / 2}
+                      textAnchor="middle"
+                      fill="#1f2937"
+                      fillOpacity={0.55}
+                    >
+                      {c}
+                    </tspan>
+                  );
+                })}
+              </text>
+            </g>,
+          );
+        }
+      }
+      return <g key={al.id}>{rows}</g>;
+    });
+  }, [
+    alignmentTracks,
+    visibleRows,
+    numRows,
+    sp,
+    getSeqY,
+    lp,
+    charsPerLine,
+    sequence,
+    alignLaneInfo,
+  ]);
+
+  const renderedAlignmentLabels = useMemo(() => {
+    if (!alignmentTracks.length) return null;
+    const vs = Math.max(0, visibleRows.start - ROW_BUF);
+    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
+    const textProps = {
+      fontSize: '12px',
+      fontFamily: 'TeX Gyre Heros',
+      fontWeight: '600',
+      fontStyle: 'italic',
+      fill: '#78716C',
+    };
+    // Long names are middle-truncated to LABEL_MAX_W; hovering scrolls the
+    // full name via a CSS marquee (distance = overflow width).
+    const LABEL_MAX_W = 140;
+    const middleTruncate = (name) => {
+      if (featLabelW(name) <= LABEL_MAX_W) return name;
+      let keep = name.length - 1;
+      let s = name;
+      while (keep > 4) {
+        const l = Math.ceil(keep / 2);
+        const r = Math.floor(keep / 2);
+        s = `${name.slice(0, l)}…${name.slice(name.length - r)}`;
+        if (featLabelW(s) <= LABEL_MAX_W) return s;
+        keep--;
+      }
+      return s;
+    };
+    return alignmentTracks.map((al, ti) => {
+      const rowLabels = {};
+      for (const seg of al.segments || []) {
+        for (const v of sp(seg.start, seg.end)) {
+          if (v.row < vs || v.row > ve) continue;
+          if (!rowLabels[v.row] || v.colEnd > rowLabels[v.row].colEnd) rowLabels[v.row] = v;
+        }
+      }
+      const short = middleTruncate(al.name);
+      const truncated = short !== al.name;
+      return (
+        <g key={al.id}>
+          {Object.values(rowLabels).map((v) => {
+            const sy = getSeqY(v.row);
+            const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
+            const y = sy + lp.featBaseOffset + lane * lp.featTrackHeight + 8;
+            const hKey = `${al.id}:${v.row}`;
+            const hovered = truncated && hoverAlignLabel === hKey;
+            const labelX = getX(v.colEnd + 1) + 8;
+            const clipId = `align-label-clip-${al.id}-${v.row}`;
+            const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
+            const textEl = (
+              <text
+                x={labelX}
+                y={y}
+                textAnchor="start"
+                {...textProps}
+                style={{
+                  userSelect: 'none',
+                  pointerEvents: truncated ? 'auto' : 'none',
+                  cursor: truncated ? 'default' : undefined,
+                  ...(hovered
+                    ? {
+                        '--align-label-scroll': `-${scrollW}px`,
+                        animation: 'alignLabelScroll 2.5s linear infinite alternate',
+                      }
+                    : {}),
+                }}
+                onMouseEnter={truncated ? () => setHoverAlignLabel(hKey) : undefined}
+                onMouseLeave={truncated ? () => setHoverAlignLabel(null) : undefined}
+              >
+                {hovered ? al.name : short}
+              </text>
+            );
+            return (
+              <g key={v.row}>
+                {truncated && (
+                  <defs>
+                    <clipPath id={clipId}>
+                      <rect x={labelX} y={y - 12} width={LABEL_MAX_W} height={16} />
+                    </clipPath>
+                  </defs>
+                )}
+                {truncated ? <g clipPath={`url(#${clipId})`}>{textEl}</g> : textEl}
+              </g>
+            );
+          })}
+        </g>
+      );
+    });
+  }, [alignmentTracks, visibleRows, numRows, sp, getSeqY, lp, alignLaneInfo, hoverAlignLabel]);
 
   const renderedPrimers = useMemo(() => {
     if (!visiblePrimers.length) return null;
@@ -2606,7 +2876,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const isTail = seg === tailSeg,
               isArrow = seg === arrowSeg;
             const sy = getSeqY(seg.row);
-            const featOff = isFwd ? 0 : (revPrimerFeatOffsets[p.id] || {})[seg.row] || 0;
+            const featOff =
+              (isFwd ? 0 : (revPrimerFeatOffsets[p.id] || {})[seg.row] || 0) +
+              (isFwd ? 0 : alignLaneInfo.counts[seg.row] * lp.featTrackHeight);
             const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.trackGap + featOff;
             const matchY =
               (isFwd ? sy - pp.fwdMatchY : sy + pp.revMatchY) + (isFwd ? -trackOff : trackOff);
@@ -4018,6 +4290,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
         onSearch={handleSearch}
         searchNav={searchNav}
         openSearchRef={openSearchRef}
+        alignments={alignments}
+        alignmentEnabled={alignmentEnabled}
+        showAlignments={showAlignments}
+        onToggleAlignments={onToggleAlignments}
+        hiddenAlignIds={hiddenAlignIds}
+        onToggleAlignmentVisible={onToggleAlignmentVisible}
+        onAddAlignmentFile={onAddAlignmentFile}
+        onAddAlignmentText={onAddAlignmentText}
+        onManageAlignments={onManageAlignments}
       />
       <div
         ref={containerRef}
@@ -4034,7 +4315,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           contain: 'layout style',
         }}
       >
-        <div style={{ width: svgWidth }}>
+        <div style={{ width: svgWidth, position: 'relative' }}>
           <svg
             ref={svgRef}
             width="100%"
@@ -4050,8 +4331,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
             onMouseMove={handleSvgMouseMove}
             onMouseLeave={handleSvgMouseLeave}
           >
+            <style>{`@keyframes alignLabelScroll { from { transform: translateX(0); } to { transform: translateX(var(--align-label-scroll, 0px)); } }`}</style>
             {renderedCursor}
             {renderedSelection}
+            {renderedAlignments}
+            {renderedAlignmentLabels}
             {renderedFeatures}
             {renderedFeatureLabels}
             {renderedEnzymes}
@@ -4066,6 +4350,29 @@ const SequenceEditor = React.memo(function SequenceEditor({
             {renderedSelectionInfo}
             {renderedHoverIndex}
           </svg>
+          {insPopover && (
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                left: insPopover.x,
+                top: insPopover.y + 10,
+                transform: 'translateX(-50%)',
+                zIndex: 30,
+                background: '#FFFFFF',
+                border: '1px solid rgba(0,0,0,0.08)',
+                borderRadius: 8,
+                padding: '4px 10px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                fontFamily: monoFont,
+                fontSize: '12px',
+                color: '#1f2937',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {insPopover.bases}
+            </div>
+          )}
         </div>
         <FeatureInfoDialog
           feature={featureInfoFeature}

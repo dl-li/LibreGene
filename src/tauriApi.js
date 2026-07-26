@@ -155,6 +155,22 @@ export async function computePrimerAlignment(primerId, seedLength, customSeq, cu
 }
 
 // ---------------------------------------------------------------------------
+// Alignments
+// ---------------------------------------------------------------------------
+
+export async function addAlignment(path) {
+  return tauriInvoke('add_alignment', { path });
+}
+
+export async function addAlignmentSeq(name, seq) {
+  return tauriInvoke('add_alignment_seq', { name, seq });
+}
+
+export async function removeAlignment(alignmentId) {
+  return tauriInvoke('remove_alignment', { alignmentId });
+}
+
+// ---------------------------------------------------------------------------
 // Methylation
 // ---------------------------------------------------------------------------
 
@@ -214,6 +230,20 @@ export async function openFileDialog() {
   });
   if (!result) return null;
   return Array.isArray(result) ? result : [result];
+}
+
+export async function openAlignmentFileDialog() {
+  if (!isTauri) return null;
+  const result = await tauriOpen({
+    title: 'Add alignment sequence',
+    filters: [
+      { name: 'Sequence Files', extensions: ['ab1', 'fasta', 'fa', 'fna', 'gbk', 'gb', 'dna'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+    multiple: false,
+  });
+  if (!result) return null;
+  return Array.isArray(result) ? result[0] : result;
 }
 
 export async function saveFileDialog(defaultName = 'project.gbk') {
