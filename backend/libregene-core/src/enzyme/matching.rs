@@ -9,7 +9,7 @@ use crate::enzyme::search::iupac_to_regex;
 
 /// Return all match positions for an IUPAC pattern in `ctx`.
 pub fn fuzzy_find_all(ctx: &[u8], site: &str) -> Vec<usize> {
-    let pat = iupac_to_regex(site);
+    let pat = format!("(?i){}", iupac_to_regex(site));
     let re = match Regex::new(&pat) {
         Ok(r) => r,
         Err(_) => return vec![],

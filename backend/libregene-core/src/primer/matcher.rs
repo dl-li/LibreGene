@@ -90,6 +90,8 @@ pub fn find_annealing_positions(
     } else {
         anchor.iter().map(|&b| base_to_regex(b)).collect()
     };
+    // Templates may carry lowercase bases (SnapGene ORIGIN); match case-insensitively.
+    let anchor_re = format!("(?i){}", anchor_re);
 
     let re = match Regex::new(&anchor_re) {
         Ok(r) => r,
