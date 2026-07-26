@@ -14,6 +14,8 @@ use std::fs::File;
 use std::io::{self, BufReader};
 use std::path::Path;
 
+use chrono::Datelike;
+
 use gb_io::reader::SeqReader;
 use gb_io::seq::{After, Before, Feature as GbFeature, Location, Seq, Topology};
 use gb_io::writer::SeqWriter;
@@ -68,7 +70,14 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let sequence: String = std::str::from_utf8(&seq.seq)
         .unwrap_or("")
-        .to_uppercase();
+        .to_string();
+
+    let name = seq.name.clone().unwrap_or_default();
+    let definition = seq.definition.clone().unwrap_or_default();
+    let keywords = seq.keywords.clone().unwrap_or_default();
+    let strip_dot = |s: String| if s == "." { String::new() } else { s };
+    let definition = strip_dot(definition);
+    let keywords = strip_dot(keywords);
 
     let topology = match seq.topology {
         Topology::Circular => "circular".to_string(),
@@ -78,6 +87,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
     let mut features: Vec<Feature> = Vec::new();
     let mut primers: Vec<Primer> = Vec::new();
     let mut alignment_reads: Vec<(String, String)> = Vec::new();
+    let mut lab_host = String::new();
 
     for f in &seq.features {
         let kind = f.kind.as_ref();
@@ -106,6 +116,9 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         }
 
         if kind == "source" {
+            if let Some(host) = f.qualifier_values("lab_host").next() {
+                lab_host = host.to_string();
+            }
             continue;
         }
 
@@ -117,8 +130,21 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             .unwrap_or(kind)
             .to_string();
 
-        // Collect all notes (SnapGene stores color/direction in notes)
-        let note_values: Vec<&str> = f.qualifier_values("note").collect();
+        // Collect all notes (SnapGene stores color/direction in notes).
+        // gb-io keeps raw newlines from line-wrapped qualifier values; collapse
+        // them to a single space for ordinary notes (segments notes are parsed
+        // separately and keep their structure).
+        let note_values: Vec<String> = f
+            .qualifier_values("note")
+            .map(|n| {
+                if n.contains("segments:") {
+                    n.to_string()
+                } else {
+                    n.split_whitespace().collect::<Vec<_>>().join(" ")
+                }
+            })
+            .collect();
+        let note_values: Vec<&str> = note_values.iter().map(|s| s.as_str()).collect();
 
         // Resolve colour: try ApE/libregene qualifiers first, then SnapGene note format
         let mut color = normalize_color(
@@ -152,8 +178,20 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             strand = parse_snapgene_direction_from_notes(&note_values);
         }
 
-        // Extract coordinates
-        let (segments, start, end) = extract_location_bounds(&f.location);
+        // Extract coordinates; a SnapGene "This feature has N segments" note
+        // takes precedence over the location for segment info.
+        let (loc_segments, loc_start, loc_end) = extract_location_bounds(&f.location);
+        let seg_note = note_values
+            .iter()
+            .find_map(|n| parse_segments_note(n));
+        let (segments, start, end) = match &seg_note {
+            Some((segs, _)) if !segs.is_empty() => {
+                let s = segs.iter().map(|g| g.start).min().unwrap_or(loc_start);
+                let e = segs.iter().map(|g| g.end).max().unwrap_or(loc_end);
+                (segs.clone(), s, e)
+            }
+            _ => (loc_segments, loc_start, loc_end),
+        };
 
         let translation = f
             .qualifier_values("translation")
@@ -161,13 +199,26 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             .unwrap_or("")
             .to_string();
 
-        // Build notes string, filtering out SnapGene color/direction notes
-        let notes = note_values
+        // Build notes string, filtering out SnapGene color/direction notes and
+        // the segments note (kept only in `segments`); leftover text from the
+        // segments note (e.g. "Cleavage site after base 2417") is preserved.
+        let mut note_parts: Vec<&str> = note_values
             .iter()
-            .filter(|n| !is_snapgene_color_note(n) && !is_snapgene_direction_note(n))
+            .filter(|n| {
+                !is_snapgene_color_note(n)
+                    && !is_snapgene_direction_note(n)
+                    && parse_segments_note(n).is_none()
+            })
             .copied()
-            .collect::<Vec<_>>()
-            .join("; ");
+            .collect();
+        let seg_note_rest;
+        if let Some((_, rest)) = &seg_note {
+            seg_note_rest = rest.clone();
+            if !seg_note_rest.is_empty() {
+                note_parts.push(&seg_note_rest);
+            }
+        }
+        let notes = note_parts.join("; ");
 
         // Collect remaining qualifiers (filter out ones we store separately or add synthetically)
         let skip_keys: std::collections::HashSet<&str> = [
@@ -217,6 +268,10 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
     }
 
     Ok(ProjectData {
+        name,
+        definition,
+        keywords,
+        lab_host,
         sequence,
         length,
         topology,
@@ -235,7 +290,14 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     let mut record = Seq::empty();
 
-    record.name = Some("libregene".to_string());
+    let name = if project.name.is_empty() {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().replace(' ', "_"))
+            .unwrap_or_else(|| "libregene".to_string())
+    } else {
+        project.name.replace(' ', "_")
+    };
+    record.name = Some(name);
     record.topology = if project.topology == "circular" {
         Topology::Circular
     } else {
@@ -245,6 +307,28 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     record.division = "SYN".to_string();
     record.seq = project.sequence.as_bytes().to_vec();
     record.len = Some(project.sequence.len());
+    let now = chrono::Local::now();
+    record.date = Some(gb_io::seq::Date::from_ymd(
+        now.year(),
+        now.month(),
+        now.day(),
+    ).unwrap());
+    record.definition = Some(if project.definition.is_empty() {
+        ".".to_string()
+    } else {
+        project.definition.clone()
+    });
+    record.accession = Some(".".to_string());
+    record.version = Some(".".to_string());
+    record.keywords = Some(if project.keywords.is_empty() {
+        ".".to_string()
+    } else {
+        project.keywords.clone()
+    });
+    record.source = Some(gb_io::seq::Source {
+        source: "synthetic DNA construct".to_string(),
+        organism: Some("synthetic DNA construct".to_string()),
+    });
 
     // Add source feature — SnapGene style with /lab_host
     let source_loc = Location::Range(
@@ -257,7 +341,11 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
         qualifiers: vec![
             (
                 Cow::Borrowed("lab_host"),
-                Some("Synthetic".to_string()),
+                Some(if project.lab_host.is_empty() {
+                    "Escherichia coli".to_string()
+                } else {
+                    project.lab_host.clone()
+                }),
             ),
             (
                 Cow::Borrowed("mol_type"),
@@ -272,30 +360,27 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 
     // Add features — SnapGene-style with color and direction in /note
     for f in &project.features {
-        let loc = model_range_to_gb_location(&f);
+        let loc = model_range_to_gb_location(f);
 
-        let mut qualifiers: Vec<(Cow<'static, str>, Option<String>)> = vec![
-            (Cow::Borrowed("label"), Some(f.name.clone())),
-        ];
+        let mut qualifiers: Vec<(Cow<'static, str>, Option<String>)> = Vec::new();
 
-        // Build SnapGene color note
-        let color_note = format!("color: {}", f.color);
-        qualifiers.push((Cow::Borrowed("note"), Some(color_note)));
-
-        // Add direction note for forward strand features
-        if f.strand == "+" {
-            qualifiers.push((
-                Cow::Borrowed("note"),
-                Some("direction: RIGHT".to_string()),
-            ));
+        // Original qualifiers first (gene, product, codon_start, bound_moiety…)
+        let skip_keys: std::collections::HashSet<&str> = [
+            "label", "note", "translation", "direction",
+        ].into_iter().collect();
+        for (k, v) in &f.qualifiers {
+            if skip_keys.contains(k.as_str())
+                || k.starts_with("ApEinfo_")
+                || k.starts_with("libregene_")
+            {
+                continue;
+            }
+            qualifiers.push((Cow::Owned(k.clone()), Some(v.clone())));
         }
 
-        // Add direction qualifier for reverse strand (SnapGene convention)
-        if f.strand == "-" {
-            qualifiers.push((Cow::Borrowed("direction"), Some("LEFT".to_string())));
-        }
+        qualifiers.push((Cow::Borrowed("label"), Some(f.name.clone())));
 
-        // Other notes
+        // Descriptive notes
         if !f.notes.is_empty() {
             for note_line in f.notes.split("; ") {
                 if !note_line.is_empty() {
@@ -303,6 +388,26 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
                 }
             }
         }
+
+        // Segments note (SnapGene multi-segment convention)
+        if f.segments.len() > 1 {
+            let mut seg_note = format!("This feature has {} segments:", f.segments.len());
+            for (i, seg) in f.segments.iter().enumerate() {
+                seg_note.push_str(&format!("\n  {}: {} .. {}", i + 1, seg.start + 1, seg.end + 1));
+                if let Some(c) = &seg.color {
+                    seg_note.push_str(&format!(" / {}", c));
+                }
+            }
+            qualifiers.push((Cow::Borrowed("note"), Some(seg_note)));
+        }
+
+        // Color note; reverse strand merges "direction: LEFT" (SnapGene style)
+        let color_note = if f.strand == "-" {
+            format!("color: {}; direction: LEFT", f.color)
+        } else {
+            format!("color: {}", f.color)
+        };
+        qualifiers.push((Cow::Borrowed("note"), Some(color_note)));
 
         // Translation for CDS
         if !f.translation.is_empty() {
@@ -374,10 +479,30 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
             &p.color
         };
 
-        // SnapGene primer note with full primer_seq
-        let note = format!("color: {}; sequence: {}", color, p.primer_seq);
+        // SnapGene primer sequence: 5' tail lowercase + binding region uppercase
+        let seq = if best.five_prime_tail.is_empty() {
+            p.primer_seq.to_uppercase()
+        } else {
+            let tail_len = best.five_prime_tail.len().min(p.primer_seq.len());
+            format!(
+                "{}{}",
+                p.primer_seq[..tail_len].to_lowercase(),
+                p.primer_seq[tail_len..].to_uppercase()
+            )
+        };
+        let direction = if p.r#type == "rev" { "LEFT" } else { "RIGHT" };
+        let note = format!("color: {}; direction: {}; sequence: {}", color, direction, seq);
 
-        let loc = Location::Range((ms, Before(false)), (me, After(false)));
+        let loc = if me <= ms {
+            // Binding site wraps the origin of a circular template.
+            let tlen = project.sequence.len() as i64;
+            Location::Join(vec![
+                Location::Range((ms, Before(false)), (tlen, After(false))),
+                Location::Range((0, Before(false)), (me, After(false))),
+            ])
+        } else {
+            Location::Range((ms, Before(false)), (me, After(false)))
+        };
         let loc = if p.r#type == "rev" {
             Location::Complement(Box::new(loc))
         } else {
@@ -457,41 +582,21 @@ fn strand_from_gb_location(loc: &Location) -> String {
 }
 
 /// Convert a model feature location to a `gb-io` [`Location`].
+///
+/// Multi-segment features are written as the overall range (SnapGene style);
+/// the segment breakdown travels in a "This feature has N segments" note.
 fn model_range_to_gb_location(f: &Feature) -> Location {
     // Model coordinates: 0-based inclusive start/end
     // gb-io Range: 0-based, end-exclusive
 
-    let is_simple = f.segments.len() <= 1
-        && (f.segments.is_empty()
-            || (f.segments[0].start == f.start && f.segments[0].end == f.end));
-
-    if is_simple {
-        let loc = Location::Range(
-            (f.start, Before(false)),
-            (f.end + 1, After(false)),
-        );
-        if f.strand == "-" {
-            Location::Complement(Box::new(loc))
-        } else {
-            loc
-        }
+    let loc = Location::Range(
+        (f.start, Before(false)),
+        (f.end + 1, After(false)),
+    );
+    if f.strand == "-" {
+        Location::Complement(Box::new(loc))
     } else {
-        let parts: Vec<Location> = f
-            .segments
-            .iter()
-            .map(|seg| {
-                Location::Range(
-                    (seg.start, Before(false)),
-                    (seg.end + 1, After(false)),
-                )
-            })
-            .collect();
-        let loc = Location::Join(parts);
-        if f.strand == "-" {
-            Location::Complement(Box::new(loc))
-        } else {
-            loc
-        }
+        loc
     }
 }
 
@@ -701,6 +806,52 @@ fn parse_snapgene_primer_note(note: &str) -> Option<(String, String)> {
     }
 }
 
+/// Parse a SnapGene multi-segment note:
+/// `This feature has N segments:\n  1: start .. end / #color / name\n  ...`
+///
+/// Coordinates in the note are 1-based; returned segments are 0-based inclusive.
+/// Returns the segments plus any leftover descriptive text after the segment
+/// list (e.g. "Cleavage site after base 2417"). Returns None for ordinary notes.
+fn parse_segments_note(note: &str) -> Option<(Vec<Segment>, String)> {
+    let idx = note.find("segments:")?;
+    if !note[..idx].contains("has") {
+        return None;
+    }
+    let body = &note[idx + "segments:".len()..];
+    let re = regex::Regex::new(r"(\d+)\s*:\s*(\d+)\s*\.\.\s*(\d+)(?:\s*/\s*(#[0-9A-Fa-f]+))?")
+        .ok()?;
+    let mut segs = Vec::new();
+    let mut last_end = 0;
+    for cap in re.captures_iter(body) {
+        let m = cap.get(0).unwrap();
+        let start: i64 = cap[2].parse().ok()?;
+        let end: i64 = cap[3].parse().ok()?;
+        segs.push(Segment {
+            start: start - 1,
+            end: end - 1,
+            color: cap.get(4).map(|c| c.as_str().to_string()),
+        });
+        last_end = m.end();
+    }
+    if segs.is_empty() {
+        return None;
+    }
+    let mut rest = body[last_end..]
+        .trim()
+        .trim_matches(|c| c == '"' || c == ';')
+        .trim()
+        .to_string();
+    // A leading "/ name" is the last segment's name — drop it, keep any
+    // following descriptive text (e.g. "Cleavage site after base 2417").
+    if rest.starts_with('/') {
+        rest = match rest.find('\n') {
+            Some(nl) => rest[nl + 1..].trim().to_string(),
+            None => String::new(),
+        };
+    }
+    Some((segs, rest))
+}
+
 /// Map Chinese color names to hex values (common in SnapGene exports).
 fn chinese_color_to_hex(name: &str) -> Option<&'static str> {
     match name {
@@ -722,7 +873,6 @@ fn chinese_color_to_hex(name: &str) -> Option<&'static str> {
 /// binding region; everything before it is the 5' tail.
 ///
 /// Returns `(mismatch_str, match_str)`.
-#[allow(dead_code)]
 fn split_snapgene_primer_seq(seq: &str) -> (String, String) {
     // Find the LAST contiguous uppercase block
     let chars: Vec<char> = seq.chars().collect();
@@ -773,7 +923,10 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
         .or_else(|| {
             f.qualifier_values("note")
                 .filter_map(|n| parse_snapgene_primer_note(n))
-                .map(|(_, seq)| seq)
+                .map(|(_, seq)| {
+                    let (mism, mstr) = split_snapgene_primer_seq(&seq);
+                    format!("{}{}", mism.to_lowercase(), mstr.to_uppercase())
+                })
                 .next()
         })
         .or_else(|| {
@@ -804,10 +957,9 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
         .next()
         .map(|s| s.to_string())
         .or_else(|| {
-            f.qualifier_values("note")
-                .filter_map(|n| parse_snapgene_primer_note(n))
-                .map(|(c, _)| c)
-                .next()
+            let notes: Vec<&str> = f.qualifier_values("note").collect();
+            let c = parse_snapgene_color_from_notes(&notes);
+            if c.is_empty() { None } else { Some(c) }
         })
         .unwrap_or_else(|| "#166534".to_string());
 
