@@ -27,7 +27,13 @@ import {
   deleteProject,
   rekeyProject,
   setWindowTitle,
+  addAlignment,
+  addAlignmentSeq,
+  removeAlignment,
+  openAlignmentFileDialog,
 } from './tauriApi';
+import { plugins } from './plugins';
+import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
@@ -77,6 +83,29 @@ export default function App() {
   const [features, setFeatures] = useState(EMPTY_ARRAY);
   const [enzymes, setEnzymes] = useState(EMPTY_ARRAY);
   const [primers, setPrimers] = useState(EMPTY_ARRAY);
+  const [alignments, setAlignments] = useState(EMPTY_ARRAY);
+  const [showAlignments, setShowAlignments] = useState(true);
+  const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
+  const [alignTextOpen, setAlignTextOpen] = useState(false);
+  const [disabledPlugins, setDisabledPlugins] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('disabledPlugins')) || [];
+    } catch {
+      return [];
+    }
+  });
+  const alignmentEnabled = !disabledPlugins.includes('alignment');
+  const handleTogglePlugin = useCallback((pluginId) => {
+    setDisabledPlugins((prev) => {
+      const next = prev.includes(pluginId)
+        ? prev.filter((x) => x !== pluginId)
+        : [...prev, pluginId];
+      try {
+        localStorage.setItem('disabledPlugins', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
   const [backendStatus, setBackendStatus] = useState(isTauri ? 'online' : 'offline');
 
   // Multi-project state
@@ -90,6 +119,7 @@ export default function App() {
   // Debug toggles
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
+  const [pluginDialogs, setPluginDialogs] = useState({});
   const openPrimerEditorRef = useRef(null);
   const alignmentCacheRef = useRef({});
   const [showFeatures, setShowFeatures] = useState(true);
@@ -162,9 +192,16 @@ export default function App() {
   // Keep cache in sync with latest state (captures post-methylation enzymes)
   useEffect(() => {
     if (activeId && sequence) {
-      projectCacheRef.current[activeId] = { sequence, features, enzymes, primers, methKey };
+      projectCacheRef.current[activeId] = {
+        sequence,
+        features,
+        enzymes,
+        primers,
+        alignments,
+        methKey,
+      };
     }
-  }, [activeId, sequence, features, enzymes, primers, methKey]);
+  }, [activeId, sequence, features, enzymes, primers, alignments, methKey]);
 
   // Layout parameters (行距 / 特征 / 引物排版)
   const [layoutParams, setLayoutParams] = useState({
@@ -251,6 +288,7 @@ export default function App() {
     setFeatures(EMPTY_ARRAY);
     setEnzymes(EMPTY_ARRAY);
     setPrimers(EMPTY_ARRAY);
+    setAlignments(EMPTY_ARRAY);
     editHistoryRef.current.reset({
       sequence: '',
       features: EMPTY_ARRAY,
@@ -297,6 +335,7 @@ export default function App() {
           setFeatures(data.features || []);
           setEnzymes(data.enzymes || []);
           setPrimers(data.primers || []);
+          setAlignments(data.alignments || []);
           setBackendStatus('online');
           // Initialize undo history
           const pid = data.activeId || activeId;
@@ -368,6 +407,7 @@ export default function App() {
               features: msg.data.features || EMPTY_ARRAY,
               enzymes: msg.data.enzymes || EMPTY_ARRAY,
               primers: msg.data.primers || EMPTY_ARRAY,
+              alignments: msg.data.alignments || EMPTY_ARRAY,
               methKey: methKeyRef.current,
             };
             baselinePerProjectRef.current[msg.activeId] = msg.data.sequence;
@@ -378,6 +418,7 @@ export default function App() {
               setFeatures(msg.data.features || []);
               setEnzymes(msg.data.enzymes || []);
               setPrimers(msg.data.primers || []);
+              setAlignments(msg.data.alignments || []);
               editHistoryRef.current.reset({
                 sequence: msg.data.sequence,
                 features: msg.data.features || EMPTY_ARRAY,
@@ -414,6 +455,7 @@ export default function App() {
             setFeatures(ourData.features || []);
             setEnzymes(ourData.enzymes || []);
             setPrimers(ourData.primers || []);
+            setAlignments(ourData.alignments || []);
             editHistoryRef.current.reset({
               sequence: ourData.sequence,
               features: ourData.features || EMPTY_ARRAY,
@@ -537,6 +579,7 @@ export default function App() {
             features: data.features || EMPTY_ARRAY,
             enzymes: data.enzymes || EMPTY_ARRAY,
             primers: data.primers || EMPTY_ARRAY,
+            alignments: data.alignments || EMPTY_ARRAY,
             methKey,
           };
           lastData = data;
@@ -549,6 +592,7 @@ export default function App() {
         setFeatures(lastData.features || EMPTY_ARRAY);
         setEnzymes(lastData.enzymes || EMPTY_ARRAY);
         setPrimers(lastData.primers || EMPTY_ARRAY);
+        setAlignments(lastData.alignments || EMPTY_ARRAY);
         // Apply methylation to newly opened file
         syncMethylation();
         // Initialize undo history and dirty state
@@ -625,6 +669,7 @@ export default function App() {
         setFeatures(cached.features);
         setEnzymes(cached.enzymes);
         setPrimers(cached.primers);
+        setAlignments(cached.alignments || EMPTY_ARRAY);
         // Reset undo history for the switched-to project
         editHistoryRef.current.reset({
           sequence: cached.sequence,
@@ -660,6 +705,7 @@ export default function App() {
               features: data.features || EMPTY_ARRAY,
               enzymes: data.enzymes || EMPTY_ARRAY,
               primers: data.primers || EMPTY_ARRAY,
+              alignments: data.alignments || EMPTY_ARRAY,
               methKey,
             };
             setActiveId(id);
@@ -678,6 +724,7 @@ export default function App() {
             setFeatures(data.features || EMPTY_ARRAY);
             setEnzymes(data.enzymes || EMPTY_ARRAY);
             setPrimers(data.primers || EMPTY_ARRAY);
+            setAlignments(data.alignments || EMPTY_ARRAY);
             syncMethylation();
             // Reset undo history
             editHistoryRef.current.reset({
@@ -829,6 +876,7 @@ export default function App() {
         if (operationGenRef.current !== gen) return;
         if (data && data.primers) {
           setPrimers(data.primers);
+          if (data.alignments) setAlignments(data.alignments);
           if (data.enzymes) setEnzymes(data.enzymes);
           setIsDirty(true);
           if (activeId) dirtyStateRef.current[activeId] = true;
@@ -968,6 +1016,7 @@ export default function App() {
         if (operationGenRef.current !== gen) return;
         if (data && data.primers) {
           setPrimers(data.primers);
+          if (data.alignments) setAlignments(data.alignments);
           if (data.projects) setProjects(data.projects);
           if (data.activeId !== undefined) setActiveId(data.activeId);
           setIsDirty(true);
@@ -978,6 +1027,73 @@ export default function App() {
       }
     },
     [activeId, sequence, features, primers],
+  );
+
+  const handleAddAlignment = useCallback(async () => {
+    const gen = operationGenRef.current;
+    const path = await openAlignmentFileDialog();
+    if (!path) return;
+    const data = await addAlignment(path);
+    if (operationGenRef.current !== gen) return;
+    if (data && data.error) throw new Error(data.error);
+    if (data) {
+      if (data.alignments) setAlignments(data.alignments);
+      if (data.projects) setProjects(data.projects);
+      if (data.activeId !== undefined) setActiveId(data.activeId);
+      setIsDirty(true);
+      if (activeId) dirtyStateRef.current[activeId] = true;
+    }
+  }, [activeId]);
+
+  const handleAddAlignmentText = useCallback(
+    async (name, seq) => {
+      const gen = operationGenRef.current;
+      const data = await addAlignmentSeq(name, seq);
+      if (operationGenRef.current !== gen) return;
+      if (data && data.error) throw new Error(data.error);
+      if (data) {
+        if (data.alignments) setAlignments(data.alignments);
+        if (data.projects) setProjects(data.projects);
+        if (data.activeId !== undefined) setActiveId(data.activeId);
+        setIsDirty(true);
+        if (activeId) dirtyStateRef.current[activeId] = true;
+      }
+    },
+    [activeId],
+  );
+
+  const handleToggleAlignmentVisible = useCallback((alignmentId) => {
+    setHiddenAlignIds((prev) =>
+      prev.includes(alignmentId) ? prev.filter((x) => x !== alignmentId) : [...prev, alignmentId],
+    );
+  }, []);
+
+  const visibleAlignments = useMemo(
+    () =>
+      alignmentEnabled && showAlignments
+        ? alignments.filter((a) => !hiddenAlignIds.includes(a.id))
+        : EMPTY_ARRAY,
+    [alignmentEnabled, showAlignments, alignments, hiddenAlignIds],
+  );
+
+  const handleRemoveAlignment = useCallback(
+    async (alignmentId) => {
+      const gen = operationGenRef.current;
+      try {
+        const data = await removeAlignment(alignmentId);
+        if (operationGenRef.current !== gen) return;
+        if (data && data.alignments) {
+          setAlignments(data.alignments);
+          if (data.projects) setProjects(data.projects);
+          if (data.activeId !== undefined) setActiveId(data.activeId);
+          setIsDirty(true);
+          if (activeId) dirtyStateRef.current[activeId] = true;
+        }
+      } catch (e) {
+        console.error('remove alignment error:', e);
+      }
+    },
+    [activeId],
   );
 
   /**
@@ -1115,12 +1231,14 @@ export default function App() {
           setFeatures(adjustedFeatures); // use our adjusted features (backend doesn't recalculate feature positions)
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
+          setAlignments(data.alignments || EMPTY_ARRAY);
           if (activeId) {
             projectCacheRef.current[activeId] = {
               sequence: data.sequence,
               features: data.features || EMPTY_ARRAY,
               enzymes: data.enzymes || EMPTY_ARRAY,
               primers: data.primers || EMPTY_ARRAY,
+              alignments: data.alignments || EMPTY_ARRAY,
               methKey,
             };
           }
@@ -1136,6 +1254,7 @@ export default function App() {
               setFeatures(refresh.features || EMPTY_ARRAY);
               setEnzymes(refresh.enzymes || EMPTY_ARRAY);
               setPrimers(refresh.primers || EMPTY_ARRAY);
+              setAlignments(refresh.alignments || EMPTY_ARRAY);
             }
           } catch {}
         }
@@ -1174,12 +1293,14 @@ export default function App() {
         setFeatures(snapshot.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
+        setAlignments(data.alignments || EMPTY_ARRAY);
         if (activeId) {
           projectCacheRef.current[activeId] = {
             sequence: data.sequence,
             features: snapshot.features || EMPTY_ARRAY,
             enzymes: data.enzymes || EMPTY_ARRAY,
             primers: snapshot.primers || data.primers || EMPTY_ARRAY,
+            alignments: data.alignments || EMPTY_ARRAY,
             methKey,
           };
         }
@@ -1202,6 +1323,7 @@ export default function App() {
             setFeatures(refresh.features || EMPTY_ARRAY);
             setEnzymes(refresh.enzymes || EMPTY_ARRAY);
             setPrimers(refresh.primers || EMPTY_ARRAY);
+            setAlignments(refresh.alignments || EMPTY_ARRAY);
           }
         } catch {}
       }
@@ -1231,12 +1353,14 @@ export default function App() {
         setFeatures(snapshot.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
+        setAlignments(data.alignments || EMPTY_ARRAY);
         if (activeId) {
           projectCacheRef.current[activeId] = {
             sequence: data.sequence,
             features: snapshot.features || EMPTY_ARRAY,
             enzymes: data.enzymes || EMPTY_ARRAY,
             primers: snapshot.primers || data.primers || EMPTY_ARRAY,
+            alignments: data.alignments || EMPTY_ARRAY,
             methKey,
           };
         }
@@ -1258,6 +1382,7 @@ export default function App() {
             setFeatures(refresh.features || EMPTY_ARRAY);
             setEnzymes(refresh.enzymes || EMPTY_ARRAY);
             setPrimers(refresh.primers || EMPTY_ARRAY);
+            setAlignments(refresh.alignments || EMPTY_ARRAY);
           }
         } catch {}
       }
@@ -1351,6 +1476,7 @@ export default function App() {
             setFeatures(newData.features || EMPTY_ARRAY);
             setEnzymes(newData.enzymes || EMPTY_ARRAY);
             setPrimers(newData.primers || EMPTY_ARRAY);
+            setAlignments(newData.alignments || EMPTY_ARRAY);
             editHistoryRef.current.reset({
               sequence: newData.sequence,
               features: newData.features || EMPTY_ARRAY,
@@ -1619,6 +1745,24 @@ export default function App() {
         <SidebarGroup className="mt-auto">
           <SidebarGroupContent>
             <SidebarMenu>
+              {plugins
+                .filter((plugin) => !disabledPlugins.includes(plugin.id))
+                .flatMap((plugin) =>
+                  plugin.sidebarItems.map((item) => (
+                    <SidebarMenuItem key={`${plugin.id}-${item.dialogKey}`}>
+                      <SidebarMenuButton
+                        onClick={() =>
+                          setPluginDialogs((prev) => ({ ...prev, [item.dialogKey]: true }))
+                        }
+                        tooltip={item.tooltip}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <item.icon className="size-4" />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )),
+                )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => setPrimerOverviewOpen(true)}
@@ -1703,6 +1847,18 @@ export default function App() {
                   onEnzymeFilterChange={setEnzymeFilter}
                   openPrimerEditorRef={openPrimerEditorRef}
                   alignmentCacheRef={alignmentCacheRef}
+                  alignmentTracks={visibleAlignments}
+                  alignments={alignments}
+                  alignmentEnabled={alignmentEnabled}
+                  showAlignments={showAlignments}
+                  onToggleAlignments={() => setShowAlignments((v) => !v)}
+                  hiddenAlignIds={hiddenAlignIds}
+                  onToggleAlignmentVisible={handleToggleAlignmentVisible}
+                  onAddAlignmentFile={handleAddAlignment}
+                  onAddAlignmentText={() => setAlignTextOpen(true)}
+                  onManageAlignments={() =>
+                    setPluginDialogs((prev) => ({ ...prev, alignment: true }))
+                  }
                 />
               ) : (
                 <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
@@ -1751,6 +1907,9 @@ export default function App() {
           setMethylationOverlap={setMethylationOverlap}
           primerSeedLength={primerSeedLength}
           setPrimerSeedLength={setPrimerSeedLength}
+          plugins={plugins}
+          disabledPlugins={disabledPlugins}
+          onTogglePlugin={handleTogglePlugin}
         />
 
         <PrimerOverviewDialog
@@ -1761,6 +1920,33 @@ export default function App() {
           onEditPrimer={(p) => {
             openPrimerEditorRef.current?.(p);
           }}
+        />
+
+        {plugins
+          .filter((plugin) => !disabledPlugins.includes(plugin.id))
+          .map((plugin) => {
+            const DialogComp = plugin.dialog;
+            return (
+              <DialogComp
+                key={plugin.id}
+                open={!!pluginDialogs[plugin.dialogKey]}
+                onOpenChange={(open) =>
+                  setPluginDialogs((prev) => ({
+                    ...prev,
+                    [plugin.dialogKey]: open,
+                  }))
+                }
+                alignments={alignments}
+                onAddAlignment={handleAddAlignment}
+                onRemoveAlignment={handleRemoveAlignment}
+              />
+            );
+          })}
+
+        <AddAlignmentTextDialog
+          open={alignTextOpen}
+          onOpenChange={setAlignTextOpen}
+          onSubmit={handleAddAlignmentText}
         />
 
         {/* --- Sequence Edit Dialog --- */}

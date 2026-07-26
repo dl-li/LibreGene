@@ -77,6 +77,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let mut features: Vec<Feature> = Vec::new();
     let mut primers: Vec<Primer> = Vec::new();
+    let mut alignment_reads: Vec<(String, String)> = Vec::new();
 
     for f in &seq.features {
         let kind = f.kind.as_ref();
@@ -86,6 +87,22 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
                 primers.push(p);
             }
             continue;
+        }
+
+        // Alignments are persisted as misc_features carrying libregene_align_seq;
+        // they are NOT features and are re-aligned below.
+        if kind == "misc_feature" {
+            if let Some(aseq) = f.qualifier_values("libregene_align_seq").next() {
+                let name = f
+                    .qualifier_values("label")
+                    .next()
+                    .unwrap_or("alignment")
+                    .to_string();
+                // GenBank writer line-wraps qualifier values; rejoin.
+                let cleaned: String = aseq.chars().filter(|c| c.is_ascii_alphabetic()).collect();
+                alignment_reads.push((name, cleaned));
+                continue;
+            }
         }
 
         if kind == "source" {
@@ -187,12 +204,25 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let length = sequence.len() as i64;
 
+    // Re-run the alignment so segments/identity match the current sequence.
+    let mut alignments = Vec::new();
+    for (name, read) in &alignment_reads {
+        if let Some(mut aln) =
+            crate::align::align_read(&sequence, read, topology == "circular")
+        {
+            aln.name = name.clone();
+            aln.id = crate::align::next_alignment_id(&alignments);
+            alignments.push(aln);
+        }
+    }
+
     Ok(ProjectData {
         sequence,
         length,
         topology,
         features,
         primers,
+        alignments,
         ..Default::default()
     })
 }
@@ -296,9 +326,35 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     // Serialize primers — SnapGene-style with color + sequence in /note
     serialize_primers_snapgene(project, &mut record);
 
+    // Serialize alignments as misc_features with libregene_align_* qualifiers
+    serialize_alignments_gbk(project, &mut record);
+
     let file = File::create(path)?;
     let mut writer = SeqWriter::new(file);
     writer.write(&record)
+}
+
+/// Serialize alignments as `misc_feature`s spanning the first segment
+/// (full length when there are no segments). The read sequence and strand
+/// travel in custom qualifiers; position is recomputed on parse.
+fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq) {
+    for a in &project.alignments {
+        let (start, end) = match a.segments.first() {
+            Some(seg) => (seg.start as i64, seg.end as i64),
+            None => (0, project.sequence.len().saturating_sub(1) as i64),
+        };
+        let loc = Location::Range((start, Before(false)), (end + 1, After(false)));
+
+        record.features.push(GbFeature {
+            kind: Cow::Borrowed("misc_feature"),
+            location: loc,
+            qualifiers: vec![
+                (Cow::Borrowed("label"), Some(a.name.clone())),
+                (Cow::Borrowed("libregene_align_strand"), Some(a.strand.clone())),
+                (Cow::Borrowed("libregene_align_seq"), Some(a.seq.clone())),
+            ],
+        });
+    }
 }
 
 /// Serialize primers in SnapGene format.
@@ -813,5 +869,47 @@ mod tests {
         let (color, seq) = parse_snapgene_primer_note(note).unwrap();
         assert_eq!(color, "#000000");
         assert_eq!(seq, "ggACTAGTgccaccATGGTGAGCAAGGGCGAG");
+    }
+
+    #[test]
+    fn test_alignment_roundtrip() {
+        let mut x = 42u64;
+        let sequence: String = (0..300)
+            .map(|_| {
+                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                b"ACGT"[(x >> 33) as usize & 3] as char
+            })
+            .collect();
+        let read = sequence[100..180].to_string();
+
+        let mut project = ProjectData {
+            sequence: sequence.clone(),
+            length: sequence.len() as i64,
+            topology: "circular".to_string(),
+            ..Default::default()
+        };
+        let mut aln = crate::align::align_read(&sequence, &read, true).unwrap();
+        aln.id = "aln-1".to_string();
+        aln.name = "read1".to_string();
+        project.alignments.push(aln);
+
+        let path = std::env::temp_dir().join(format!("libregene_aln_roundtrip_{}.gbk", std::process::id()));
+        write_gbk(&project, &path).unwrap();
+        let parsed = parse_gbk(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(parsed.alignments.len(), 1);
+        let a = &parsed.alignments[0];
+        assert_eq!(a.name, "read1");
+        assert_eq!(a.strand, "+");
+        assert_eq!(a.seq, read);
+        assert_eq!(a.segments.len(), 1);
+        assert_eq!(a.segments[0].start, 100);
+        assert_eq!(a.segments[0].end, 179);
+        // Alignment misc_features must not leak into the features list.
+        assert!(parsed.features.iter().all(|f| !f
+            .qualifiers
+            .iter()
+            .any(|(k, _)| k == "libregene_align_seq")));
     }
 }

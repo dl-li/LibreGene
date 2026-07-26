@@ -290,6 +290,48 @@ fn default_recognition_strand() -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Alignment (read aligned against the project's main sequence)
+// ---------------------------------------------------------------------------
+
+/// A non-wrapping aligned range on the template, 0-based inclusive.
+/// `chars.len() == end - start + 1`; '-' where the read has a gap.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignSegment {
+    pub start: usize,
+    pub end: usize,
+    pub chars: String,
+}
+
+/// Extra read bases inserted before template column `pos` (0-based).
+/// Insertions never add columns to the template.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignInsertion {
+    pub pos: usize,
+    pub bases: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Alignment {
+    pub id: String,
+    pub name: String,
+    /// Original read length.
+    pub length: usize,
+    /// "+" or "-" ("-" = reverse complement matched).
+    pub strand: String,
+    /// Fraction of matched columns over aligned columns.
+    pub identity: f64,
+    #[serde(default)]
+    pub segments: Vec<AlignSegment>,
+    #[serde(default)]
+    pub insertions: Vec<AlignInsertion>,
+    /// Read sequence as oriented for display (rev-comp when strand is "-").
+    pub seq: String,
+}
+
+// ---------------------------------------------------------------------------
 // ProjectData
 // ---------------------------------------------------------------------------
 
@@ -305,6 +347,8 @@ pub struct ProjectData {
     pub features: Vec<Feature>,
     #[serde(default)]
     pub primers: Vec<Primer>,
+    #[serde(default)]
+    pub alignments: Vec<Alignment>,
     #[serde(default)]
     pub enzymes: Vec<Enzyme>,
     /// ["dam","dcm","ecoki"]

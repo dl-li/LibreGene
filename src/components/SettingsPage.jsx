@@ -25,6 +25,9 @@ export default function SettingsPage({
   setMethylationOverlap,
   primerSeedLength,
   setPrimerSeedLength,
+  plugins = [],
+  disabledPlugins = [],
+  onTogglePlugin,
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -121,6 +124,33 @@ export default function SettingsPage({
                 onChange={(e) => setPrimerSeedLength(Number(e.target.value))}
               />
               <span className="text-sm text-muted-foreground">bp</span>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* ── 插件 ── */}
+          <div>
+            <div className={SECTION_TITLE}>Plugins</div>
+            <div className="space-y-2">
+              {plugins.map((p) => (
+                <div key={p.id} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`st-plugin-${p.id}`}
+                    checked={!disabledPlugins.includes(p.id)}
+                    onCheckedChange={() => onTogglePlugin?.(p.id)}
+                  />
+                  <Label
+                    htmlFor={`st-plugin-${p.id}`}
+                    className="cursor-pointer text-sm font-normal"
+                  >
+                    {p.name}
+                  </Label>
+                </div>
+              ))}
+              {plugins.length === 0 && (
+                <div className="text-sm text-muted-foreground">No plugins installed</div>
+              )}
             </div>
           </div>
         </div>

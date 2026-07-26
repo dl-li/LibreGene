@@ -16,6 +16,10 @@ import {
   Plus,
   ChevronUp,
   ChevronDown,
+  ChartNoAxesGantt,
+  FileUp,
+  Type,
+  ListChecks,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -98,6 +102,15 @@ export default function EditorNavMenu({
   onSearch,
   searchNav,
   openSearchRef,
+  alignments = [],
+  alignmentEnabled = true,
+  showAlignments = true,
+  onToggleAlignments,
+  hiddenAlignIds = [],
+  onToggleAlignmentVisible,
+  onAddAlignmentFile,
+  onAddAlignmentText,
+  onManageAlignments,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -272,6 +285,44 @@ export default function EditorNavMenu({
             <PlaceholderItem label="Digestion Analysis" />
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Alignment */}
+        {alignmentEnabled && (
+          <DropdownMenu modal={false}>
+            <NavTrigger icon={ChartNoAxesGantt} label="Align" />
+            <DropdownMenuContent side="top" align="center" className="min-w-56 overflow-visible">
+              <DropdownMenuCheckboxItem
+                checked={showAlignments}
+                onCheckedChange={onToggleAlignments}
+              >
+                Show Alignments
+              </DropdownMenuCheckboxItem>
+              {alignments.length > 0 && <DropdownMenuSeparator />}
+              {alignments.map((a) => (
+                <DropdownMenuCheckboxItem
+                  key={a.id}
+                  checked={!hiddenAlignIds.includes(a.id)}
+                  onCheckedChange={() => onToggleAlignmentVisible?.(a.id)}
+                >
+                  <span className="truncate">{a.name}</span>
+                  <DropdownMenuShortcut className="ml-4 text-muted-foreground">
+                    {a.identity != null ? `${(a.identity * 100).toFixed(0)}%` : ''}
+                  </DropdownMenuShortcut>
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onAddAlignmentFile}>
+                <FileUp /> Add from File…
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onAddAlignmentText}>
+                <Type /> Add from Text…
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onManageAlignments}>
+                <ListChecks /> Manage Alignments…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
         {/* Search */}
         <div className="flex items-center">

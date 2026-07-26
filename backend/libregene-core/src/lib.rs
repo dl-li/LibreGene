@@ -1,3 +1,4 @@
+pub mod align;
 pub mod enzyme;
 pub mod file_io;
 pub mod models;
