@@ -128,6 +128,7 @@ export default function PrimerAlignmentDialog({
   onPrimerChange,
   onDeletePrimer,
   primers = [],
+  tmParams = {},
 }) {
   const [editSeq, setEditSeq] = useState('');
   const [editName, setEditName] = useState('');
@@ -158,7 +159,7 @@ export default function PrimerAlignmentDialog({
         setData(alignmentData);
       } else {
         setData(null);
-        computePrimerAlignment(primer.id, seedLength)
+        computePrimerAlignment(primer.id, seedLength, undefined, undefined, tmParams)
           .then(setData)
           .catch(() => {});
       }
@@ -232,8 +233,8 @@ export default function PrimerAlignmentDialog({
       setPreview({ data: null, loading: true, error: null });
       try {
         const result = isNewPrimer
-          ? await computePrimerAlignment(null, seedLength, editSeq, editName)
-          : await computePrimerAlignment(primer.id, seedLength, editSeq);
+          ? await computePrimerAlignment(null, seedLength, editSeq, editName, tmParams)
+          : await computePrimerAlignment(primer.id, seedLength, editSeq, undefined, tmParams);
         if (key === autoPreviewKey.current) {
           setPreview({ data: result, loading: false, error: null });
         }

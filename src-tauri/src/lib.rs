@@ -905,6 +905,11 @@ async fn compute_primer_alignment(
     seed_length: Option<usize>,
     custom_seq: Option<String>,
     custom_name: Option<String>,
+    na_conc: Option<f64>,
+    mg_conc: Option<f64>,
+    dntp_conc: Option<f64>,
+    tris_conc: Option<f64>,
+    primer_conc: Option<f64>,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await
         .ok_or_else(|| "No project loaded".to_string())?;
@@ -935,10 +940,18 @@ async fn compute_primer_alignment(
 
     let is_circular = topology == "circular";
 
+    let tm_params = libregene_core::primer::thermodynamics::TmParams {
+        na_conc: na_conc.unwrap_or(0.050),
+        mg_conc: mg_conc.unwrap_or(0.0015),
+        dntp_conc: dntp_conc.unwrap_or(0.0008),
+        tris_conc: tris_conc.unwrap_or(0.010),
+        primer_conc: primer_conc.unwrap_or(2e-7),
+    };
+
     // Move heavy computation to blocking thread pool.
     tokio::task::spawn_blocking(move || {
         compute_primer_alignment_sync(
-            &template, is_circular, &primer_name, &primer_seq, seed_length,
+            &template, is_circular, &primer_name, &primer_seq, seed_length, &tm_params,
         )
     })
     .await
@@ -951,6 +964,7 @@ fn compute_primer_alignment_sync(
     primer_name: &str,
     primer_seq: &str,
     seed_length: Option<usize>,
+    tm_params: &libregene_core::primer::thermodynamics::TmParams,
 ) -> Result<serde_json::Value, String> {
     let tpl_bytes = template.as_bytes();
     let tlen = tpl_bytes.len();
@@ -1027,7 +1041,7 @@ fn compute_primer_alignment_sync(
             let footprint_seq: String = primer_bytes[plen - footprint_len..]
                 .iter().map(|&b| b.to_ascii_uppercase() as char).collect();
             let est_tm = if footprint_seq.len() >= 2 {
-                libregene_core::primer::thermodynamics::compute_tm(&footprint_seq)
+                libregene_core::primer::thermodynamics::compute_tm_with_params(&footprint_seq, tm_params)
             } else { 0.0 };
 
             candidates.push(BindingSiteCandidate { is_rev, tp_3prime, footprint_len, est_tm });
@@ -1072,7 +1086,7 @@ fn compute_primer_alignment_sync(
                         &orig_rev_bytes, &template_region, &result,
                         "Template", primer_name, win_start, true,
                     );
-                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment(&rev_bytes, &result);
+                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(&rev_bytes, &result, tm_params);
                     results.push(serde_json::json!({
                         "tm": (sw_tm * 10.0).round() / 10.0,
                         "strand": -1,
@@ -1089,7 +1103,7 @@ fn compute_primer_alignment_sync(
                         orig_bytes, &template_region, &result,
                         "Template", primer_name, win_start, false,
                     );
-                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment(primer_bytes, &result);
+                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(primer_bytes, &result, tm_params);
                     results.push(serde_json::json!({
                         "tm": (sw_tm * 10.0).round() / 10.0,
                         "strand": 1,
@@ -1587,6 +1601,30 @@ async fn open_in_new_window(
     Ok(serde_json::json!({"status": "ok", "windowLabel": window_label}))
 }
 
+/// Compute melting temperature using SantaLucia 2004 nearest-neighbour model.
+#[tauri::command]
+async fn compute_tm(
+    seq: String,
+    na_conc: Option<f64>,
+    mg_conc: Option<f64>,
+    dntp_conc: Option<f64>,
+    tris_conc: Option<f64>,
+    primer_conc: Option<f64>,
+) -> Result<f64, String> {
+    if seq.len() < 2 {
+        return Ok(0.0);
+    }
+    let params = libregene_core::primer::thermodynamics::TmParams {
+        na_conc: na_conc.unwrap_or(0.050),
+        mg_conc: mg_conc.unwrap_or(0.0015),
+        dntp_conc: dntp_conc.unwrap_or(0.0008),
+        tris_conc: tris_conc.unwrap_or(0.010),
+        primer_conc: primer_conc.unwrap_or(2e-7),
+    };
+    let tm = libregene_core::primer::thermodynamics::compute_tm_with_params(&seq, &params);
+    Ok((tm * 10.0).round() / 10.0)
+}
+
 /// Return the project_id bound to the calling window.
 /// Returns null for the main window (use active project instead).
 #[tauri::command]
@@ -1671,6 +1709,7 @@ pub fn run() {
             open_in_new_window,
             get_window_project_id,
             rekey_project,
+            compute_tm,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

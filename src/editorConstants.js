@@ -67,3 +67,11 @@ export function splitRange(start, end, charsPerLine) {
   }
   return segments;
 }
+
+export const DEFAULT_TM_PARAMS = {
+  naConc: 0.050,
+  mgConc: 0.0015,
+  dntpConc: 0.0008,
+  trisConc: 0.010,
+  primerConc: 2e-7,
+};

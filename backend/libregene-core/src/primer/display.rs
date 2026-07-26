@@ -12,6 +12,7 @@
 
 use super::alignment::{AlignmentResult, Op};
 use super::thermodynamics;
+use super::thermodynamics::TmParams;
 
 /// Format an [`AlignmentResult`] into a compact centred 5-line block.
 ///
@@ -132,6 +133,15 @@ pub fn compute_tm_from_alignment(
     primer_seq: &[u8],
     result: &AlignmentResult,
 ) -> f64 {
+    compute_tm_from_alignment_with_params(primer_seq, result, &TmParams::default())
+}
+
+/// Like [`compute_tm_from_alignment`] but with configurable PCR conditions.
+pub fn compute_tm_from_alignment_with_params(
+    primer_seq: &[u8],
+    result: &AlignmentResult,
+    params: &TmParams,
+) -> f64 {
     let matched: String = result
         .ops
         .iter()
@@ -141,7 +151,7 @@ pub fn compute_tm_from_alignment(
     if matched.len() < 2 {
         return 0.0;
     }
-    thermodynamics::compute_tm(&matched)
+    thermodynamics::compute_tm_with_params(&matched, params)
 }
 
 #[cfg(test)]

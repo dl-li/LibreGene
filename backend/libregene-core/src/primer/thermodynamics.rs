@@ -4,6 +4,7 @@
 //! salt concentration, Mg²⁺/dNTPs correction, and primer concentration.
 //! Only matched/aligned base pairs participate — tails and overhangs are excluded.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -41,31 +42,33 @@ const DS_INIT: f64 = -4.1;
 const R: f64 = 1.9872;
 
 // ---------------------------------------------------------------------------
-// Default PCR conditions (matching pydna tm_default: 10X Taq buffer)
+// Default PCR conditions (standard 1× Taq buffer)
+// 50 mM KCl, 10 mM Tris-HCl (pH 8.3), 1.5 mM MgCl₂,
+// 0.2 mM each dNTP, 0.2 μM each primer.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_NA: f64 = 0.040;   // 40 mM Na+
+const DEFAULT_NA: f64 = 0.050;   // 50 mM monovalent (K⁺ from KCl)
 const DEFAULT_MG: f64 = 0.0015;  // 1.5 mM Mg²⁺
-const DEFAULT_DNTP: f64 = 0.0008; // 0.8 mM dNTPs
-const DEFAULT_TRIS: f64 = 0.075;  // 75 mM Tris-HCl
-const DEFAULT_PRIMER_CONC: f64 = 5e-7; // 0.5 μM each primer
+const DEFAULT_DNTP: f64 = 0.0008; // 0.8 mM total dNTPs
+const DEFAULT_TRIS: f64 = 0.010;  // 10 mM Tris-HCl
+const DEFAULT_PRIMER_CONC: f64 = 2e-7; // 0.2 μM each primer
 
 // ---------------------------------------------------------------------------
 // TmParams — configurable PCR conditions
 // ---------------------------------------------------------------------------
 
 /// Configurable parameters for Tm calculation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmParams {
-    /// Monovalent cation concentration in M (Na⁺). Default 0.040.
+    /// Monovalent cation concentration in M (K⁺ + Na⁺). Default 0.050.
     pub na_conc: f64,
     /// Mg²⁺ concentration in M. Default 0.0015.
     pub mg_conc: f64,
-    /// dNTP concentration in M. Default 0.0008.
+    /// dNTP concentration in M (total). Default 0.0008.
     pub dntp_conc: f64,
-    /// Tris-HCl concentration in M. Default 0.075.
+    /// Tris-HCl concentration in M. Default 0.010.
     pub tris_conc: f64,
-    /// Primer concentration in M. Default 5e-7.
+    /// Primer concentration in M. Default 2e-7.
     pub primer_conc: f64,
 }
 
@@ -521,8 +524,8 @@ mod tests {
             ..TmParams::default()
         };
         let eq = na_equivalent(&params);
-        // mM: 40 + 75/2 + 0 = 77.5 mM = 0.0775 M
-        assert!((eq - 0.0775).abs() < 0.001, "Na⁺_eq={eq}");
+        // mM: 50 + 10/2 + 0 = 55 mM = 0.055 M
+        assert!((eq - 0.055).abs() < 0.001, "Na⁺_eq={eq}");
     }
 
     #[test]
