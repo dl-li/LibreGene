@@ -145,12 +145,17 @@ export async function deletePrimer(id) {
   return tauriInvoke('delete_primer', { id });
 }
 
-export async function computePrimerAlignment(primerId, seedLength, customSeq, customName) {
+export async function computePrimerAlignment(primerId, seedLength, customSeq, customName, tmParams = {}) {
   return tauriInvoke('compute_primer_alignment', {
     primerId: primerId || null,
     seedLength,
     customSeq: customSeq || null,
     customName: customName || null,
+    naConc: tmParams.naConc ?? null,
+    mgConc: tmParams.mgConc ?? null,
+    dntpConc: tmParams.dntpConc ?? null,
+    trisConc: tmParams.trisConc ?? null,
+    primerConc: tmParams.primerConc ?? null,
   });
 }
 
@@ -212,6 +217,21 @@ export async function getWindowProjectId() {
 
 export async function rekeyProject(oldId, newId) {
   return tauriInvoke('rekey_project', { oldId, newId });
+}
+
+// ---------------------------------------------------------------------------
+// Tm
+// ---------------------------------------------------------------------------
+
+export async function computeTm(seq, tmParams = {}) {
+  return tauriInvoke('compute_tm', {
+    seq,
+    naConc: tmParams.naConc ?? null,
+    mgConc: tmParams.mgConc ?? null,
+    dntpConc: tmParams.dntpConc ?? null,
+    trisConc: tmParams.trisConc ?? null,
+    primerConc: tmParams.primerConc ?? null,
+  });
 }
 
 // ---------------------------------------------------------------------------

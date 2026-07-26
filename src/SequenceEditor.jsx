@@ -21,7 +21,7 @@ import {
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
-import { computePrimerAlignment } from './tauriApi';
+import { computePrimerAlignment, computeTm } from './tauriApi';
 import { buildSearchResults } from './searchUtils';
 import { AlertTriangle } from 'lucide-react';
 
@@ -471,6 +471,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onFeatureDelete,
   onPrimerDelete,
   primerSeedLength,
+  tmParams = {},
   onSelectionChange,
   scrollContainerRef,
   onUndo,
@@ -560,6 +561,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [selStart, setSelStart] = useState(null);
   const [selEnd, setSelEnd] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [selectionTm, setSelectionTm] = useState(null);
   const dragRef = useRef({ startIdx: null, active: false });
   const isDraggingRef = useRef(false);
   const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -785,25 +787,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return '#166534';
   };
 
-  // Simple Tm estimation: Wallace rule (<20bp) or Marmur-Doty adjusted formula
-  function calcTm(seq) {
-    const len = seq.length;
-    if (len < 2) return null;
-    let a = 0,
-      t = 0,
-      g = 0,
-      c = 0;
-    for (const ch of seq.toUpperCase()) {
-      if (ch === 'A') a++;
-      else if (ch === 'T') t++;
-      else if (ch === 'G') g++;
-      else if (ch === 'C') c++;
+  // Async Tm computation via backend NN model
+  useEffect(() => {
+    if (!isDragging || selStart === null || selEnd === null) {
+      setSelectionTm(null);
+      return;
     }
-    const total = a + t + g + c;
-    if (total === 0) return null;
-    if (len < 20) return Math.round(2 * (a + t) + 4 * (g + c));
-    return Math.round(64.9 + (41 * (g + c - 16.4)) / total);
-  }
+    const seq = cleanSeq.substring(selStart, selEnd + 1);
+    if (seq.length < 2) {
+      setSelectionTm(null);
+      return;
+    }
+    let cancelled = false;
+    computeTm(seq, tmParams).then((tm) => {
+      if (!cancelled) setSelectionTm(tm);
+    });
+    return () => { cancelled = true; };
+  }, [isDragging, selStart, selEnd, cleanSeq, tmParams]);
 
   // Enrich primers with flat fields from bindingSites data model (v2).
   const enrichedPrimers = useMemo(
@@ -1932,7 +1932,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (let i = 0; i < items.length; i += concurrency) {
         const batch = items.slice(i, i + concurrency);
         const results = await Promise.allSettled(
-          batch.map((p) => computePrimerAlignment(p.id, primerSeedLength)),
+          batch.map((p) => computePrimerAlignment(p.id, primerSeedLength, undefined, undefined, tmParams)),
         );
         if (cancelled) return;
         for (let j = 0; j < batch.length; j++) {
@@ -1947,7 +1947,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return () => {
       cancelled = true;
     };
-  }, [primers, primerSeedLength]);
+  }, [primers, primerSeedLength, tmParams]);
 
   const createFeature = useCallback(() => {
     setFeatureInfoFeature(null);
@@ -4007,8 +4007,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (!isDragging || !hasSelection || cursorIndex === null) return null;
     if (selectionMode !== 'text') return null;
     const len = selEnd - selStart + 1;
-    const seq = cleanSeq.substring(selStart, selEnd + 1);
-    const tm = calcTm(seq);
+    const tm = selectionTm;
     const showTm = tm !== null && tm >= 40 && tm <= 75;
     const row = Math.floor(cursorIndex / charsPerLine);
     const col = cursorIndex % charsPerLine;
@@ -4019,7 +4018,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const fontSize = '11px';
     const fontStr = `600 ${fontSize} ${monoFont}`;
     let label = `${len} bp`;
-    if (showTm) label += `, ~${tm}°C`;
+    if (showTm) label += `, ${tm}°C`;
     const tw = measureWidth(label, fontStr);
     return (
       <g style={{ pointerEvents: 'none' }}>
@@ -4054,6 +4053,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     rowBelow,
     rowAbove,
     currentSelColor,
+    selectionTm,
   ]);
 
   const renderedSelection = useMemo(() => {
@@ -4408,6 +4408,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onPrimerChange={onPrimerChange}
           onDeletePrimer={onPrimerDelete}
           primers={primers}
+          tmParams={tmParams}
         />
       </div>
     </>

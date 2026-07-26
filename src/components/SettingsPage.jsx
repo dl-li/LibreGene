@@ -25,6 +25,8 @@ export default function SettingsPage({
   setMethylationOverlap,
   primerSeedLength,
   setPrimerSeedLength,
+  tmParams,
+  setTmParams,
   plugins = [],
   disabledPlugins = [],
   onTogglePlugin,
@@ -124,6 +126,41 @@ export default function SettingsPage({
                 onChange={(e) => setPrimerSeedLength(Number(e.target.value))}
               />
               <span className="text-sm text-muted-foreground">bp</span>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* ── Tm 参数 ── */}
+          <div>
+            <div className={SECTION_TITLE}>Tm Calculation</div>
+            <div className="space-y-2.5">
+              {[
+                { key: 'naConc', label: 'Na⁺', unit: 'mM', mult: 1000, step: 1, min: 0, max: 500 },
+                { key: 'mgConc', label: 'Mg²⁺', unit: 'mM', mult: 1000, step: 0.1, min: 0, max: 10 },
+                { key: 'dntpConc', label: 'dNTPs', unit: 'mM', mult: 1000, step: 0.1, min: 0, max: 10 },
+                { key: 'trisConc', label: 'Tris-HCl', unit: 'mM', mult: 1000, step: 1, min: 0, max: 200 },
+                { key: 'primerConc', label: 'Primer', unit: 'nM', mult: 1e9, step: 50, min: 0, max: 5000 },
+              ].map(({ key, label, unit, mult, step, min, max }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground w-16 shrink-0">{label}</Label>
+                  <Input
+                    className="w-20 h-8 px-2 py-0 text-sm text-right font-mono"
+                    type="number"
+                    step={step}
+                    min={min}
+                    max={max}
+                    value={Math.round(tmParams[key] * mult * 100) / 100}
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value);
+                      if (!isNaN(raw) && raw >= min && raw <= max) {
+                        setTmParams({ ...tmParams, [key]: raw / mult });
+                      }
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">{unit}</span>
+                </div>
+              ))}
             </div>
           </div>
 

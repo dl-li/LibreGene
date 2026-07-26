@@ -129,6 +129,13 @@ export default function App() {
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
+  const [tmParams, setTmParams] = useState({
+    naConc: 0.050,
+    mgConc: 0.0015,
+    dntpConc: 0.0008,
+    trisConc: 0.010,
+    primerConc: 2e-7,
+  });
   const [openPath, setOpenPath] = useState('');
   const [fileStatus, setFileStatus] = useState('');
   const sequenceRef = useRef(sequence);
@@ -1840,6 +1847,7 @@ export default function App() {
                   onPrimerChange={handlePrimerChange}
                   onPrimerDelete={handleDeletePrimer}
                   primerSeedLength={primerSeedLength}
+                  tmParams={tmParams}
                   onSelectionChange={handleSelectionChange}
                   scrollContainerRef={mainScrollRef}
                   onUndo={handleUndo}
@@ -1916,6 +1924,8 @@ export default function App() {
           setMethylationOverlap={setMethylationOverlap}
           primerSeedLength={primerSeedLength}
           setPrimerSeedLength={setPrimerSeedLength}
+          tmParams={tmParams}
+          setTmParams={setTmParams}
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
