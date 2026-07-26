@@ -9,6 +9,7 @@
 </p>
 
 > **⚠️ Early Development** — APIs and file formats are not yet stable.
+> **Tested on macOS only** — Linux/Windows builds are not yet verified.
 >
 > [中文版](README.zh-CN.md)
 
@@ -24,6 +25,8 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 - **Feature annotation** — CDS, promoters, terminators, compound features, custom colors, strand toggling
 - **Primer visualization** — Add, align, Tm calculation (nearest-neighbor), binding site display
 - **Restriction enzymes** — Built-in 900+ enzyme DB, methylation-aware filtering, single/unique cutter views, methylation-sensitive/dependent pattern detection
+- **Sequence alignment** — Import and visualize multi-read alignments (.ab1, FASTA) alongside the reference sequence
+- **Plugin system** — Extensible architecture for adding custom tools (alignment viewer shipped as built-in plugin)
 - **Multi-project tabs** — Switch between plasmids in the sidebar
 - **Full undo/redo** — Sequence edits and feature changes
 - **GenBank / SnapGene I/O** — Read/write .gb/.gbk, read .dna (SnapGene), with enriched color & primer annotations
