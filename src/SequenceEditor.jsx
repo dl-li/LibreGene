@@ -1164,6 +1164,37 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return map;
   }, [processedFeatures, charsPerLine]);
 
+  // Pre-compute fwd primer label x-ranges per row so enzyme track assignment
+  // can lift labels that would overlap a primer label
+  const primerLabelOcc = useMemo(() => {
+    const occ = {}; // { [row]: [{x1, x2, topOffset}] }
+    const rp = primersByRow;
+    for (const [rowStr, primers] of Object.entries(rp)) {
+      const row = parseInt(rowStr, 10);
+      const entries = [];
+      for (const p of primers) {
+        if (!p.isFwd) continue;
+        const segs = sp(p.matchStart, p.matchEnd);
+        const firstSeg = segs[0];
+        if (!firstSeg || firstSeg.row !== row) continue;
+        const ml = p.mismatchStr?.length || 0;
+        const drawMisLen = Math.min(ml, firstSeg.colStart + 5);
+        const nameW = primerLabelW(p.name);
+        const nameX =
+          drawMisLen > 0 ? getX(firstSeg.colStart - drawMisLen) : getX(firstSeg.colStart) + cw / 2;
+        const pt = (primerTracks[p.id] || {})[row] || 0;
+        const hasTail = ml > 0;
+        entries.push({
+          x1: nameX,
+          x2: nameX + nameW,
+          topOffset: (hasTail ? 40 : 36) + pt * pp.trackGap,
+        });
+      }
+      if (entries.length) occ[row] = entries;
+    }
+    return occ;
+  }, [primersByRow, primerTracks, sp, pp.trackGap]);
+
   const { rowAbove, rowBelow, enzymeRowTracks } = useMemo(() => {
     // Per-row enzyme track assignment — cut-twice enzymes are expanded per pair
     const eTracks = {};
@@ -1192,7 +1223,20 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (const item of sorted) {
         const cs = item.cutIndex % charsPerLine;
         const ce = cs + Math.ceil(enzLabelW(item.name, item.isUnique) / cw);
-        let t = 0;
+        // Lift labels whose x-range overlaps a fwd primer label by whole
+        // tracks, so the lift participates in collision checks and row spacing
+        let avoidOff = 0;
+        const occ = primerLabelOcc[r];
+        if (occ) {
+          const cutX = getX(cs);
+          const enzW = enzLabelW(item.name, item.isUnique);
+          for (const o of occ) {
+            if (cutX < o.x2 + 4 && cutX + enzW > o.x1) {
+              avoidOff = Math.max(avoidOff, o.topOffset);
+            }
+          }
+        }
+        let t = Math.ceil(avoidOff / lp.enzTrackHeight);
         while (occupied.some((o) => o.track === t && !(ce < o.cs || cs > o.ce))) t++;
         occupied.push({ track: t, cs, ce });
         if (!eTracks[item.key]) eTracks[item.key] = {};
@@ -1283,6 +1327,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     primerTracks,
     featureRowTracks,
     revPrimerFeatOffsets,
+    primerLabelOcc,
     charsPerLine,
     pp,
     lp,
@@ -3219,36 +3264,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     primerDimActive,
   ]);
 
-  // Pre-compute fwd primer label x-ranges per row for fast enzyme label overlap detection
-  const primerLabelOcc = useMemo(() => {
-    const occ = {}; // { [row]: [{x1, x2, topOffset}] }
-    const rp = primersByRow;
-    for (const [rowStr, primers] of Object.entries(rp)) {
-      const row = parseInt(rowStr, 10);
-      const entries = [];
-      for (const p of primers) {
-        if (!p.isFwd) continue;
-        const segs = sp(p.matchStart, p.matchEnd);
-        const firstSeg = segs[0];
-        if (!firstSeg || firstSeg.row !== row) continue;
-        const ml = p.mismatchStr?.length || 0;
-        const drawMisLen = Math.min(ml, firstSeg.colStart + 5);
-        const nameW = primerLabelW(p.name);
-        const nameX =
-          drawMisLen > 0 ? getX(firstSeg.colStart - drawMisLen) : getX(firstSeg.colStart) + cw / 2;
-        const pt = (primerTracks[p.id] || {})[row] || 0;
-        const hasTail = ml > 0;
-        entries.push({
-          x1: nameX,
-          x2: nameX + nameW,
-          topOffset: (hasTail ? 40 : 36) + pt * pp.trackGap,
-        });
-      }
-      if (entries.length) occ[row] = entries;
-    }
-    return occ;
-  }, [primersByRow, primerTracks, sp, pp.trackGap]);
-
   // Pre-compute enzyme geometry — one entry per cut pair (cut-twice enzymes get 2 entries)
   const enzymeLayout = useMemo(() => {
     const entries = [];
@@ -3261,18 +3276,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const enzTrack =
           (enzymeRowTracks[pairs.length > 1 ? `${e.id}_p${pi}` : e.id] || {})[row] || 0;
 
-        // Fast overlap check against pre-computed primer label occupancy
-        let avoidOff = 0;
         const enzW = enzLabelW(e.name, e.isUnique);
-        const occ = primerLabelOcc[row];
-        if (occ) {
-          for (const o of occ) {
-            if (cutX < o.x2 + 4 && cutX + enzW > o.x1) {
-              avoidOff = Math.max(avoidOff, o.topOffset);
-            }
-          }
-        }
-
         // Pre-compute exact label width (italic + normal parts)
         const s = splitEnzName(e.name);
         const baseFont = `${e.isUnique ? '700' : '350'} 14px ${monoFont}`;
@@ -3285,10 +3289,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
         // Clamp label top so it never overlaps the sequence text of the row above
         const minTop = row > 0 ? getSeqY(row - 1) + 8 : -Infinity;
-        const yTop = Math.max(
-          sy - lp.enzLabelBase - avoidOff - enzTrack * lp.enzTrackHeight,
-          minTop,
-        );
+        const yTop = Math.max(sy - lp.enzLabelBase - enzTrack * lp.enzTrackHeight, minTop);
         entries.push({
           id: `${e.id}_p${pi}`,
           groupId: e.id,
@@ -3307,7 +3308,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       });
     }
     return entries;
-  }, [visibleEnzymes, enzymeRowTracks, lp, charsPerLine, getSeqY, primerLabelOcc]);
+  }, [visibleEnzymes, enzymeRowTracks, lp, charsPerLine, getSeqY]);
 
   // Batched enzyme lines
   const enzymeLinesPath = useMemo(() => {
