@@ -2442,11 +2442,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   x2={x + w}
                   y1={y}
                   y2={y}
+                  stroke={isHovered ? 'transparent' : bgColor}
+                  strokeWidth="7"
+                />
+                <line
+                  x1={x}
+                  x2={x + w}
+                  y1={y}
+                  y2={y}
                   stroke={v.color}
                   strokeWidth="5"
                   opacity={isGap ? 0.25 : 1}
                 />
-                <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="8" />
+                <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="10" />
               </g>
             );
           })}

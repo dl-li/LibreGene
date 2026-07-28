@@ -2965,7 +2965,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^GATC_C"
   },
@@ -3265,7 +3265,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "A^GATC_T"
   },
