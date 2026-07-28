@@ -4,7 +4,12 @@ const W = 16;
 // Approx offset from document top to first sequence row (baseSeqY ≈ 100 minus rowAbove spacing)
 const CONTENT_OFFSET = 72;
 
-export default function FeatureScrollbar({ scrollContainerRef, features, sequenceLength }) {
+export default function FeatureScrollbar({
+  scrollContainerRef,
+  features,
+  sequenceLength,
+  highlightPositions,
+}) {
   const rootRef = useRef(null);
   const canvasRef = useRef(null);
   const thumbRef = useRef(null);
@@ -74,7 +79,18 @@ export default function FeatureScrollbar({ scrollContainerRef, features, sequenc
       }
     }
     ctx.globalAlpha = 1;
-  }, [features, sequenceLength, barH]);
+    if (highlightPositions?.length) {
+      ctx.strokeStyle = '#2563EB';
+      ctx.lineWidth = 1.5;
+      for (const pos of highlightPositions) {
+        const y = (pos / sequenceLength) * barH;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
+      }
+    }
+  }, [features, sequenceLength, barH, highlightPositions]);
 
   const { y: scrollY, vh: viewportH, sh: scrollH } = metrics;
   const adjY = Math.max(0, scrollY - CONTENT_OFFSET);
@@ -153,8 +169,8 @@ export default function FeatureScrollbar({ scrollContainerRef, features, sequenc
           height: thumbH,
           top: thumbTop,
           background: isDragging ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.2)',
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)',
+          backdropFilter: 'blur(2px)',
+          WebkitBackdropFilter: 'blur(2px)',
           transition: isDragging ? 'none' : 'background 0.15s',
         }}
         onMouseDown={onThumbDown}

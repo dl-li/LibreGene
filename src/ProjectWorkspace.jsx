@@ -75,6 +75,7 @@ export default function ProjectWorkspace({
   const openPrimerEditorRef = useRef(null);
   const openFeatureEditorRef = useRef(null);
   const [mapViewOpen, setMapViewOpen] = useState(false);
+  const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
   const [liveSelection, setLiveSelection] = useState(null);
   const alignmentCacheRef = useRef({});
   const sequenceRef = useRef(sequence);
@@ -1094,6 +1095,7 @@ export default function ProjectWorkspace({
               onAddAlignmentFile={handleAddAlignment}
               onAddAlignmentText={() => setAlignTextOpen(true)}
               onManageAlignments={() => setPluginDialogs((prev) => ({ ...prev, alignment: true }))}
+              onEnzymeHoverChange={setEnzymeHoverCuts}
             />
           </main>
           {!hidden && (
@@ -1101,6 +1103,7 @@ export default function ProjectWorkspace({
               scrollContainerRef={mainScrollRef}
               features={editorFeatures}
               sequenceLength={sequence.length}
+              highlightPositions={enzymeHoverCuts}
             />
           )}
 
