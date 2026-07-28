@@ -28,6 +28,8 @@ export default [
         requestAnimationFrame: 'readonly',
         fetch: 'readonly',
         WebSocket: 'readonly',
+        localStorage: 'readonly',
+        ResizeObserver: 'readonly',
       },
     },
     settings: {

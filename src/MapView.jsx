@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import { useMemo, useRef, useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { bgColor, featLabelW } from './editorConstants';
 
@@ -107,9 +107,7 @@ function layoutCircularLabels(features, length, R, half) {
       // Labels within ~37° of the top/bottom centerline join the side column,
       // so the column and the circle positions blend into one continuous line
       it.lx =
-        ay <= labelR * 0.8
-          ? sign * Math.sqrt(labelR * labelR - ay * ay)
-          : sign * labelR * 0.85;
+        ay <= labelR * 0.8 ? sign * Math.sqrt(labelR * labelR - ay * ay) : sign * labelR * 0.85;
       it.side = sign;
     }
   }
@@ -132,7 +130,15 @@ function layoutCircularLabels(features, length, R, half) {
   };
 }
 
-export function CircularMap({ length, features, name, selection, onSelect, onClear, onFeatureOpen }) {
+export function CircularMap({
+  length,
+  features,
+  name,
+  selection,
+  onSelect,
+  onClear,
+  onFeatureOpen,
+}) {
   const R = 150;
   const half = 9;
   const svgRef = useRef(null);
@@ -339,10 +345,7 @@ export function CircularMap({ length, features, name, selection, onSelect, onCle
             onClick={(e) => {
               e.stopPropagation();
               const segs = normSegments(f, length);
-              onSelect(
-                Math.min(...segs.map((s) => s.start)),
-                Math.max(...segs.map((s) => s.end)),
-              );
+              onSelect(Math.min(...segs.map((s) => s.start)), Math.max(...segs.map((s) => s.end)));
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -591,10 +594,7 @@ export function LinearMap({ length, features, selection, onSelect, onClear, onFe
             onClick={(e) => {
               e.stopPropagation();
               const segs = featureSegments(f);
-              onSelect(
-                Math.min(...segs.map((s) => s.start)),
-                Math.max(...segs.map((s) => s.end)),
-              );
+              onSelect(Math.min(...segs.map((s) => s.start)), Math.max(...segs.map((s) => s.end)));
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -645,7 +645,9 @@ export default function MapView({
       : null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 [&>button]:top-1 [&>button]:right-2 ${view === 'linear' ? 'sm:max-w-[720px]' : 'sm:max-w-[560px]'}`}>
+      <DialogContent
+        className={`flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 [&>button]:top-1 [&>button]:right-2 ${view === 'linear' ? 'sm:max-w-[720px]' : 'sm:max-w-[560px]'}`}
+      >
         <DialogHeader className="border-b border-border px-4 py-2.5">
           <DialogTitle>{name}</DialogTitle>
         </DialogHeader>

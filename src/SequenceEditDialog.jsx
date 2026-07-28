@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,6 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { AlertTriangle, Repeat } from 'lucide-react';
 
 // IUPAC 核苷酸字符集（含简并碱基）
@@ -68,17 +67,6 @@ function getInvalidChars(s) {
 /**
  * 标记序列中的非法字符位置 → 返回 { chars, positions } 用于显示
  */
-function getInvalidCharDetails(s) {
-  const results = [];
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (ch.trim() && !IUPAC_BASES.has(ch.toUpperCase())) {
-      results.push({ char: ch, pos: i });
-    }
-  }
-  return results;
-}
-
 const MODE_TITLE = {
   insert: 'Insert Sequence',
   delete: 'Delete Sequence',

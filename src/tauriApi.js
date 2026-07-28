@@ -20,7 +20,7 @@ export async function setWindowTitle(title) {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().setTitle(title);
-  } catch (_) {
+  } catch {
     /* ignore */
   }
 }
@@ -145,7 +145,13 @@ export async function deletePrimer(id) {
   return tauriInvoke('delete_primer', { id });
 }
 
-export async function computePrimerAlignment(primerId, seedLength, customSeq, customName, tmParams = {}) {
+export async function computePrimerAlignment(
+  primerId,
+  seedLength,
+  customSeq,
+  customName,
+  tmParams = {},
+) {
   return tauriInvoke('compute_primer_alignment', {
     primerId: primerId || null,
     seedLength,

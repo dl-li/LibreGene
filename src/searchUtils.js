@@ -100,7 +100,8 @@ export function buildSearchResults(query, { seq, features, allEnzymes, primers }
     if (scope === 'all' || scope === 'feature')
       for (const f of features || []) {
         if (!f.name || !f.name.toLowerCase().includes(q)) continue;
-        const segs = f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
+        const segs =
+          f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
         let start = Infinity;
         let end = -Infinity;
         for (const s of segs) {

@@ -1,10 +1,5 @@
 import { useCallback, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Copy, Check } from 'lucide-react';
 
 const DIR_COLORS = { fwd: '#166534', rev: '#4A148C' };
@@ -29,7 +24,10 @@ function CopyCell({ text, mono }) {
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        handleCopy();
+      }}
       className="group inline-flex items-center gap-1.5 text-left cursor-pointer outline-none focus:outline-none focus-visible:outline-none"
       tabIndex={-1}
     >
@@ -89,7 +87,9 @@ export default function PrimerOverviewDialog({
                 <th className="text-left font-semibold py-2 pr-3">Name</th>
                 <th className="text-left font-semibold py-2 pr-3">Sequence</th>
                 <th className="text-left font-semibold py-2 pr-3">Length</th>
-                <th className="text-left font-semibold py-2 pr-3 whitespace-nowrap">Primary Site</th>
+                <th className="text-left font-semibold py-2 pr-3 whitespace-nowrap">
+                  Primary Site
+                </th>
                 <th className="text-left font-semibold py-2 pr-3">Dir</th>
                 <th className="text-left font-semibold py-2 pr-3">Tm</th>
                 <th className="text-left font-semibold py-2">Other Sites</th>
@@ -103,10 +103,7 @@ export default function PrimerOverviewDialog({
                 // prefer bindingSites[0] for primary, fall back to cache current
                 const primary = bs || cacheCur;
                 const cacheAlts = cacheData?.alternatives || [];
-                const alts = [
-                  ...(p.bindingSites?.slice(1) || []),
-                  ...cacheAlts,
-                ];
+                const alts = [...(p.bindingSites?.slice(1) || []), ...cacheAlts];
                 const dirColor = DIR_COLORS[p.type] || '#666';
                 return (
                   <tr
@@ -124,7 +121,10 @@ export default function PrimerOverviewDialog({
                     <td className="py-2.5 pr-3 font-mono text-xs tabular-nums text-muted-foreground">
                       {(p.primerSeq || '').length} bp
                     </td>
-                    <td className="py-2.5 pr-3 font-mono text-xs whitespace-nowrap" style={{ color: dirColor }}>
+                    <td
+                      className="py-2.5 pr-3 font-mono text-xs whitespace-nowrap"
+                      style={{ color: dirColor }}
+                    >
                       {primary ? formatSite(primary) : '—'}
                     </td>
                     <td className="py-2.5 pr-3">

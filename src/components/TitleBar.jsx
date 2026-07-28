@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { X, Minus, Plus, Square } from 'lucide-react';
 import { isTauri } from '@/tauriApi';
 import { cn } from '@/lib/utils';
@@ -77,9 +77,14 @@ export default function TitleBar({ title, dirty = false }) {
           });
         }
         // Maximized tracking (Windows shows restore icon)
-        w.isMaximized().then(setMaximized).catch(() => {});
+        w.isMaximized()
+          .then(setMaximized)
+          .catch(() => {});
         return w.onResized(() => {
-          if (!cancelled) w.isMaximized().then(setMaximized).catch(() => {});
+          if (!cancelled)
+            w.isMaximized()
+              .then(setMaximized)
+              .catch(() => {});
         });
       })
       .then((fn) => {
