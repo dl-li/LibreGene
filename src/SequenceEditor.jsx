@@ -487,6 +487,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   enzymeFilter,
   onEnzymeFilterChange,
   openPrimerEditorRef,
+  openFeatureEditorRef,
   alignmentCacheRef,
   alignmentTracks = [],
   alignments = [],
@@ -528,6 +529,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (openPrimerEditorRef) openPrimerEditorRef.current = null;
     };
   }, [openPrimerEditorRef]);
+
+  // Expose openFeatureEditor to parent via ref (used by MapView)
+  useEffect(() => {
+    if (openFeatureEditorRef) {
+      openFeatureEditorRef.current = (feature) => {
+        setCreateFeatureLoc(null);
+        setFeatureInfoFeature(feature);
+      };
+    }
+    return () => {
+      if (openFeatureEditorRef) openFeatureEditorRef.current = null;
+    };
+  }, [openFeatureEditorRef]);
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [insPopover, setInsPopover] = useState(null); // { x, y, bases } for alignment insertions
   const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
@@ -612,6 +626,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // Restore cursor/selection from undo/redo or project switch (external restoreState)
   const restoreVersionRef = useRef(0);
+  const scrollToSeqIndexRef = useRef(null);
   useEffect(() => {
     if (!restoreState) return;
     if (restoreState.version === restoreVersionRef.current) return;
@@ -628,6 +643,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     setIsTranslationDragging(false);
     if (restoreState.cursorIndex !== null) {
       resetCursorTimer();
+    }
+    if (restoreState.scrollToIndex != null) {
+      scrollToSeqIndexRef.current?.(restoreState.scrollToIndex);
     }
   }, [restoreState, resetCursorTimer]);
 
@@ -1361,6 +1379,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     },
     [rowY, rowAbove, rowBelow, charsPerLine, scrollContainerRef, viewportH],
   );
+  scrollToSeqIndexRef.current = scrollToSeqIndex;
 
   // Keep the same rows in view when row spacing changes (feature/primer/enzyme toggles, resize)
   const rowAnchorRef = useRef(null);

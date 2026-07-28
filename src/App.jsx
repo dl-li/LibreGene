@@ -37,6 +37,7 @@ import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
 import { createEditHistory } from './editHistory';
 import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
+import MapView from './MapView';
 import SettingsPage from './components/SettingsPage';
 import PrimerOverviewDialog from './components/PrimerOverviewDialog';
 import TitleBar from './components/TitleBar';
@@ -73,6 +74,7 @@ import {
   ExternalLink,
   Settings,
   ArrowDownWideNarrow,
+  Map as MapIcon,
 } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
@@ -121,6 +123,9 @@ export default function App() {
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
   const [pluginDialogs, setPluginDialogs] = useState({});
   const openPrimerEditorRef = useRef(null);
+  const openFeatureEditorRef = useRef(null);
+  const [mapViewOpen, setMapViewOpen] = useState(false);
+  const [liveSelection, setLiveSelection] = useState(null);
   const alignmentCacheRef = useRef({});
   const [showFeatures, setShowFeatures] = useState(true);
   const [showPrimers, setShowPrimers] = useState(true);
@@ -251,6 +256,19 @@ export default function App() {
     () => (showFeatures ? features : EMPTY_ARRAY),
     [showFeatures, features],
   );
+  const topology = useMemo(
+    () => projects.find((p) => p.id === activeId)?.topology || 'circular',
+    [projects, activeId],
+  );
+  const mapName = useMemo(() => {
+    if (!activeId) return '';
+    return activeId
+      .split('/')
+      .pop()
+      .split('\\')
+      .pop()
+      .replace(/\.[^.]+$/, '');
+  }, [activeId]);
   const editorPrimers = useMemo(
     () => (showPrimers ? primers : EMPTY_ARRAY),
     [showPrimers, primers],
@@ -633,9 +651,49 @@ export default function App() {
       if (activeId) {
         perProjectSelectionRef.current[activeId] = sel;
       }
+      if (mapViewOpen) setLiveSelection(sel);
     },
-    [activeId],
+    [activeId, mapViewOpen],
   );
+
+  // Seed the map's selection highlight from the editor's current selection when opening
+  useEffect(() => {
+    if (mapViewOpen && activeId) {
+      setLiveSelection(perProjectSelectionRef.current[activeId] ?? null);
+    }
+  }, [mapViewOpen, activeId]);
+
+  // Map view: clicking/dragging on the map restores the corresponding selection in the editor
+  const handleMapSelect = useCallback((selStart, selEnd) => {
+    setRestoreState({
+      version: ++undoVersionRef.current,
+      cursorIndex: selEnd + 1,
+      selStart,
+      selEnd,
+      selectionMode: 'text',
+      selectedPrimerIds: [],
+      isEnzymeSelection: false,
+      selectedEnzymeIds: [],
+      translationSel: null,
+      scrollToIndex: selStart,
+    });
+    setLiveSelection({ selStart, selEnd });
+  }, []);
+
+  const handleMapClear = useCallback(() => {
+    setRestoreState({
+      version: ++undoVersionRef.current,
+      cursorIndex: null,
+      selStart: null,
+      selEnd: null,
+      selectionMode: 'none',
+      selectedPrimerIds: [],
+      isEnzymeSelection: false,
+      selectedEnzymeIds: [],
+      translationSel: null,
+    });
+    setLiveSelection(null);
+  }, []);
 
   const handleActivateProject = useCallback(
     async (id) => {
@@ -1781,6 +1839,16 @@ export default function App() {
                 )}
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  onClick={() => setMapViewOpen(true)}
+                  tooltip="Plasmid Map"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <MapIcon className="size-4" />
+                  <span>Plasmid Map</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
                   onClick={() => setPrimerOverviewOpen(true)}
                   tooltip="Primer Overview"
                   className="text-muted-foreground hover:text-foreground"
@@ -1863,6 +1931,7 @@ export default function App() {
                   enzymeFilter={enzymeFilter}
                   onEnzymeFilterChange={setEnzymeFilter}
                   openPrimerEditorRef={openPrimerEditorRef}
+                  openFeatureEditorRef={openFeatureEditorRef}
                   alignmentCacheRef={alignmentCacheRef}
                   alignmentTracks={visibleAlignments}
                   alignments={alignments}
@@ -1914,6 +1983,21 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {hasProject && (
+          <MapView
+            open={mapViewOpen}
+            onOpenChange={setMapViewOpen}
+            sequenceLength={sequence.length}
+            features={editorFeatures}
+            topology={topology}
+            name={mapName}
+            selection={liveSelection}
+            onSelect={handleMapSelect}
+            onClear={handleMapClear}
+            onFeatureOpen={(f) => openFeatureEditorRef.current?.(f)}
+          />
+        )}
 
         <SettingsPage
           open={settingsOpen}
