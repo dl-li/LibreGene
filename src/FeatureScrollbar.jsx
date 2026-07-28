@@ -25,12 +25,22 @@ export default function FeatureScrollbar({ scrollContainerRef, features, sequenc
     const onScroll = () => {
       if (!tickRef.current) {
         tickRef.current = true;
-        requestAnimationFrame(() => { sync(); tickRef.current = false; });
+        requestAnimationFrame(() => {
+          sync();
+          tickRef.current = false;
+        });
       }
     };
     sync();
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    // display:none <-> visible toggles don't fire scroll events; resync on any size change
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+    };
   }, [scrollContainerRef]);
 
   useEffect(() => {
@@ -53,9 +63,7 @@ export default function FeatureScrollbar({ scrollContainerRef, features, sequenc
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, barH);
     for (const f of features || []) {
-      const segs = (f.segments && f.segments.length)
-        ? f.segments
-        : [{ start: f.start, end: f.end }];
+      const segs = f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
       for (const s of segs) {
         const c = s.color || f.color || '#60A5FA';
         const y1 = (Math.max(0, s.start) / sequenceLength) * barH;
@@ -144,9 +152,7 @@ export default function FeatureScrollbar({ scrollContainerRef, features, sequenc
         style={{
           height: thumbH,
           top: thumbTop,
-          background: isDragging
-            ? 'rgba(0,0,0,0.35)'
-            : 'rgba(0,0,0,0.2)',
+          background: isDragging ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.2)',
           backdropFilter: 'blur(6px)',
           WebkitBackdropFilter: 'blur(6px)',
           transition: isDragging ? 'none' : 'background 0.15s',

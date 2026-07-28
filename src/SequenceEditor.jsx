@@ -3,10 +3,8 @@ import {
   cw,
   startX,
   baseSeqY,
-  titleBarH,
   bgColor,
   monoFont,
-  sansFont,
   springAnim,
   getX,
   complement,
@@ -159,7 +157,6 @@ function WarningBadge({ warnings }) {
   const ref = useRef(null);
 
   const onClick = useCallback(() => setExpanded((v) => !v), []);
-  const onMouseLeave = useCallback(() => setExpanded(false), []);
 
   useEffect(() => {
     if (!expanded) return;
@@ -794,6 +791,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
         Math.max(20, Math.floor((containerRef.current.clientWidth - startX * 2) / cw)),
       );
     }
+    const scroller = scrollContainerRef?.current;
+    if (scroller) setViewportH(scroller.clientHeight || 900);
   }, [layoutKey]);
 
   const cleanSeq = sequence || '';
@@ -820,7 +819,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     computeTm(seq, tmParams).then((tm) => {
       if (!cancelled) setSelectionTm(tm);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isDragging, selStart, selEnd, cleanSeq, tmParams]);
 
   // Enrich primers with flat fields from bindingSites data model (v2).
@@ -1996,7 +1997,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (let i = 0; i < items.length; i += concurrency) {
         const batch = items.slice(i, i + concurrency);
         const results = await Promise.allSettled(
-          batch.map((p) => computePrimerAlignment(p.id, primerSeedLength, undefined, undefined, tmParams)),
+          batch.map((p) =>
+            computePrimerAlignment(p.id, primerSeedLength, undefined, undefined, tmParams),
+          ),
         );
         if (cancelled) return;
         for (let j = 0; j < batch.length; j++) {

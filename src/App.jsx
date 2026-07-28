@@ -1,10 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import SequenceEditor from './SequenceEditor';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  getProject,
-  getProjectById,
   openFile,
-  setMethylation,
   isTauri,
   openFileDialog,
   listenProjectUpdates,
@@ -12,34 +8,12 @@ import {
   activateProject,
   getWindowProjectId,
   openInNewWindow,
-  updateSequence,
-  saveFile,
-  saveFileDialog,
-  updateFeatureFtype,
-  updateFeatureColor,
-  updateFeatureName,
-  updateFeatureLocation,
-  updateFeatureStrand,
-  addPrimer,
-  addFeature,
-  deleteFeature,
-  deletePrimer,
   deleteProject,
-  rekeyProject,
   setWindowTitle,
-  addAlignment,
-  addAlignmentSeq,
-  removeAlignment,
-  openAlignmentFileDialog,
 } from './tauriApi';
 import { plugins } from './plugins';
-import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
-import { createEditHistory } from './editHistory';
-import SequenceEditDialog from './SequenceEditDialog';
-import FeatureScrollbar from './FeatureScrollbar';
-import MapView from './MapView';
+import ProjectWorkspace from './ProjectWorkspace';
 import SettingsPage from './components/SettingsPage';
-import PrimerOverviewDialog from './components/PrimerOverviewDialog';
 import TitleBar from './components/TitleBar';
 import {
   SidebarProvider,
@@ -78,17 +52,7 @@ import {
 } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 
-const EMPTY_ARRAY = [];
-
 export default function App() {
-  const [sequence, setSequence] = useState(null);
-  const [features, setFeatures] = useState(EMPTY_ARRAY);
-  const [enzymes, setEnzymes] = useState(EMPTY_ARRAY);
-  const [primers, setPrimers] = useState(EMPTY_ARRAY);
-  const [alignments, setAlignments] = useState(EMPTY_ARRAY);
-  const [showAlignments, setShowAlignments] = useState(true);
-  const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
-  const [alignTextOpen, setAlignTextOpen] = useState(false);
   const [disabledPlugins, setDisabledPlugins] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('disabledPlugins')) || [];
@@ -96,7 +60,6 @@ export default function App() {
       return [];
     }
   });
-  const alignmentEnabled = !disabledPlugins.includes('alignment');
   const handleTogglePlugin = useCallback((pluginId) => {
     setDisabledPlugins((prev) => {
       const next = prev.includes(pluginId)
@@ -104,7 +67,9 @@ export default function App() {
         : [...prev, pluginId];
       try {
         localStorage.setItem('disabledPlugins', JSON.stringify(next));
-      } catch {}
+      } catch {
+        // storage may be unavailable; plugin toggle still applies in-memory
+      }
       return next;
     });
   }, []);
@@ -118,15 +83,7 @@ export default function App() {
   const [windowInfo, setWindowInfo] = useState(null);
   // { type: 'main' } or { type: 'project', projectId: '...' }
 
-  // Debug toggles
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
-  const [pluginDialogs, setPluginDialogs] = useState({});
-  const openPrimerEditorRef = useRef(null);
-  const openFeatureEditorRef = useRef(null);
-  const [mapViewOpen, setMapViewOpen] = useState(false);
-  const [liveSelection, setLiveSelection] = useState(null);
-  const alignmentCacheRef = useRef({});
   const [showFeatures, setShowFeatures] = useState(true);
   const [showPrimers, setShowPrimers] = useState(true);
   const [showEnzymes, setShowEnzymes] = useState(true);
@@ -135,88 +92,29 @@ export default function App() {
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
   const [tmParams, setTmParams] = useState({
-    naConc: 0.050,
+    naConc: 0.05,
     mgConc: 0.0015,
     dntpConc: 0.0008,
-    trisConc: 0.010,
+    trisConc: 0.01,
     primerConc: 2e-7,
   });
-  const [openPath, setOpenPath] = useState('');
-  const [fileStatus, setFileStatus] = useState('');
-  const sequenceRef = useRef(sequence);
-  const projectCacheRef = useRef({}); // { [id]: { sequence, features, enzymes, primers, methKey } }
-  const perProjectSelectionRef = useRef({}); // { [id]: { cursorIndex, selStart, selEnd, selectionMode, selectedPrimerIds, isEnzymeSelection, selectedEnzymeIds } }
-  const switchGenRef = useRef(0); // generation counter to cancel stale async responses
-  const operationGenRef = useRef(0); // generation counter for all mutations (prevents cross-contamination)
-  const mainScrollRef = useRef(null); // scroll container for the editor
-
-  // --- Sequence editing state ---
-  const editHistoryRef = useRef(createEditHistory());
-  const [historyVersion, setHistoryVersion] = useState(0);
-  useEffect(() => editHistoryRef.current.subscribe(() => setHistoryVersion((v) => v + 1)), []);
-  const canUndo = historyVersion >= 0 && editHistoryRef.current.canUndo();
-  const canRedo = historyVersion >= 0 && editHistoryRef.current.canRedo();
-  const [editDialog, setEditDialog] = useState({
-    open: false,
-    mode: 'insert',
-    cursorIndex: null,
-    selStart: null,
-    selEnd: null,
-    selectedText: '',
-    initialText: '',
-  });
-  const [restoreState, setRestoreState] = useState({
-    version: 0,
-    cursorIndex: null,
-    selStart: null,
-    selEnd: null,
-    translationSel: null,
-  });
-  const undoVersionRef = useRef(0);
-  const [isDirty, setIsDirty] = useState(false);
-  const [docTitle, setDocTitle] = useState('LibreGene');
-  const isDirtyRef = useRef(false);
+  const [openPath] = useState('');
   const activeIdRef = useRef(null);
-  const dirtyStateRef = useRef({}); // per-project dirty state
+  // Per-project dirty state reported by workspaces: { [projectId]: bool }
+  const [dirtyById, setDirtyById] = useState({});
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
-  const unsavedPendingRef = useRef(null); // ref mirror of pendingAction for stale-closure-safe access
-  const savePathMapRef = useRef({}); // { [projectId]: 最后保存/打开的路径 }
-  const baselineSequenceRef = useRef(''); // 文件打开/保存时的基线序列（用于 undo/redo 后准确判断 dirty）
-  const baselinePerProjectRef = useRef({}); // { [projectId]: baselineSequence } — per-project baseline tracking
+  const unsavedPendingRef = useRef(null);
+  const handlesRef = useRef({}); // { [projectId]: workspace imperative handle }
+  const initialDataRef = useRef({}); // { [projectId]: openFile response } — consumed on workspace mount
+  const keyMapRef = useRef({}); // { [projectId]: stable React key } — survives Save As rekey
 
-  // Cache methylation settings key — used to detect stale cache entries
-  const methKey = useMemo(
-    () => methylationSystems.join(',') + '|' + methylationOverlap,
-    [methylationSystems, methylationOverlap],
-  );
-  const methKeyRef = useRef(methKey);
-  useEffect(() => {
-    methKeyRef.current = methKey;
-  }, [methKey]);
-  // Sync refs for stale-closure-safe access in event listeners
-  useEffect(() => {
-    isDirtyRef.current = isDirty;
-  }, [isDirty]);
-  useEffect(() => {
-    activeIdRef.current = activeId;
-  }, [activeId]);
-
-  // Keep cache in sync with latest state (captures post-methylation enzymes)
-  useEffect(() => {
-    if (activeId && sequence) {
-      projectCacheRef.current[activeId] = {
-        sequence,
-        features,
-        enzymes,
-        primers,
-        alignments,
-        methKey,
-      };
-    }
-  }, [activeId, sequence, features, enzymes, primers, alignments, methKey]);
+  const keyFor = useCallback((id) => {
+    if (!keyMapRef.current[id]) keyMapRef.current[id] = id;
+    return keyMapRef.current[id];
+  }, []);
 
   // Layout parameters (行距 / 特征 / 引物排版)
-  const [layoutParams, setLayoutParams] = useState({
+  const [layoutParams] = useState({
     // 引物排版
     fwdMatchY: 25,
     revMatchY: 15,
@@ -250,32 +148,10 @@ export default function App() {
     enzLabelBase: 51,
     enzAbovePad: 10,
   });
-  const setLP = (key, value) => setLayoutParams((prev) => ({ ...prev, [key]: value }));
 
-  const editorFeatures = useMemo(
-    () => (showFeatures ? features : EMPTY_ARRAY),
-    [showFeatures, features],
-  );
-  const topology = useMemo(
-    () => projects.find((p) => p.id === activeId)?.topology || 'circular',
-    [projects, activeId],
-  );
-  const mapName = useMemo(() => {
-    if (!activeId) return '';
-    return activeId
-      .split('/')
-      .pop()
-      .split('\\')
-      .pop()
-      .replace(/\.[^.]+$/, '');
+  useEffect(() => {
+    activeIdRef.current = activeId;
   }, [activeId]);
-  const editorPrimers = useMemo(
-    () => (showPrimers ? primers : EMPTY_ARRAY),
-    [showPrimers, primers],
-  );
-  const editorLayoutParams = useMemo(() => layoutParams, [layoutParams]);
-
-  const hasProject = sequence !== null && sequence.length > 0;
 
   // Sidebar hover state
   const [sidebarHover, setSidebarHover] = useState(false);
@@ -298,34 +174,10 @@ export default function App() {
         setProjects(data.projects || []);
         setActiveId(data.activeId || null);
       }
-    } catch {}
+    } catch {
+      // backend unreachable; keep current project list
+    }
   }, []);
-
-  // Update both the custom titlebar and the OS window title
-  const applyTitle = useCallback((t) => {
-    setDocTitle(t);
-    setWindowTitle(t);
-  }, []);
-
-  // Reset the editor to the empty state (no project open)
-  const clearEditorState = useCallback(() => {
-    setSequence(null);
-    setFeatures(EMPTY_ARRAY);
-    setEnzymes(EMPTY_ARRAY);
-    setPrimers(EMPTY_ARRAY);
-    setAlignments(EMPTY_ARRAY);
-    editHistoryRef.current.reset({
-      sequence: '',
-      features: EMPTY_ARRAY,
-      cursorIndex: null,
-      selStart: null,
-      selEnd: null,
-    });
-    baselineSequenceRef.current = '';
-    setIsDirty(false);
-    setActiveId(null);
-    applyTitle('LibreGene');
-  }, [applyTitle]);
 
   // Detect window type on mount
   useEffect(() => {
@@ -338,240 +190,104 @@ export default function App() {
     });
   }, []);
 
-  // Main window: load active project + listen for project list updates
-  // Project window: load its bound project by ID
+  // Main window: load project list + listen for project list updates.
+  // Per-project data is loaded by each ProjectWorkspace itself.
   useEffect(() => {
     if (!windowInfo) return;
     let listener = null;
     let cancelled = false;
 
-    async function loadData() {
-      setBackendStatus(isTauri ? 'online' : 'connecting');
-      try {
-        let data;
-        if (windowInfo.type === 'project') {
-          data = await getProjectById(windowInfo.projectId, 'all');
-        } else {
-          data = await getProject('all');
-        }
-        if (cancelled) return;
-        if (data && !data.error && data.sequence) {
-          setSequence(data.sequence);
-          setFeatures(data.features || []);
-          setEnzymes(data.enzymes || []);
-          setPrimers(data.primers || []);
-          setAlignments(data.alignments || []);
-          setBackendStatus('online');
-          // Initialize undo history
-          const pid = data.activeId || activeId;
-          if (pid) {
-            editHistoryRef.current.reset({
-              sequence: data.sequence,
-              features: data.features || EMPTY_ARRAY,
-              cursorIndex: null,
-              selStart: null,
-              selEnd: null,
-            });
-            baselineSequenceRef.current = data.sequence;
-            baselinePerProjectRef.current[pid] = data.sequence;
-            savePathMapRef.current[pid] = pid;
-            dirtyStateRef.current[pid] = false;
-            setIsDirty(false);
-          }
-        }
-        if (data && data.projects) setProjects(data.projects);
-        if (data && data.activeId !== undefined) {
-          setActiveId(data.activeId);
-          const pid = windowInfo.type === 'project' ? windowInfo.projectId : data.activeId;
-          if (pid && pid !== 'all') {
-            const fn = pid.split('/').pop().split('\\').pop();
-            applyTitle(fn);
-          }
-        }
-        await refreshProjects();
-      } catch {
-        if (!cancelled) setBackendStatus(isTauri ? 'online' : 'offline');
-      }
-    }
-
-    loadData();
-
-    // Event listener: main window syncs project list; project windows ignore
     if (windowInfo.type === 'main') {
-      // Fetch own window label to filter out self-sent broadcasts
+      setBackendStatus(isTauri ? 'online' : 'connecting');
       (async () => {
-        let ownLabel = null;
         try {
-          if (isTauri) {
-            ownLabel = (await import('@tauri-apps/api/window')).getCurrentWindow().label;
-          }
-        } catch {}
-        if (cancelled) return;
-        listener = listenProjectUpdates((msg) => {
-          if (cancelled) return;
-          // Update the project list only — dirtyStateRef is managed by mutation handlers
-          if (msg.projects) {
-            setProjects(msg.projects);
-          }
-          if (msg.activeId !== undefined) {
-            setActiveId(msg.activeId);
-          }
-          // No active project exists — clear to the empty state
-          if (!msg.data && !msg.activeId) {
-            clearEditorState();
-            return;
-          }
-          // Skip data block for messages from this window (applied by command response)
-          if (msg.source && msg.source === ownLabel) return;
-          // Only apply full data update if it matches the currently active project
-          // to prevent cross-contamination from other windows' modifications
-          if (msg.data && msg.data.sequence && msg.activeId !== undefined) {
-            // Update cache for the affected project regardless
-            projectCacheRef.current[msg.activeId] = {
-              sequence: msg.data.sequence,
-              features: msg.data.features || EMPTY_ARRAY,
-              enzymes: msg.data.enzymes || EMPTY_ARRAY,
-              primers: msg.data.primers || EMPTY_ARRAY,
-              alignments: msg.data.alignments || EMPTY_ARRAY,
-              methKey: methKeyRef.current,
-            };
-            baselinePerProjectRef.current[msg.activeId] = msg.data.sequence;
-            // Only update UI if this is the currently active project
-            // (use ref to avoid stale closure on activeId)
-            if (msg.activeId === activeIdRef.current) {
-              setSequence(msg.data.sequence);
-              setFeatures(msg.data.features || []);
-              setEnzymes(msg.data.enzymes || []);
-              setPrimers(msg.data.primers || []);
-              setAlignments(msg.data.alignments || []);
-              editHistoryRef.current.reset({
-                sequence: msg.data.sequence,
-                features: msg.data.features || EMPTY_ARRAY,
-                cursorIndex: null,
-                selStart: null,
-                selEnd: null,
-              });
-              baselineSequenceRef.current = msg.data.sequence;
-              setIsDirty(msg.data.dirty === true);
-            }
-          }
-        });
+          await refreshProjects();
+          if (!cancelled) setBackendStatus('online');
+        } catch {
+          if (!cancelled) setBackendStatus(isTauri ? 'online' : 'offline');
+        }
       })();
-    }
-
-    // Project window: listen for external mutations on the bound project
-    if (windowInfo.type === 'project') {
-      (async () => {
-        let ownLabel = null;
-        try {
-          if (isTauri) {
-            ownLabel = (await import('@tauri-apps/api/window')).getCurrentWindow().label;
-          }
-        } catch {}
+      listener = listenProjectUpdates((msg) => {
         if (cancelled) return;
-        listener = listenProjectUpdates((msg) => {
-          if (cancelled) return;
-          // Skip messages from this window
-          if (msg.source && msg.source === ownLabel) return;
-          // Look for our project's data in the projectData map
-          const ourData = msg.projectData && msg.projectData[windowInfo.projectId];
-          if (ourData && ourData.sequence) {
-            setSequence(ourData.sequence);
-            setFeatures(ourData.features || []);
-            setEnzymes(ourData.enzymes || []);
-            setPrimers(ourData.primers || []);
-            setAlignments(ourData.alignments || []);
-            editHistoryRef.current.reset({
-              sequence: ourData.sequence,
-              features: ourData.features || EMPTY_ARRAY,
-              cursorIndex: null,
-              selStart: null,
-              selEnd: null,
-            });
-            baselineSequenceRef.current = ourData.sequence;
-            setIsDirty(ourData.dirty === true);
-          }
-        });
-      })();
+        if (msg.projects) {
+          setProjects(msg.projects);
+        }
+        if (msg.activeId !== undefined) {
+          setActiveId(msg.activeId);
+        }
+      });
     }
 
     return () => {
       cancelled = true;
       if (listener) listener.close();
     };
-  }, [windowInfo, clearEditorState]);
+  }, [windowInfo, refreshProjects]);
 
-  // Sync methylation systems with backend, then fetch updated enzymes.
-  // Only fires when methylation settings change (NOT on every project load).
-  const syncMethylation = useCallback(async () => {
-    if (backendStatus !== 'online') return;
-    try {
-      const data = await setMethylation(methylationSystems, methylationOverlap);
-      if (data && !data.error && data.enzymes) {
-        setEnzymes(data.enzymes);
-      }
-    } catch (e) {
-      console.error('methylation sync error:', e);
-    }
-  }, [methylationSystems, methylationOverlap, backendStatus]);
-
-  // Re-sync enzymes when methylation settings change
-  useEffect(() => {
-    if (backendStatus !== 'online' || !sequence) return;
-    syncMethylation();
-  }, [methylationSystems, methylationOverlap]);
-
-  useEffect(() => {
-    sequenceRef.current = sequence;
-  }, [sequence]);
-
-  // --- beforeunload: warn on close with unsaved changes ---
+  // --- beforeunload: warn on close with unsaved changes in any workspace ---
+  const anyDirty = Object.values(dirtyById).some(Boolean);
   useEffect(() => {
     const handler = (e) => {
-      if (isDirty) {
+      if (anyDirty) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [isDirty]);
+  }, [anyDirty]);
 
-  const displayEnzymes = useMemo(() => {
-    if (!showEnzymes) return EMPTY_ARRAY;
-    const all = enzymes || [];
-    if (enzymeFilter === 'all') return all;
-    if (enzymeFilter === 'unique') return all.filter((e) => e.isUnique);
-    if (enzymeFilter === 'unique6') return all.filter((e) => e.isUnique && e.recSeq?.length === 6);
-    const cutType = (e) =>
-      e.cutType ||
-      (e.botCutIndex - e.cutIndex === 0
-        ? 'blunt'
-        : e.botCutIndex - e.cutIndex > 0
-          ? '5overhang'
-          : '3overhang');
-    if (enzymeFilter === 'blunt') return all.filter((e) => cutType(e) === 'blunt');
-    if (enzymeFilter === 'overhang5') return all.filter((e) => cutType(e) === '5overhang');
-    if (enzymeFilter === 'overhang3') return all.filter((e) => cutType(e) === '3overhang');
-    if (enzymeFilter === 'iis')
-      return all.filter((e) => {
-        const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
-        return pairs.some((cp) => {
-          const d = [
-            cp.topCutIndex - e.recEnd,
-            e.recStart - cp.topCutIndex,
-            cp.botCutIndex - e.recEnd,
-            e.recStart - cp.botCutIndex,
-          ];
-          return d.some((v) => v >= 2);
-        });
+  // Title: filename of the active project, or the app name
+  const activeTitle = activeId
+    ? activeId.split('/').pop().split('\\').pop()
+    : windowInfo?.type === 'project'
+      ? windowInfo.projectId.split('/').pop().split('\\').pop()
+      : 'LibreGene';
+  const titleId = windowInfo?.type === 'project' ? windowInfo.projectId : activeId;
+  const activeDirty = titleId ? dirtyById[titleId] === true : false;
+  useEffect(() => {
+    setWindowTitle(activeTitle);
+  }, [activeTitle]);
+
+  const onDirtyChange = useCallback((id, dirty) => {
+    setDirtyById((prev) => (prev[id] === dirty ? prev : { ...prev, [id]: dirty }));
+  }, []);
+
+  const registerHandle = useCallback((id, handle) => {
+    if (handle) {
+      handlesRef.current[id] = handle;
+    } else {
+      delete handlesRef.current[id];
+    }
+  }, []);
+
+  const onProjectsSync = useCallback((projs) => {
+    setProjects(projs);
+  }, []);
+
+  // Save As rekeys a project (old path → new path); keep the same mounted workspace
+  const onRekey = useCallback(
+    (oldId, newId) => {
+      keyMapRef.current[newId] = keyMapRef.current[oldId] ?? oldId;
+      delete keyMapRef.current[oldId];
+      initialDataRef.current[newId] = initialDataRef.current[oldId];
+      delete initialDataRef.current[oldId];
+      const handle = handlesRef.current[oldId];
+      if (handle) {
+        handlesRef.current[newId] = handle;
+        delete handlesRef.current[oldId];
+      }
+      setDirtyById((prev) => {
+        const next = { ...prev };
+        next[newId] = next[oldId];
+        delete next[oldId];
+        return next;
       });
-    if (enzymeFilter === 'rec4') return all.filter((e) => e.recSeq?.length === 4);
-    if (enzymeFilter === 'rec5') return all.filter((e) => e.recSeq?.length === 5);
-    if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
-    if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
-    return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter, showEnzymes]);
+      setActiveId((prev) => (prev === oldId ? newId : prev));
+      refreshProjects();
+    },
+    [refreshProjects],
+  );
 
   // Sync unsavedPendingRef alongside setUnsavedDialog for stale-closure-safe access
   const openUnsavedDialog = useCallback((pendingAction) => {
@@ -580,11 +296,6 @@ export default function App() {
   }, []);
 
   const handleOpenFile = useCallback(async () => {
-    const gen = ++operationGenRef.current; // new files = new generation
-    // Save current project's dirty state before opening new files
-    if (activeId) {
-      dirtyStateRef.current[activeId] = isDirty;
-    }
     let paths;
     if (isTauri) {
       paths = await openFileDialog();
@@ -592,942 +303,30 @@ export default function App() {
     } else {
       paths = [openPath];
     }
-    setFileStatus('loading...');
     try {
-      let lastData = null;
       for (const p of paths) {
         const data = await openFile(p);
         if (data && data.sequence) {
-          // Pre-cache every opened file immediately
-          projectCacheRef.current[p] = {
-            sequence: data.sequence,
-            features: data.features || EMPTY_ARRAY,
-            enzymes: data.enzymes || EMPTY_ARRAY,
-            primers: data.primers || EMPTY_ARRAY,
-            alignments: data.alignments || EMPTY_ARRAY,
-            methKey,
-          };
-          lastData = data;
+          // Hand the response to the new workspace so it doesn't refetch
+          initialDataRef.current[p] = data;
         }
       }
       await refreshProjects();
-
-      if (lastData && lastData.sequence) {
-        setSequence(lastData.sequence);
-        setFeatures(lastData.features || EMPTY_ARRAY);
-        setEnzymes(lastData.enzymes || EMPTY_ARRAY);
-        setPrimers(lastData.primers || EMPTY_ARRAY);
-        setAlignments(lastData.alignments || EMPTY_ARRAY);
-        // Apply methylation to newly opened file
-        syncMethylation();
-        // Initialize undo history and dirty state
-        const pid = paths.length > 0 ? paths[paths.length - 1] : null;
-        if (pid) {
-          editHistoryRef.current.reset({
-            sequence: lastData.sequence,
-            features: lastData.features || EMPTY_ARRAY,
-            cursorIndex: null,
-            selStart: null,
-            selEnd: null,
-          });
-          baselineSequenceRef.current = lastData.sequence;
-          baselinePerProjectRef.current[pid] = lastData.sequence;
-          savePathMapRef.current[pid] = pid;
-          dirtyStateRef.current[pid] = false;
-          setIsDirty(false);
-        }
-      }
-      const fn = paths[paths.length - 1].split('/').pop().split('\\').pop();
-      applyTitle(fn);
-      setFileStatus('ok');
     } catch (e) {
-      setFileStatus('error: ' + e.message);
+      console.error('open file error:', e);
     }
-  }, [isTauri, openPath, methKey, refreshProjects, syncMethylation, activeId, isDirty]);
+  }, [openPath, refreshProjects]);
 
-  // Track selection state per project so switching files preserves it
-  const handleSelectionChange = useCallback(
-    (sel) => {
-      if (activeId) {
-        perProjectSelectionRef.current[activeId] = sel;
-      }
-      if (mapViewOpen) setLiveSelection(sel);
-    },
-    [activeId, mapViewOpen],
-  );
-
-  // Seed the map's selection highlight from the editor's current selection when opening
-  useEffect(() => {
-    if (mapViewOpen && activeId) {
-      setLiveSelection(perProjectSelectionRef.current[activeId] ?? null);
-    }
-  }, [mapViewOpen, activeId]);
-
-  // Map view: clicking/dragging on the map restores the corresponding selection in the editor
-  const handleMapSelect = useCallback((selStart, selEnd) => {
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: selEnd + 1,
-      selStart,
-      selEnd,
-      selectionMode: 'text',
-      selectedPrimerIds: [],
-      isEnzymeSelection: false,
-      selectedEnzymeIds: [],
-      translationSel: null,
-      scrollToIndex: selStart,
-    });
-    setLiveSelection({ selStart, selEnd });
-  }, []);
-
-  const handleMapClear = useCallback(() => {
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: null,
-      selStart: null,
-      selEnd: null,
-      selectionMode: 'none',
-      selectedPrimerIds: [],
-      isEnzymeSelection: false,
-      selectedEnzymeIds: [],
-      translationSel: null,
-    });
-    setLiveSelection(null);
-  }, []);
-
-  const handleActivateProject = useCallback(
-    async (id) => {
-      // No-op when already on this project
-      if (!id || id === activeIdRef.current) return;
-      // Save current project's dirty state, baseline, selection, and scroll position before switching away
-      if (activeId && activeId !== id) {
-        dirtyStateRef.current[activeId] = isDirty;
-        baselinePerProjectRef.current[activeId] = baselineSequenceRef.current;
-        // Save scroll position so we can restore it when switching back
-        if (!perProjectSelectionRef.current[activeId]) {
-          perProjectSelectionRef.current[activeId] = {};
-        }
-        perProjectSelectionRef.current[activeId].scrollY = mainScrollRef.current?.scrollTop ?? 0;
-      }
-      // Retrieve the target project's saved selection (or empty defaults)
-      const targetSel = id ? perProjectSelectionRef.current[id] : null;
-      const gen = ++switchGenRef.current;
-      ++operationGenRef.current; // invalidate in-flight mutations from previous project
-
-      // Instant switch from cache for perceived speed
-      const cached = projectCacheRef.current[id];
-      if (cached) {
-        const methFresh = cached.methKey === methKey;
-        setActiveId(id);
-        setRestoreState({
-          version: ++undoVersionRef.current,
-          cursorIndex: targetSel?.cursorIndex ?? null,
-          selStart: targetSel?.selStart ?? null,
-          selEnd: targetSel?.selEnd ?? null,
-          selectionMode: targetSel?.selectionMode ?? 'text',
-          selectedPrimerIds: targetSel?.selectedPrimerIds ?? [],
-          isEnzymeSelection: targetSel?.isEnzymeSelection ?? false,
-          selectedEnzymeIds: targetSel?.selectedEnzymeIds ?? [],
-          translationSel: targetSel?.translationSel ?? null,
-        });
-        setSequence(cached.sequence);
-        setFeatures(cached.features);
-        setEnzymes(cached.enzymes);
-        setPrimers(cached.primers);
-        setAlignments(cached.alignments || EMPTY_ARRAY);
-        // Reset undo history for the switched-to project
-        editHistoryRef.current.reset({
-          sequence: cached.sequence,
-          features: cached.features,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        baselineSequenceRef.current = baselinePerProjectRef.current[id] ?? cached.sequence;
-        savePathMapRef.current[id] = id;
-        // Restore per-project dirty state and keep dirty indicator consistent
-        setIsDirty(dirtyStateRef.current[id] === true);
-        if (!methFresh) {
-          syncMethylation();
-        }
-        const fn = id.split('/').pop().split('\\').pop();
-        applyTitle(fn);
-
-        // Restore scroll position for this project (or scroll to top for new projects)
-        requestAnimationFrame(() => {
-          mainScrollRef.current?.scrollTo(0, targetSel?.scrollY ?? 0);
-        });
-      }
-
-      try {
-        const data = await activateProject(id);
-        if (switchGenRef.current !== gen) return;
-
-        if (data && !data.error && data.sequence) {
-          if (!cached) {
-            projectCacheRef.current[id] = {
-              sequence: data.sequence,
-              features: data.features || EMPTY_ARRAY,
-              enzymes: data.enzymes || EMPTY_ARRAY,
-              primers: data.primers || EMPTY_ARRAY,
-              alignments: data.alignments || EMPTY_ARRAY,
-              methKey,
-            };
-            setActiveId(id);
-            setRestoreState({
-              version: ++undoVersionRef.current,
-              cursorIndex: targetSel?.cursorIndex ?? null,
-              selStart: targetSel?.selStart ?? null,
-              selEnd: targetSel?.selEnd ?? null,
-              selectionMode: targetSel?.selectionMode ?? 'text',
-              selectedPrimerIds: targetSel?.selectedPrimerIds ?? [],
-              isEnzymeSelection: targetSel?.isEnzymeSelection ?? false,
-              selectedEnzymeIds: targetSel?.selectedEnzymeIds ?? [],
-              translationSel: targetSel?.translationSel ?? null,
-            });
-            setSequence(data.sequence);
-            setFeatures(data.features || EMPTY_ARRAY);
-            setEnzymes(data.enzymes || EMPTY_ARRAY);
-            setPrimers(data.primers || EMPTY_ARRAY);
-            setAlignments(data.alignments || EMPTY_ARRAY);
-            syncMethylation();
-            // Reset undo history
-            editHistoryRef.current.reset({
-              sequence: data.sequence,
-              features: data.features || EMPTY_ARRAY,
-              cursorIndex: null,
-              selStart: null,
-              selEnd: null,
-            });
-            baselineSequenceRef.current = data.sequence;
-            baselinePerProjectRef.current[id] = data.sequence;
-            savePathMapRef.current[id] = id;
-            // Restore per-project dirty state instead of always setting clean
-            setIsDirty(dirtyStateRef.current[id] === true);
-            const fn = id.split('/').pop().split('\\').pop();
-            applyTitle(fn);
-
-            // Restore scroll position for this project
-            requestAnimationFrame(() => {
-              mainScrollRef.current?.scrollTo(0, targetSel?.scrollY ?? 0);
-            });
-          }
-
-          if (data.projects) setProjects(data.projects);
-        }
-      } catch (e) {
-        console.error('activate project error:', e);
-      }
-    },
-    [methKey, syncMethylation, activeId, isDirty],
-  );
-
-  // Switch projects freely — dirty state is tracked per-project and shown in sidebar (*)
-  const handleSwitchProject = useCallback(
-    (targetId) => {
-      handleActivateProject(targetId);
-    },
-    [handleActivateProject],
-  );
-
-  // --- Edit request from SequenceEditor: open the confirmation dialog ---
-  const handleEditRequest = useCallback((request) => {
-    setEditDialog({
-      open: true,
-      mode: request.type,
-      cursorIndex: request.cursorIndex ?? null,
-      selStart: request.selStart ?? null,
-      selEnd: request.selEnd ?? null,
-      selectedText: request.selectedText ?? '',
-      initialText: request.clipboardText ?? '',
-    });
-  }, []);
-
-  const handleFeatureFtypeChange = useCallback(
-    async (featureId, newFtype) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await updateFeatureFtype(featureId, newFtype);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('update feature ftype error:', e);
-      }
-    },
-    [activeId, sequence, features],
-  );
-
-  const handleFeatureColorChange = useCallback(
-    async (featureId, newColor) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await updateFeatureColor(featureId, newColor);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('update feature color error:', e);
-      }
-    },
-    [activeId, sequence, features],
-  );
-
-  const handleFeatureNameChange = useCallback(
-    async (featureId, newName) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await updateFeatureName(featureId, newName);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('update feature name error:', e);
-      }
-    },
-    [activeId, sequence, features],
-  );
-
-  const handlePrimerChange = useCallback(
-    async (primerData) => {
-      const gen = operationGenRef.current;
-      try {
-        // Push current state to undo history before mutating
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await addPrimer(primerData);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.primers) {
-          setPrimers(data.primers);
-          if (data.alignments) setAlignments(data.alignments);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-        }
-      } catch (e) {
-        console.error('add primer error:', e);
-      }
-    },
-    [activeId, sequence, features, primers],
-  );
-
-  const handleFeatureAdd = useCallback(
-    async (featureData) => {
-      const gen = operationGenRef.current;
-      const { locationStr, ...feature } = featureData;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await addFeature(feature, locationStr);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-        }
-      } catch (e) {
-        throw e; // re-throw so dialog can display error
-      }
-    },
-    [activeId, sequence, features, primers],
-  );
-
-  const handleFeatureStrandChange = useCallback(
-    async (featureId, strand) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await updateFeatureStrand(featureId, strand);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('update feature strand error:', e);
-      }
-    },
-    [activeId, sequence, features],
-  );
-
-  const handleFeatureLocationChange = useCallback(
-    async (featureId, locationStr) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await updateFeatureLocation(featureId, locationStr);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        throw e;
-      }
-    },
-    [activeId, sequence, features],
-  );
-
-  const handleDeleteFeature = useCallback(
-    async (featureId) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await deleteFeature(featureId);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          setFeatures(data.features);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('delete feature error:', e);
-      }
-    },
-    [activeId, sequence, features],
-  );
-
-  const handleDeletePrimer = useCallback(
-    async (primerId) => {
-      const gen = operationGenRef.current;
-      try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        const data = await deletePrimer(primerId);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.primers) {
-          setPrimers(data.primers);
-          if (data.alignments) setAlignments(data.alignments);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('delete primer error:', e);
-      }
-    },
-    [activeId, sequence, features, primers],
-  );
-
-  const handleAddAlignment = useCallback(async () => {
-    const gen = operationGenRef.current;
-    const path = await openAlignmentFileDialog();
-    if (!path) return;
-    const data = await addAlignment(path);
-    if (operationGenRef.current !== gen) return;
-    if (data && data.error) throw new Error(data.error);
-    if (data) {
-      if (data.alignments) setAlignments(data.alignments);
-      if (data.projects) setProjects(data.projects);
-      if (data.activeId !== undefined) setActiveId(data.activeId);
-      setIsDirty(true);
-      if (activeId) dirtyStateRef.current[activeId] = true;
-    }
-  }, [activeId]);
-
-  const handleAddAlignmentText = useCallback(
-    async (name, seq) => {
-      const gen = operationGenRef.current;
-      const data = await addAlignmentSeq(name, seq);
-      if (operationGenRef.current !== gen) return;
-      if (data && data.error) throw new Error(data.error);
-      if (data) {
-        if (data.alignments) setAlignments(data.alignments);
-        if (data.projects) setProjects(data.projects);
-        if (data.activeId !== undefined) setActiveId(data.activeId);
-        setIsDirty(true);
-        if (activeId) dirtyStateRef.current[activeId] = true;
-      }
-    },
-    [activeId],
-  );
-
-  const handleToggleAlignmentVisible = useCallback((alignmentId) => {
-    setHiddenAlignIds((prev) =>
-      prev.includes(alignmentId) ? prev.filter((x) => x !== alignmentId) : [...prev, alignmentId],
-    );
-  }, []);
-
-  const visibleAlignments = useMemo(
-    () =>
-      alignmentEnabled && showAlignments
-        ? alignments.filter((a) => !hiddenAlignIds.includes(a.id))
-        : EMPTY_ARRAY,
-    [alignmentEnabled, showAlignments, alignments, hiddenAlignIds],
-  );
-
-  const handleRemoveAlignment = useCallback(
-    async (alignmentId) => {
-      const gen = operationGenRef.current;
-      try {
-        const data = await removeAlignment(alignmentId);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.alignments) {
-          setAlignments(data.alignments);
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } catch (e) {
-        console.error('remove alignment error:', e);
-      }
-    },
-    [activeId],
-  );
-
-  /**
-   * 调整特征/注释放置位置以适配编辑后的序列。
-   * 编辑会删除 [editStart, editEnd] 区间（oldLen 个碱基），
-   * 然后插入 newLen 个碱基。
-   * 编辑区之外的特征位置保持与原序列的相对偏移不变。
-   */
-  const adjustAnnotations = useCallback((anns, editStart, editEnd, oldLen, newLen) => {
-    const delta = newLen - oldLen;
-    if (delta === 0 && oldLen === 0) return anns; // no-op
-
-    return anns
-      .map((ann) => {
-        const adjustSegments = (segments) => {
-          if (!segments || !segments.length) return segments;
-          return segments
-            .map((seg) => {
-              let { start: s, end: e } = seg;
-              if (e < editStart) return seg;
-              if (s > editEnd) return { ...seg, start: s + delta, end: e + delta };
-              // spans
-              const ns = s < editStart ? s : editStart + newLen;
-              const ne = e > editEnd ? e + delta : editStart + newLen - 1;
-              if (ns > ne) return null;
-              return { ...seg, start: ns, end: ne };
-            })
-            .filter(Boolean);
-        };
-
-        let newStart = ann.start,
-          newEnd = ann.end;
-        if (ann.end < editStart) {
-          // entirely before – unchanged
-          return ann;
-        }
-        if (ann.start > editEnd) {
-          // entirely after – shift
-          newStart = ann.start + delta;
-          newEnd = ann.end + delta;
-        } else {
-          // spans the edit
-          newStart = ann.start < editStart ? ann.start : editStart + newLen;
-          newEnd = ann.end > editEnd ? ann.end + delta : editStart + newLen - 1;
-        }
-
-        if (newStart > newEnd) return null;
-
-        const result = { ...ann, start: newStart, end: newEnd };
-        if (ann.segments) result.segments = adjustSegments(ann.segments);
-        return result;
+  // Switching is lossless (workspaces stay mounted) — just update activeId
+  const handleSwitchProject = useCallback((id) => {
+    if (!id || id === activeIdRef.current) return;
+    setActiveId(id);
+    activateProject(id)
+      .then((data) => {
+        if (data && data.projects) setProjects(data.projects);
       })
-      .filter(Boolean);
+      .catch((e) => console.error('activate project error:', e));
   }, []);
-
-  // --- Edit dialog confirmed (insert/delete/replace) ---
-  const handleEditConfirm = useCallback(
-    async (result) => {
-      const gen = operationGenRef.current;
-      const { mode, cursorIndex, selStart, selEnd } = editDialog;
-      let newSeq;
-      const currentSeq = sequence || '';
-      let editStart, editEnd, oldLen, newLen;
-
-      // Compute the new sequence and save edit parameters for feature adjustment
-      if (mode === 'insert') {
-        const cleaned = (result.sequence || '').replace(/\s/g, '');
-        if (!cleaned) {
-          setEditDialog((prev) => ({ ...prev, open: false }));
-          return;
-        }
-        editStart = cursorIndex;
-        editEnd = cursorIndex - 1; // no deletion range
-        oldLen = 0;
-        newLen = cleaned.length;
-        newSeq = currentSeq.slice(0, cursorIndex) + cleaned + currentSeq.slice(cursorIndex);
-      } else if (mode === 'delete') {
-        if (selStart === null || selEnd === null) {
-          setEditDialog((prev) => ({ ...prev, open: false }));
-          return;
-        }
-        editStart = selStart;
-        editEnd = selEnd;
-        oldLen = selEnd - selStart + 1;
-        newLen = 0;
-        newSeq = currentSeq.slice(0, selStart) + currentSeq.slice(selEnd + 1);
-      } else if (mode === 'replace') {
-        const cleaned = (result.sequence || '').replace(/\s/g, '');
-        if (selStart === null || selEnd === null) {
-          setEditDialog((prev) => ({ ...prev, open: false }));
-          return;
-        }
-        editStart = selStart;
-        editEnd = selEnd;
-        oldLen = selEnd - selStart + 1;
-        newLen = cleaned.length;
-        newSeq = currentSeq.slice(0, selStart) + cleaned + currentSeq.slice(selEnd + 1);
-      } else {
-        return;
-      }
-
-      // Close dialog
-      setEditDialog((prev) => ({ ...prev, open: false }));
-
-      // Compute adjusted features BEFORE backend call (for history and optimistic update)
-      const adjustedFeatures = adjustAnnotations(
-        features || EMPTY_ARRAY,
-        editStart,
-        editEnd,
-        oldLen,
-        newLen,
-      );
-
-      // Push new state to undo history (includes adjusted features for correct undo)
-      editHistoryRef.current.push({
-        sequence: newSeq,
-        features: adjustedFeatures,
-        cursorIndex,
-        selStart: mode === 'insert' ? null : selStart,
-        selEnd: mode === 'insert' ? null : selEnd,
-      });
-
-      // Optimistic UI update
-      setSequence(newSeq);
-      setFeatures(adjustedFeatures);
-      setIsDirty(true);
-      if (activeId) dirtyStateRef.current[activeId] = true;
-
-      // Send to backend for recomputation (enzymes, primer binding sites)
-      try {
-        const data = await updateSequence(newSeq);
-        if (operationGenRef.current !== gen) return;
-        if (data && !data.error) {
-          setSequence(data.sequence);
-          setFeatures(adjustedFeatures); // use our adjusted features (backend doesn't recalculate feature positions)
-          setEnzymes(data.enzymes || EMPTY_ARRAY);
-          setPrimers(data.primers || EMPTY_ARRAY);
-          setAlignments(data.alignments || EMPTY_ARRAY);
-          if (activeId) {
-            projectCacheRef.current[activeId] = {
-              sequence: data.sequence,
-              features: data.features || EMPTY_ARRAY,
-              enzymes: data.enzymes || EMPTY_ARRAY,
-              primers: data.primers || EMPTY_ARRAY,
-              alignments: data.alignments || EMPTY_ARRAY,
-              methKey,
-            };
-          }
-          if (data.projects) setProjects(data.projects);
-          if (data.activeId !== undefined) setActiveId(data.activeId);
-        } else {
-          console.error('update_sequence error:', data?.error || 'unknown');
-          // Re-fetch to recover from optimistic update
-          try {
-            const refresh = await getProject('all');
-            if (refresh && !refresh.error && refresh.sequence) {
-              setSequence(refresh.sequence);
-              setFeatures(refresh.features || EMPTY_ARRAY);
-              setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-              setPrimers(refresh.primers || EMPTY_ARRAY);
-              setAlignments(refresh.alignments || EMPTY_ARRAY);
-            }
-          } catch {}
-        }
-      } catch (e) {
-        console.error('update_sequence exception:', e);
-      }
-    },
-    [sequence, editDialog, activeId, methKey],
-  );
-
-  // --- Edit dialog cancelled ---
-  const handleEditCancel = useCallback(() => {
-    setEditDialog((prev) => ({ ...prev, open: false }));
-  }, []);
-
-  // --- Undo ---
-  const handleUndo = useCallback(async () => {
-    const gen = operationGenRef.current;
-    const snapshot = editHistoryRef.current.undo();
-    if (!snapshot) return;
-
-    // Restore cursor/selection in SequenceEditor (use ref for atomic version)
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: snapshot.cursorIndex,
-      selStart: snapshot.selStart,
-      selEnd: snapshot.selEnd,
-    });
-
-    // Send to backend for recomputation
-    try {
-      const data = await updateSequence(snapshot.sequence);
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        setSequence(data.sequence);
-        setFeatures(snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        if (activeId) {
-          projectCacheRef.current[activeId] = {
-            sequence: data.sequence,
-            features: snapshot.features || EMPTY_ARRAY,
-            enzymes: data.enzymes || EMPTY_ARRAY,
-            primers: snapshot.primers || data.primers || EMPTY_ARRAY,
-            alignments: data.alignments || EMPTY_ARRAY,
-            methKey,
-          };
-        }
-        if (data.projects) setProjects(data.projects);
-        if (data.activeId !== undefined) setActiveId(data.activeId);
-        // Accurate dirty check: undo to saved state = not dirty
-        if (snapshot.sequence === baselineSequenceRef.current) {
-          setIsDirty(false);
-          if (activeId) dirtyStateRef.current[activeId] = false;
-        } else {
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } else {
-        // Re-fetch to recover
-        try {
-          const refresh = await getProject('all');
-          if (refresh && !refresh.error && refresh.sequence) {
-            setSequence(refresh.sequence);
-            setFeatures(refresh.features || EMPTY_ARRAY);
-            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-            setPrimers(refresh.primers || EMPTY_ARRAY);
-            setAlignments(refresh.alignments || EMPTY_ARRAY);
-          }
-        } catch {}
-      }
-    } catch (e) {
-      console.error('undo error:', e);
-    }
-  }, [activeId, methKey]);
-
-  // --- Redo ---
-  const handleRedo = useCallback(async () => {
-    const gen = operationGenRef.current;
-    const snapshot = editHistoryRef.current.redo();
-    if (!snapshot) return;
-
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: snapshot.cursorIndex,
-      selStart: snapshot.selStart,
-      selEnd: snapshot.selEnd,
-    });
-
-    try {
-      const data = await updateSequence(snapshot.sequence);
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        setSequence(data.sequence);
-        setFeatures(snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        if (activeId) {
-          projectCacheRef.current[activeId] = {
-            sequence: data.sequence,
-            features: snapshot.features || EMPTY_ARRAY,
-            enzymes: data.enzymes || EMPTY_ARRAY,
-            primers: snapshot.primers || data.primers || EMPTY_ARRAY,
-            alignments: data.alignments || EMPTY_ARRAY,
-            methKey,
-          };
-        }
-        if (data.projects) setProjects(data.projects);
-        if (data.activeId !== undefined) setActiveId(data.activeId);
-        // Accurate dirty check: redo back to saved state = not dirty
-        if (snapshot.sequence === baselineSequenceRef.current) {
-          setIsDirty(false);
-          if (activeId) dirtyStateRef.current[activeId] = false;
-        } else {
-          setIsDirty(true);
-          if (activeId) dirtyStateRef.current[activeId] = true;
-        }
-      } else {
-        try {
-          const refresh = await getProject('all');
-          if (refresh && !refresh.error && refresh.sequence) {
-            setSequence(refresh.sequence);
-            setFeatures(refresh.features || EMPTY_ARRAY);
-            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-            setPrimers(refresh.primers || EMPTY_ARRAY);
-            setAlignments(refresh.alignments || EMPTY_ARRAY);
-          }
-        } catch {}
-      }
-    } catch (e) {
-      console.error('redo error:', e);
-    }
-  }, [activeId, methKey]);
-
-  // --- Save As (defined before Save because Save may reference it) ---
-  const handleSaveAs = useCallback(async () => {
-    if (!isTauri) return;
-
-    const rawName = activeId ? activeId.split('/').pop() : 'sequence.gbk';
-    const defaultName = rawName.replace(/\.[^.]+$/, '') + '.gbk';
-    const path = await saveFileDialog(defaultName);
-    if (!path) return; // User cancelled
-
-    try {
-      const result = await saveFile(path);
-      if (result && !result.error) {
-        if (activeId) {
-          const res = await rekeyProject(activeId, path);
-          if (res && !res.error) {
-            // Update local state to track the new project ID
-            setActiveId(path);
-            savePathMapRef.current[path] = path;
-            delete savePathMapRef.current[activeId];
-            baselinePerProjectRef.current[path] = baselinePerProjectRef.current[activeId];
-            delete baselinePerProjectRef.current[activeId];
-            dirtyStateRef.current[path] = false;
-            delete dirtyStateRef.current[activeId];
-            projectCacheRef.current[path] = projectCacheRef.current[activeId];
-            delete projectCacheRef.current[activeId];
-            const fn = path.split('/').pop().split('\\').pop();
-            applyTitle(fn);
-          }
-        }
-        baselineSequenceRef.current = sequenceRef.current || sequence;
-        setIsDirty(false);
-      }
-    } catch (e) {
-      console.error('save as error:', e);
-    }
-  }, [activeId]);
-
-  // --- Save ---
-  const handleSave = useCallback(async () => {
-    if (!isTauri) {
-      console.warn('Save is only available in desktop mode');
-      return;
-    }
-
-    const filePath = (activeId && savePathMapRef.current[activeId]) || activeId;
-    if (!filePath) {
-      // No path known — fall back to Save As
-      await handleSaveAs();
-      return;
-    }
-
-    // Non-GenBank sources (.dna, .fasta, .ab1, ...) must not be overwritten
-    // with GenBank text — force Save As with a .gbk target.
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    if (ext !== 'gbk' && ext !== 'gb') {
-      await handleSaveAs();
-      return;
-    }
-
-    try {
-      const result = await saveFile(filePath);
-      if (result && !result.error) {
-        baselineSequenceRef.current = sequenceRef.current || sequence;
-        baselinePerProjectRef.current[filePath] = baselineSequenceRef.current;
-        setIsDirty(false);
-      } else {
-        console.error('save error:', result?.error);
-      }
-    } catch (e) {
-      console.error('save exception:', e);
-    }
-  }, [activeId]);
 
   // Internal: actually perform the close (no dirty check)
   const doCloseProject = useCallback(
@@ -1536,64 +335,33 @@ export default function App() {
         const data = await deleteProject(id);
         if (data && data.error) return;
 
-        // Clean up per-project state
-        delete dirtyStateRef.current[id];
-        delete baselinePerProjectRef.current[id];
-        delete projectCacheRef.current[id];
-        delete savePathMapRef.current[id];
+        delete initialDataRef.current[id];
+        delete handlesRef.current[id];
+        delete keyMapRef.current[id];
+        setDirtyById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
 
-        // If the closed project was active, load the new active project's data
-        if (id === activeId) {
-          const newData = await getProject('all');
-          if (newData && !newData.error && newData.sequence) {
-            setSequence(newData.sequence);
-            setFeatures(newData.features || EMPTY_ARRAY);
-            setEnzymes(newData.enzymes || EMPTY_ARRAY);
-            setPrimers(newData.primers || EMPTY_ARRAY);
-            setAlignments(newData.alignments || EMPTY_ARRAY);
-            editHistoryRef.current.reset({
-              sequence: newData.sequence,
-              features: newData.features || EMPTY_ARRAY,
-              cursorIndex: null,
-              selStart: null,
-              selEnd: null,
-            });
-            baselineSequenceRef.current = newData.sequence;
-            setIsDirty(false);
-          } else {
-            // No project remains — show the empty state
-            clearEditorState();
-          }
-          if (newData && newData.projects) setProjects(newData.projects);
-          if (newData && newData.activeId !== undefined) {
-            setActiveId(newData.activeId);
-            if (newData.activeId && newData.activeId !== 'all') {
-              const fn = newData.activeId.split('/').pop().split('\\').pop();
-              applyTitle(fn);
-            } else {
-              applyTitle('LibreGene');
-            }
-          }
-        }
         await refreshProjects();
       } catch (e) {
         console.error('close project error:', e);
       }
     },
-    [activeId, refreshProjects],
+    [refreshProjects],
   );
 
   // Public close handler with dirty check
   const handleCloseProject = useCallback(
     async (id) => {
-      const isProjectDirty = id === activeId ? isDirty : dirtyStateRef.current[id] === true;
-      if (isProjectDirty) {
+      if (dirtyById[id] === true) {
         openUnsavedDialog({ type: 'close', targetId: id });
         return;
       }
       doCloseProject(id);
     },
-    [activeId, isDirty, openUnsavedDialog, doCloseProject],
+    [dirtyById, openUnsavedDialog, doCloseProject],
   );
 
   // --- Unsaved changes dialog handlers ---
@@ -1601,24 +369,22 @@ export default function App() {
     const pending = unsavedPendingRef.current;
     setUnsavedDialog({ open: false, pendingAction: null });
     unsavedPendingRef.current = null;
-    await handleSave();
-    if (pending?.type === 'open') {
-      handleOpenFile();
-    } else if (pending?.type === 'close' && pending.targetId) {
+    if (pending?.type === 'close' && pending.targetId) {
+      await handlesRef.current[pending.targetId]?.save();
+      // Save may have been cancelled (Save As dialog) — don't close if still dirty
+      if (handlesRef.current[pending.targetId]?.isDirty()) return;
       doCloseProject(pending.targetId);
     }
-  }, [handleSave, handleActivateProject, handleOpenFile, doCloseProject]);
+  }, [doCloseProject]);
 
   const handleUnsavedDiscard = useCallback(() => {
     const pending = unsavedPendingRef.current;
     setUnsavedDialog({ open: false, pendingAction: null });
     unsavedPendingRef.current = null;
-    if (pending?.type === 'open') {
-      handleOpenFile();
-    } else if (pending?.type === 'close' && pending.targetId) {
+    if (pending?.type === 'close' && pending.targetId) {
       doCloseProject(pending.targetId);
     }
-  }, [handleActivateProject, handleOpenFile, doCloseProject]);
+  }, [doCloseProject]);
 
   const handleUnsavedCancel = useCallback(() => {
     setUnsavedDialog({ open: false, pendingAction: null });
@@ -1633,47 +399,6 @@ export default function App() {
     }
   }, []);
 
-  // --- Global keyboard shortcuts: Ctrl+Z, Ctrl+Y, Ctrl+S, Ctrl+Shift+S ---
-  // (must be placed AFTER all handler definitions to avoid TDZ)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const isCtrl = e.ctrlKey || e.metaKey;
-      if (!isCtrl) return;
-
-      // Ignore when focus is in input/textarea (e.g. edit dialog)
-      const tag = e.target?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
-
-      // Ctrl+Z: Undo (no shift)
-      if (e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-      // Ctrl+Shift+Z or Ctrl+Y: Redo
-      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-      // Ctrl+S: Save (no shift)
-      if (e.key === 's' && !e.shiftKey) {
-        e.preventDefault();
-        handleSave();
-        return;
-      }
-      // Ctrl+Shift+S: Save As
-      if (e.key === 's' && e.shiftKey) {
-        e.preventDefault();
-        handleSaveAs();
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleSave, handleSaveAs]);
-
   // Extract filename from path
   const fileName = (p) => {
     const s = (p.name || p.id || '').replace(/\\/g, '/');
@@ -1682,6 +407,31 @@ export default function App() {
 
   // Collapsible "Open Files" group
   const [filesOpen, setFilesOpen] = useState(true);
+
+  const isProjectWindow = windowInfo?.type === 'project';
+  const hasProject = isProjectWindow || projects.length > 0;
+
+  const workspaceProps = {
+    backendStatus,
+    methylationSystems,
+    methylationOverlap,
+    primerSeedLength,
+    tmParams,
+    layoutParams,
+    showFeatures,
+    onToggleFeatures: () => setShowFeatures((v) => !v),
+    showPrimers,
+    onTogglePrimers: () => setShowPrimers((v) => !v),
+    showEnzymes,
+    onToggleEnzymes: () => setShowEnzymes((v) => !v),
+    enzymeFilter,
+    onEnzymeFilterChange: setEnzymeFilter,
+    disabledPlugins,
+    onDirtyChange,
+    registerHandle,
+    onProjectsSync,
+    onRekey,
+  };
 
   const sidebarContent = (
     <Sidebar
@@ -1751,8 +501,7 @@ export default function App() {
                   <SidebarMenu>
                     {projects.map((p) => {
                       const isActiveProject = p.id === activeId;
-                      const isProjectDirty =
-                        (isActiveProject && isDirty) || dirtyStateRef.current[p.id];
+                      const isProjectDirty = dirtyById[p.id] === true;
                       const name = fileName(p);
                       const Icon = getFileIcon(name);
                       return (
@@ -1826,7 +575,7 @@ export default function App() {
                     <SidebarMenuItem key={`${plugin.id}-${item.dialogKey}`}>
                       <SidebarMenuButton
                         onClick={() =>
-                          setPluginDialogs((prev) => ({ ...prev, [item.dialogKey]: true }))
+                          handlesRef.current[activeId]?.openPluginDialog(item.dialogKey)
                         }
                         tooltip={item.tooltip}
                         className="text-muted-foreground hover:text-foreground"
@@ -1839,7 +588,7 @@ export default function App() {
                 )}
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => setMapViewOpen(true)}
+                  onClick={() => handlesRef.current[activeId]?.openMapView()}
                   tooltip="Plasmid Map"
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -1849,7 +598,7 @@ export default function App() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => setPrimerOverviewOpen(true)}
+                  onClick={() => handlesRef.current[activeId]?.openPrimerOverview()}
                   tooltip="Primer Overview"
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -1878,9 +627,9 @@ export default function App() {
     <TooltipProvider>
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
-          <TitleBar title={docTitle} dirty={isDirty} backendStatus={backendStatus} />
+          <TitleBar title={activeTitle} dirty={activeDirty} />
           {/* Only show sidebar in main window */}
-          {hasProject && (!windowInfo || windowInfo.type !== 'project') && (
+          {hasProject && !isProjectWindow && (
             <div
               className="absolute left-0 top-0 bottom-0 z-40"
               onMouseEnter={handleSidebarEnter}
@@ -1890,63 +639,28 @@ export default function App() {
             </div>
           )}
           <div className="relative flex flex-1 min-h-0">
-            <main
-              ref={mainScrollRef}
-              className="w-full flex-1 overflow-y-auto overscroll-contain hide-scrollbar transition-[padding] duration-300 ease-out"
-            >
-              {hasProject ? (
-                <SequenceEditor
-                  sequence={sequence}
-                  features={editorFeatures}
-                  enzymes={displayEnzymes}
-                  allEnzymes={enzymes}
-                  primers={editorPrimers}
-                  charsPerLine={60}
-                  layoutParams={editorLayoutParams}
-                  onEditRequest={handleEditRequest}
-                  restoreState={restoreState}
-                  onFeatureFtypeChange={handleFeatureFtypeChange}
-                  onFeatureColorChange={handleFeatureColorChange}
-                  onFeatureLocationChange={handleFeatureLocationChange}
-                  onFeatureNameChange={handleFeatureNameChange}
-                  onFeatureStrandChange={handleFeatureStrandChange}
-                  onFeatureAdd={handleFeatureAdd}
-                  onFeatureDelete={handleDeleteFeature}
-                  onPrimerChange={handlePrimerChange}
-                  onPrimerDelete={handleDeletePrimer}
-                  primerSeedLength={primerSeedLength}
-                  tmParams={tmParams}
-                  onSelectionChange={handleSelectionChange}
-                  scrollContainerRef={mainScrollRef}
-                  onUndo={handleUndo}
-                  onRedo={handleRedo}
-                  canUndo={canUndo}
-                  canRedo={canRedo}
-                  showFeatures={showFeatures}
-                  onToggleFeatures={() => setShowFeatures((v) => !v)}
-                  showPrimers={showPrimers}
-                  onTogglePrimers={() => setShowPrimers((v) => !v)}
-                  showEnzymes={showEnzymes}
-                  onToggleEnzymes={() => setShowEnzymes((v) => !v)}
-                  enzymeFilter={enzymeFilter}
-                  onEnzymeFilterChange={setEnzymeFilter}
-                  openPrimerEditorRef={openPrimerEditorRef}
-                  openFeatureEditorRef={openFeatureEditorRef}
-                  alignmentCacheRef={alignmentCacheRef}
-                  alignmentTracks={visibleAlignments}
-                  alignments={alignments}
-                  alignmentEnabled={alignmentEnabled}
-                  showAlignments={showAlignments}
-                  onToggleAlignments={() => setShowAlignments((v) => !v)}
-                  hiddenAlignIds={hiddenAlignIds}
-                  onToggleAlignmentVisible={handleToggleAlignmentVisible}
-                  onAddAlignmentFile={handleAddAlignment}
-                  onAddAlignmentText={() => setAlignTextOpen(true)}
-                  onManageAlignments={() =>
-                    setPluginDialogs((prev) => ({ ...prev, alignment: true }))
-                  }
+            {isProjectWindow ? (
+              <ProjectWorkspace
+                key={keyFor(windowInfo.projectId)}
+                projectId={windowInfo.projectId}
+                hidden={false}
+                initialData={initialDataRef.current[windowInfo.projectId]}
+                topology="circular"
+                {...workspaceProps}
+              />
+            ) : projects.length > 0 ? (
+              projects.map((p) => (
+                <ProjectWorkspace
+                  key={keyFor(p.id)}
+                  projectId={p.id}
+                  hidden={p.id !== activeId}
+                  initialData={initialDataRef.current[p.id]}
+                  topology={p.topology || 'circular'}
+                  {...workspaceProps}
                 />
-              ) : (
+              ))
+            ) : (
+              <main className="w-full flex-1 overflow-y-auto overscroll-contain hide-scrollbar">
                 <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
                   <div className="flex size-16 items-center justify-center">
                     <img src="/icon.png" alt="LibreGene" className="size-14" />
@@ -1972,32 +686,10 @@ export default function App() {
                     Open File
                   </Button>
                 </div>
-              )}
-            </main>
-            {hasProject && (
-              <FeatureScrollbar
-                scrollContainerRef={mainScrollRef}
-                features={editorFeatures}
-                sequenceLength={sequence.length}
-              />
+              </main>
             )}
           </div>
         </div>
-
-        {hasProject && (
-          <MapView
-            open={mapViewOpen}
-            onOpenChange={setMapViewOpen}
-            sequenceLength={sequence.length}
-            features={editorFeatures}
-            topology={topology}
-            name={mapName}
-            selection={liveSelection}
-            onSelect={handleMapSelect}
-            onClear={handleMapClear}
-            onFeatureOpen={(f) => openFeatureEditorRef.current?.(f)}
-          />
-        )}
 
         <SettingsPage
           open={settingsOpen}
@@ -2013,56 +705,6 @@ export default function App() {
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
-        />
-
-        <PrimerOverviewDialog
-          open={primerOverviewOpen}
-          onOpenChange={setPrimerOverviewOpen}
-          primers={primers}
-          alignmentCacheRef={alignmentCacheRef}
-          onEditPrimer={(p) => {
-            openPrimerEditorRef.current?.(p);
-          }}
-        />
-
-        {plugins
-          .filter((plugin) => !disabledPlugins.includes(plugin.id))
-          .map((plugin) => {
-            const DialogComp = plugin.dialog;
-            return (
-              <DialogComp
-                key={plugin.id}
-                open={!!pluginDialogs[plugin.dialogKey]}
-                onOpenChange={(open) =>
-                  setPluginDialogs((prev) => ({
-                    ...prev,
-                    [plugin.dialogKey]: open,
-                  }))
-                }
-                alignments={alignments}
-                onAddAlignment={handleAddAlignment}
-                onRemoveAlignment={handleRemoveAlignment}
-              />
-            );
-          })}
-
-        <AddAlignmentTextDialog
-          open={alignTextOpen}
-          onOpenChange={setAlignTextOpen}
-          onSubmit={handleAddAlignmentText}
-        />
-
-        {/* --- Sequence Edit Dialog --- */}
-        <SequenceEditDialog
-          open={editDialog.open}
-          mode={editDialog.mode}
-          cursorIndex={editDialog.cursorIndex}
-          selStart={editDialog.selStart}
-          selEnd={editDialog.selEnd}
-          selectedText={editDialog.selectedText}
-          initialText={editDialog.initialText}
-          onConfirm={handleEditConfirm}
-          onCancel={handleEditCancel}
         />
 
         {/* --- Unsaved Changes Dialog --- */}
