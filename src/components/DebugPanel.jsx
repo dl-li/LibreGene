@@ -161,7 +161,9 @@ export default function DebugPanel({
               value={enzymeFilter}
               onChange={(e) => setEnzymeFilter(e.target.value)}
             >
+              <option value="unique+twice">唯一切点 + 双切酶</option>
               <option value="unique">仅唯一切点</option>
+              <option value="twice">双切酶</option>
               <option value="all">全部有切点</option>
               <optgroup label="按粘性末端">
                 <option value="blunt">平末端</option>

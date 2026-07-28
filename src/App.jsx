@@ -87,7 +87,7 @@ export default function App() {
   const [showFeatures, setShowFeatures] = useState(true);
   const [showPrimers, setShowPrimers] = useState(true);
   const [showEnzymes, setShowEnzymes] = useState(true);
-  const [enzymeFilter, setEnzymeFilter] = useState('unique');
+  const [enzymeFilter, setEnzymeFilter] = useState('unique+twice');
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);

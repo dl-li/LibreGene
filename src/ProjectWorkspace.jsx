@@ -267,12 +267,25 @@ export default function ProjectWorkspace({
 
   const hasProject = sequence !== null && sequence.length > 0;
 
+  const totalNamePairCounts = useMemo(() => {
+    const m = new Map();
+    for (const e of enzymes || []) {
+      const nPairs = (e.cutPairs && e.cutPairs.length) || 1;
+      m.set(e.name, (m.get(e.name) || 0) + nPairs);
+    }
+    return m;
+  }, [enzymes]);
+
   const displayEnzymes = useMemo(() => {
     if (!showEnzymes) return EMPTY_ARRAY;
     const all = enzymes || [];
     if (enzymeFilter === 'all') return all;
     if (enzymeFilter === 'unique') return all.filter((e) => e.isUnique);
     if (enzymeFilter === 'unique6') return all.filter((e) => e.isUnique && e.recSeq?.length === 6);
+    if (enzymeFilter === 'twice')
+      return all.filter((e) => totalNamePairCounts.get(e.name) === 2);
+    if (enzymeFilter === 'unique+twice')
+      return all.filter((e) => e.isUnique || totalNamePairCounts.get(e.name) === 2);
     const cutType = (e) =>
       e.cutType ||
       (e.botCutIndex - e.cutIndex === 0
@@ -301,7 +314,7 @@ export default function ProjectWorkspace({
     if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
     if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
     return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter, showEnzymes]);
+  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts]);
 
   const handleSelectionChange = useCallback(
     (sel) => {

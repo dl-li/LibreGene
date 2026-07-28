@@ -39,12 +39,14 @@ import { cn } from '@/lib/utils';
 
 const ENZYME_FILTER_OPTIONS = [
   { value: 'all', label: 'All Enzymes' },
+  { value: 'unique+twice', label: 'Highlighted Cutters' },
   { value: 'unique', label: 'Unique Cutters' },
   { value: 'unique6', label: 'Unique 6 bp' },
-  { value: 'blunt', label: 'Blunt' },
+  { value: 'twice', label: 'Twice-cutter' },
+  { value: 'blunt', label: 'Blunt', className: 'bg-amber-800/10' },
   { value: 'overhang5', label: "5' Overhang" },
   { value: 'overhang3', label: "3' Overhang" },
-  { value: 'iis', label: 'Type IIS' },
+  { value: 'iis', label: 'Type IIS', className: 'bg-teal-700/10' },
   { value: 'rec4', label: '4 bp Recognition' },
   { value: 'rec5', label: '5 bp Recognition' },
   { value: 'rec6', label: '6 bp Recognition' },
@@ -273,8 +275,18 @@ export default function EditorNavMenu({
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
                   {ENZYME_FILTER_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                      {opt.label}
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className={opt.className}>
+                      {opt.value === 'unique' ? (
+                        <span><strong>Unique</strong> Cutters</span>
+                      ) : opt.value === 'unique6' ? (
+                        <span><strong>Unique</strong> 6 bp</span>
+                      ) : opt.value === 'twice' ? (
+                        <span>Twice-cutter<sup>²</sup></span>
+                      ) : opt.value === 'unique+twice' ? (
+                        <span><strong>Unique</strong> + Twice-cutter<sup>²</sup></span>
+                      ) : (
+                        opt.label
+                      )}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
