@@ -893,7 +893,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const cdsWarnings = useMemo(() => {
     const result = [];
     for (const f of features || []) {
-      if (f.ftype !== 'CDS') continue;
+      if (f.ftype !== 'CDS' || f.orf) continue;
       const segs = f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
       const totalLen = segs.reduce((sum, seg) => sum + (seg.end - seg.start + 1), 0);
 
@@ -955,7 +955,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     () =>
       (features || []).map((f) => {
         const isRepeat = /repeat/i.test(f.ftype || '');
-        const fixColor = (c) => (c && !isRepeat ? ensureReadableColor(c) : c);
+        const fixColor = (c) => (c && !isRepeat && !f.orf ? ensureReadableColor(c) : c);
         const fixedColor = fixColor(f.color);
         const segments = (
           f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }]
@@ -990,15 +990,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (normFeatures.length > 0) {
         const sorted = [...normFeatures]
           .filter((f, i, arr) => {
+            if (f.orf) return true;
             const fa = f.segments.flatMap((s) => [s.start, s.end]);
             return (
               arr.findIndex((x) => {
+                if (x.orf) return false;
                 const xa = x.segments.flatMap((s) => [s.start, s.end]);
                 return fa.length === xa.length && fa.every((v, j) => v === xa[j]);
               }) === i
             );
           })
           .sort((a, b) => {
+            // ORFs get lowest track priority (bottom-most)
+            if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
             const la = a.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
             const lb = b.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
             return lb - la || a.segments[0].start - b.segments[0].start;
@@ -1070,6 +1074,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           f.segments.some((seg) => !(seg.end < rs || seg.start > re)),
         );
         rowFeats.sort((a, b) => {
+          // ORFs get lowest track priority (bottom-most)
+          if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
           const la = a.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
           const lb = b.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
           return lb - la || a.segments[0].start - b.segments[0].start;
@@ -2064,6 +2070,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         setCursorIndex(null);
         setIsEnzymeSelection(false);
         setSelectedEnzymeIds([]);
+        setHoveredEnzyme(null);
         setSelectionMode('primer');
         setSelectedPrimerIds([hit.ref.id]);
         clearCursorTimer();
@@ -2078,9 +2085,28 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const pairs = hit.ref.cutPairs || [];
           setIsEnzymeSelection(true);
           setSelectedEnzymeIds([pairs.length > 1 ? `${hit.ref.id}_p0` : hit.ref.id]);
+          // Show the hover tooltip at the hit site: pick the cut pair nearest
+          // to the hit (enzymeLayout entry ids are always `${id}_p${pairIndex}`)
+          let best = 0;
+          let bestD = Infinity;
+          const plist = pairs.length
+            ? pairs
+            : [{ topCutIndex: hit.ref.cutIndex, botCutIndex: hit.ref.botCutIndex }];
+          plist.forEach((cp, i) => {
+            const d = Math.min(
+              Math.abs(cp.topCutIndex - hit.start),
+              Math.abs(cp.botCutIndex - hit.start),
+            );
+            if (d < bestD) {
+              bestD = d;
+              best = i;
+            }
+          });
+          setHoveredEnzyme(`${hit.ref.id}_p${best}`);
         } else {
           setIsEnzymeSelection(false);
           setSelectedEnzymeIds([]);
+          setHoveredEnzyme(null);
         }
         clearCursorTimer();
       } else {
@@ -2088,6 +2114,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         setSelectionMode('text');
         setIsEnzymeSelection(false);
         setSelectedEnzymeIds([]);
+        setHoveredEnzyme(null);
         setSelectedPrimerIds([]);
         setSelStart(hit.start);
         setSelEnd(hit.end);
@@ -2424,6 +2451,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
+                  if (f.orf) return;
                   setCreateFeatureLoc(null);
                   setFeatureInfoFeature(f);
                 }}
@@ -2431,31 +2459,48 @@ const SequenceEditor = React.memo(function SequenceEditor({
               >
                 <rect
                   x={x}
-                  y={isHovered && !isGap ? sy - 18 : y}
+                  y={isHovered && !isGap && !f.orf ? sy - 18 : y}
                   width={w}
-                  height={isHovered && !isGap ? y - (sy - 18) : 0}
+                  height={isHovered && !isGap && !f.orf ? y - (sy - 18) : 0}
                   fill={v.color}
-                  fillOpacity={isHovered ? (isGap ? 0 : 0.15) : 0}
+                  fillOpacity={isHovered && !f.orf ? (isGap ? 0 : 0.15) : 0}
                   style={{ transition: springAnim, pointerEvents: 'none' }}
                 />
-                <line
-                  x1={x}
-                  x2={x + w}
-                  y1={y}
-                  y2={y}
-                  stroke={isHovered ? 'transparent' : bgColor}
-                  strokeWidth="7"
-                />
-                <line
-                  x1={x}
-                  x2={x + w}
-                  y1={y}
-                  y2={y}
-                  stroke={v.color}
-                  strokeWidth="5"
-                  opacity={isGap ? 0.25 : 1}
-                />
-                <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="10" />
+                {f.orf ? (
+                  <>
+                    <line
+                      x1={x}
+                      x2={x + w}
+                      y1={y}
+                      y2={y}
+                      stroke={v.color}
+                      strokeWidth="13"
+                      opacity={isGap ? 0.25 : 1}
+                    />
+                    <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="13" />
+                  </>
+                ) : (
+                  <>
+                    <line
+                      x1={x}
+                      x2={x + w}
+                      y1={y}
+                      y2={y}
+                      stroke={isHovered ? 'transparent' : bgColor}
+                      strokeWidth="7"
+                    />
+                    <line
+                      x1={x}
+                      x2={x + w}
+                      y1={y}
+                      y2={y}
+                      stroke={v.color}
+                      strokeWidth="5"
+                      opacity={isGap ? 0.25 : 1}
+                    />
+                    <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="10" />
+                  </>
+                )}
               </g>
             );
           })}
@@ -2482,9 +2527,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   fontSize={10}
                   fontWeight="900"
                   fontFamily={monoFont}
-                  fill={f.dominantColor}
-                  stroke={bgColor}
-                  strokeWidth={3}
+                  fill={f.orf ? bgColor : f.dominantColor}
+                  stroke={f.orf ? 'none' : bgColor}
+                  strokeWidth={f.orf ? 0 : 3}
                   paintOrder="stroke"
                   textAnchor="middle"
                   dominantBaseline="central"
@@ -2528,6 +2573,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (!visibleFeatures.length) return null;
     const seen = new Set();
     return visibleFeatures.flatMap((f) => {
+      if (f.orf) return [];
       const isRev = f.strand === '-';
       const isFwd = f.strand === '+';
       const labelColor = f.dominantColor || f.color || '#60A5FA';
