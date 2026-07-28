@@ -54,7 +54,10 @@ export default function AlignmentDialog({
             </thead>
             <tbody>
               {alignments.map((a) => (
-                <tr key={a.id} className="border-b border-border/30 hover:bg-muted/50 transition-colors">
+                <tr
+                  key={a.id}
+                  className="border-b border-border/30 hover:bg-muted/50 transition-colors"
+                >
                   <td className="py-2.5 pr-3 whitespace-nowrap">{a.name}</td>
                   <td className="py-2.5 pr-3 font-mono text-xs tabular-nums text-muted-foreground">
                     {a.length} bp
