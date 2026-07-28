@@ -496,6 +496,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onAddAlignmentFile,
   onAddAlignmentText,
   onManageAlignments,
+  onEnzymeHoverChange,
 }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
@@ -3349,6 +3350,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
     }
     return d;
   }, [enzymeLayout, lp.enzLineGap]);
+
+  useEffect(() => {
+    if (!onEnzymeHoverChange) return;
+    const entry = hoveredEnzyme ? enzymeLayout.find((l) => l.id === hoveredEnzyme) : null;
+    if (!entry) {
+      onEnzymeHoverChange(null);
+      return;
+    }
+    const positions = new Set();
+    for (const e of enzymes) {
+      if (e.name !== entry.name) continue;
+      const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
+      for (const cp of pairs) {
+        positions.add(cp.topCutIndex);
+        positions.add(cp.botCutIndex);
+      }
+    }
+    onEnzymeHoverChange([...positions]);
+  }, [hoveredEnzyme, enzymeLayout, enzymes, onEnzymeHoverChange]);
 
   const renderedEnzymes = useMemo(() => {
     if (!enzymeLayout.length) return null;
