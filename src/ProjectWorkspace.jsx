@@ -32,6 +32,7 @@ import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
 import MapView from './MapView';
 import PrimerOverviewDialog from './components/PrimerOverviewDialog';
+import { findOrfs } from './plugins/orf';
 
 const EMPTY_ARRAY = [];
 
@@ -248,7 +249,17 @@ export default function ProjectWorkspace({
     onDirtyChange(projectId, isDirty);
   }, [projectId, isDirty, onDirtyChange]);
 
+  const [showOrfs, setShowOrfs] = useState(true);
+  const orfEnabled = !disabledPlugins.includes('orf') && showOrfs;
+  const orfFeatures = useMemo(
+    () => (orfEnabled && sequence ? findOrfs(sequence, topology) : EMPTY_ARRAY),
+    [orfEnabled, sequence, topology],
+  );
   const editorFeatures = useMemo(
+    () => [...(showFeatures ? features : EMPTY_ARRAY), ...orfFeatures],
+    [showFeatures, features, orfFeatures],
+  );
+  const displayFeatures = useMemo(
     () => (showFeatures ? features : EMPTY_ARRAY),
     [showFeatures, features],
   );
@@ -283,8 +294,7 @@ export default function ProjectWorkspace({
     if (enzymeFilter === 'all') return all;
     if (enzymeFilter === 'unique') return all.filter((e) => e.isUnique);
     if (enzymeFilter === 'unique6') return all.filter((e) => e.isUnique && e.recSeq?.length === 6);
-    if (enzymeFilter === 'twice')
-      return all.filter((e) => totalNamePairCounts.get(e.name) === 2);
+    if (enzymeFilter === 'twice') return all.filter((e) => totalNamePairCounts.get(e.name) === 2);
     if (enzymeFilter === 'unique+twice')
       return all.filter((e) => e.isUnique || totalNamePairCounts.get(e.name) === 2);
     const cutType = (e) =>
@@ -989,7 +999,13 @@ export default function ProjectWorkspace({
       save: handleSave,
       saveAs: handleSaveAs,
       isDirty: () => isDirtyRef.current,
-      openPluginDialog: (key) => setPluginDialogs((prev) => ({ ...prev, [key]: true })),
+      openPluginDialog: (key) => {
+        if (key === 'orf') {
+          setShowOrfs((v) => !v);
+          return;
+        }
+        setPluginDialogs((prev) => ({ ...prev, [key]: true }));
+      },
       openMapView: () => setMapViewOpen(true),
       openPrimerOverview: () => setPrimerOverviewOpen(true),
     });
@@ -1101,7 +1117,7 @@ export default function ProjectWorkspace({
           {!hidden && (
             <FeatureScrollbar
               scrollContainerRef={mainScrollRef}
-              features={editorFeatures}
+              features={displayFeatures}
               sequenceLength={sequence.length}
               highlightPositions={enzymeHoverCuts}
             />
@@ -1111,7 +1127,7 @@ export default function ProjectWorkspace({
             open={mapViewOpen}
             onOpenChange={setMapViewOpen}
             sequenceLength={sequence.length}
-            features={editorFeatures}
+            features={displayFeatures}
             topology={topology}
             name={mapName}
             selection={liveSelection}
@@ -1136,6 +1152,7 @@ export default function ProjectWorkspace({
         .filter((plugin) => !disabledPlugins.includes(plugin.id))
         .map((plugin) => {
           const DialogComp = plugin.dialog;
+          if (!DialogComp) return null;
           return (
             <DialogComp
               key={plugin.id}

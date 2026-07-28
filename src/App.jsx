@@ -410,6 +410,9 @@ export default function App() {
 
   const isProjectWindow = windowInfo?.type === 'project';
   const hasProject = isProjectWindow || projects.length > 0;
+  // Sidebar buttons target the visible workspace: projectId in project windows,
+  // activeId in the main window
+  const sidebarTargetId = isProjectWindow ? windowInfo.projectId : activeId;
 
   const workspaceProps = {
     backendStatus,
@@ -575,7 +578,7 @@ export default function App() {
                     <SidebarMenuItem key={`${plugin.id}-${item.dialogKey}`}>
                       <SidebarMenuButton
                         onClick={() =>
-                          handlesRef.current[activeId]?.openPluginDialog(item.dialogKey)
+                          handlesRef.current[sidebarTargetId]?.openPluginDialog(item.dialogKey)
                         }
                         tooltip={item.tooltip}
                         className="text-muted-foreground hover:text-foreground"
@@ -588,7 +591,7 @@ export default function App() {
                 )}
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => handlesRef.current[activeId]?.openMapView()}
+                  onClick={() => handlesRef.current[sidebarTargetId]?.openMapView()}
                   tooltip="Plasmid Map"
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -598,7 +601,7 @@ export default function App() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => handlesRef.current[activeId]?.openPrimerOverview()}
+                  onClick={() => handlesRef.current[sidebarTargetId]?.openPrimerOverview()}
                   tooltip="Primer Overview"
                   className="text-muted-foreground hover:text-foreground"
                 >
