@@ -1640,6 +1640,13 @@ fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> 
     window
         .create_overlay_titlebar()
         .map_err(|e| e.to_string())?;
+    // The plugin positions the traffic lights with its own default inset
+    // (12, 16) on activation; re-apply the tuned inset (same semantics as
+    // tao's trafficLightPosition: x = left edge, y = extra container height).
+    #[cfg(target_os = "macos")]
+    window
+        .set_traffic_lights_inset(14.0, 22.0)
+        .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     Ok(())
 }
