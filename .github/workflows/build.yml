@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [master, dev-reliu]
+    branches: [master]
   pull_request:
     branches: [master]
 
@@ -26,12 +26,12 @@ jobs:
           cache: 'npm'
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
 
       - name: Install frontend deps
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Lint (ESLint)
         # Non-blocking: the project has pre-existing lint errors
@@ -81,15 +81,15 @@ jobs:
           cache: 'npm'
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
 
       - name: Install frontend deps
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@action-v1.0.0
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Bundle targets stay at the project default ("all").
