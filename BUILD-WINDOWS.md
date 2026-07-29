@@ -25,11 +25,11 @@
 
 ## 二、工具链安装
 
-三个脚本位于 [`libregene-win-setup/`](../libregene-win-setup/)，按顺序右键 → "用 PowerShell 运行"（需管理员权限）：
+三个脚本位于 [`scripts/setup-windows/`](scripts/setup-windows/)，按顺序右键 → "用 PowerShell 运行"（需管理员权限）：
 
 ### 1. 安装 Rust
 ```
-libregene-win-setup\1-install-rust.ps1
+scripts\setup-windows\1-install-rust.ps1
 ```
 - 下载官方 `rustup-init.exe`
 - 安装 `stable` + `x86_64-pc-windows-msvc` host + default profile
@@ -37,7 +37,7 @@ libregene-win-setup\1-install-rust.ps1
 
 ### 2. 安装 VS 2022 Build Tools
 ```
-libregene-win-setup\2-install-vs-buildtools.ps1
+scripts\setup-windows\2-install-vs-buildtools.ps1
 ```
 - 下载官方 `vs_BuildTools.exe` 引导程序
 - 用 `.vsconfig` 静默安装以下组件：
@@ -49,7 +49,7 @@ libregene-win-setup\2-install-vs-buildtools.ps1
 
 ### 3. 验证（可选）
 ```
-libregene-win-setup\3-verify-and-build.ps1
+scripts\setup-windows\3-verify-and-build.ps1
 ```
 - 加载 `vcvars64.bat` 并跑 `cargo check -p libregene-core`
 
@@ -165,13 +165,13 @@ LibreGene.exe
 
 ## 七、脚本说明
 
-[`libregene-win-setup/`](../libregene-win-setup/) 目录下的文件：
+[`scripts/setup-windows/`](scripts/setup-windows/) 目录下的文件：
 
 | 文件 | 用途 |
 |---|---|
 | `1-install-rust.ps1` | 装 Rust（MSVC host） |
 | `2-install-vs-buildtools.ps1` | 装 VS 2022 Build Tools |
 | `.vsconfig` | VS 安装组件清单（被脚本 2 引用） |
-| `3-verify-and-build.ps1` | 验证工具链 + cargo check（可选，有 PS 缓冲问题） |
+| `3-verify-and-build.ps1` | 验证工具链 + cargo check（自动定位仓库根，提示 PS 进度缓冲属正常） |
 
-> 这些脚本是本次适配过程中为方便安装而写的辅助工具，**不属于 LibreGene 项目本身**，未提交到仓库。如需纳入项目，可放到 `scripts/setup-windows/` 下。
+这些脚本随仓库一同分发，Windows 用户可按"二、工具链安装"的顺序执行，无需手动下载。
