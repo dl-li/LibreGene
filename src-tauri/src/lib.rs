@@ -1663,6 +1663,26 @@ fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> 
     Ok(())
 }
 
+/// Re-assert the tuned traffic-light inset. Native open/save panels reset
+/// AppKit's titlebar layout without emitting a window event the decoration
+/// plugin listens to, so the frontend calls this after such dialogs close.
+#[tauri::command]
+fn reassert_traffic_lights(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_plugin_decoration::WebviewWindowExt;
+        let _ = window.set_traffic_lights_inset(14.0, 22.0);
+        // AppKit may relayout only after the panel fully dismisses.
+        let w = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let _ = w.set_traffic_lights_inset(14.0, 22.0);
+        });
+    }
+    let _ = window;
+    Ok(())
+}
+
 /// Fallback: restore native decorations if plugin activation fails.
 #[tauri::command]
 fn restore_native_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
@@ -1761,6 +1781,7 @@ pub fn run() {
             rekey_project,
             compute_tm,
             activate_custom_titlebar,
+            reassert_traffic_lights,
             restore_native_titlebar,
         ])
         .run(tauri::generate_context!())

@@ -244,6 +244,12 @@ export async function computeTm(seq, tmParams = {}) {
 // Tauri dialog helpers
 // ---------------------------------------------------------------------------
 
+// Native open/save panels reset AppKit's traffic-light layout on macOS;
+// re-assert the tuned inset once the dialog closes.
+const reassertTrafficLights = () => {
+  if (isTauri) tauriInvoke('reassert_traffic_lights').catch(() => {});
+};
+
 export async function openFileDialog() {
   if (!isTauri) return null;
   const result = await tauriOpen({
@@ -254,6 +260,7 @@ export async function openFileDialog() {
     ],
     multiple: true,
   });
+  reassertTrafficLights();
   if (!result) return null;
   return Array.isArray(result) ? result : [result];
 }
@@ -268,17 +275,20 @@ export async function openAlignmentFileDialog() {
     ],
     multiple: false,
   });
+  reassertTrafficLights();
   if (!result) return null;
   return Array.isArray(result) ? result[0] : result;
 }
 
 export async function saveFileDialog(defaultName = 'project.gbk') {
   if (!isTauri) return null;
-  return tauriSave({
+  const result = await tauriSave({
     title: 'Save GenBank file',
     defaultPath: defaultName,
     filters: [{ name: 'GenBank', extensions: ['gbk'] }],
   });
+  reassertTrafficLights();
+  return result;
 }
 
 // ---------------------------------------------------------------------------
