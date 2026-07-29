@@ -647,6 +647,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
     }
   }, [restoreState, resetCursorTimer]);
 
+  // --- enzyme selection state ---
+  const [isEnzymeSelection, setIsEnzymeSelection] = useState(false);
+  const [isEnzymeDragging, setIsEnzymeDragging] = useState(false);
+  const [selectedEnzymeIds, setSelectedEnzymeIds] = useState([]); // persists after click (can be 1 or 2)
+  const enzymeDragRef = useRef(null);
+  const lastEnzymeSelRef = useRef(null); // { enzymeId, cutIdx, name } for shift+click
+
+  // --- primer / amplimer selection state ---
+  // selectionMode: 'none' | 'text' | 'enzyme' | 'primer' | 'amplimer'
+  const [selectionMode, setSelectionMode] = useState('none');
+  const [selectedPrimerIds, setSelectedPrimerIds] = useState([]); // 1 for single, 2 for amplimer
+  const [isPrimerDragging, setIsPrimerDragging] = useState(false);
+  const [primerDimActive, setPrimerDimActive] = useState(false); // 100ms delayed dimming
+  const primerDimTimerRef = useRef(null);
+  const primerDragRef = useRef(null); // { startPrimerId, startFwd, didDrag, hoveredPrimerId }
+  const isPrimerDraggingRef = useRef(false);
+
   // Notify parent of selection changes (for per-project state persistence)
   const prevSelSnapshotRef = useRef(null);
   useEffect(() => {
@@ -684,23 +701,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selectedEnzymeIds,
     translationSel,
   ]);
-
-  // --- enzyme selection state ---
-  const [isEnzymeSelection, setIsEnzymeSelection] = useState(false);
-  const [isEnzymeDragging, setIsEnzymeDragging] = useState(false);
-  const [selectedEnzymeIds, setSelectedEnzymeIds] = useState([]); // persists after click (can be 1 or 2)
-  const enzymeDragRef = useRef(null);
-  const lastEnzymeSelRef = useRef(null); // { enzymeId, cutIdx, name } for shift+click
-
-  // --- primer / amplimer selection state ---
-  // selectionMode: 'none' | 'text' | 'enzyme' | 'primer' | 'amplimer'
-  const [selectionMode, setSelectionMode] = useState('none');
-  const [selectedPrimerIds, setSelectedPrimerIds] = useState([]); // 1 for single, 2 for amplimer
-  const [isPrimerDragging, setIsPrimerDragging] = useState(false);
-  const [primerDimActive, setPrimerDimActive] = useState(false); // 100ms delayed dimming
-  const primerDimTimerRef = useRef(null);
-  const primerDragRef = useRef(null); // { startPrimerId, startFwd, didDrag, hoveredPrimerId }
-  const isPrimerDraggingRef = useRef(false);
 
   const hasSelection =
     selStart !== null &&
