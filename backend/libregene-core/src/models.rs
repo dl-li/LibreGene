@@ -210,9 +210,9 @@ fn default_strand() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CutPair {
-    /// absolute top-strand cut on template (cut between cut_index and cut_index+1)
+    /// absolute top-strand cut on template (cut between cut_index-1 and cut_index, 0-based)
     pub top_cut_index: i64,
-    /// absolute bottom-strand cut on template (cut between bot_cut_index and bot_cut_index+1)
+    /// absolute bottom-strand cut on template (cut between bot_cut_index-1 and bot_cut_index, 0-based)
     pub bot_cut_index: i64,
 }
 

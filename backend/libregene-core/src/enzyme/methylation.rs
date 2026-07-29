@@ -83,17 +83,32 @@ pub fn apply_methylation(
     let rec_e = enzyme.rec_end as usize;
     let ov = overlap as usize;
 
-    let rec_window = if let Some(w) = tpl.get(rec_s..=rec_e) {
-        w
+    // Recognition site window. For circular templates, normalize_rec represents
+    // an origin-spanning site as rec_end >= tlen; we must wrap such a window
+    // around the origin instead of bailing out (which used to silently skip all
+    // methylation logic for origin-spanning sites).
+    let rec_window_owned: Vec<u8>;
+    let rec_window: &[u8] = if rec_e < tlen {
+        match tpl.get(rec_s..=rec_e) {
+            Some(w) => w,
+            None => return,
+        }
     } else {
-        return;
+        // Origin-spanning recognition site on a circular template.
+        let start = rec_s % tlen;
+        let end = (rec_e + 1) % tlen; // exclusive end, wrapped
+        let mut v = Vec::with_capacity(rec_e - rec_s + 1);
+        v.extend_from_slice(&tpl[start..]);
+        v.extend_from_slice(&tpl[..end]);
+        rec_window_owned = v;
+        &rec_window_owned
     };
 
     if enzyme.is_methylation_sensitive {
         // --- Methylation-sensitive: check if any active system's target overlaps rec ± overlap ---
         for sys in active_systems {
             let (win_start, win_end) = match sys.as_str() {
-                "dam" | "dcm" => (rec_s, rec_e + ov),
+                "dam" | "dcm" => (rec_s.saturating_sub(ov), rec_e + ov),
                 "ecoki" => (rec_s.saturating_sub(13), rec_e + 13 + ov),
                 _ => continue,
             };
@@ -199,5 +214,58 @@ mod tests {
 
         assert!(enzyme.methylation_blocked);
         assert_eq!(enzyme.methylation_sources, vec!["Dam"]);
+    }
+
+    /// RED test for bug: dam/dcm upstream overlap not checked.
+    ///
+    /// A Dam target (GATC) sitting just UPSTREAM of the recognition site,
+    /// within `overlap` bp of rec_start, should block a methylation-sensitive
+    /// enzyme (the target overlaps the rec ± overlap window per the module's
+    /// documented contract). The current window for dam/dcm starts at rec_s
+    /// without subtracting `ov`, so this upstream target is missed.
+    #[test]
+    fn test_methylation_sensitive_blocked_by_dam_upstream_overlap() {
+        // Recognition site [10, 17]. Dam target GATC at [8, 11] — its start
+        // is 2bp upstream of rec_start=10, exactly within overlap=2.
+        let mut enzyme = make_enzyme(10, 17, false, true);
+        //       index: 0123456789...
+        let template = "NNNNNNNNGATCNNNNNNNNN";
+        //                        ^^^^ GATC at [8,11], upstream of rec [10,17]
+        let active_systems: Vec<String> = vec!["dam".to_string()];
+
+        apply_methylation(&mut enzyme, template, &active_systems, 2);
+
+        assert!(
+            enzyme.methylation_blocked,
+            "Dam target upstream within overlap should block the enzyme, but it was missed"
+        );
+    }
+
+    /// RED test for bug: recognition site spanning the origin skips methylation.
+    ///
+    /// `normalize_rec` represents an origin-spanning recognition site by setting
+    /// rec_end = norm_rec_end + seq_len (i.e. rec_end >= tlen). `apply_methylation`
+    /// then did `tpl.get(rec_s..=rec_e)` which returns None when rec_e >= tlen,
+    /// causing an early `return` that skipped ALL methylation logic. A
+    /// methylation-dependent enzyme (DpnI, rec = GATC) whose recognition site
+    /// itself spans the origin was never marked `methylation_required` even when
+    /// Dam was inactive — it appeared to cut when it shouldn't.
+    #[test]
+    fn test_methylation_dependent_spanning_origin_not_skipped() {
+        // Circular template of length 12. DpnI recognition GATC occupies
+        // template positions [10,11,0,1] — i.e. the site spans the origin.
+        // normalize_rec maps this to rec_start=10, rec_end=13 (>= tlen=12).
+        // Dam is NOT active, so DpnI must be marked methylation_required.
+        let mut enzyme = make_enzyme(10, 13, true, false);
+        //       index: 012345678901
+        let template = "TCNNNNNNNNGA"; // length 12: G@10, A@11, wraps to T@0, C@1 → GATC
+        let active_systems: Vec<String> = vec![]; // Dam inactive
+
+        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+
+        assert!(
+            enzyme.methylation_required,
+            "Origin-spanning DpnI site must still be evaluated for methylation dependence (Dam inactive → required), but the logic was skipped"
+        );
     }
 }
