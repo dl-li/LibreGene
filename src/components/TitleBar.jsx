@@ -9,9 +9,12 @@ export default function TitleBar({ title, dirty = false }) {
       invoke('restore_native_titlebar').catch(() => {});
     });
 
-    // If activation hangs or the plugin never marks the document, fall back
+    // If activation hangs or the plugin never marks its root element, fall back
     const timer = setTimeout(() => {
-      if (!document.documentElement.hasAttribute('data-tauri-plugin-decoration-active')) {
+      const active = document.querySelector(
+        '[data-tauri-plugin-decoration-root][data-tauri-plugin-decoration-active]'
+      );
+      if (!active) {
         invoke('restore_native_titlebar').catch(() => {});
       }
     }, 5000);
