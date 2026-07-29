@@ -69,7 +69,7 @@ LibreGene/
 │   │   ├── DebugPanel.jsx      # 调试面板
 │   │   ├── PrimerOverviewDialog.jsx  # 引物总览弹窗
 │   │   ├── SettingsPage.jsx    # 设置页面
-│   │   ├── TitleBar.jsx        # 无框窗口自定义标题栏
+│   │   ├── TitleBar.jsx        # 拖拽标题栏（tauri-plugin-decoration 提供原生 macOS 红绿灯 / Windows overlay 控件）
 │   │   └── ui/                 # shadcn UI 组件
 │   ├── hooks/
 │   │   └── use-mobile.js       # 移动端断点检测（768px）

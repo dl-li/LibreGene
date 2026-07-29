@@ -1563,7 +1563,7 @@ async fn open_in_new_window(
         wp.insert(window_label.clone(), project_id);
     }
 
-    // Create the new window (platform-specific chrome)
+    // Create the new window; the frontend activates the overlay titlebar and shows it
     let builder = WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
@@ -1571,7 +1571,14 @@ async fn open_in_new_window(
     )
     .title("LibreGene - Plasmid Editor")
     .inner_size(1400.0, 900.0)
-    .decorations(false);
+    .decorations(true)
+    .visible(false);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
 
     let window = builder
         .build()
@@ -1625,6 +1632,29 @@ async fn compute_tm(
     Ok((tm * 10.0).round() / 10.0)
 }
 
+/// Activate the decoration plugin's overlay titlebar, then show the window.
+/// Windows start hidden (visible: false) so native decorations never flash.
+#[tauri::command]
+fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
+    use tauri_plugin_decoration::WebviewWindowExt;
+    window
+        .create_overlay_titlebar()
+        .map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Fallback: restore native decorations if plugin activation fails.
+#[tauri::command]
+fn restore_native_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
+    use tauri_plugin_decoration::WebviewWindowExt;
+    window
+        .restore_native_titlebar()
+        .map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Return the project_id bound to the calling window.
 /// Returns null for the main window (use active project instead).
 #[tauri::command]
@@ -1675,6 +1705,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_decoration::init())
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
@@ -1710,6 +1741,8 @@ pub fn run() {
             get_window_project_id,
             rekey_project,
             compute_tm,
+            activate_custom_titlebar,
+            restore_native_titlebar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
