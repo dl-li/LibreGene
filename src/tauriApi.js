@@ -286,15 +286,18 @@ export async function saveFileDialog(defaultName = 'project.gbk') {
 // ---------------------------------------------------------------------------
 
 export function listenProjectUpdates(callback) {
-  let unlistenFn = null;
-  tauriListen('project-update', (event) => {
-    callback(event.payload);
-  }).then((fn) => {
-    unlistenFn = fn;
+  let closed = false;
+  // Hold the listen() promise so close() can still unregister the listener
+  // if the component unmounts before the promise resolves — otherwise the
+  // unlisten function would be assigned to a discarded closure and the
+  // backend subscription would leak.
+  const ready = tauriListen('project-update', (event) => {
+    if (!closed) callback(event.payload);
   });
   return {
     close: () => {
-      if (unlistenFn) unlistenFn();
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
     },
   };
 }

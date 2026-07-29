@@ -673,7 +673,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
       selectedEnzymeIds,
       translationSel,
     });
-  });
+  }, [
+    onSelectionChange,
+    cursorIndex,
+    selStart,
+    selEnd,
+    selectionMode,
+    selectedPrimerIds,
+    isEnzymeSelection,
+    selectedEnzymeIds,
+    translationSel,
+  ]);
 
   // --- enzyme selection state ---
   const [isEnzymeSelection, setIsEnzymeSelection] = useState(false);
