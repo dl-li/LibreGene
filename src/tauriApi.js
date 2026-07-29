@@ -7,6 +7,13 @@
 // Detect if running inside Tauri
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+// Native operations (window title change, open/save panels) reset AppKit's
+// traffic-light layout on macOS without emitting a window event the
+// decoration plugin listens to; re-assert the tuned inset afterwards.
+const reassertTrafficLights = () => {
+  if (isTauri) tauriInvoke('reassert_traffic_lights').catch(() => {});
+};
+
 let invoke;
 let listen;
 let dialog;
@@ -20,6 +27,7 @@ export async function setWindowTitle(title) {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().setTitle(title);
+    reassertTrafficLights();
   } catch {
     /* ignore */
   }
@@ -243,12 +251,6 @@ export async function computeTm(seq, tmParams = {}) {
 // ---------------------------------------------------------------------------
 // Tauri dialog helpers
 // ---------------------------------------------------------------------------
-
-// Native open/save panels reset AppKit's traffic-light layout on macOS;
-// re-assert the tuned inset once the dialog closes.
-const reassertTrafficLights = () => {
-  if (isTauri) tauriInvoke('reassert_traffic_lights').catch(() => {});
-};
 
 export async function openFileDialog() {
   if (!isTauri) return null;
