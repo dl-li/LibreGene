@@ -12,6 +12,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-decoration",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tokio",
@@ -4136,6 +4137,26 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-decoration"
+version = "2.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b95e1479ae063c628a365af280c1a52355a640347d93da525d603a42e89c0548"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "gtk",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "raw-window-handle",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
