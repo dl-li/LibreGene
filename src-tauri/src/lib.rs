@@ -1653,8 +1653,8 @@ fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> 
     Ok(())
 }
 
-/// Temporary diagnostic: read the AppKit traffic-light geometry on the main
-/// thread. Returns (close_x, close_h, titlebar_container_h).
+/// Read the AppKit traffic-light geometry on the main thread.
+/// Returns (close_x, close_h, titlebar_container_h).
 #[cfg(target_os = "macos")]
 fn read_traffic_geometry(window: &tauri::WebviewWindow) -> Option<(f64, f64, f64)> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -1684,14 +1684,13 @@ fn traffic_inset_ok(window: &tauri::WebviewWindow) -> Option<bool> {
     })
 }
 
-/// Apply the tuned inset, then keep a persistent watchdog: AppKit resets the
-/// titlebar layout *asynchronously* (title change, panel dismissal, page
-/// load) at unpredictable times, so one-shot re-applies get overwritten.
-/// Poll once a second and re-apply whenever the geometry drifts; the thread
 /// Force a redraw so tao's draw-time traffic-light inset (applied inside
 /// AppKit's draw cycle — the only place frame writes stick) refreshes the
 /// layout. Direct frame writes outside the draw cycle get reverted by
 /// AppKit's next layout pass; a resize works only because it triggers a draw.
+/// The set_traffic_lights_inset call doesn't move the buttons by itself, but
+/// stores our inset in the plugin registry — the value the plugin replays on
+/// resize/focus events, which would otherwise be its default (12, 16).
 #[cfg(target_os = "macos")]
 fn nudge_window(window: &tauri::WebviewWindow) {
     use tauri_plugin_decoration::WebviewWindowExt;
@@ -1711,7 +1710,11 @@ fn nudge_window(window: &tauri::WebviewWindow) {
     let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
 }
 
-/// exits when the window is gone. One watchdog per window label.
+/// Apply the tuned inset, then keep a persistent watchdog: AppKit resets the
+/// titlebar layout *asynchronously* (panel dismissal, page load) at
+/// unpredictable times, so one-shot re-applies get overwritten. Poll once a
+/// second and nudge whenever the geometry drifts; the thread exits when the
+/// window is gone. One watchdog per window label.
 #[cfg(target_os = "macos")]
 fn reassert_with_watchdog(window: &tauri::WebviewWindow) {
     use tauri_plugin_decoration::WebviewWindowExt;
@@ -1736,11 +1739,6 @@ fn reassert_with_watchdog(window: &tauri::WebviewWindow) {
                     unreadable = 0;
                     eprintln!("[tl] geometry drifted on {label}, nudging window");
                     nudge_window(&w);
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                    match traffic_inset_ok(&w) {
-                        Some(ok) => eprintln!("[tl] post-nudge check on {label}: ok={ok}"),
-                        None => eprintln!("[tl] post-nudge check on {label}: unreadable"),
-                    }
                 }
                 None => {
                     unreadable += 1;
