@@ -250,7 +250,7 @@ export default function PrimerAlignmentDialog({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [editSeq, open, primer, seedLength, stripIUPAC, isNewPrimer, editName]);
+  }, [editSeq, open, primer, seedLength, stripIUPAC, isNewPrimer, editName, tmParams]);
 
   const handleApply = useCallback(async () => {
     if (!hasChanges) {
