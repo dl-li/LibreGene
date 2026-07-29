@@ -286,11 +286,9 @@ fn normalize_rec(
     }
 
     let rec_start_n = ((rec_start % seq_len) + seq_len) % seq_len;
-    let rec_len = rec_end - rec_start + 1;
-    let mut norm_rec_end = (rec_start + rec_len - 1) % seq_len;
-    if norm_rec_end < 0 {
-        norm_rec_end += seq_len;
-    }
+    // rec_end comes from `rec_start + rec_len - 1` with rec_start >= 0, so it is
+    // always non-negative and `% seq_len` never goes negative — no clamp needed.
+    let norm_rec_end = rec_end % seq_len;
 
     if rec_start_n <= norm_rec_end {
         // Recognition doesn't span origin.
