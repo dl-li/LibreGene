@@ -18,12 +18,16 @@ let invoke;
 let listen;
 let dialog;
 
+const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+
 /**
  * Set the Tauri window title.
- * Falls back silently outside Tauri.
+ * No-op on macOS: the titlebar is hidden (Overlay + hiddenTitle) and the
+ * title is drawn by TitleBar itself, while native setTitle triggers an
+ * AppKit titlebar relayout that visibly displaces the traffic lights.
  */
 export async function setWindowTitle(title) {
-  if (!isTauri) return;
+  if (!isTauri || isMac) return;
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().setTitle(title);

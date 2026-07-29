@@ -1688,6 +1688,29 @@ fn traffic_inset_ok(window: &tauri::WebviewWindow) -> Option<bool> {
 /// titlebar layout *asynchronously* (title change, panel dismissal, page
 /// load) at unpredictable times, so one-shot re-applies get overwritten.
 /// Poll once a second and re-apply whenever the geometry drifts; the thread
+/// Force a redraw so tao's draw-time traffic-light inset (applied inside
+/// AppKit's draw cycle — the only place frame writes stick) refreshes the
+/// layout. Direct frame writes outside the draw cycle get reverted by
+/// AppKit's next layout pass; a resize works only because it triggers a draw.
+#[cfg(target_os = "macos")]
+fn nudge_window(window: &tauri::WebviewWindow) {
+    use tauri_plugin_decoration::WebviewWindowExt;
+    let _ = window.set_traffic_lights_inset(TL_INSET.0, TL_INSET.1);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let w = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        if let Ok(ptr) = w.ns_window() {
+            let ns: &objc2_app_kit::NSWindow = unsafe { &*ptr.cast() };
+            if let Some(content) = ns.contentView() {
+                content.setNeedsDisplay(true);
+            }
+            ns.displayIfNeeded();
+        }
+        let _ = tx.send(());
+    });
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
+}
+
 /// exits when the window is gone. One watchdog per window label.
 #[cfg(target_os = "macos")]
 fn reassert_with_watchdog(window: &tauri::WebviewWindow) {
@@ -1711,9 +1734,12 @@ fn reassert_with_watchdog(window: &tauri::WebviewWindow) {
                 Some(true) => unreadable = 0,
                 Some(false) => {
                     unreadable = 0;
-                    eprintln!("[tl] geometry drifted on {label}, re-applying inset");
-                    if w.set_traffic_lights_inset(TL_INSET.0, TL_INSET.1).is_err() {
-                        break;
+                    eprintln!("[tl] geometry drifted on {label}, nudging window");
+                    nudge_window(&w);
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    match traffic_inset_ok(&w) {
+                        Some(ok) => eprintln!("[tl] post-nudge check on {label}: ok={ok}"),
+                        None => eprintln!("[tl] post-nudge check on {label}: unreadable"),
                     }
                 }
                 None => {
@@ -1728,13 +1754,31 @@ fn reassert_with_watchdog(window: &tauri::WebviewWindow) {
     });
 }
 
-/// Re-assert the tuned traffic-light inset. Native open/save panels reset
-/// AppKit's titlebar layout without emitting a window event the decoration
-/// plugin listens to, so the frontend calls this after such dialogs close.
+/// Re-assert the tuned traffic-light inset. Native open/save panels and
+/// window-title changes reset AppKit's titlebar layout asynchronously, so
+/// the frontend calls this after such events: nudge immediately and a few
+/// times shortly after (the reset lands at an unpredictable moment), then
+/// let the persistent watchdog cover anything later.
 #[tauri::command]
 fn reassert_traffic_lights(window: tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    reassert_with_watchdog(&window);
+    {
+        let w = window.clone();
+        std::thread::spawn(move || {
+            // The AppKit reset lands at an unpredictable moment right after
+            // the event; poll tightly and nudge as soon as it drifts so the
+            // visible glitch stays within a couple of frames.
+            for _ in 0..40 {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                match traffic_inset_ok(&w) {
+                    Some(true) => {}
+                    Some(false) => nudge_window(&w),
+                    None => break,
+                }
+            }
+        });
+        reassert_with_watchdog(&window);
+    }
     let _ = window;
     Ok(())
 }
