@@ -51,7 +51,7 @@ scripts\setup-windows\2-install-vs-buildtools.ps1
 ```
 scripts\setup-windows\3-verify-and-build.ps1
 ```
-- 加载 `vcvars64.bat` 并跑 `cargo check -p libregene-core`
+- 自动定位仓库根目录并跑 `cargo check -p libregene-core`（无需手动加载 `vcvars64.bat`，`cc` crate 会自动发现 MSVC 工具链）
 
 > **注**：第 3 个脚本依赖 PowerShell 管道，cargo 的进度行可能被缓冲看起来像卡住。建议直接看下面的"手动构建"，更可靠。
 

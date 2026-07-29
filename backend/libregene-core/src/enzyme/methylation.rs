@@ -11,6 +11,7 @@
 //! site merely *contains* GATC (e.g. CGATCG) are NOT dependent — they are unaffected.
 
 use crate::models::Enzyme;
+use crate::primer::alignment::wrap_template_region;
 
 /// Dam methylation: G(m6A)TC
 fn is_dam_site(seq: &[u8]) -> bool {
@@ -95,12 +96,7 @@ pub fn apply_methylation(
         }
     } else {
         // Origin-spanning recognition site on a circular template.
-        let start = rec_s % tlen;
-        let end = (rec_e + 1) % tlen; // exclusive end, wrapped
-        let mut v = Vec::with_capacity(rec_e - rec_s + 1);
-        v.extend_from_slice(&tpl[start..]);
-        v.extend_from_slice(&tpl[..end]);
-        rec_window_owned = v;
+        rec_window_owned = wrap_template_region(tpl, rec_s, rec_e + 1);
         &rec_window_owned
     };
 
@@ -119,12 +115,7 @@ pub fn apply_methylation(
                 }
             } else {
                 // Window extends beyond the template — wrap around for circular support.
-                let prefix_start = win_start % tlen;
-                let wrapped_end = win_end % tlen;
-                let mut v = Vec::with_capacity(win_end - win_start);
-                v.extend_from_slice(&tpl[prefix_start..]);
-                v.extend_from_slice(&tpl[..wrapped_end]);
-                v
+                wrap_template_region(tpl, win_start, win_end)
             };
 
             if find_site_in_window(&window, sys) {
