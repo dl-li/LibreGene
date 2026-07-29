@@ -3842,16 +3842,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
       e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
     const ttColor = isGray ? '#9CA3AF' : isEnzymeDragging ? enzymeActiveBlue : '#2563EB';
 
+    const tlen = cleanSeq.length;
     const dispLen = e.displayEnd - e.displayStart + 1;
     const sw = e.isUnique ? '2' : '1';
     const pad = 6;
     const ttH = 44;
     const cutPairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
-    const sub = cleanSeq.substring(e.displayStart, e.displayEnd + 1);
+    // Circular display window may wrap the origin (displayEnd >= tlen).
+    const sub =
+      e.displayEnd < tlen
+        ? cleanSeq.substring(e.displayStart, e.displayEnd + 1)
+        : Array.from({ length: dispLen }, (_, i) => cleanSeq[(e.displayStart + i) % tlen]).join(
+            ''
+          );
     const comp = sub.split('').map(complement).join('');
     const pattern = e.recSeqPattern || '';
     const recOffset = e.recStart - e.displayStart;
     const recLen = e.recEnd - e.recStart + 1;
+    // Position relative to displayStart, in window coordinates (handles wrap).
+    const relPos = (idx) => (((idx - e.displayStart) % tlen) + tlen) % tlen;
     const isRecBold = (i) => {
       if (i < recOffset || i >= recOffset + recLen) return false;
       const pi = i - recOffset;
@@ -3866,14 +3875,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const sy = entry.sy;
           const ttY = sy - 19;
           const hp = cutPairs[entry.pairIndex] || cutPairs[0];
-          const charsBeforeCut = hp.topCutIndex - e.displayStart;
+          const charsBeforeCut = relPos(hp.topCutIndex);
           const baseX = entry.cutX - charsBeforeCut * cw;
           const leftX = baseX - pad;
           const ttW = dispLen * cw + pad * 2;
 
           const polyEntries = cutPairs.map((cp, i) => {
-            const tGapX = baseX + (cp.topCutIndex - e.displayStart) * cw;
-            const bGapX = baseX + (cp.botCutIndex - e.displayStart) * cw;
+            const tGapX = baseX + relPos(cp.topCutIndex) * cw;
+            const bGapX = baseX + relPos(cp.botCutIndex) * cw;
             const isLocal = i === entry.pairIndex;
             return {
               tGapX,

@@ -189,20 +189,56 @@ fn process_enzyme(
 
             let mut disp_start = norm_rec_start;
             let mut disp_end = norm_rec_end;
-            for p in &pairs {
-                disp_start = disp_start.min(p.top_cut_index).min(p.bot_cut_index);
-                disp_end = disp_end.max(p.top_cut_index).max(p.bot_cut_index);
+            if is_circular {
+                // Unwrap cut positions into the recognition site's coordinate
+                // frame; otherwise a site near the origin yields a display
+                // window spanning the whole sequence.
+                for p in &pairs {
+                    let t = unwrap_near(p.top_cut_index, norm_rec_start, seq_len);
+                    let b = unwrap_near(p.bot_cut_index, norm_rec_start, seq_len);
+                    disp_start = disp_start.min(t).min(b);
+                    disp_end = disp_end.max(t).max(b);
+                }
+            } else {
+                for p in &pairs {
+                    disp_start = disp_start.min(p.top_cut_index).min(p.bot_cut_index);
+                    disp_end = disp_end.max(p.top_cut_index).max(p.bot_cut_index);
+                }
             }
             // Add 1bp left buffer when a cut falls at the display left edge,
             // so the cut line isn't flush against the tooltip edge.
-            if disp_start > 0 {
+            if is_circular || disp_start > 0 {
                 for p in &pairs {
-                    if p.top_cut_index == disp_start || p.bot_cut_index == disp_start {
+                    let t = if is_circular {
+                        unwrap_near(p.top_cut_index, norm_rec_start, seq_len)
+                    } else {
+                        p.top_cut_index
+                    };
+                    let b = if is_circular {
+                        unwrap_near(p.bot_cut_index, norm_rec_start, seq_len)
+                    } else {
+                        p.bot_cut_index
+                    };
+                    if t == disp_start || b == disp_start {
                         disp_start -= 1;
                         break;
                     }
                 }
             }
+            // For circular sequences, shift the whole frame so disp_start lands
+            // in [0, seq_len); disp_end may extend past seq_len (window wraps
+            // the origin), and the frontend wraps indices mod seq_len.
+            let (norm_rec_start, norm_rec_end, disp_start, disp_end) = if is_circular {
+                let shift = disp_start.div_euclid(seq_len) * seq_len;
+                (
+                    norm_rec_start - shift,
+                    norm_rec_end - shift,
+                    disp_start - shift,
+                    disp_end - shift,
+                )
+            } else {
+                (norm_rec_start, norm_rec_end, disp_start, disp_end)
+            };
             // Build spacers: segments in the display window that are NOT part of the recognition.
             let spacers = build_spacers(norm_rec_start, norm_rec_end, disp_start, disp_end);
 
@@ -255,6 +291,17 @@ fn process_enzyme(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Map a normalized position p (in [0, seq_len)) into the coordinate frame
+/// anchored at `anchor`, choosing the representative closest to anchor.
+fn unwrap_near(p: i64, anchor: i64, seq_len: i64) -> i64 {
+    let d = (p - anchor).rem_euclid(seq_len);
+    if d > seq_len / 2 {
+        anchor + d - seq_len
+    } else {
+        anchor + d
+    }
+}
 
 /// Normalize a cut pair position to [0, seq_len) for circular sequences.
 fn normalize_pair(top: i64, bot: i64, is_circular: bool, seq_len: i64) -> CutPair {
@@ -632,5 +679,82 @@ mod tests {
             assert!(!e.methylation_required, "DpnI should NOT require Dam when Dam is active");
             assert!(e.methyl_required_sources.is_empty());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Circular display window tests (tooltip range near the origin)
+    // -------------------------------------------------------------------------
+
+    fn bbsi_record() -> data::EnzymeRecord {
+        data::EnzymeRecord {
+            name: "BbsI".to_string(),
+            site: "GAAGAC".to_string(),
+            fst5: 8,
+            fst3: 6,
+            scd5: None,
+            scd3: None,
+            is_palindromic: false,
+            cut_type: String::new(),
+            overhang_len: 0,
+            is_cut_twice: false,
+            methylation: "none".to_string(),
+            methylation_dependent: false,
+            elucidate: String::new(),
+        }
+    }
+
+    /// Recognition site right after the origin (bottom strand), cuts land
+    /// before the origin: the display window must wrap, not span the whole
+    /// sequence.
+    #[test]
+    fn test_display_window_wraps_origin_bottom_strand() {
+        let seq_len: i64 = 100;
+        let mut seq = vec![b'A'; seq_len as usize];
+        // Reverse complement of GAAGAC at position 3 → bottom-strand hit.
+        seq[3..9].copy_from_slice(b"GTCTTC");
+        let seq_str = String::from_utf8(seq.clone()).unwrap();
+
+        let result = process_enzyme(&bbsi_record(), &seq, &seq_str, true, seq_len, &None);
+        assert_eq!(result.len(), 1);
+        let e = &result[0];
+        // p1_top = 3 - 6 = -3 → wraps to seq_len - 3
+        assert_eq!(e.cut_pairs[0].top_cut_index, seq_len - 3);
+        // Window: disp_start must be near seq_len, disp_end past seq_len
+        // (wrapped), with a small total length — not the whole sequence.
+        let win_len = e.display_end - e.display_start + 1;
+        assert_eq!(e.display_start, seq_len - 4); // -3 cut + 1bp buffer
+        assert_eq!(win_len, 13);
+        assert!(e.rec_start >= e.display_start);
+        assert!(e.rec_end <= e.display_end);
+    }
+
+    /// Recognition site spanning the origin (top strand): display window
+    /// extends past seq_len, wrapped by the frontend.
+    #[test]
+    fn test_display_window_rec_spans_origin() {
+        let seq_len: i64 = 100;
+        let mut seq = vec![b'A'; seq_len as usize];
+        // Top-strand site GAAGAC starting at 98: wraps to positions 0..4.
+        seq[98] = b'G';
+        seq[99] = b'A';
+        seq[0..4].copy_from_slice(b"AGAC");
+        let seq_str = String::from_utf8(seq.clone()).unwrap();
+        let mut ext = seq.clone();
+        ext.extend_from_slice(&seq[..5]);
+        let ext_seq = Some(ext);
+
+        let result = process_enzyme(&bbsi_record(), &seq, &seq_str, true, seq_len, &ext_seq);
+        assert_eq!(result.len(), 1);
+        let e = &result[0];
+        // p1_top = 98 + 8 = 106 → wraps to 6; p1_bot = 110 → wraps to 10.
+        assert_eq!(e.cut_pairs[0].top_cut_index, 6);
+        assert_eq!(e.cut_pairs[0].bot_cut_index, 10);
+        // Window: 98 .. 110 in the unwrapped frame (disp_end past seq_len).
+        assert_eq!(e.display_start, 98);
+        assert_eq!(e.display_end, 110);
+        assert_eq!(e.rec_start, 98);
+        assert_eq!(e.rec_end, 103);
+        // Recognition sequence is the wrapped concatenation.
+        assert_eq!(e.rec_seq, "GAAGAC");
     }
 }
