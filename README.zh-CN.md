@@ -11,9 +11,11 @@
 <p align="center"><a href="README.md">English</a></p>
 
 > **⚠️ 早期开发阶段** — 接口和文件格式尚未稳定。
-> **仅在 macOS 上测试过** — Linux/Windows 版本尚未验证。
+> **已在 macOS 和 Windows 上测试通过** — Linux 版本尚未验证。
 
 轻量级跨平台桌面质粒编辑器。纯 SVG 渲染，支持特征标注、引物设计与可视化、酶切分析——全部免费开源。
+
+> **Windows 构建** — 参见 [`BUILD-WINDOWS.md`](BUILD-WINDOWS.md) 了解工具链安装和 `npx tauri build` 构建步骤。
 
 <p align="center">
   <img src="ScreenShot.png" alt="LibreGene 截图" width="700" />

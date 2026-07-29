@@ -1,0 +1,98 @@
+name: Build
+
+on:
+  push:
+    branches: [master, dev-reliu]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # Fast feedback: lint + type-check + Rust compile-check.
+  # Runs on both OSes to catch platform-specific issues early.
+  lint-and-check:
+    name: Lint & check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install frontend deps
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Lint (ESLint)
+        # Non-blocking: the project has pre-existing lint errors
+        # (no-undef for localStorage/ResizeObserver, empty catch blocks,
+        # etc.) that are out of scope for this change. Lint results are
+        # still surfaced in the run log for visibility.
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Format check (Prettier)
+        # Non-blocking for the same reason as lint.
+        continue-on-error: true
+        run: npm run format:check
+
+      - name: Frontend build (Vite)
+        run: npm run build
+
+      - name: Rust check (libregene-core)
+        working-directory: backend
+        run: cargo check -p libregene-core --locked
+
+      - name: Rust unit tests
+        working-directory: backend
+        run: cargo test -p libregene-core --lib --locked
+
+  # Full Tauri build matrix. Produces installers per OS.
+  # Only the frontend + Rust toolchain; tauri-action handles the rest.
+  build:
+    name: Build app (${{ matrix.os }})
+    needs: lint-and-check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install frontend deps
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Bundle targets stay at the project default ("all").
+        # CI runs on runners with network access, so WiX (Windows MSI)
+        # and other bundler downloads succeed here even when they fail
+        # behind restricted networks locally.
