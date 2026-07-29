@@ -516,7 +516,9 @@ export default function App() {
                             onClick={() => handleSwitchProject(p.id)}
                             isActive={isActiveProject}
                             tooltip={name}
-                            className="flex-1 min-w-0 pr-5"
+                            className={`flex-1 min-w-0 ${
+                              !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
+                            }`}
                           >
                             <Icon className="size-4 shrink-0" />
                             <span className="truncate">{name}</span>
