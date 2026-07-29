@@ -1,4 +1,4 @@
-import { SquareM } from 'lucide-react';
+import { BookA } from 'lucide-react';
 
 // ORF Search plugin — scans the sequence itself (ignoring feature annotations)
 // for start→stop in-frame ORFs on both strands and displays translations of
@@ -112,7 +112,7 @@ export default {
   dialogKey: null,
   // Sidebar entry toggles ORF visibility (handled in ProjectWorkspace, no dialog)
   sidebarItems: [
-    { dialogKey: 'orf', label: 'ORF Search', tooltip: 'Toggle ORF display', icon: SquareM },
+    { dialogKey: 'orf', label: 'ORF Search', tooltip: 'Toggle ORF display', icon: BookA },
   ],
   dialog: null,
 };
