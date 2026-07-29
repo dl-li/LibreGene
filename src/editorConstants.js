@@ -69,9 +69,9 @@ export function splitRange(start, end, charsPerLine) {
 }
 
 export const DEFAULT_TM_PARAMS = {
-  naConc: 0.050,
+  naConc: 0.05,
   mgConc: 0.0015,
   dntpConc: 0.0008,
-  trisConc: 0.010,
+  trisConc: 0.01,
   primerConc: 2e-7,
 };

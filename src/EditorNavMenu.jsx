@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Pencil,
   Tag,
@@ -39,12 +39,14 @@ import { cn } from '@/lib/utils';
 
 const ENZYME_FILTER_OPTIONS = [
   { value: 'all', label: 'All Enzymes' },
+  { value: 'unique+twice', label: 'Highlighted Cutters' },
   { value: 'unique', label: 'Unique Cutters' },
   { value: 'unique6', label: 'Unique 6 bp' },
-  { value: 'blunt', label: 'Blunt' },
+  { value: 'twice', label: 'Twice-cutter' },
+  { value: 'blunt', label: 'Blunt', className: 'bg-amber-800/10' },
   { value: 'overhang5', label: "5' Overhang" },
   { value: 'overhang3', label: "3' Overhang" },
-  { value: 'iis', label: 'Type IIS' },
+  { value: 'iis', label: 'Type IIS', className: 'bg-teal-700/10' },
   { value: 'rec4', label: '4 bp Recognition' },
   { value: 'rec5', label: '5 bp Recognition' },
   { value: 'rec6', label: '6 bp Recognition' },
@@ -182,7 +184,7 @@ export default function EditorNavMenu({
         zIndex: 40,
       }}
     >
-      <div className="nav-bar-enter flex items-center gap-0.5 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
+      <div className="nav-bar-enter relative flex items-center gap-0.5 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
         {/* Edit */}
         <DropdownMenu modal={false}>
           <NavTrigger icon={Pencil} label="Edit" />
@@ -273,8 +275,30 @@ export default function EditorNavMenu({
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
                   {ENZYME_FILTER_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                      {opt.label}
+                    <DropdownMenuRadioItem
+                      key={opt.value}
+                      value={opt.value}
+                      className={opt.className}
+                    >
+                      {opt.value === 'unique' ? (
+                        <span>
+                          <strong>Unique</strong> Cutters
+                        </span>
+                      ) : opt.value === 'unique6' ? (
+                        <span>
+                          <strong>Unique</strong> 6 bp
+                        </span>
+                      ) : opt.value === 'twice' ? (
+                        <span>
+                          Twice-cutter<sup>²</sup>
+                        </span>
+                      ) : opt.value === 'unique+twice' ? (
+                        <span>
+                          <strong>Unique</strong> + Twice-cutter<sup>²</sup>
+                        </span>
+                      ) : (
+                        opt.label
+                      )}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -324,22 +348,37 @@ export default function EditorNavMenu({
           </DropdownMenu>
         )}
 
-        {/* Search */}
-        <div className="flex items-center">
+        {/* Search: icon stays in flow; expanding overlay covers the other buttons */}
+        <button
+          type="button"
+          onClick={toggleSearch}
+          className={cn(
+            'flex items-center justify-center rounded-full p-2 text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-90',
+            searchOpen && 'bg-accent text-foreground',
+          )}
+        >
+          <Search className="size-4" />
+        </button>
+        <div
+          className={cn(
+            'absolute inset-0 z-10 flex items-center gap-0.5 rounded-full bg-background/80 px-2 py-1.5 backdrop-blur-md transition-[clip-path] duration-300 ease-[cubic-bezier(0.34,1.3,0.64,1)]',
+            !searchOpen && 'pointer-events-none',
+          )}
+          style={{
+            clipPath: searchOpen ? 'inset(0 0 0 0 round 999px)' : 'inset(0 0 0 100% round 999px)',
+          }}
+        >
           <input
             ref={inputRef}
             value={query}
             onChange={onQueryChange}
             onKeyDown={onSearchKeyDown}
             placeholder={`Search ${SCOPE_WORDS[searchScope]} (Tab to switch)`}
-            className={cn(
-              'rounded-full bg-muted/60 text-sm outline-none transition-all duration-300 ease-[cubic-bezier(0.34,1.3,0.64,1)] placeholder:text-muted-foreground',
-              searchOpen ? 'mr-1 w-72 px-3 py-1.5' : 'w-0 px-0 py-1.5 opacity-0',
-            )}
+            className="min-w-0 flex-1 rounded-full bg-muted/60 px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             style={{ border: 'none' }}
             tabIndex={searchOpen ? 0 : -1}
           />
-          {searchOpen && query && (
+          {query && (
             <span className="mr-0.5 flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
               {navTotal > 0 ? `${navIndex + 1}/${navTotal}` : '0/0'}
               <button
@@ -363,10 +402,7 @@ export default function EditorNavMenu({
           <button
             type="button"
             onClick={toggleSearch}
-            className={cn(
-              'flex items-center justify-center rounded-full p-2 text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-90',
-              searchOpen && 'bg-accent text-foreground',
-            )}
+            className="flex items-center justify-center rounded-full bg-accent p-2 text-foreground outline-none transition-all duration-150 hover:text-foreground active:scale-90"
           >
             <Search className="size-4" />
           </button>

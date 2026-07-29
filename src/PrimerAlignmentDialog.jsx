@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -106,7 +106,10 @@ function CopyBtn({ text }) {
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        handleCopy();
+      }}
       className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       title="Copy"
     >
@@ -164,7 +167,7 @@ export default function PrimerAlignmentDialog({
           .catch(() => {});
       }
     }
-  }, [open, primer?.id, isNewPrimer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, primer?.id, isNewPrimer]);
 
   const cur = preview?.data?.current || data?.current;
   const alts = preview?.data?.alternatives || data?.alternatives || [];

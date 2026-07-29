@@ -137,10 +137,42 @@ export default function SettingsPage({
             <div className="space-y-2.5">
               {[
                 { key: 'naConc', label: 'Na⁺', unit: 'mM', mult: 1000, step: 1, min: 0, max: 500 },
-                { key: 'mgConc', label: 'Mg²⁺', unit: 'mM', mult: 1000, step: 0.1, min: 0, max: 10 },
-                { key: 'dntpConc', label: 'dNTPs', unit: 'mM', mult: 1000, step: 0.1, min: 0, max: 10 },
-                { key: 'trisConc', label: 'Tris-HCl', unit: 'mM', mult: 1000, step: 1, min: 0, max: 200 },
-                { key: 'primerConc', label: 'Primer', unit: 'nM', mult: 1e9, step: 50, min: 0, max: 5000 },
+                {
+                  key: 'mgConc',
+                  label: 'Mg²⁺',
+                  unit: 'mM',
+                  mult: 1000,
+                  step: 0.1,
+                  min: 0,
+                  max: 10,
+                },
+                {
+                  key: 'dntpConc',
+                  label: 'dNTPs',
+                  unit: 'mM',
+                  mult: 1000,
+                  step: 0.1,
+                  min: 0,
+                  max: 10,
+                },
+                {
+                  key: 'trisConc',
+                  label: 'Tris-HCl',
+                  unit: 'mM',
+                  mult: 1000,
+                  step: 1,
+                  min: 0,
+                  max: 200,
+                },
+                {
+                  key: 'primerConc',
+                  label: 'Primer',
+                  unit: 'nM',
+                  mult: 1e9,
+                  step: 50,
+                  min: 0,
+                  max: 5000,
+                },
               ].map(({ key, label, unit, mult, step, min, max }) => (
                 <div key={key} className="flex items-center gap-2">
                   <Label className="text-sm text-muted-foreground w-16 shrink-0">{label}</Label>

@@ -11,11 +11,9 @@
 <p align="center"><a href="README.zh-CN.md">中文版</a></p>
 
 > **⚠️ Early Development** — APIs and file formats are not yet stable.
-> **Tested on macOS and Windows** — Linux builds are not yet verified.
+> **Tested on macOS only** — Linux/Windows builds are not yet verified.
 
 A lightweight cross-platform desktop plasmid editor. SVG rendering, feature annotation, primer design & visualization, restriction digestion analysis — all free and open-source.
-
-> **Windows build** — see [`BUILD-WINDOWS.md`](BUILD-WINDOWS.md) for the toolchain setup and `npx tauri build` instructions.
 
 <p align="center">
   <img src="ScreenShot.png" alt="LibreGene Screenshot" width="700" />
@@ -28,7 +26,8 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 - **Primer visualization** — Add, align, Tm calculation (nearest-neighbor), binding site display
 - **Restriction enzymes** — Built-in 900+ enzyme DB, methylation-aware filtering, single/unique cutter views, methylation-sensitive/dependent pattern detection
 - **Sequence alignment** — Import and visualize multi-read alignments (.ab1, FASTA) alongside the reference sequence
-- **Plugin system** — Extensible architecture for adding custom tools (alignment viewer shipped as built-in plugin)
+- **ORF search** — Scan and display open reading frames on both strands
+- **Plugin system** — Extensible architecture for adding custom tools (alignment viewer and ORF search shipped as built-in plugins)
 - **Multi-project tabs** — Switch between plasmids in the sidebar
 - **Full undo/redo** — Sequence edits and feature changes
 - **GenBank / SnapGene I/O** — Read/write .gb/.gbk, read .dna (SnapGene), with enriched color & primer annotations

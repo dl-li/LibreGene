@@ -63,6 +63,7 @@ LibreGene/
 │   ├── EditorNavMenu.jsx       # 底部居中悬浮导航菜单（编辑/特征/引物/酶切/比对/搜索）
 │   ├── plugins/                # 插件系统：index.js 注册表，每个插件 { id, name, dialogKey, sidebarItems, dialog }
 │   │   └── alignment/          # 序列比对插件（管理弹窗 + 文本新增弹窗）
+│   │   └── orf/                # ORF 搜索插件（findOrfs 扫描双链，无弹窗，侧边栏开关切换 showOrfs；ORF 以 orf:true 的虚拟 CDS 注入，仅展示不落盘）
 │   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
 │   │   ├── DebugPanel.jsx      # 调试面板

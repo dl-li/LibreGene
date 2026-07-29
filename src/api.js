@@ -87,7 +87,9 @@ export function connectWS(onProject) {
         const msg = JSON.parse(e.data);
         if (msg.type === 'project' && onProject) onProject(msg.data);
         retryCount = 0; // reset on successful message
-      } catch {}
+      } catch {
+        // ignore malformed frames
+      }
     };
     ws.onclose = () => {
       retryCount++;
