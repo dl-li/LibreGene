@@ -1634,33 +1634,98 @@ async fn compute_tm(
 
 /// Activate the decoration plugin's overlay titlebar, then show the window.
 /// Windows start hidden (visible: false) so native decorations never flash.
+#[cfg(target_os = "macos")]
+const TL_INSET: (f32, f32) = (14.0, 22.0);
+
 #[tauri::command]
 fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
     use tauri_plugin_decoration::WebviewWindowExt;
     window
         .create_overlay_titlebar()
         .map_err(|e| e.to_string())?;
-    // The plugin positions the traffic lights with its own default inset
-    // (12, 16) when its async activation finishes — which can be after this
-    // command returns (e.g. right after a page load). Re-apply the tuned
-    // inset now and again after activation has settled; the plugin stores it
-    // and replays it on later window events (same semantics as tao's
-    // trafficLightPosition: x = left edge, y = extra container height).
+    // The plugin and AppKit reposition the traffic lights asynchronously
+    // after activation/page load; assert the tuned inset with a watchdog
+    // (same semantics as tao's trafficLightPosition: x = left edge,
+    // y = extra container height).
     #[cfg(target_os = "macos")]
-    {
-        window
-            .set_traffic_lights_inset(14.0, 22.0)
-            .map_err(|e| e.to_string())?;
-        let w = window.clone();
-        std::thread::spawn(move || {
-            for delay_ms in [300u64, 800, 1600] {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                let _ = w.set_traffic_lights_inset(14.0, 22.0);
-            }
-        });
-    }
+    reassert_with_watchdog(&window);
     window.show().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Temporary diagnostic: read the AppKit traffic-light geometry on the main
+/// thread. Returns (close_x, close_h, titlebar_container_h).
+#[cfg(target_os = "macos")]
+fn read_traffic_geometry(window: &tauri::WebviewWindow) -> Option<(f64, f64, f64)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let w = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let info = (|| -> Option<(f64, f64, f64)> {
+            use objc2_app_kit::{NSWindow, NSWindowButton};
+            let ptr = w.ns_window().ok()?;
+            let ns: &NSWindow = unsafe { &*ptr.cast() };
+            let close = ns.standardWindowButton(NSWindowButton::CloseButton)?;
+            let f = close.frame();
+            let container = unsafe { close.superview()? };
+            let titlebar = unsafe { container.superview()? };
+            Some((f.origin.x, f.size.height, titlebar.frame().size.height))
+        })();
+        let _ = tx.send(info);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(2)).ok().flatten()
+}
+
+/// True while the AppKit traffic-light frames match the tuned inset.
+/// Returns None when the geometry is unreadable (window likely gone).
+#[cfg(target_os = "macos")]
+fn traffic_inset_ok(window: &tauri::WebviewWindow) -> Option<bool> {
+    read_traffic_geometry(window).map(|(x, btn_h, bar_h)| {
+        (x - TL_INSET.0 as f64).abs() < 0.5 && (bar_h - (btn_h + TL_INSET.1 as f64)).abs() < 0.5
+    })
+}
+
+/// Apply the tuned inset, then keep a persistent watchdog: AppKit resets the
+/// titlebar layout *asynchronously* (title change, panel dismissal, page
+/// load) at unpredictable times, so one-shot re-applies get overwritten.
+/// Poll once a second and re-apply whenever the geometry drifts; the thread
+/// exits when the window is gone. One watchdog per window label.
+#[cfg(target_os = "macos")]
+fn reassert_with_watchdog(window: &tauri::WebviewWindow) {
+    use tauri_plugin_decoration::WebviewWindowExt;
+    let _ = window.set_traffic_lights_inset(TL_INSET.0, TL_INSET.1);
+    static WATCHDOGS: std::sync::Mutex<Option<std::collections::HashSet<String>>> =
+        std::sync::Mutex::new(None);
+    let label = window.label().to_string();
+    {
+        let mut guard = WATCHDOGS.lock().unwrap();
+        if !guard.get_or_insert_with(Default::default).insert(label.clone()) {
+            return; // watchdog already running for this window
+        }
+    }
+    let w = window.clone();
+    std::thread::spawn(move || {
+        let mut unreadable = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            match traffic_inset_ok(&w) {
+                Some(true) => unreadable = 0,
+                Some(false) => {
+                    unreadable = 0;
+                    eprintln!("[tl] geometry drifted on {label}, re-applying inset");
+                    if w.set_traffic_lights_inset(TL_INSET.0, TL_INSET.1).is_err() {
+                        break;
+                    }
+                }
+                None => {
+                    unreadable += 1;
+                    if unreadable >= 5 {
+                        break; // window gone
+                    }
+                }
+            }
+        }
+        WATCHDOGS.lock().unwrap().as_mut().map(|s| s.remove(&label));
+    });
 }
 
 /// Re-assert the tuned traffic-light inset. Native open/save panels reset
@@ -1669,16 +1734,7 @@ fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> 
 #[tauri::command]
 fn reassert_traffic_lights(window: tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    {
-        use tauri_plugin_decoration::WebviewWindowExt;
-        let _ = window.set_traffic_lights_inset(14.0, 22.0);
-        // AppKit may relayout only after the panel fully dismisses.
-        let w = window.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let _ = w.set_traffic_lights_inset(14.0, 22.0);
-        });
-    }
+    reassert_with_watchdog(&window);
     let _ = window;
     Ok(())
 }
