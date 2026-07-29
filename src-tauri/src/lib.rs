@@ -1641,12 +1641,24 @@ fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> 
         .create_overlay_titlebar()
         .map_err(|e| e.to_string())?;
     // The plugin positions the traffic lights with its own default inset
-    // (12, 16) on activation; re-apply the tuned inset (same semantics as
-    // tao's trafficLightPosition: x = left edge, y = extra container height).
+    // (12, 16) when its async activation finishes — which can be after this
+    // command returns (e.g. right after a page load). Re-apply the tuned
+    // inset now and again after activation has settled; the plugin stores it
+    // and replays it on later window events (same semantics as tao's
+    // trafficLightPosition: x = left edge, y = extra container height).
     #[cfg(target_os = "macos")]
-    window
-        .set_traffic_lights_inset(14.0, 22.0)
-        .map_err(|e| e.to_string())?;
+    {
+        window
+            .set_traffic_lights_inset(14.0, 22.0)
+            .map_err(|e| e.to_string())?;
+        let w = window.clone();
+        std::thread::spawn(move || {
+            for delay_ms in [300u64, 800, 1600] {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                let _ = w.set_traffic_lights_inset(14.0, 22.0);
+            }
+        });
+    }
     window.show().map_err(|e| e.to_string())?;
     Ok(())
 }
