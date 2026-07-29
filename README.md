@@ -11,9 +11,11 @@
 <p align="center"><a href="README.zh-CN.md">中文版</a></p>
 
 > **⚠️ Early Development** — APIs and file formats are not yet stable.
-> **Tested on macOS only** — Linux/Windows builds are not yet verified.
+> **Tested on macOS and Windows** — Linux builds are not yet verified.
 
 A lightweight cross-platform desktop plasmid editor. SVG rendering, feature annotation, primer design & visualization, restriction digestion analysis — all free and open-source.
+
+> **Windows build** — see [`BUILD-WINDOWS.md`](BUILD-WINDOWS.md) for the toolchain setup and `npx tauri build` instructions.
 
 <p align="center">
   <img src="ScreenShot.png" alt="LibreGene Screenshot" width="700" />
