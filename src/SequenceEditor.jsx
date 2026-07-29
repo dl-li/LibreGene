@@ -433,18 +433,18 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   const [br, bg, bb] = _hexToRgb(bgHex);
   const bgLum = relLuminance(br, bg, bb);
   const lum = relLuminance(r, g, b);
-  const contrast = (bgLum + 0.05) / (lum + 0.05);
-  if (contrast >= 2.0) return hex;
+  const MIN_CONTRAST = 3.0; // WCAG non-text/UI-component minimum
+  if ((bgLum + 0.05) / (lum + 0.05) >= MIN_CONTRAST) return hex;
   const [h, s, l] = _rgbToHsl(r, g, b);
-  // Gently darken: cap total reduction at 0.18, small steps
-  const minL = Math.max(0.1, l - 0.18);
+  // Darken (keeping hue/saturation) until the contrast target is met.
   let newL = l;
-  while (newL > minL) {
-    newL = Math.max(minL, newL - 0.02);
-    const [nr, ng, nb] = _hslToRgb(h, Math.min(1, s + 0.02), newL);
-    if ((bgLum + 0.05) / (relLuminance(nr, ng, nb) + 0.05) >= 2.0) return _rgbToHex(nr, ng, nb);
+  while (newL > 0.1) {
+    newL = Math.max(0.1, newL - 0.02);
+    const [nr, ng, nb] = _hslToRgb(h, s, newL);
+    if ((bgLum + 0.05) / (relLuminance(nr, ng, nb) + 0.05) >= MIN_CONTRAST)
+      return _rgbToHex(nr, ng, nb);
   }
-  return _rgbToHex(..._hslToRgb(h, Math.min(1, s + 0.04), minL));
+  return _rgbToHex(..._hslToRgb(h, s, 0.1));
 };
 
 const SequenceEditor = React.memo(function SequenceEditor({
