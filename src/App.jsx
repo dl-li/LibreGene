@@ -200,31 +200,6 @@ export default function App() {
     });
   }, []);
 
-  // Main window only: auto-reopen the last opened file on startup.
-  // Runs once windowInfo is known, so project windows skip this.
-  const autoRestoreAttemptedRef = useRef(false);
-  useEffect(() => {
-    if (autoRestoreAttemptedRef.current) return;
-    if (!isTauri || !windowInfo || windowInfo.type !== 'main') return;
-    autoRestoreAttemptedRef.current = true;
-    const last = getLastOpenedFile();
-    if (!last) return;
-    // Don't restore if a project is already open (e.g. multi-window broadcast raced ahead).
-    openFile(last)
-      .then((data) => {
-        if (data && data.sequence) {
-          initialDataRef.current[last] = data;
-          setRecentFiles(addRecentFile(last));
-          refreshProjects();
-        }
-      })
-      .catch((e) => {
-        // Last file no longer exists — drop it from the list silently.
-        console.warn('auto-reopen failed:', e);
-        setRecentFiles(removeRecentFile(last));
-      });
-  }, [windowInfo, refreshProjects]);
-
   // Main window: load project list + listen for project list updates.
   // Per-project data is loaded by each ProjectWorkspace itself.
   useEffect(() => {
@@ -343,6 +318,8 @@ export default function App() {
     }
     try {
       for (const p of paths) {
+        // Reopening an already-open path would replace the project and lose unsaved edits
+        if (projects.some((pr) => pr.id === p)) continue;
         const data = await openFile(p);
         if (data && data.sequence) {
           // Hand the response to the new workspace so it doesn't refetch
@@ -354,11 +331,27 @@ export default function App() {
     } catch (e) {
       console.error('open file error:', e);
     }
-  }, [openPath, refreshProjects]);
+  }, [openPath, projects, refreshProjects]);
+
+  // Switching is lossless (workspaces stay mounted) — just update activeId
+  const handleSwitchProject = useCallback((id) => {
+    if (!id || id === activeIdRef.current) return;
+    setActiveId(id);
+    activateProject(id)
+      .then((data) => {
+        if (data && data.projects) setProjects(data.projects);
+      })
+      .catch((e) => console.error('activate project error:', e));
+  }, []);
 
   // Open a path directly from the recent-files list (no native dialog).
   const handleOpenRecent = useCallback(
     async (path) => {
+      // Already open — just activate it instead of reloading over unsaved edits
+      if (projects.some((p) => p.id === path)) {
+        handleSwitchProject(path);
+        return;
+      }
       try {
         const data = await openFile(path);
         if (data && data.sequence) {
@@ -372,22 +365,11 @@ export default function App() {
         setRecentFiles(removeRecentFile(path));
       }
     },
-    [refreshProjects],
+    [projects, refreshProjects, handleSwitchProject],
   );
 
   const handleRemoveRecent = useCallback((path) => {
     setRecentFiles(removeRecentFile(path));
-  }, []);
-
-  // Switching is lossless (workspaces stay mounted) — just update activeId
-  const handleSwitchProject = useCallback((id) => {
-    if (!id || id === activeIdRef.current) return;
-    setActiveId(id);
-    activateProject(id)
-      .then((data) => {
-        if (data && data.projects) setProjects(data.projects);
-      })
-      .catch((e) => console.error('activate project error:', e));
   }, []);
 
   // Internal: actually perform the close (no dirty check)
@@ -549,9 +531,7 @@ export default function App() {
           <SidebarGroup className="pt-0">
             <SidebarGroupLabel>
               <Clock className="mr-1.5 size-3" />
-              <span className="uppercase tracking-wider text-[10px] font-semibold">
-                Recent
-              </span>
+              <span className="uppercase tracking-wider text-[10px] font-semibold">Recent</span>
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
