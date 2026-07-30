@@ -49,8 +49,17 @@ import {
   Settings,
   ArrowDownWideNarrow,
   Map as MapIcon,
+  Clock,
 } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
+import {
+  getRecentFiles,
+  addRecentFile,
+  removeRecentFile,
+  getLastOpenedFile,
+  fileNameOf,
+  dirOf,
+} from './recentFiles';
 
 export default function App() {
   const [disabledPlugins, setDisabledPlugins] = useState(() => {
@@ -60,6 +69,7 @@ export default function App() {
       return [];
     }
   });
+  const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
   const handleTogglePlugin = useCallback((pluginId) => {
     setDisabledPlugins((prev) => {
       const next = prev.includes(pluginId)
@@ -190,6 +200,31 @@ export default function App() {
     });
   }, []);
 
+  // Main window only: auto-reopen the last opened file on startup.
+  // Runs once windowInfo is known, so project windows skip this.
+  const autoRestoreAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (autoRestoreAttemptedRef.current) return;
+    if (!isTauri || !windowInfo || windowInfo.type !== 'main') return;
+    autoRestoreAttemptedRef.current = true;
+    const last = getLastOpenedFile();
+    if (!last) return;
+    // Don't restore if a project is already open (e.g. multi-window broadcast raced ahead).
+    openFile(last)
+      .then((data) => {
+        if (data && data.sequence) {
+          initialDataRef.current[last] = data;
+          setRecentFiles(addRecentFile(last));
+          refreshProjects();
+        }
+      })
+      .catch((e) => {
+        // Last file no longer exists — drop it from the list silently.
+        console.warn('auto-reopen failed:', e);
+        setRecentFiles(removeRecentFile(last));
+      });
+  }, [windowInfo, refreshProjects]);
+
   // Main window: load project list + listen for project list updates.
   // Per-project data is loaded by each ProjectWorkspace itself.
   useEffect(() => {
@@ -298,7 +333,10 @@ export default function App() {
   const handleOpenFile = useCallback(async () => {
     let paths;
     if (isTauri) {
-      paths = await openFileDialog();
+      // Start the native dialog in the directory of the last opened file,
+      // so the user doesn't have to navigate from scratch each time.
+      const lastDir = dirOf(getLastOpenedFile());
+      paths = await openFileDialog(lastDir || undefined);
       if (!paths || !paths.length) return;
     } else {
       paths = [openPath];
@@ -309,6 +347,7 @@ export default function App() {
         if (data && data.sequence) {
           // Hand the response to the new workspace so it doesn't refetch
           initialDataRef.current[p] = data;
+          setRecentFiles(addRecentFile(p));
         }
       }
       await refreshProjects();
@@ -316,6 +355,29 @@ export default function App() {
       console.error('open file error:', e);
     }
   }, [openPath, refreshProjects]);
+
+  // Open a path directly from the recent-files list (no native dialog).
+  const handleOpenRecent = useCallback(
+    async (path) => {
+      try {
+        const data = await openFile(path);
+        if (data && data.sequence) {
+          initialDataRef.current[path] = data;
+          setRecentFiles(addRecentFile(path));
+        }
+        await refreshProjects();
+      } catch (e) {
+        // File may have been moved/deleted — drop it from the list.
+        console.error('open recent error:', e);
+        setRecentFiles(removeRecentFile(path));
+      }
+    },
+    [refreshProjects],
+  );
+
+  const handleRemoveRecent = useCallback((path) => {
+    setRecentFiles(removeRecentFile(path));
+  }, []);
 
   // Switching is lossless (workspaces stay mounted) — just update activeId
   const handleSwitchProject = useCallback((id) => {
@@ -483,6 +545,48 @@ export default function App() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {recentFiles.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
+          <SidebarGroup className="pt-0">
+            <SidebarGroupLabel>
+              <Clock className="mr-1.5 size-3" />
+              <span className="uppercase tracking-wider text-[10px] font-semibold">
+                Recent
+              </span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {recentFiles.slice(0, 8).map((p) => {
+                  const name = fileNameOf(p);
+                  const Icon = getFileIcon(name);
+                  return (
+                    <SidebarMenuItem key={p}>
+                      <SidebarMenuButton
+                        onClick={() => handleOpenRecent(p)}
+                        tooltip={p}
+                        className="flex-1 min-w-0 pr-5"
+                      >
+                        <Icon className="size-4 shrink-0" />
+                        <span className="truncate">{name}</span>
+                      </SidebarMenuButton>
+                      <button
+                        type="button"
+                        aria-label="Remove from recent"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveRecent(p);
+                        }}
+                        title="Remove from recent"
+                        className="absolute right-2 top-1/2 hidden -translate-y-1/2 size-4 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {projects.length > 0 && (
           <Collapsible open={filesOpen} onOpenChange={setFilesOpen}>
             <SidebarGroup className="pt-0">
