@@ -19,6 +19,8 @@ import {
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
+import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
+import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm } from './tauriApi';
 import { buildSearchResults } from './searchUtils';
 import { AlertTriangle } from 'lucide-react';
@@ -497,6 +499,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onAddAlignmentText,
   onManageAlignments,
   onEnzymeHoverChange,
+  topology = 'linear',
 }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
@@ -579,6 +582,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const hoveredIndexRef = useRef(null);
   const cursorTimerRef = useRef(null);
+
+  // --- primer design pick-mode state ---
+  const [designPick, setDesignPick] = useState(null); // { mode, segments: [] }
+  const [designPickError, setDesignPickError] = useState(null);
+  const [designDialog, setDesignDialog] = useState(null); // { mode, segments }
+  const designCapturedRef = useRef(null);
 
   // --- translation (codon) selection state ---
   const [translationSel, setTranslationSel] = useState(null); // { featureId, startCodon, endCodon }
@@ -708,7 +717,70 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selStart <= selEnd &&
     (selectionMode === 'text' || isEnzymeSelection);
   const hasTranslationSelection = selectionMode === 'translation' && translationSel !== null;
-  const currentSelColor = isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
+  const currentSelColor = designPick ? '#0f766e' : isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
+
+  const handlePrimerDesign = useCallback(
+    (mode) => {
+      if (DESIGN_MODES[mode]?.circularOnly && topology !== 'circular') return;
+      setDesignPick({ mode, segments: [] });
+      setDesignPickError(null);
+      designCapturedRef.current = null;
+      setSelStart(null);
+      setSelEnd(null);
+      setCursorIndex(null);
+      setSelectionMode('none');
+      setSelectedPrimerIds([]);
+      setIsEnzymeSelection(false);
+      setSelectedEnzymeIds([]);
+      setTranslationSel(null);
+      setIsTranslationDragging(false);
+      clearCursorTimer();
+    },
+    [topology, clearCursorTimer],
+  );
+
+  const cancelDesignPick = useCallback(() => {
+    setDesignPick(null);
+    setDesignPickError(null);
+    designCapturedRef.current = null;
+  }, []);
+
+  // Capture a settled selection (drag end, shift+click, or feature click) as a
+  // primer-design segment; opens the dialog once enough segments are picked
+  useEffect(() => {
+    if (!designPick || isDragging || selectionMode !== 'text') return;
+    if (selStart === null || selEnd === null) return;
+    const key = `${selStart}:${selEnd}`;
+    if (designCapturedRef.current === key) return;
+    const meta = DESIGN_MODES[designPick.mode];
+    const len = selEnd - selStart + 1;
+    if (meta.minLen && len < meta.minLen) {
+      setDesignPickError(`Selection must be at least ${meta.minLen} bp`);
+      return;
+    }
+    if (meta.maxLen && len > meta.maxLen) {
+      setDesignPickError(`Selection must be at most ${meta.maxLen} bp`);
+      return;
+    }
+    designCapturedRef.current = key;
+    setDesignPickError(null);
+    const feat = features.find((f) => f.start === selStart && f.end === selEnd);
+    const segments = [
+      ...designPick.segments,
+      { start: selStart, end: selEnd, ...(feat?.name ? { name: feat.name } : {}) },
+    ];
+    setSelStart(null);
+    setSelEnd(null);
+    setCursorIndex(null);
+    setSelectionMode('none');
+    if (segments.length >= meta.segments) {
+      setDesignPick(null);
+      setDesignDialog({ mode: designPick.mode, segments });
+    } else {
+      setDesignPick({ mode: designPick.mode, segments });
+      designCapturedRef.current = null;
+    }
+  }, [designPick, isDragging, selStart, selEnd, selectionMode, features]);
 
   const pp = useMemo(
     () => ({
@@ -1820,6 +1892,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
       if (e.target?.closest?.('[role="dialog"]')) return;
 
+      // --- Escape: cancel primer design pick mode ---
+      if (e.key === 'Escape' && designPick) {
+        e.preventDefault();
+        cancelDesignPick();
+        return;
+      }
+
       // --- Arrow keys: cursor navigation ---
       if (
         e.key === 'ArrowLeft' ||
@@ -1975,6 +2054,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     onEditRequest,
     copySelection,
     translationSel,
+    designPick,
+    cancelDesignPick,
   ]);
 
   useEffect(() => {
@@ -3852,9 +3933,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const sub =
       e.displayEnd < tlen
         ? cleanSeq.substring(e.displayStart, e.displayEnd + 1)
-        : Array.from({ length: dispLen }, (_, i) => cleanSeq[(e.displayStart + i) % tlen]).join(
-            ''
-          );
+        : Array.from({ length: dispLen }, (_, i) => cleanSeq[(e.displayStart + i) % tlen]).join('');
     const comp = sub.split('').map(complement).join('');
     const pattern = e.recSeqPattern || '';
     const recOffset = e.recStart - e.displayStart;
@@ -4192,6 +4271,28 @@ const SequenceEditor = React.memo(function SequenceEditor({
     );
   }, [hasSelection, selStart, selEnd, getSeqY, sp, currentSelColor, isEnzymeSelection]);
 
+  const renderedDesignPicked = useMemo(() => {
+    if (!designPick || designPick.segments.length === 0) return null;
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {designPick.segments.flatMap((picked, i) =>
+          sp(picked.start, picked.end).map((seg) => (
+            <rect
+              key={`pickedbg-${i}-${seg.row}-${seg.colStart}`}
+              x={getX(seg.colStart)}
+              y={getSeqY(seg.row) - 19}
+              width={(seg.colEnd - seg.colStart + 1) * cw}
+              height={28}
+              fill="#0f766e"
+              fillOpacity={0.25}
+              rx="1"
+            />
+          )),
+        )}
+      </g>
+    );
+  }, [designPick, getSeqY, sp]);
+
   // Stable background: all sequence text in dark color — doesn't depend on selection
   const renderedSeqBg = useMemo(() => {
     const vs = Math.max(0, visibleRows.start - ROW_BUF);
@@ -4378,44 +4479,72 @@ const SequenceEditor = React.memo(function SequenceEditor({
         hasWarningBelow={combinedWarnings.length > 0}
       />
       {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}
-      <EditorNavMenu
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={onUndo}
-        onRedo={onRedo}
-        hasSelection={hasSelection}
-        hasTextSelection={(hasSelection && selectionMode === 'text') || hasTranslationSelection}
-        hasTranslationSelection={hasTranslationSelection}
-        canPaste={hasSelection || cursorIndex !== null || hasTranslationSelection}
-        onCopySense={() => copySelection('sense')}
-        onCopyAntisense={() => copySelection('antisense')}
-        onCopyTranslation={() => copySelection('translation')}
-        onPaste={pasteFromClipboard}
-        onToUppercase={toUppercase}
-        onToLowercase={toLowercase}
-        showFeatures={showFeatures}
-        onToggleFeatures={onToggleFeatures}
-        onCreateFeature={createFeature}
-        showPrimers={showPrimers}
-        onTogglePrimers={onTogglePrimers}
-        onCreatePrimer={createPrimer}
-        showEnzymes={showEnzymes}
-        onToggleEnzymes={onToggleEnzymes}
-        enzymeFilter={enzymeFilter}
-        onEnzymeFilterChange={onEnzymeFilterChange}
-        onSearch={handleSearch}
-        searchNav={searchNav}
-        openSearchRef={openSearchRef}
-        alignments={alignments}
-        alignmentEnabled={alignmentEnabled}
-        showAlignments={showAlignments}
-        onToggleAlignments={onToggleAlignments}
-        hiddenAlignIds={hiddenAlignIds}
-        onToggleAlignmentVisible={onToggleAlignmentVisible}
-        onAddAlignmentFile={onAddAlignmentFile}
-        onAddAlignmentText={onAddAlignmentText}
-        onManageAlignments={onManageAlignments}
-      />
+      {designPick ? (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 40,
+          }}
+        >
+          <div className="nav-bar-enter flex items-center gap-3 rounded-full border-2 border-teal-700 bg-background/80 px-4 py-2 shadow-[0_10px_40px_rgba(15,118,110,0.5)] ring-4 ring-teal-700/15 backdrop-blur-md">
+            <span className="text-sm font-semibold text-teal-800">
+              {DESIGN_MODES[designPick.mode].prompts[designPick.segments.length]}
+            </span>
+            {designPickError && <span className="text-xs text-destructive">{designPickError}</span>}
+            <button
+              type="button"
+              onClick={cancelDesignPick}
+              className="rounded-full bg-muted/60 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <EditorNavMenu
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={onUndo}
+          onRedo={onRedo}
+          hasSelection={hasSelection}
+          hasTextSelection={(hasSelection && selectionMode === 'text') || hasTranslationSelection}
+          hasTranslationSelection={hasTranslationSelection}
+          canPaste={hasSelection || cursorIndex !== null || hasTranslationSelection}
+          onCopySense={() => copySelection('sense')}
+          onCopyAntisense={() => copySelection('antisense')}
+          onCopyTranslation={() => copySelection('translation')}
+          onPaste={pasteFromClipboard}
+          onToUppercase={toUppercase}
+          onToLowercase={toLowercase}
+          showFeatures={showFeatures}
+          onToggleFeatures={onToggleFeatures}
+          onCreateFeature={createFeature}
+          showPrimers={showPrimers}
+          onTogglePrimers={onTogglePrimers}
+          onCreatePrimer={createPrimer}
+          showEnzymes={showEnzymes}
+          onToggleEnzymes={onToggleEnzymes}
+          enzymeFilter={enzymeFilter}
+          onEnzymeFilterChange={onEnzymeFilterChange}
+          onSearch={handleSearch}
+          searchNav={searchNav}
+          openSearchRef={openSearchRef}
+          alignments={alignments}
+          alignmentEnabled={alignmentEnabled}
+          showAlignments={showAlignments}
+          onToggleAlignments={onToggleAlignments}
+          hiddenAlignIds={hiddenAlignIds}
+          onToggleAlignmentVisible={onToggleAlignmentVisible}
+          onAddAlignmentFile={onAddAlignmentFile}
+          onAddAlignmentText={onAddAlignmentText}
+          onManageAlignments={onManageAlignments}
+          onPrimerDesign={handlePrimerDesign}
+          topology={topology}
+        />
+      )}
       <div
         ref={containerRef}
         style={{
@@ -4449,6 +4578,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           >
             <style>{`@keyframes alignLabelScroll { from { transform: translateX(0); } to { transform: translateX(var(--align-label-scroll, 0px)); } }`}</style>
             {renderedCursor}
+            {renderedDesignPicked}
             {renderedSelection}
             {renderedAlignments}
             {renderedAlignmentLabels}
@@ -4525,6 +4655,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onDeletePrimer={onPrimerDelete}
           primers={primers}
           tmParams={tmParams}
+        />
+        <PrimerDesignDialog
+          open={designDialog !== null}
+          onOpenChange={(open) => {
+            if (!open) setDesignDialog(null);
+          }}
+          mode={designDialog?.mode}
+          segments={designDialog?.segments}
+          sequence={cleanSeq}
+          topology={topology}
+          tmParams={tmParams}
+          onPrimerChange={onPrimerChange}
         />
       </div>
     </>
