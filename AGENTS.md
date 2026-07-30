@@ -64,6 +64,7 @@ LibreGene/
 │   ├── plugins/                # 插件系统：index.js 注册表，每个插件 { id, name, dialogKey, sidebarItems, dialog }
 │   │   └── alignment/          # 序列比对插件（管理弹窗 + 文本新增弹窗）
 │   │   └── orf/                # ORF 搜索插件（findOrfs 扫描双链，无弹窗，侧边栏开关切换 showOrfs；ORF 以 orf:true 的虚拟 CDS 注入，仅展示不落盘）
+│   │   └── primerDesign/       # 引物设计插件（Amplify/OE-PCR/PCR Mutagenesis；index.js 模式元信息，candidates.js 候选引物生成，PrimerDesignDialog.jsx 参数+候选弹窗；由 EditorNavMenu 直接接线，不走注册表）
 │   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
 │   │   ├── DebugPanel.jsx      # 调试面板
@@ -157,7 +158,7 @@ LibreGene/
 `EditorNavMenu.jsx` 中以下菜单项为占位（disabled，标注"即将推出"）：
 
 - 特征：始终展开特征（Always Expand Feature）
-- 引物：我的引物（My Primers）、PCR 分析、引物设计、选项
+- 引物：我的引物（My Primers）、PCR 分析、选项
 - 酶切：自定义酶集合、酶数据库、酶切分析
 
 导航菜单使用 `src/components/ui/dropdown-menu.jsx`（基于 `@radix-ui/react-dropdown-menu`，通过 shadcn 方式添加）。

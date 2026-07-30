@@ -113,6 +113,8 @@ export default function EditorNavMenu({
   onAddAlignmentFile,
   onAddAlignmentText,
   onManageAlignments,
+  onPrimerDesign,
+  topology,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -257,7 +259,23 @@ export default function EditorNavMenu({
             </DropdownMenuItem>
             <PlaceholderItem label="My Primers" />
             <PlaceholderItem label="PCR Analysis" />
-            <PlaceholderItem label="Primer Design" />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Primer Design</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-44">
+                <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
+                  Amplify Fragment
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
+                  OE-PCR
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={topology !== 'circular'}
+                  onSelect={() => onPrimerDesign?.('mutagenesis')}
+                >
+                  PCR Mutagenesis
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <PlaceholderItem label="Options" />
           </DropdownMenuContent>
         </DropdownMenu>

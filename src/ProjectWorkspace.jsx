@@ -1112,6 +1112,7 @@ export default function ProjectWorkspace({
               onAddAlignmentText={() => setAlignTextOpen(true)}
               onManageAlignments={() => setPluginDialogs((prev) => ({ ...prev, alignment: true }))}
               onEnzymeHoverChange={setEnzymeHoverCuts}
+              topology={topology}
             />
           </main>
           {!hidden && (
