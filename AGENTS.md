@@ -157,7 +157,6 @@ LibreGene/
 
 `EditorNavMenu.jsx` 中以下菜单项为占位（disabled，标注"即将推出"）：
 
-- 特征：始终展开特征（Always Expand Feature）
 - 引物：我的引物（My Primers）、PCR 分析、选项
 - 酶切：自定义酶集合、酶数据库、酶切分析
 

@@ -95,6 +95,13 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
+  const [alwaysExpandFeatures, setAlwaysExpandFeatures] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('alwaysExpandFeatures')) || false;
+    } catch {
+      return false;
+    }
+  });
   const [showPrimers, setShowPrimers] = useState(true);
   const [showEnzymes, setShowEnzymes] = useState(true);
   const [enzymeFilter, setEnzymeFilter] = useState('unique+twice');
@@ -449,8 +456,9 @@ export default function App() {
     return s.split('/').pop() || s;
   };
 
-  // Collapsible "Open Files" group
-  const [filesOpen, setFilesOpen] = useState(true);
+  // Recent group is collapsible (default collapsed); already-open files are hidden from it
+  const [recentOpen, setRecentOpen] = useState(false);
+  const visibleRecent = recentFiles.filter((p) => !projects.some((pr) => pr.id === p));
 
   const isProjectWindow = windowInfo?.type === 'project';
   const hasProject = isProjectWindow || projects.length > 0;
@@ -467,6 +475,17 @@ export default function App() {
     layoutParams,
     showFeatures,
     onToggleFeatures: () => setShowFeatures((v) => !v),
+    alwaysExpandFeatures,
+    onToggleAlwaysExpandFeatures: () =>
+      setAlwaysExpandFeatures((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('alwaysExpandFeatures', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
     showPrimers,
     onTogglePrimers: () => setShowPrimers((v) => !v),
     showEnzymes,
@@ -527,124 +546,46 @@ export default function App() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {recentFiles.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
-          <SidebarGroup className="pt-0">
-            <SidebarGroupLabel>
-              <Clock className="mr-1.5 size-3" />
-              <span className="uppercase tracking-wider text-[10px] font-semibold">Recent</span>
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {recentFiles.slice(0, 8).map((p) => {
-                  const name = fileNameOf(p);
-                  const Icon = getFileIcon(name);
-                  return (
-                    <SidebarMenuItem key={p}>
-                      <SidebarMenuButton
-                        onClick={() => handleOpenRecent(p)}
-                        tooltip={p}
-                        className="flex-1 min-w-0 pr-5"
-                      >
-                        <Icon className="size-4 shrink-0" />
-                        <span className="truncate">{name}</span>
-                      </SidebarMenuButton>
-                      <button
-                        type="button"
-                        aria-label="Remove from recent"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveRecent(p);
-                        }}
-                        title="Remove from recent"
-                        className="absolute right-2 top-1/2 hidden -translate-y-1/2 size-4 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-        {projects.length > 0 && (
-          <Collapsible open={filesOpen} onOpenChange={setFilesOpen}>
+        {visibleRecent.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
+          <Collapsible open={recentOpen} onOpenChange={setRecentOpen}>
             <SidebarGroup className="pt-0">
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="cursor-pointer select-none hover:text-sidebar-foreground">
-                  <span className="uppercase tracking-wider text-[10px] font-semibold">
-                    Opened Files
-                  </span>
-                  <span className="ml-1.5 rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-sidebar-accent-foreground">
-                    {projects.length}
-                  </span>
+                  <Clock className="mr-1.5 size-3" />
+                  <span className="uppercase tracking-wider text-[10px] font-semibold">Recent</span>
                   <ChevronDown
-                    className={`ml-auto size-3.5 shrink-0 transition-transform duration-200 ${filesOpen ? 'rotate-0' : '-rotate-90'}`}
+                    className={`ml-auto size-3.5 shrink-0 transition-transform duration-200 ${recentOpen ? 'rotate-0' : '-rotate-90'}`}
                   />
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {projects.map((p) => {
-                      const isActiveProject = p.id === activeId;
-                      const isProjectDirty = dirtyById[p.id] === true;
-                      const name = fileName(p);
+                    {visibleRecent.slice(0, 8).map((p) => {
+                      const name = fileNameOf(p);
                       const Icon = getFileIcon(name);
                       return (
-                        <SidebarMenuItem key={p.id}>
-                          {isActiveProject && (
-                            <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
-                          )}
+                        <SidebarMenuItem key={p}>
                           <SidebarMenuButton
-                            onClick={() => handleSwitchProject(p.id)}
-                            isActive={isActiveProject}
-                            tooltip={name}
-                            className={`flex-1 min-w-0 ${
-                              !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
-                            }`}
+                            onClick={() => handleOpenRecent(p)}
+                            tooltip={p}
+                            className="flex-1 min-w-0 pr-5"
                           >
                             <Icon className="size-4 shrink-0" />
                             <span className="truncate">{name}</span>
                           </SidebarMenuButton>
-                          {isProjectDirty && (
-                            <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
-                          )}
-                          {!windowInfo || windowInfo.type !== 'project' ? (
-                            <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden">
-                              <button
-                                className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenInNewWindow(p.id);
-                                }}
-                                title="Open in new window"
-                              >
-                                <ExternalLink className="size-3" />
-                              </button>
-                              <button
-                                className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCloseProject(p.id);
-                                }}
-                                title="Close"
-                              >
-                                <X className="size-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCloseProject(p.id);
-                              }}
-                              title="Close"
-                            >
-                              <X className="size-3" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            aria-label="Remove from recent"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveRecent(p);
+                            }}
+                            title="Remove from recent"
+                            className="absolute right-2 top-1/2 hidden -translate-y-1/2 size-4 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex"
+                          >
+                            <X className="size-3" />
+                          </button>
                         </SidebarMenuItem>
                       );
                     })}
@@ -653,6 +594,82 @@ export default function App() {
               </CollapsibleContent>
             </SidebarGroup>
           </Collapsible>
+        )}
+        {projects.length > 0 && (
+          <SidebarGroup className="pt-0">
+            <SidebarGroupLabel>
+              <span className="uppercase tracking-wider text-[10px] font-semibold">Opened</span>
+              <span className="ml-1.5 rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-sidebar-accent-foreground">
+                {projects.length}
+              </span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {projects.map((p) => {
+                  const isActiveProject = p.id === activeId;
+                  const isProjectDirty = dirtyById[p.id] === true;
+                  const name = fileName(p);
+                  const Icon = getFileIcon(name);
+                  return (
+                    <SidebarMenuItem key={p.id}>
+                      {isActiveProject && (
+                        <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
+                      )}
+                      <SidebarMenuButton
+                        onClick={() => handleSwitchProject(p.id)}
+                        isActive={isActiveProject}
+                        tooltip={name}
+                        className={`flex-1 min-w-0 ${
+                          !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
+                        }`}
+                      >
+                        <Icon className="size-4 shrink-0" />
+                        <span className="truncate">{name}</span>
+                      </SidebarMenuButton>
+                      {isProjectDirty && (
+                        <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
+                      )}
+                      {!windowInfo || windowInfo.type !== 'project' ? (
+                        <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden">
+                          <button
+                            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenInNewWindow(p.id);
+                            }}
+                            title="Open in new window"
+                          >
+                            <ExternalLink className="size-3" />
+                          </button>
+                          <button
+                            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCloseProject(p.id);
+                            }}
+                            title="Close"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCloseProject(p.id);
+                          }}
+                          title="Close"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         )}
         <SidebarGroup className="mt-auto">
           <SidebarGroupContent>

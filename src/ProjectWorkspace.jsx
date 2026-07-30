@@ -49,6 +49,8 @@ export default function ProjectWorkspace({
   layoutParams,
   showFeatures,
   onToggleFeatures,
+  alwaysExpandFeatures,
+  onToggleAlwaysExpandFeatures,
   showPrimers,
   onTogglePrimers,
   showEnzymes,
@@ -249,7 +251,7 @@ export default function ProjectWorkspace({
     onDirtyChange(projectId, isDirty);
   }, [projectId, isDirty, onDirtyChange]);
 
-  const [showOrfs, setShowOrfs] = useState(true);
+  const [showOrfs, setShowOrfs] = useState(false);
   const orfEnabled = !disabledPlugins.includes('orf') && showOrfs;
   const orfFeatures = useMemo(
     () => (orfEnabled && sequence ? findOrfs(sequence, topology) : EMPTY_ARRAY),
@@ -1092,6 +1094,8 @@ export default function ProjectWorkspace({
               canRedo={canRedo}
               showFeatures={showFeatures}
               onToggleFeatures={onToggleFeatures}
+              alwaysExpandFeatures={alwaysExpandFeatures}
+              onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
               showPrimers={showPrimers}
               onTogglePrimers={onTogglePrimers}
               showEnzymes={showEnzymes}
