@@ -93,6 +93,8 @@ export default function EditorNavMenu({
   onToLowercase,
   showFeatures,
   onToggleFeatures,
+  alwaysExpandFeatures,
+  onToggleAlwaysExpandFeatures,
   onCreateFeature,
   showPrimers,
   onTogglePrimers,
@@ -241,7 +243,12 @@ export default function EditorNavMenu({
               <Plus /> Create Feature
               <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <PlaceholderItem label="Always Expand Feature" />
+            <DropdownMenuCheckboxItem
+              checked={alwaysExpandFeatures}
+              onCheckedChange={onToggleAlwaysExpandFeatures}
+            >
+              Always Expand Feature
+            </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
 

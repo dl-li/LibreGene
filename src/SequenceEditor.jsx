@@ -479,6 +479,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   canRedo,
   showFeatures,
   onToggleFeatures,
+  alwaysExpandFeatures = false,
+  onToggleAlwaysExpandFeatures,
   showPrimers,
   onTogglePrimers,
   showEnzymes,
@@ -2427,6 +2429,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (!visibleFeatures.length) return null;
     return visibleFeatures.map((f) => {
       const isHovered = hoveredFeature === f.id;
+      const isExpanded = alwaysExpandFeatures || isHovered;
       const dataSegs = f.segments;
 
       const visuals = [];
@@ -2550,13 +2553,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
               >
                 <rect
                   x={x}
-                  y={isHovered && !isGap && !f.orf ? sy - 18 : y}
+                  y={isExpanded && !isGap && !f.orf ? sy - 18 : y}
                   width={w}
-                  height={isHovered && !isGap && !f.orf ? y - (sy - 18) : 0}
+                  height={isExpanded && !isGap && !f.orf ? y - (sy - 18) : 0}
                   fill={v.color}
-                  fillOpacity={isHovered && !f.orf ? (isGap ? 0 : 0.15) : 0}
+                  fillOpacity={isExpanded && !f.orf ? (isGap ? 0 : 0.15) : 0}
                   style={{ transition: springAnim, pointerEvents: 'none' }}
                 />
+                {alwaysExpandFeatures && isHovered && !isGap && !f.orf && (
+                  <rect
+                    x={x + 0.75}
+                    y={sy - 18 + 0.75}
+                    width={w - 1.5}
+                    height={y - (sy - 18) - 1.5}
+                    fill="none"
+                    stroke={v.color}
+                    strokeWidth={1.5}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                )}
                 {f.orf ? (
                   <>
                     <line
@@ -2577,7 +2592,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       x2={x + w}
                       y1={y}
                       y2={y}
-                      stroke={isHovered ? 'transparent' : bgColor}
+                      stroke={isExpanded ? 'transparent' : bgColor}
                       strokeWidth="7"
                     />
                     <line
@@ -2647,6 +2662,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     setTranslationSel,
     startTranslationSelection,
     alignLaneInfo,
+    alwaysExpandFeatures,
   ]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
@@ -4521,6 +4537,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToLowercase={toLowercase}
           showFeatures={showFeatures}
           onToggleFeatures={onToggleFeatures}
+          alwaysExpandFeatures={alwaysExpandFeatures}
+          onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
           onCreateFeature={createFeature}
           showPrimers={showPrimers}
           onTogglePrimers={onTogglePrimers}
