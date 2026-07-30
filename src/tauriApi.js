@@ -317,3 +317,49 @@ export function listenProjectUpdates(callback) {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Webview file drag-and-drop
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribe to files dragged onto the webview. `onDrop(paths)` fires on drop
+ * with an array of absolute file paths; `onHoverChange(active)` fires on
+ * drag-enter/leave for UI feedback. Returns a `close()` that unregisters the
+ * listener (leak-safe even if called before the underlying promise resolves).
+ *
+ * Tauri v2 intercepts native file drops and delivers paths via
+ * webview.onDragDropEvent (payload.type = 'hover' | 'drop' | 'cancel').
+ */
+export function onDragDropFiles(onDrop, onHoverChange) {
+  if (!isTauri) return { close: () => {} };
+  let closed = false;
+  let active = false;
+  const mod = import('@tauri-apps/api/webview');
+  const ready = mod.then((m) =>
+    m.getCurrentWebview().onDragDropEvent((event) => {
+      if (closed) return;
+      const { type, paths } = event.payload;
+      if (type === 'hover') {
+        // Tauri fires 'hover' continuously; only signal on enter/leave.
+        if (!active) {
+          active = true;
+          onHoverChange?.(true);
+        }
+      } else if (type === 'drop') {
+        active = false;
+        onHoverChange?.(false);
+        if (paths && paths.length) onDrop(paths);
+      } else if (type === 'cancel') {
+        active = false;
+        onHoverChange?.(false);
+      }
+    }),
+  );
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}

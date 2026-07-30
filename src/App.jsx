@@ -10,6 +10,7 @@ import {
   openInNewWindow,
   deleteProject,
   setWindowTitle,
+  onDragDropFiles,
 } from './tauriApi';
 import { plugins } from './plugins';
 import ProjectWorkspace from './ProjectWorkspace';
@@ -157,6 +158,9 @@ export default function App() {
   const [sidebarHover, setSidebarHover] = useState(false);
   const sidebarLeaveRef = useRef(null);
 
+  // File drag-and-drop overlay state
+  const [dragActive, setDragActive] = useState(false);
+
   const handleSidebarEnter = useCallback(() => {
     clearTimeout(sidebarLeaveRef.current);
     setSidebarHover(true);
@@ -295,6 +299,26 @@ export default function App() {
     unsavedPendingRef.current = pendingAction;
   }, []);
 
+  // Core: open a list of file paths. Shared by the Open dialog, the recent
+  // list, and file drag-and-drop.
+  const openPaths = useCallback(
+    async (paths) => {
+      if (!paths || !paths.length) return;
+      try {
+        for (const p of paths) {
+          const data = await openFile(p);
+          if (data && data.sequence) {
+            initialDataRef.current[p] = data;
+          }
+        }
+        await refreshProjects();
+      } catch (e) {
+        console.error('open file error:', e);
+      }
+    },
+    [refreshProjects],
+  );
+
   const handleOpenFile = useCallback(async () => {
     let paths;
     if (isTauri) {
@@ -303,19 +327,24 @@ export default function App() {
     } else {
       paths = [openPath];
     }
-    try {
-      for (const p of paths) {
-        const data = await openFile(p);
-        if (data && data.sequence) {
-          // Hand the response to the new workspace so it doesn't refetch
-          initialDataRef.current[p] = data;
-        }
-      }
-      await refreshProjects();
-    } catch (e) {
-      console.error('open file error:', e);
-    }
-  }, [openPath, refreshProjects]);
+    await openPaths(paths);
+  }, [openPath, openPaths]);
+
+  // File drag-and-drop: open any sequence files dragged onto the window.
+  useEffect(() => {
+    if (!isTauri) return undefined;
+    const listener = onDragDropFiles(
+      (paths) => {
+        setDragActive(false);
+        // Only accept supported sequence file extensions.
+        const supported = /\.(gbk|gb|dna|fasta|fa|fna|ab1)$/i;
+        const seqPaths = paths.filter((p) => supported.test(p));
+        if (seqPaths.length) openPaths(seqPaths);
+      },
+      (active) => setDragActive(active),
+    );
+    return () => listener.close();
+  }, [openPaths]);
 
   // Switching is lossless (workspaces stay mounted) — just update activeId
   const handleSwitchProject = useCallback((id) => {
@@ -633,6 +662,20 @@ export default function App() {
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
           <TitleBar title={activeTitle} dirty={activeDirty} />
+          {/* Drag-and-drop overlay: shown while files are dragged onto the window */}
+          {dragActive && (
+            <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/10 backdrop-blur-[1px]">
+              <div className="rounded-xl border-2 border-dashed border-primary/60 bg-background/90 px-10 py-8 text-center shadow-lg">
+                <FolderOpen className="mx-auto mb-2 size-8 text-primary" />
+                <p className="text-sm font-medium text-foreground">
+                  Drop sequence files to open
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  .gbk · .gb · .dna · .fasta · .fa · .fna · .ab1
+                </p>
+              </div>
+            </div>
+          )}
           {/* Only show sidebar in main window */}
           {hasProject && !isProjectWindow && (
             <div
