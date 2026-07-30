@@ -256,16 +256,18 @@ export async function computeTm(seq, tmParams = {}) {
 // Tauri dialog helpers
 // ---------------------------------------------------------------------------
 
-export async function openFileDialog() {
+export async function openFileDialog(defaultPath) {
   if (!isTauri) return null;
-  const result = await tauriOpen({
+  const opts = {
     title: 'Open GenBank/DNA/FASTA files',
     filters: [
       { name: 'DNA Files', extensions: ['gbk', 'gb', 'dna', 'fasta', 'fa', 'fna', 'ab1'] },
       { name: 'All Files', extensions: ['*'] },
     ],
     multiple: true,
-  });
+  };
+  if (defaultPath) opts.defaultPath = defaultPath;
+  const result = await tauriOpen(opts);
   reassertTrafficLights();
   if (!result) return null;
   return Array.isArray(result) ? result : [result];
