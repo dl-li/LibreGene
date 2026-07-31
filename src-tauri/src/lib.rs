@@ -96,6 +96,22 @@ fn with_projects_list(
     data
 }
 
+/// Build a lightweight mutation response for feature edits: the calling window
+/// only needs the updated feature list and the sidebar project list. Avoids
+/// serializing the full project (~1.5MB, mostly the enzyme list) on every Apply.
+fn feature_mutation_response(pm: &ProjectManager, project_id: &str) -> serde_json::Value {
+    let projects = pm.list_projects();
+    let active_id = pm.active_id().map(|s| s.to_string());
+    match pm.get_project_by_id(project_id) {
+        Some(p) => with_projects_list(
+            serde_json::json!({ "features": &p.features }),
+            &projects,
+            active_id.as_deref(),
+        ),
+        None => serde_json::json!({"error": "Project not found"}),
+    }
+}
+
 /// Filter enzymes according to the same logic as routes.rs::filter_project.
 fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::Value {
     let filter = params.enzyme_filter.as_deref().unwrap_or("unique");
@@ -163,36 +179,48 @@ async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, 
         "activeId": active_id,
         "source": source,
     });
-    // Include project data if there's an active project in the main window
-    if let Some(ref active) = active_id {
-        if let Some(project) = pm.get_project_by_id(active) {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            let mut filtered = filter_project(project, &params);
-            if let Some(ref mut map) = filtered.as_object_mut() {
-                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
-            }
-            payload["data"] = filtered;
-        }
-    }
-    // Include all project data for multi-window sync (keyed by project ID)
-    let params = ProjectParams {
-        enzyme_filter: Some("all".to_string()),
-        row_start: None,
-        row_end: None,
-        cpl: None,
+
+    // The source window skips its own broadcast (it applies the command
+    // response instead), so the full project data is only needed when another
+    // window has to re-sync. Avoid serializing the whole project (with the
+    // enzyme list) on every mutation when there's nobody else to notify.
+    let has_other_windows = match source {
+        Some(label) => app_handle.webview_windows().keys().any(|l| l != label),
+        None => !app_handle.webview_windows().is_empty(),
     };
-    let mut project_data_map = serde_json::Map::new();
-    for id in pm.all_project_ids() {
-        if let Some(project) = pm.get_project_by_id(&id) {
-            project_data_map.insert(id, filter_project(project, &params));
+
+    if has_other_windows {
+        // Include project data if there's an active project in the main window
+        if let Some(ref active) = active_id {
+            if let Some(project) = pm.get_project_by_id(active) {
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                let mut filtered = filter_project(project, &params);
+                if let Some(ref mut map) = filtered.as_object_mut() {
+                    map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
+                }
+                payload["data"] = filtered;
+            }
         }
+        // Include all project data for multi-window sync (keyed by project ID)
+        let params = ProjectParams {
+            enzyme_filter: Some("all".to_string()),
+            row_start: None,
+            row_end: None,
+            cpl: None,
+        };
+        let mut project_data_map = serde_json::Map::new();
+        for id in pm.all_project_ids() {
+            if let Some(project) = pm.get_project_by_id(&id) {
+                project_data_map.insert(id, filter_project(project, &params));
+            }
+        }
+        payload["projectData"] = serde_json::Value::Object(project_data_map);
     }
-    payload["projectData"] = serde_json::Value::Object(project_data_map);
     let _ = app_handle.emit("project-update", payload);
 }
 
@@ -479,20 +507,8 @@ async fn add_feature(
     // Broadcast event so listeners update their state
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
-    // Return updated project
     let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    Ok(feature_mutation_response(&pm, &project_id))
 }
 
 #[tauri::command]
@@ -558,20 +574,8 @@ async fn update_feature_ftype(
     // Broadcast event so listeners update their state
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
-    // Return updated project
     let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    Ok(feature_mutation_response(&pm, &project_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -610,18 +614,7 @@ async fn update_feature_color(
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    Ok(feature_mutation_response(&pm, &project_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -656,18 +649,7 @@ async fn update_feature_name(
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    Ok(feature_mutation_response(&pm, &project_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -706,18 +688,7 @@ async fn update_feature_strand(
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    Ok(feature_mutation_response(&pm, &project_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -758,18 +729,7 @@ async fn update_feature_location(
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    Ok(feature_mutation_response(&pm, &project_id))
 }
 
 // ---------------------------------------------------------------------------
