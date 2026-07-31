@@ -596,7 +596,11 @@ async fn update_feature_color(
         let mut pm = state.pm.write().await;
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.color = new_color;
+                f.color = new_color.clone();
+                // Recolor every segment too so the whole feature changes at once.
+                for seg in f.segments.iter_mut() {
+                    seg.color = Some(new_color.clone());
+                }
             }
             pm.mark_dirty(&project_id);
         }
