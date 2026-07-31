@@ -45,7 +45,7 @@ LibreGene/
 ├── components.json             # shadcn 配置 (new-york style, neutral base)
 ├── jsconfig.json               # 路径别名 (@/ → src/)
 ├── assets/Fonts/               # 10 个字体文件 (Cascadia Code, TeX Gyre Heros/Termes)
-├── test/                       # 公开合成测试序列 (.dna, .gbk)
+├── examples/                  # 公开合成测试序列 (.gbk)
 ├── src/                        # 前端 React 源码
 │   ├── main.jsx                # 入口，ReactDOM.createRoot
 │   ├── App.jsx                 # 顶层状态管理，Sidebar + 路由
