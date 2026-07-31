@@ -340,22 +340,6 @@ export default function App() {
     }
   }, [openPath, projects, refreshProjects]);
 
-  // --- Global shortcut: Cmd/Ctrl+O opens a file ---
-  useEffect(() => {
-    const handler = (e) => {
-      const isCtrl = e.ctrlKey || e.metaKey;
-      if (!isCtrl) return;
-      const tag = e.target?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
-      if (e.key === 'o') {
-        e.preventDefault();
-        handleOpenFile();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleOpenFile]);
-
   // Switching is lossless (workspaces stay mounted) — just update activeId
   const handleSwitchProject = useCallback((id) => {
     if (!id || id === activeIdRef.current) return;
@@ -483,7 +467,6 @@ export default function App() {
   const sidebarTargetId = isProjectWindow ? windowInfo.projectId : activeId;
 
   const workspaceProps = {
-    onOpenFile: handleOpenFile,
     backendStatus,
     methylationSystems,
     methylationOverlap,
