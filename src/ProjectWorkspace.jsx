@@ -41,6 +41,7 @@ export default function ProjectWorkspace({
   hidden,
   initialData,
   topology = 'circular',
+  onOpenFile,
   backendStatus,
   methylationSystems,
   methylationOverlap,
@@ -1075,6 +1076,9 @@ export default function ProjectWorkspace({
               layoutParams={editorLayoutParams}
               onEditRequest={handleEditRequest}
               restoreState={restoreState}
+              onOpenFile={onOpenFile}
+              onSave={handleSave}
+              onSaveAs={handleSaveAs}
               onFeatureFtypeChange={handleFeatureFtypeChange}
               onFeatureColorChange={handleFeatureColorChange}
               onFeatureLocationChange={handleFeatureLocationChange}
