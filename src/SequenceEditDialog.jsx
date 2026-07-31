@@ -100,12 +100,16 @@ export default function SequenceEditDialog({
     }
   }, [open, initialText]);
 
-  // 打开后自动聚焦输入框
+  // 打开后自动聚焦输入框，光标移到末尾（便于接着预填字符继续输入）
   useEffect(() => {
     if (open && (mode === 'insert' || mode === 'replace')) {
       // 小延迟确保 DOM 渲染完成
       const timer = setTimeout(() => {
-        inputRef.current?.focus();
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
       }, 50);
       return () => clearTimeout(timer);
     }
