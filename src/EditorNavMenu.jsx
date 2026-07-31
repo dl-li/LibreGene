@@ -81,6 +81,7 @@ function PlaceholderItem({ label }) {
 export default function EditorNavMenu({
   onSave,
   onSaveAs,
+  canDirectSave = true,
   canUndo,
   canRedo,
   onUndo,
@@ -197,7 +198,7 @@ export default function EditorNavMenu({
         <DropdownMenu modal={false}>
           <NavTrigger icon={Pencil} label="Edit" />
           <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-            <DropdownMenuItem onSelect={onSave}>
+            <DropdownMenuItem disabled={!canDirectSave} onSelect={onSave}>
               <Save /> Save
               <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
             </DropdownMenuItem>

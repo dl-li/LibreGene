@@ -114,6 +114,13 @@ export default function ProjectWorkspace({
   const isDirtyRef = useRef(false);
   const baselineSequenceRef = useRef(initialData?.sequence ?? '');
 
+  // Direct Save is only allowed for GenBank files; non-GenBank sources
+  // (.dna, .fasta, .ab1, ...) must be re-exported via Save As.
+  const canDirectSave = useMemo(() => {
+    const ext = (projectId || '').split('.').pop()?.toLowerCase();
+    return ext === 'gbk' || ext === 'gb';
+  }, [projectId]);
+
   useEffect(() => {
     isDirtyRef.current = isDirty;
   }, [isDirty]);
@@ -1077,6 +1084,7 @@ export default function ProjectWorkspace({
               restoreState={restoreState}
               onSave={handleSave}
               onSaveAs={handleSaveAs}
+              canDirectSave={canDirectSave}
               onFeatureFtypeChange={handleFeatureFtypeChange}
               onFeatureColorChange={handleFeatureColorChange}
               onFeatureLocationChange={handleFeatureLocationChange}

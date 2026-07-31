@@ -483,6 +483,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   restoreState,
   onSave,
   onSaveAs,
+  canDirectSave = true,
   onFeatureFtypeChange,
   onFeatureColorChange,
   onFeatureLocationChange,
@@ -4565,6 +4566,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         <EditorNavMenu
           onSave={onSave}
           onSaveAs={onSaveAs}
+          canDirectSave={canDirectSave}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={onUndo}
