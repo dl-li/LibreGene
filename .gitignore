@@ -7,6 +7,7 @@ __pycache__/
 .DS_Store
 .claude/settings.local.json
 .vscode/
+.sglock/
 
 # Unpublished research data — replace with synthetic sequences for CI
 test/flySWARM.*
