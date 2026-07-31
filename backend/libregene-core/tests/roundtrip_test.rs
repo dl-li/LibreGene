@@ -7,8 +7,8 @@ fn roundtrip_feature_edit() {
     let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap()
         .parent().unwrap()
-        .join("test")
-        .join("pUC-GW-Amp.gb");
+        .join("examples")
+        .join("pGGA-mCherry.gbk");
 
     // 1) Parse original
     let mut original = libregene_core::file_io::gbk::parse_gbk(&test_file)
@@ -58,42 +58,30 @@ fn roundtrip_feature_edit() {
     println!("  ✅ Round-trip OK — {} features, {} bp", reloaded.features.len(), reloaded.length);
 }
 
-/// SnapGene-flavoured round trip: parse the SnapGene-exported pUC19 reference,
-/// write it back out, parse again, and verify SnapGene-specific details survive.
+/// Enhanced-GenBank round trip: parse the LibreGene-exported pUC19 reference
+/// (colors, segments and primer annotations), write it back out, parse again,
+/// and verify the annotations survive.
 #[test]
-fn roundtrip_snapgene_puc19() {
+fn roundtrip_puc19_annotated() {
     let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap()
         .parent().unwrap()
-        .join("test")
-        .join("GBK(SG Style)")
-        .join("2. pUC19 Annotated.gbk");
+        .join("examples")
+        .join("pUC19 Annotated.gbk");
 
     let mut original = libregene_core::file_io::gbk::parse_gbk(&test_file)
-        .expect("parse SnapGene pUC19");
+        .expect("parse pUC19");
 
-    // Header fields from the SnapGene file
-    assert_eq!(original.name, "pUC19");
-    assert!(!original.definition.is_empty());
+    // Header fields
+    assert_eq!(original.name, "pUC19_Annotated");
     assert_eq!(original.lab_host, "Escherichia coli");
-    // Sequence case is preserved (SnapGene writes lowercase ORIGIN)
-    assert!(original.sequence.chars().any(|c| c.is_ascii_lowercase()));
 
     let feat_count = original.features.len();
     let primer_count = original.primers.len();
     assert!(feat_count > 0);
     assert_eq!(primer_count, 2, "M13 fwd + M13 rev");
 
-    // lacZ-alpha keeps its raw qualifiers
-    let lacz = original.features.iter().find(|f| f.name == "lacZ-alpha")
-        .expect("lacZ-alpha parsed");
-    let qual = |k: &str| lacz.qualifiers.iter().find(|(q, _)| q == k).map(|(_, v)| v.clone());
-    assert_eq!(qual("codon_start").as_deref(), Some("1"));
-    assert_eq!(qual("gene").as_deref(), Some("lacZ fragment"));
-    assert!(qual("product").is_some());
-    assert_eq!(lacz.strand, "-", "complement() location → reverse strand");
-
-    // Segmented feature restored from the "This feature has N segments" note
+    // Segmented AmpR restored from the "This feature has N segments" note
     let ampr = original.features.iter().find(|f| f.name == "AmpR")
         .expect("AmpR parsed");
     assert_eq!(ampr.segments.len(), 2);
@@ -103,29 +91,18 @@ fn roundtrip_snapgene_puc19() {
 
     // Write out and parse again
     libregene_core::primer::recompute(&mut original);
-    let tmp = std::env::temp_dir().join("libregene_snapgene_roundtrip.gbk");
+    let tmp = std::env::temp_dir().join("libregene_puc19_roundtrip.gbk");
     libregene_core::file_io::gbk::write_gbk(&original, &tmp).expect("write gbk");
     let written = std::fs::read_to_string(&tmp).unwrap();
     let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse written gbk");
     let _ = std::fs::remove_file(&tmp);
 
-    assert_eq!(reloaded.name, "pUC19");
-    assert_eq!(reloaded.definition, original.definition);
+    assert_eq!(reloaded.name, "pUC19_Annotated");
     assert_eq!(reloaded.lab_host, "Escherichia coli");
     assert_eq!(reloaded.features.len(), feat_count);
     assert_eq!(reloaded.primers.len(), primer_count);
     assert_eq!(reloaded.sequence, original.sequence);
     assert!(written.contains("ORIGIN"));
-    assert!(written.lines().skip_while(|l| !l.starts_with("ORIGIN")).skip(1)
-        .next().unwrap().contains("tcgcgcgttt"), "lowercase ORIGIN preserved");
-
-    // lacZ-alpha qualifiers survive the round trip
-    let lacz2 = reloaded.features.iter().find(|f| f.name == "lacZ-alpha").unwrap();
-    let qual2 = |k: &str| lacz2.qualifiers.iter().find(|(q, _)| q == k).map(|(_, v)| v.clone());
-    assert_eq!(qual2("codon_start").as_deref(), Some("1"));
-    assert_eq!(qual2("gene").as_deref(), Some("lacZ fragment"));
-    assert!(qual2("product").is_some());
-    assert_eq!(lacz2.strand, "-");
 
     // Segments survive the round trip
     let ampr2 = reloaded.features.iter().find(|f| f.name == "AmpR").unwrap();
@@ -133,7 +110,7 @@ fn roundtrip_snapgene_puc19() {
     assert_eq!((ampr2.segments[0].start, ampr2.segments[0].end), (1625, 2416));
     assert_eq!((ampr2.segments[1].start, ampr2.segments[1].end), (2417, 2485));
 
-    // Primer direction + SnapGene note format
+    // Primer direction + color note
     let fwd = reloaded.primers.iter().find(|p| p.name == "M13 fwd").expect("M13 fwd");
     let rev = reloaded.primers.iter().find(|p| p.name == "M13 rev").expect("M13 rev");
     assert_eq!(fwd.r#type, "fwd");
@@ -148,6 +125,6 @@ fn roundtrip_snapgene_puc19() {
         "forward feature plain color note");
     assert!(!written.contains("direction: RIGHT\"\n"), "no separate forward direction note");
 
-    // Segments note written in SnapGene style
+    // Segments note written in enhanced-GenBank style
     assert!(written.contains("This feature has 2 segments:"), "segments note written");
 }

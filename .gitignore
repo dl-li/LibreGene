@@ -12,3 +12,6 @@ __pycache__/
 # Unpublished research data — replace with synthetic sequences for CI
 test/flySWARM.*
 backend/test_data/flySWARM.*
+
+# Local-only examples, kept off GitHub
+examples/others/

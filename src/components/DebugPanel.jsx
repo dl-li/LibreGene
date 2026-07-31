@@ -130,7 +130,7 @@ export default function DebugPanel({
                   placeholder="/path/to/file.gbk"
                 />
                 <div className="flex flex-wrap gap-1 mt-1.5">
-                  {['test/pUC-GW-Amp.gb', 'test/flySWARM.dna'].map((f) => (
+                  {['examples/pGGA-mCherry.gbk', 'examples/pUC19 Annotated.gbk'].map((f) => (
                     <Button
                       key={f}
                       variant="secondary"
