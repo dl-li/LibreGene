@@ -149,6 +149,25 @@ function buildCDSData(feature, sequence) {
   return { trans, codonMap, codingBases };
 }
 
+/** Split an inclusive match range into linear segments; a range with
+ *  end < start crosses the origin of a circular sequence. */
+function buildMatchSegs(ms, me, tlen) {
+  if (me < ms && tlen > 0) {
+    return [
+      { start: ms, end: tlen - 1 },
+      { start: 0, end: me },
+    ];
+  }
+  return [{ start: ms, end: me }];
+}
+
+/** Template sequence covered by a primer match (origin-crossing aware). */
+function matchedSeqOf(p, cleanSeq) {
+  return (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }])
+    .map((m) => cleanSeq.substring(m.start, m.end + 1))
+    .join('');
+}
+
 // ---------------------------------------------------------------------------
 // WarningBadge — floating indicator in bottom-right corner for various
 // warnings (e.g. primers with no binding sites, CDS non-triplet length).
@@ -283,10 +302,8 @@ function SelectionLengthBadge({
     const fwdPrimer = fp.isFwd ? fp : rp;
     const revPrimer = fp.isFwd ? rp : fp;
     if (!fwdPrimer || !revPrimer) return null;
-    const fSeq =
-      fwdPrimer.primerSeq || cleanSeq.substring(fwdPrimer.matchStart, fwdPrimer.matchEnd + 1);
-    const rSeq =
-      revPrimer.primerSeq || cleanSeq.substring(revPrimer.matchStart, revPrimer.matchEnd + 1);
+    const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
+    const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
     let intervening;
     if (fwdPrimer.matchEnd < revPrimer.matchStart) {
       intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
@@ -301,13 +318,12 @@ function SelectionLengthBadge({
     const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
     if (!p) return null;
     seqToCopy =
-      p.primerSeq ||
-      (p.matchStart !== undefined && p.matchEnd !== undefined
-        ? cleanSeq.substring(p.matchStart, p.matchEnd + 1)
+      p.primerSeq || (p.matchStart !== undefined && p.matchEnd !== undefined
+        ? matchedSeqOf(p, cleanSeq)
         : '');
     len =
       (p.primerSeq || '').length ||
-      (p.matchStart !== undefined && p.matchEnd !== undefined ? p.matchEnd - p.matchStart + 1 : 0);
+      (p.matchStart !== undefined && p.matchEnd !== undefined ? matchedSeqOf(p, cleanSeq).length : 0);
     bg = p.isFwd === false ? '#4A148C' : '#166534';
   } else if (isEnzymeSelection) {
     if (selStart === null || selEnd === null) return null;
@@ -915,14 +931,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       (primers || []).map((p) => {
         // Already enriched (legacy flat fields or pre-computed).
         if (p.matchStart !== undefined && p.matchEnd !== undefined) {
-          if (p.isFwd === false) return { ...p, color: '#4A148C' };
-          return p;
+          const matchSegs = buildMatchSegs(p.matchStart, p.matchEnd, cleanSeq.length);
+          if (p.isFwd === false) return { ...p, color: '#4A148C', matchSegs };
+          return { ...p, matchSegs };
         }
         const bs = p.bindingSites?.[0];
         if (!bs) return p;
         // templateStart (inclusive), templateEnd (exclusive) — convert to legacy inclusive matchEnd
         const ms = bs.templateStart ?? bs.matchStart ?? 0;
         const me = bs.templateEnd != null ? bs.templateEnd - 1 : (bs.matchEnd ?? 0);
+        const tlen = cleanSeq.length;
         const aln = bs.alignment || {};
         const ds = aln.displaySequence || '';
         const misSet = new Set(aln.mismatchIndices || []);
@@ -930,7 +948,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const renderCols = [];
         for (let i = 0; i < ds.length; i++) {
           const ch = ds[i];
-          const tcol = ms + i;
+          const tcol = tlen > 0 ? (ms + i) % tlen : ms + i;
           let kind, primerBase, insDetail;
           if (ch === '-') {
             kind = 'gap';
@@ -949,15 +967,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
           renderCols.push({ templateCol: tcol, kind, primerBase, insDetail, displayIdx: i });
         }
         const isFwd = (bs.strand ?? 1) === 1;
+        const matchSegs = buildMatchSegs(ms, me, tlen);
+        const matchedBases = matchSegs.map((m) => cleanSeq.substring(m.start, m.end + 1)).join('');
         return {
           ...p,
           matchStart: ms,
           matchEnd: me,
+          matchSegs,
           isFwd, // actual binding direction (NOT declared type)
           color: isFwd ? safePrimerColor(p.color) : '#4A148C', // rev primers always deep purple
-          matchStr: isFwd
-            ? cleanSeq.substring(ms, me + 1)
-            : complementStr(cleanSeq.substring(ms, me + 1)),
+          matchStr: isFwd ? matchedBases : complementStr(matchedBases),
           // tails for rendering
           mismatchStr: bs.fivePrimeTail || '',
           threePrimeTail: bs.threePrimeTail || '',
@@ -1117,9 +1136,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (const isFwd of [true, false]) {
         const ofType = (enrichedPrimers || []).filter((p) => p.isFwd === isFwd);
         if (!ofType.length) continue;
+        const matchLen = (p) =>
+          (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]).reduce(
+            (s, m) => s + m.end - m.start + 1,
+            0,
+          );
         const sorted = [...ofType].sort((a, b) => {
-          const la = a.matchEnd - a.matchStart + (a.mismatchStr?.length || 0);
-          const lb = b.matchEnd - b.matchStart + (b.mismatchStr?.length || 0);
+          const la = matchLen(a) + (a.mismatchStr?.length || 0);
+          const lb = matchLen(b) + (b.mismatchStr?.length || 0);
           return lb - la || a.matchStart - b.matchStart;
         });
         for (let r = 0; r < numRows; r++) {
@@ -1128,23 +1152,29 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const rowTracks = [];
           for (const p of sorted) {
             const ml = p.mismatchStr?.length || 0;
-            const vs = isFwd ? p.matchStart - ml : p.matchStart;
-            const ve = !isFwd ? p.matchEnd + ml : p.matchEnd;
-            if (ve < rs || vs > re) continue;
-            if (!pTracks[p.id]) pTracks[p.id] = {};
-            let placed = false;
-            for (let i = 0; i < rowTracks.length; i++) {
-              if (!rowTracks[i].some((t) => !(ve < t.start || vs > t.end))) {
-                rowTracks[i].push({ start: vs, end: ve });
-                pTracks[p.id][r] = i;
-                placed = true;
-                break;
+            const segs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
+            segs.forEach((m, mi) => {
+              // 5' tail extends left of matchStart (fwd) / right of matchEnd (rev)
+              const vs = isFwd && mi === 0 ? m.start - ml : m.start;
+              const ve = !isFwd && mi === segs.length - 1 ? m.end + ml : m.end;
+              if (ve < rs || vs > re) return;
+              if (!pTracks[p.id]) pTracks[p.id] = {};
+              let placed = false;
+              for (let i = 0; i < rowTracks.length; i++) {
+                if (!rowTracks[i].some((t) => !(ve < t.start || vs > t.end))) {
+                  rowTracks[i].push({ start: vs, end: ve });
+                  if (pTracks[p.id][r] === undefined || i < pTracks[p.id][r]) {
+                    pTracks[p.id][r] = i;
+                  }
+                  placed = true;
+                  break;
+                }
               }
-            }
-            if (!placed) {
-              rowTracks.push([{ start: vs, end: ve }]);
-              pTracks[p.id][r] = rowTracks.length - 1;
-            }
+              if (!placed) {
+                rowTracks.push([{ start: vs, end: ve }]);
+                if (pTracks[p.id][r] === undefined) pTracks[p.id][r] = rowTracks.length - 1;
+              }
+            });
           }
         }
       }
@@ -1197,28 +1227,31 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (const p of (enrichedPrimers || []).filter((p) => !p.isFwd)) {
         if (p.matchStart === undefined) continue;
         const ml = p.mismatchStr?.length || 0;
-        const vs = p.matchStart,
-          ve = p.matchEnd + ml;
+        const psegs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
         revFeatOff[p.id] = {};
-        for (const f of resultFeatures) {
-          for (const fseg of f.segments) {
-            const isFRev = f.strand === '-';
-            const labelCols =
-              Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
-            const fvs = isFRev ? fseg.start : fseg.start - labelCols;
-            const fve = isFRev ? fseg.end + labelCols : fseg.end;
-            if (fve < vs || fvs > ve) continue;
-            const sr = Math.floor(fseg.start / charsPerLine);
-            const er = Math.floor(fseg.end / charsPerLine);
-            for (let r = sr; r <= er; r++) {
-              const ft = (fRowTracks[f.id] || {})[r] || 0;
-              revFeatOff[p.id][r] = Math.max(
-                revFeatOff[p.id][r] || 0,
-                (ft + 1) * lp.featTrackHeight,
-              );
+        psegs.forEach((m, mi) => {
+          const vs = m.start,
+            ve = mi === psegs.length - 1 ? m.end + ml : m.end;
+          for (const f of resultFeatures) {
+            for (const fseg of f.segments) {
+              const isFRev = f.strand === '-';
+              const labelCols =
+                Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
+              const fvs = isFRev ? fseg.start : fseg.start - labelCols;
+              const fve = isFRev ? fseg.end + labelCols : fseg.end;
+              if (fve < vs || fvs > ve) continue;
+              const sr = Math.floor(fseg.start / charsPerLine);
+              const er = Math.floor(fseg.end / charsPerLine);
+              for (let r = sr; r <= er; r++) {
+                const ft = (fRowTracks[f.id] || {})[r] || 0;
+                revFeatOff[p.id][r] = Math.max(
+                  revFeatOff[p.id][r] || 0,
+                  (ft + 1) * lp.featTrackHeight,
+                );
+              }
             }
           }
-        }
+        });
       }
 
       return {
@@ -1251,10 +1284,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (p.matchStart === undefined || p.matchEnd === undefined) continue;
       // Only include rows that actually render primer segments (the match range).
       // Tail characters beyond the match segment's row are truncated by rendering.
-      const sr = Math.floor(p.matchStart / charsPerLine);
-      const er = Math.floor(p.matchEnd / charsPerLine);
-      for (let r = sr; r <= er; r++) {
-        (map[r] || (map[r] = [])).push(p);
+      for (const m of p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]) {
+        const sr = Math.floor(m.start / charsPerLine);
+        const er = Math.floor(m.end / charsPerLine);
+        for (let r = sr; r <= er; r++) {
+          if (!map[r]) map[r] = [];
+          if (!map[r].includes(p)) map[r].push(p);
+        }
       }
     }
     return map;
@@ -1284,7 +1320,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const entries = [];
       for (const p of primers) {
         if (!p.isFwd) continue;
-        const segs = sp(p.matchStart, p.matchEnd);
+        const segs = (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]).flatMap((m) =>
+          sp(m.start, m.end),
+        );
         const firstSeg = segs[0];
         if (!firstSeg || firstSeg.row !== row) continue;
         const ml = p.mismatchStr?.length || 0;
@@ -1976,12 +2014,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const fwdPrimer = fp && fp.isFwd ? fp : rp;
           const revPrimer = fp && !fp.isFwd ? fp : rp;
           if (fwdPrimer && revPrimer) {
-            const fSeq =
-              fwdPrimer.primerSeq ||
-              cleanSeq.substring(fwdPrimer.matchStart, fwdPrimer.matchEnd + 1);
-            const rSeq =
-              revPrimer.primerSeq ||
-              cleanSeq.substring(revPrimer.matchStart, revPrimer.matchEnd + 1);
+            const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
+            const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
             let intervening;
             if (fwdPrimer.matchEnd < revPrimer.matchStart) {
               intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
@@ -1999,7 +2033,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           e.preventDefault();
           const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
           if (p) {
-            const seq = p.primerSeq || cleanSeq.substring(p.matchStart, p.matchEnd + 1);
+            const seq = p.primerSeq || matchedSeqOf(p, cleanSeq);
             navigator.clipboard.writeText(seq).catch(() => {});
           }
           return;
@@ -2351,10 +2385,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return enrichedPrimers.filter((p) => {
       if (p.matchStart === undefined || p.matchEnd === undefined) return false;
-      const sr = Math.floor(p.matchStart / charsPerLine);
-      const er = Math.floor(p.matchEnd / charsPerLine);
       const ml = p.mismatchStr?.length || 0;
-      return !(er < vs - Math.ceil(ml / charsPerLine) || sr > ve + Math.ceil(ml / charsPerLine));
+      const pad = Math.ceil(ml / charsPerLine);
+      return (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]).some((m) => {
+        const sr = Math.floor(m.start / charsPerLine);
+        const er = Math.floor(m.end / charsPerLine);
+        return !(er < vs - pad || sr > ve + pad);
+      });
     });
   }, [enrichedPrimers, visibleRows, numRows, charsPerLine]);
 
@@ -3064,18 +3101,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const misLen = p.mismatchStr?.length || 0;
       const hasMis = misLen > 0;
       const pColor = safePrimerColor(p.color);
-      const segs = sp(p.matchStart, p.matchEnd);
+      const segs = (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]).flatMap((m) =>
+        sp(m.start, m.end),
+      );
       if (p.renderCols) {
-        let ci = 0;
-        const rowEndOf = (s) => s.row * charsPerLine + s.colEnd;
         for (const seg of segs) {
-          seg.renderCols = [];
-          while (ci < p.renderCols.length && p.renderCols[ci].templateCol <= rowEndOf(seg)) {
-            if (p.renderCols[ci].templateCol >= seg.colStart + seg.row * charsPerLine) {
-              seg.renderCols.push(p.renderCols[ci]);
-            }
-            ci++;
-          }
+          const lo = seg.row * charsPerLine + seg.colStart;
+          const hi = seg.row * charsPerLine + seg.colEnd;
+          seg.renderCols = p.renderCols.filter(
+            (rc) => rc.templateCol >= lo && rc.templateCol <= hi,
+          );
         }
       }
       const tailSeg = isFwd ? segs[0] : segs[segs.length - 1];
