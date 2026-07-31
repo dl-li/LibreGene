@@ -8,10 +8,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Repeat } from 'lucide-react';
-
-// IUPAC 核苷酸字符集（含简并碱基）
-const IUPAC_BASES = new Set('ATGCURYSWKMBDHVN');
+import { Repeat } from 'lucide-react';
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {
@@ -52,16 +49,10 @@ function stripWhitespace(s) {
 }
 
 /**
- * 返回输入字符串中的非法字符列表（去重、保留大小写显示）
+ * 只保留英文字母（IUPAC 碱基均为 A-Z），其余字符直接过滤
  */
-function getInvalidChars(s) {
-  const seen = new Set();
-  for (const ch of s) {
-    if (ch.trim() && !IUPAC_BASES.has(ch.toUpperCase())) {
-      seen.add(ch);
-    }
-  }
-  return [...seen];
+function filterLetters(s) {
+  return (s || '').replace(/[^a-zA-Z]/g, '');
 }
 
 /**
@@ -105,7 +96,7 @@ export default function SequenceEditDialog({
   // 每次打开弹窗时预填文本（粘贴场景用 initialText，手打时保持清空）
   useEffect(() => {
     if (open) {
-      setInputText(initialText);
+      setInputText(filterLetters(initialText));
     }
   }, [open, initialText]);
 
@@ -126,12 +117,9 @@ export default function SequenceEditDialog({
     mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0;
   const netChange = mode === 'replace' ? insertLen - deleteLen : 0;
 
-  const invalidChars = mode !== 'delete' && inputText ? getInvalidChars(inputText) : [];
-  const hasInvalid = invalidChars.length > 0;
-
-  // 可提交条件：非删除模式需要内容不为空且无非法字符
+  // 可提交条件：非删除模式需要内容不为空（输入已被过滤为纯字母）
   const canConfirm =
-    mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0 && !hasInvalid);
+    mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0);
 
   const handleConfirm = () => {
     if (!canConfirm) return;
@@ -205,7 +193,7 @@ export default function SequenceEditDialog({
               <textarea
                 ref={inputRef}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => setInputText(filterLetters(e.target.value))}
                 onKeyDown={handleKeyDown}
                 placeholder="Enter DNA / RNA sequence…"
                 rows={4}
@@ -252,31 +240,10 @@ export default function SequenceEditDialog({
             )}
           </div>
 
-          {/* 非法字符警告 */}
-          {hasInvalid && (
-            <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-2.5 text-xs text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
-              <div>
-                <span className="font-medium">Non-standard characters:</span>{' '}
-                {invalidChars.map((ch, i) => (
-                  <code
-                    key={i}
-                    className="mx-0.5 px-1 bg-amber-100 dark:bg-amber-900 rounded text-[11px]"
-                  >
-                    {'`'}
-                    {ch}
-                    {'`'}
-                  </code>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          {(mode === 'insert' || mode === 'replace') &&
-            inputText.trim().length > 0 &&
-            !hasInvalid && (
+          {(mode === 'insert' || mode === 'replace') && inputText.trim().length > 0 && (
               <Button
                 variant="secondary"
                 size="sm"

@@ -1986,6 +1986,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               selStart,
               selEnd,
               selectedText: cleanSeq.substring(selStart, selEnd + 1),
+              clipboardText: e.key,
             });
             return;
           }
@@ -1995,6 +1996,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             onEditRequest({
               type: 'insert',
               cursorIndex,
+              clipboardText: e.key,
             });
             return;
           }
