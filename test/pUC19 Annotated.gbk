@@ -1,0 +1,139 @@
+LOCUS       pUC19_Annotated         2686 bp    DNA     circular SYN 31-JUL-2026
+DEFINITION  .
+ACCESSION   .
+VERSION     .
+KEYWORDS    .
+SOURCE      synthetic DNA construct
+  ORGANISM  synthetic DNA construct
+FEATURES             Location/Qualifiers
+     source          1..2686
+                     /lab_host="Escherichia coli"
+                     /mol_type="other DNA"
+                     /organism="synthetic DNA construct"
+     CDS             complement(1626..2486)
+                     /codon_start=1
+                     /gene="<html><body><i>bla</i></body></html>"
+                     /product="<html><body>β-lactamase</body></html>"
+                     /transl_table=1
+                     /label="AmpR"
+                     /note="<html><body>confers resistance to ampicillin,
+                     carbenicillin, and related antibiotics</body></html>"
+                     /note="This feature has 2 segments:
+                       1: 1626 .. 2417 / #ccffcc
+                       2: 2418 .. 2486 / #ccffcc"
+                     /note="color: #ccffcc; direction: LEFT"
+                     /translation="MSIQHFRVALIPFFAAFCLPVFAHPETLVKVKDAEDQLGARVGY
+                     IELDLNSGKILESFRPEERFPMMSTFKVLLCGAVLSRIDAGQEQLGRRIHYSQNDLVE
+                     YSPVTEKHLTDGMTVRELCSAAITMSDNTAANLLLTTIGGPKELTAFLHNMGDHVTRL
+                     DRWEPELNEAIPNDERDTTMPVAMATTLRKLLTGELLTLASRQQLIDWMEADKVAGPL
+                     LRSALPAGWFIADKSGAGERGSRGIIAALGPDGKPSRIVVIYTTGSQATMDERNRQIA
+                     EIGASLIKHW*"
+     rep_origin      complement(867..1455)
+                     /label="ori"
+                     /note="<html><body>high-copy-number ColE1/pMB1/pBR322/pUC
+                     origin of replication</body></html>"
+                     /note="color: #ffff00; direction: LEFT"
+     CDS             complement(146..469)
+                     /codon_start=1
+                     /gene="<html><body><i>lacZ</i> fragment</body></html>"
+                     /product="<html><body>LacZα fragment of
+                     β-galactosidase</body></html>"
+                     /transl_table=1
+                     /label="lacZα"
+                     /note="color: #993366; direction: LEFT"
+                     /translation="MTMITPSLHACRSTLEDPRVPSSNSLAVVLQRRDWENPGVTQLN
+                     RLAAHPPFASWRNSEEARTDRPSQQLRSLNGEWRLMRYFLLTHLCGISHRIWCTLSTI
+                     CSDAA*"
+     promoter        complement(2487..2591)
+                     /gene="<html><body><i>bla</i></body></html>"
+                     /label="AmpR promoter"
+                     /note="color: #7f7f7f; direction: LEFT"
+     misc_feature    396..452
+                     /gene="<html><body><br></body></html>"
+                     /label="MCS"
+                     /note="<html><body>pUC18/19 multiple cloning
+                     site</body></html>"
+                     /note="color: #99ccff"
+     promoter        complement(513..543)
+                     /label="lac promoter"
+                     /note="<html><body>promoter for the <i>E. coli lac</i>
+                     operon</body></html>"
+                     /note="This feature has 3 segments:
+                       1: 513 .. 519 / #ffffff
+                       2: 520 .. 537 / #ffffff
+                       3: 538 .. 543 / #ffffff"
+                     /note="color: #7f7f7f; direction: LEFT"
+     protein_bind    558..579
+                     /bound_moiety="<html><body><i>E. coli</i> catabolite
+                     activator protein</body></html>"
+                     /label="CAP binding site"
+                     /note="<html><body>CAP binding activates transcription in
+                     the presence of cAMP.</body></html>"
+                     /note="color: #31849b"
+     primer_bind     379..395
+                     /label="M13 fwd"
+                     /note="<html><body>common sequencing primer, one of
+                     multiple similar variants</body></html>"
+                     /note="color: #a020f0"
+     primer_bind     complement(465..481)
+                     /label="M13 rev"
+                     /note="<html><body>common sequencing primer, one of
+                     multiple similar variants</body></html>"
+                     /note="color: #a020f0; direction: LEFT"
+     protein_bind    489..505
+                     /bound_moiety="<html><body><i>lac</i> repressor encoded by
+                     <i>lacI</i></body></html>"
+                     /label="lac operator"
+                     /note="<html><body>The <i>lac</i> repressor binds to the
+                     <i>lac</i> operator to inhibit transcription in <i>E.
+                     coli</i>. This inhibition can be relieved by adding
+                     lactose or isopropyl-β-D-thiogalactopyranoside
+                     (IPTG).</body></html>"
+                     /note="color: #31849b"
+ORIGIN      
+        1 TCGCGCGTTT CGGTGATGAC GGTGAAAACC TCTGACACAT GCAGCTCCCG GAGACGGTCA
+       61 CAGCTTGTCT GTAAGCGGAT GCCGGGAGCA GACAAGCCCG TCAGGGCGCG TCAGCGGGTG
+      121 TTGGCGGGTG TCGGGGCTGG CTTAACTATG CGGCATCAGA GCAGATTGTA CTGAGAGTGC
+      181 ACCATATGCG GTGTGAAATA CCGCACAGAT GCGTAAGGAG AAAATACCGC ATCAGGCGCC
+      241 ATTCGCCATT CAGGCTGCGC AACTGTTGGG AAGGGCGATC GGTGCGGGCC TCTTCGCTAT
+      301 TACGCCAGCT GGCGAAAGGG GGATGTGCTG CAAGGCGATT AAGTTGGGTA ACGCCAGGGT
+      361 TTTCCCAGTC ACGACGTTGT AAAACGACGG CCAGTGAATT CGAGCTCGGT ACCCGGGGAT
+      421 CCTCTAGAGT CGACCTGCAG GCATGCAAGC TTGGCGTAAT CATGGTCATA GCTGTTTCCT
+      481 GTGTGAAATT GTTATCCGCT CACAATTCCA CACAACATAC GAGCCGGAAG CATAAAGTGT
+      541 AAAGCCTGGG GTGCCTAATG AGTGAGCTAA CTCACATTAA TTGCGTTGCG CTCACTGCCC
+      601 GCTTTCCAGT CGGGAAACCT GTCGTGCCAG CTGCATTAAT GAATCGGCCA ACGCGCGGGG
+      661 AGAGGCGGTT TGCGTATTGG GCGCTCTTCC GCTTCCTCGC TCACTGACTC GCTGCGCTCG
+      721 GTCGTTCGGC TGCGGCGAGC GGTATCAGCT CACTCAAAGG CGGTAATACG GTTATCCACA
+      781 GAATCAGGGG ATAACGCAGG AAAGAACATG TGAGCAAAAG GCCAGCAAAA GGCCAGGAAC
+      841 CGTAAAAAGG CCGCGTTGCT GGCGTTTTTC CATAGGCTCC GCCCCCCTGA CGAGCATCAC
+      901 AAAAATCGAC GCTCAAGTCA GAGGTGGCGA AACCCGACAG GACTATAAAG ATACCAGGCG
+      961 TTTCCCCCTG GAAGCTCCCT CGTGCGCTCT CCTGTTCCGA CCCTGCCGCT TACCGGATAC
+     1021 CTGTCCGCCT TTCTCCCTTC GGGAAGCGTG GCGCTTTCTC ATAGCTCACG CTGTAGGTAT
+     1081 CTCAGTTCGG TGTAGGTCGT TCGCTCCAAG CTGGGCTGTG TGCACGAACC CCCCGTTCAG
+     1141 CCCGACCGCT GCGCCTTATC CGGTAACTAT CGTCTTGAGT CCAACCCGGT AAGACACGAC
+     1201 TTATCGCCAC TGGCAGCAGC CACTGGTAAC AGGATTAGCA GAGCGAGGTA TGTAGGCGGT
+     1261 GCTACAGAGT TCTTGAAGTG GTGGCCTAAC TACGGCTACA CTAGAAGAAC AGTATTTGGT
+     1321 ATCTGCGCTC TGCTGAAGCC AGTTACCTTC GGAAAAAGAG TTGGTAGCTC TTGATCCGGC
+     1381 AAACAAACCA CCGCTGGTAG CGGTGGTTTT TTTGTTTGCA AGCAGCAGAT TACGCGCAGA
+     1441 AAAAAAGGAT CTCAAGAAGA TCCTTTGATC TTTTCTACGG GGTCTGACGC TCAGTGGAAC
+     1501 GAAAACTCAC GTTAAGGGAT TTTGGTCATG AGATTATCAA AAAGGATCTT CACCTAGATC
+     1561 CTTTTAAATT AAAAATGAAG TTTTAAATCA ATCTAAAGTA TATATGAGTA AACTTGGTCT
+     1621 GACAGTTACC AATGCTTAAT CAGTGAGGCA CCTATCTCAG CGATCTGTCT ATTTCGTTCA
+     1681 TCCATAGTTG CCTGACTCCC CGTCGTGTAG ATAACTACGA TACGGGAGGG CTTACCATCT
+     1741 GGCCCCAGTG CTGCAATGAT ACCGCGAGAC CCACGCTCAC CGGCTCCAGA TTTATCAGCA
+     1801 ATAAACCAGC CAGCCGGAAG GGCCGAGCGC AGAAGTGGTC CTGCAACTTT ATCCGCCTCC
+     1861 ATCCAGTCTA TTAATTGTTG CCGGGAAGCT AGAGTAAGTA GTTCGCCAGT TAATAGTTTG
+     1921 CGCAACGTTG TTGCCATTGC TACAGGCATC GTGGTGTCAC GCTCGTCGTT TGGTATGGCT
+     1981 TCATTCAGCT CCGGTTCCCA ACGATCAAGG CGAGTTACAT GATCCCCCAT GTTGTGCAAA
+     2041 AAAGCGGTTA GCTCCTTCGG TCCTCCGATC GTTGTCAGAA GTAAGTTGGC CGCAGTGTTA
+     2101 TCACTCATGG TTATGGCAGC ACTGCATAAT TCTCTTACTG TCATGCCATC CGTAAGATGC
+     2161 TTTTCTGTGA CTGGTGAGTA CTCAACCAAG TCATTCTGAG AATAGTGTAT GCGGCGACCG
+     2221 AGTTGCTCTT GCCCGGCGTC AATACGGGAT AATACCGCGC CACATAGCAG AACTTTAAAA
+     2281 GTGCTCATCA TTGGAAAACG TTCTTCGGGG CGAAAACTCT CAAGGATCTT ACCGCTGTTG
+     2341 AGATCCAGTT CGATGTAACC CACTCGTGCA CCCAACTGAT CTTCAGCATC TTTTACTTTC
+     2401 ACCAGCGTTT CTGGGTGAGC AAAAACAGGA AGGCAAAATG CCGCAAAAAA GGGAATAAGG
+     2461 GCGACACGGA AATGTTGAAT ACTCATACTC TTCCTTTTTC AATATTATTG AAGCATTTAT
+     2521 CAGGGTTATT GTCTCATGAG CGGATACATA TTTGAATGTA TTTAGAAAAA TAAACAAATA
+     2581 GGGGTTCCGC GCACATTTCC CCGAAAAGTG CCACCTGACG TCTAAGAAAC CATTATTATC
+     2641 ATGACATTAA CCTATAAAAA TAGGCGTATC ACGAGGCCCT TTCGTC
+//
