@@ -481,6 +481,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   layoutKey,
   onEditRequest,
   restoreState,
+  onOpenFile,
+  onSave,
+  onSaveAs,
   onFeatureFtypeChange,
   onFeatureColorChange,
   onFeatureLocationChange,
@@ -4561,6 +4564,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         </div>
       ) : (
         <EditorNavMenu
+          onOpenFile={onOpenFile}
+          onSave={onSave}
+          onSaveAs={onSaveAs}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={onUndo}

@@ -18,8 +18,11 @@ import {
   ChevronDown,
   ChartNoAxesGantt,
   FileUp,
+  FileDown,
   Type,
   ListChecks,
+  FolderOpen,
+  Save,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -77,6 +80,9 @@ function PlaceholderItem({ label }) {
 }
 
 export default function EditorNavMenu({
+  onOpenFile,
+  onSave,
+  onSaveAs,
   canUndo,
   canRedo,
   onUndo,
@@ -193,6 +199,19 @@ export default function EditorNavMenu({
         <DropdownMenu modal={false}>
           <NavTrigger icon={Pencil} label="Edit" />
           <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
+            <DropdownMenuItem onSelect={onOpenFile}>
+              <FolderOpen /> Open…
+              <DropdownMenuShortcut>⌘O</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onSave}>
+              <Save /> Save
+              <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onSaveAs}>
+              <FileDown /> Save As…
+              <DropdownMenuShortcut>⇧⌘S</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
               <Undo2 /> Undo
               <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
