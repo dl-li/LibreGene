@@ -201,10 +201,14 @@ impl ProjectManager {
     }
 
     /// Update the `color` field of a single feature identified by `feature_id`.
+    /// Segment-level colors are overwritten too so the whole feature recolors.
     pub fn update_feature_color(&mut self, feature_id: &str, new_color: &str) {
         if let Some(p) = self.get_project_mut() {
             if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
                 f.color = new_color.to_string();
+                for seg in f.segments.iter_mut() {
+                    seg.color = Some(new_color.to_string());
+                }
             }
             if let Some(ref active) = self.active {
                 self.dirty_projects.insert(active.clone());
