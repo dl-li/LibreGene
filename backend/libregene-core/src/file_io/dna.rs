@@ -285,12 +285,30 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
                     (min_s, max_e, parsed_segs, seg_color)
                 } else if let Some(first) = std_segs.first() {
                     if let Some((s, e)) = parse_range_1based(&first.range) {
-                        (
-                            s - 1,
-                            e - 1,
-                            vec![],
-                            first.color.clone().unwrap_or_default(),
-                        )
+                        let (s0, e0) = (s - 1, e - 1);
+                        let seq_len = sequence.len() as i64;
+                        if s0 > e0 && topology == "circular" && seq_len > 0 {
+                            // Origin-crossing range — split like a GBK join().
+                            (
+                                0,
+                                seq_len - 1,
+                                vec![
+                                    Segment {
+                                        start: s0,
+                                        end: seq_len - 1,
+                                        color: first.color.clone(),
+                                    },
+                                    Segment {
+                                        start: 0,
+                                        end: e0,
+                                        color: first.color.clone(),
+                                    },
+                                ],
+                                first.color.clone().unwrap_or_default(),
+                            )
+                        } else {
+                            (s0, e0, vec![], first.color.clone().unwrap_or_default())
+                        }
                     } else {
                         continue; // skip unparseable feature
                     }
