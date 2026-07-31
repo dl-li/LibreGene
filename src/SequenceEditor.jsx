@@ -149,6 +149,11 @@ function buildCDSData(feature, sequence) {
   return { trans, codonMap, codingBases };
 }
 
+/** Feature types that get in-editor translation (codon) display. */
+function isTranslatable(f) {
+  return f.ftype === 'CDS' || f.ftype === 'mRNA';
+}
+
 /** Split an inclusive match range into linear segments; a range with
  *  end < start crosses the origin of a circular sequence. */
 function buildMatchSegs(ms, me, tlen) {
@@ -996,7 +1001,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const cdsWarnings = useMemo(() => {
     const result = [];
     for (const f of features || []) {
-      if (f.ftype !== 'CDS' || f.orf) continue;
+      if (!isTranslatable(f) || f.orf) continue;
       const segs = f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
       const totalLen = segs.reduce((sum, seg) => sum + (seg.end - seg.start + 1), 0);
 
@@ -2397,11 +2402,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // --- enzyme track assignment is now in the spacing memo (enzymeRowTracks) ---
 
-  // Pre-compute CDS data (translation + codon index map) for features with ftype === 'CDS'
+  // Pre-compute translation data (amino acid + codon index map) for translatable features
   const cdsFeatureData = useMemo(() => {
     const map = {};
     for (const f of normFeatures) {
-      if (f.ftype !== 'CDS') continue;
+      if (!isTranslatable(f)) continue;
       const data = buildCDSData(f, sequence);
       if (data.trans.length > 0) map[f.id] = data;
     }
@@ -2537,7 +2542,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   e.stopPropagation();
                   e.preventDefault();
 
-                  // Translated (CDS) features: start codon-unit selection
+                  // Translatable features: start codon-unit selection
                   const cds = cdsFeatureData[f.id];
                   if (cds) {
                     // Compute clicked template index from the known visual row/column
@@ -2648,8 +2653,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
             );
           })}
 
-          {/* CDS translation — 1-letter AA centered on middle base of each codon */}
-          {f.ftype === 'CDS' &&
+          {/* Feature translation — 1-letter AA centered on middle base of each codon */}
+          {isTranslatable(f) &&
             (cdsFeatureData[f.id]?.trans || []).flatMap((t) => {
               const r = Math.floor(t.templatePos2 / charsPerLine);
               const c = t.templatePos2 % charsPerLine;
