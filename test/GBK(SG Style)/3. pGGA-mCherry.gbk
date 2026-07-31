@@ -1,0 +1,134 @@
+LOCUS       3._pGGA-mCherry        2848 bp DNA     circular SYN 19-MAY-2023
+DEFINITION  .
+ACCESSION   .
+VERSION     .
+KEYWORDS    .
+SOURCE      synthetic DNA construct
+  ORGANISM  synthetic DNA construct
+REFERENCE   1  (bases 1 to 2848)
+  AUTHORS   Alannah Rickerby
+  TITLE     Direct Submission
+  JOURNAL   Exported Jul 26, 2026 from SnapGene 7.0.2
+            https://www.snapgene.com
+FEATURES             Location/Qualifiers
+     source          1..2848
+                     /mol_type="other DNA"
+                     /organism="synthetic DNA construct"
+     misc_feature    1..4
+                     /label=BsaI insert
+                     /note="fragment released by digestion with BsaI"
+                     /note="color: #ff00ff"
+     misc_feature    18..51
+                     /label=downstream MCS
+                     /note="downstream multiple cloning site"
+                     /note="color: #99ccff"
+     primer_bind     complement(56..81)
+                     /label=Cloning Analysis Reverse Primer
+                     /note="color: 黑色; sequence: TAATACGACTCACTATAGGGAGACGC"
+     promoter        complement(63..81)
+                     /label=T7 promoter
+                     /note="promoter for bacteriophage T7 RNA polymerase"
+                     /note="color: #ffffff; direction: LEFT"
+     CDS             complement(192..851)
+                     /codon_start=1
+                     /gene="cat"
+                     /product="chloramphenicol acetyltransferase"
+                     /label=CmR
+                     /note="confers resistance to chloramphenicol"
+                     /note="color: #ccffcc"
+                     /translation="MEKKITGYTTVDISQWHRKEHFEAFQSVAQCTYNQTVQLDITAFL
+                     KTVKKNKHKFYPAFIHILARLMNAHPEFRMAMKDGELVIWDSVHPCYTVFHEQTETFSS
+                     LWSEYHDDFRQFLHIYSQDVACYGENLAYFPKGFIENMFFVSANPWVSFTSFDLNVANM
+                     DNFFAPVFTMGKYYTQGDKVLMPLAIQVHHAVCDGFHVGRMLNELQQYCDEWQGGA"
+     promoter        complement(852..954)
+                     /label=cat promoter
+                     /note="promoter of the E. coli cat gene encoding 
+                     chloramphenicol acetyltransferase"
+                     /note="color: #ffffff; direction: LEFT"
+     rep_origin      1055..1643
+                     /direction=RIGHT
+                     /label=ori
+                     /note="high-copy-number ColE1/pMB1/pBR322/pUC origin of 
+                     replication"
+                     /note="color: #ffff00"
+     primer_bind     2053..2079
+                     /label=Forward (CW) Analysis Primer
+                     /note="color: 黑色; sequence: CTGCAGGAAGGTTTAAACGCATTTAGG"
+     promoter        2073..2091
+                     /label=SP6 promoter
+                     /note="promoter for bacteriophage SP6 RNA polymerase"
+                     /note="color: #ffffff; direction: RIGHT"
+     misc_feature    2102..2123
+                     /label=upstream MCS
+                     /note="upstream multiple cloning site"
+                     /note="color: #99ccff"
+     primer_bind     2134..2156
+                     /label=mCherry Forward - BsaI
+                     /note="color: 黑色; sequence: 
+                     TATGGTCTCAGGAGATGGTGAGCAAGGGCGAGG; added: 2023-05-18"
+     CDS             2138..2848
+                     /codon_start=1
+                     /product="monomeric derivative of DsRed fluorescent protein
+                     (Shaner et al., 2004)"
+                     /label=mCherry
+                     /note="mammalian codon-optimized"
+                     /note="color: #ff0000"
+                     /translation="MVSKGEEDNMAIIKEFMRFKVHMEGSVNGHEFEIEGEGEGRPYEG
+                     TQTAKLKVTKGGPLPFAWDILSPQFMYGSKAYVKHPADIPDYLKLSFPEGFKWERVMNF
+                     EDGGVVTVTQDSSLQDGEFIYKVKLRGTNFPSDGPVMQKKTMGWEASSERMYPEDGALK
+                     GEIKQRLKLKDGGHYDAEVKTTYKAKKPVQLPGAYNVNIKLDITSHNEDYTIVEQYERA
+                     EGRHSTGGMDELYK"
+     primer_bind     complement(join(2825..2848,1..5))
+                     /label=mCherry Reverse - BsaI
+                     /note="color: 黑色; sequence: 
+                     TATGGTCTCAATGGCTACTTGTACAGCTCGTCCATGCC; added: 2023-05-18"
+ORIGIN
+        1 ccattcctgt agtcttctta attaagacgt cagaattctc gaggcggccg catgtgcgtc
+       61 tccctatagt gagtcgtatt aatttcgcgg gcggaacccc tatttgttta tttttctaaa
+      121 tacattcaaa tatgtatccg ctcatgagta gcaccaggcg tttaagggca ccaataactg
+      181 ccttaaaaaa attacgcccc gccctgccac tcatcgcagt actgttgtaa ttcattaagc
+      241 attctgccga catggaagcc atcacaaacg gcatgatgaa cctgaatcgc cagcggcatc
+      301 agcaccttgt cgccttgcgt ataatatttg cccatggtga aaacgggggc gaagaagttg
+      361 tccatattgg ccacgtttaa atcaaaactg gtgaaactca cccagggatt ggctgagacg
+      421 aaaaacatat tctcaataaa ccctttaggg aaataggcca ggttttcacc gtaacacgcc
+      481 acatcttgcg aatatatgtg tagaaactgc cggaaatcgt cgtggtattc actccagagc
+      541 gatgaaaacg tttcagtttg ctcatggaaa acggtgtaac aagggtgaac actatcccat
+      601 atcaccagct caccgtcttt cattgccata cggaattccg gatgagcatt catcaggcgg
+      661 gcaagaatgt gaataaaggc cggataaaac ttgtgcttat ttttctttac ggtctttaaa
+      721 aaggccgtaa tatccagctg aacggtctgg ttataggtac attgagcaac tgactgaaat
+      781 gcctcaaaat gttctttacg atgccattgg gatatatcaa cggtggtata tccagtgatt
+      841 tttttctcca ttttagcttc cttagctcct gaaaatctcg ataactcaaa aaatacgccc
+      901 ggtagtgatc ttatttcatt atggtgaaag ttggaacctc ttacgtgccg atcaacgtct
+      961 cattttcgcc aaaagttgtc atgaccaaaa tcccttaacg tgagttttcg ttccactgag
+     1021 cgtcagaccc cgtagaaaag atcaaaggat cttcttgaga tccttttttt ctgcgcgtaa
+     1081 tctgctgctt gcaaacaaaa aaaccaccgc taccagcggt ggtttgtttg ccggatcaag
+     1141 agctaccaac tctttttccg aaggtaactg gcttcagcag agcgcagata ccaaatactg
+     1201 ttcttctagt gtagccgtag ttaggccacc acttcaagaa ctctgtagca ccgcctacat
+     1261 acctcgctct gctaatcctg ttaccagtgg ctgctgccag tggcgataag tcgtgtctta
+     1321 ccgggttgga ctcaagacga tagttaccgg ataaggcgca gcggtcgggc tgaacggggg
+     1381 gttcgtgcac acagcccagc ttggagcgaa cgacctacac cgaactgaga tacctacagc
+     1441 gtgagctatg agaaagcgcc acgcttcccg aagggagaaa ggcggacagg tatccggtaa
+     1501 gcggcagggt cggaacagga gagcgcacga gggagcttcc agggggaaac gcctggtatc
+     1561 tttatagtcc tgtcgggttt cgccacctct gacttgagcg tcgatttttg tgatgctcgt
+     1621 caggggggcg gagcctatgg aaaaacgcca gcaatgcggc ctttttacgg ttcctggcct
+     1681 tttgctggcc ttttgctcac atgttctttc ctgcgttatc ccctgattct gtggataacc
+     1741 gtattaccgc ctttgagtga gctgataccg ctcgccgcag ccgaacgacc gagcgcagcg
+     1801 agtcagtgag cgaggaagcc gaaaaatcaa taatcagaca acaagatgtg cgaactcgat
+     1861 attttacacg actctcttta ccaattctgc cccgaattac acttaaaacg actcaacagc
+     1921 ttaacgttgg cttgccacgc attacttgac tgtaaaactc tcactcttac cgaacttggc
+     1981 cgtaacctgc caaccaaagc gagaacaaaa cataacatca aacgaatcga ccgattgtta
+     2041 ggtaatcgtc acctgcagga aggtttaaac gcatttaggt gacactatag aagtgtgtat
+     2101 cgctcgaggg atccgaattc gaagacttgg tacggagatg gtgagcaagg gcgaggagga
+     2161 taacatggcc atcatcaagg agttcatgcg cttcaaggtg cacatggagg gctccgtgaa
+     2221 cggccacgag ttcgagatcg agggcgaggg cgagggccgc ccctacgagg gcacccagac
+     2281 cgccaagctg aaggtgacca agggtggccc cctgcccttc gcctgggaca tcctgtcccc
+     2341 tcagttcatg tacggctcca aggcctacgt gaagcacccc gccgacatcc ccgactactt
+     2401 gaagctgtcc ttccccgagg gcttcaagtg ggagcgcgtg atgaacttcg aggacggcgg
+     2461 cgtggtgacc gtgacccagg actcctccct gcaggacggc gagttcatct acaaggtgaa
+     2521 gctgcgcggc accaacttcc cctccgacgg ccccgtaatg cagaagaaga ccatgggctg
+     2581 ggaggcctcc tccgagcgga tgtaccccga ggacggcgcc ctgaagggcg agatcaagca
+     2641 gaggctgaag ctgaaggacg gcggccacta cgacgctgag gtcaagacca cctacaaggc
+     2701 caagaagccc gtgcagctgc ccggcgccta caacgtcaac atcaagttgg acatcacctc
+     2761 ccacaacgag gactacacca tcgtggaaca gtacgaacgc gccgagggcc gccactccac
+     2821 cggcggcatg gacgagctgt acaagtag
+//

@@ -1,0 +1,144 @@
+LOCUS       pGGA-mCherry            2848 bp    DNA     circular SYN 31-JUL-2026
+DEFINITION  .
+ACCESSION   .
+VERSION     .
+KEYWORDS    .
+SOURCE      synthetic DNA construct
+  ORGANISM  synthetic DNA construct
+FEATURES             Location/Qualifiers
+     source          1..2848
+                     /lab_host="Escherichia coli"
+                     /mol_type="other DNA"
+                     /organism="synthetic DNA construct"
+     misc_feature    1..4
+                     /label="BsaI insert"
+                     /note="<html><body>fragment released by digestion with
+                     BsaI</body></html>"
+                     /note="color: #ff00ff"
+     rep_origin      1055..1643
+                     /label="ori"
+                     /note="<html><body>high-copy-number ColE1/pMB1/pBR322/pUC
+                     origin of replication</body></html>"
+                     /note="color: #ffff00"
+     CDS             complement(192..851)
+                     /codon_start=1
+                     /gene="<html><body><i>cat</i></body></html>"
+                     /product="chloramphenicol acetyltransferase"
+                     /transl_table=1
+                     /label="CmR"
+                     /note="<html><body>confers resistance to
+                     chloramphenicol</body></html>"
+                     /note="color: #ccffcc; direction: LEFT"
+                     /translation="MEKKITGYTTVDISQWHRKEHFEAFQSVAQCTYNQTVQLDITAF
+                     LKTVKKNKHKFYPAFIHILARLMNAHPEFRMAMKDGELVIWDSVHPCYTVFHEQTETF
+                     SSLWSEYHDDFRQFLHIYSQDVACYGENLAYFPKGFIENMFFVSANPWVSFTSFDLNV
+                     ANMDNFFAPVFTMGKYYTQGDKVLMPLAIQVHHAVCDGFHVGRMLNELQQYCDEWQGG
+                     A*"
+     promoter        complement(63..81)
+                     /label="T7 promoter"
+                     /note="<html><body>promoter for bacteriophage T7 RNA
+                     polymerase</body></html>"
+                     /note="color: #7f7f7f; direction: LEFT"
+     promoter        2073..2091
+                     /label="SP6 promoter"
+                     /note="<html><body>promoter for bacteriophage SP6 RNA
+                     polymerase</body></html>"
+                     /note="color: #7f7f7f"
+     promoter        complement(852..954)
+                     /label="cat promoter"
+                     /note="<html><body>promoter of the <i>E. coli cat</i> gene
+                     encoding chloramphenicol acetyltransferase</body></html>"
+                     /note="color: #7f7f7f; direction: LEFT"
+     misc_feature    2102..2123
+                     /label="upstream MCS"
+                     /note="<html><body>upstream multiple cloning
+                     site</body></html>"
+                     /note="color: #99ccff"
+     misc_feature    18..51
+                     /label="downstream MCS"
+                     /note="<html><body>downstream multiple cloning
+                     site</body></html>"
+                     /note="color: #99ccff"
+     CDS             2138..2848
+                     /codon_start=1
+                     /product="<html><body>monomeric derivative of DsRed
+                     fluorescent protein (<a
+                     href=""http://www.ncbi.nlm.nih.gov/pubmed/15558047""
+                     title=""http://www.ncbi.nlm.nih.gov/pubmed/15558047"">Shan
+                     er et al., 2004</a>)</body></html>"
+                     /transl_table=1
+                     /label="mCherry"
+                     /note="<html><body>mammalian codon-optimized</body></html>
+                     "
+                     /note="color: #ff0000"
+                     /translation="MVSKGEEDNMAIIKEFMRFKVHMEGSVNGHEFEIEGEGEGRPYE
+                     GTQTAKLKVTKGGPLPFAWDILSPQFMYGSKAYVKHPADIPDYLKLSFPEGFKWERVM
+                     NFEDGGVVTVTQDSSLQDGEFIYKVKLRGTNFPSDGPVMQKKTMGWEASSERMYPEDG
+                     ALKGEIKQRLKLKDGGHYDAEVKTTYKAKKPVQLPGAYNVNIKLDITSHNEDYTIVEQ
+                     YERAEGRHSTGGMDELYK*"
+     primer_bind     complement(56..81)
+                     /label="Cloning Analysis Reverse Primer"
+                     /note="color: #166534; direction: LEFT; sequence:
+                     TAATACGACTCACTATAGGGAGACGC"
+     primer_bind     2053..2079
+                     /label="Forward (CW) Analysis Primer"
+                     /note="color: #166534; direction: RIGHT; sequence:
+                     CTGCAGGAAGGTTTAAACGCATTTAGG"
+     primer_bind     2134..2156
+                     /label="mCherry Forward - BsaI"
+                     /note="color: #166534; direction: RIGHT; sequence:
+                     tatggtctcaGGAGATGGTGAGCAAGGGCGAGG"
+     primer_bind     complement(join(2825..2848,1..5))
+                     /label="mCherry Reverse - BsaI"
+                     /note="color: #166534; direction: LEFT; sequence:
+                     tatggtctcAATGGCTACTTGTACAGCTCGTCCATGCC"
+ORIGIN      
+        1 CCATTCCTGT AGTCTTCTTA ATTAAGACGT CAGAATTCTC GAGGCGGCCG CATGTGCGTC
+       61 TCCCTATAGT GAGTCGTATT AATTTCGCGG GCGGAACCCC TATTTGTTTA TTTTTCTAAA
+      121 TACATTCAAA TATGTATCCG CTCATGAGTA GCACCAGGCG TTTAAGGGCA CCAATAACTG
+      181 CCTTAAAAAA ATTACGCCCC GCCCTGCCAC TCATCGCAGT ACTGTTGTAA TTCATTAAGC
+      241 ATTCTGCCGA CATGGAAGCC ATCACAAACG GCATGATGAA CCTGAATCGC CAGCGGCATC
+      301 AGCACCTTGT CGCCTTGCGT ATAATATTTG CCCATGGTGA AAACGGGGGC GAAGAAGTTG
+      361 TCCATATTGG CCACGTTTAA ATCAAAACTG GTGAAACTCA CCCAGGGATT GGCTGAGACG
+      421 AAAAACATAT TCTCAATAAA CCCTTTAGGG AAATAGGCCA GGTTTTCACC GTAACACGCC
+      481 ACATCTTGCG AATATATGTG TAGAAACTGC CGGAAATCGT CGTGGTATTC ACTCCAGAGC
+      541 GATGAAAACG TTTCAGTTTG CTCATGGAAA ACGGTGTAAC AAGGGTGAAC ACTATCCCAT
+      601 ATCACCAGCT CACCGTCTTT CATTGCCATA CGGAATTCCG GATGAGCATT CATCAGGCGG
+      661 GCAAGAATGT GAATAAAGGC CGGATAAAAC TTGTGCTTAT TTTTCTTTAC GGTCTTTAAA
+      721 AAGGCCGTAA TATCCAGCTG AACGGTCTGG TTATAGGTAC ATTGAGCAAC TGACTGAAAT
+      781 GCCTCAAAAT GTTCTTTACG ATGCCATTGG GATATATCAA CGGTGGTATA TCCAGTGATT
+      841 TTTTTCTCCA TTTTAGCTTC CTTAGCTCCT GAAAATCTCG ATAACTCAAA AAATACGCCC
+      901 GGTAGTGATC TTATTTCATT ATGGTGAAAG TTGGAACCTC TTACGTGCCG ATCAACGTCT
+      961 CATTTTCGCC AAAAGTTGTC ATGACCAAAA TCCCTTAACG TGAGTTTTCG TTCCACTGAG
+     1021 CGTCAGACCC CGTAGAAAAG ATCAAAGGAT CTTCTTGAGA TCCTTTTTTT CTGCGCGTAA
+     1081 TCTGCTGCTT GCAAACAAAA AAACCACCGC TACCAGCGGT GGTTTGTTTG CCGGATCAAG
+     1141 AGCTACCAAC TCTTTTTCCG AAGGTAACTG GCTTCAGCAG AGCGCAGATA CCAAATACTG
+     1201 TTCTTCTAGT GTAGCCGTAG TTAGGCCACC ACTTCAAGAA CTCTGTAGCA CCGCCTACAT
+     1261 ACCTCGCTCT GCTAATCCTG TTACCAGTGG CTGCTGCCAG TGGCGATAAG TCGTGTCTTA
+     1321 CCGGGTTGGA CTCAAGACGA TAGTTACCGG ATAAGGCGCA GCGGTCGGGC TGAACGGGGG
+     1381 GTTCGTGCAC ACAGCCCAGC TTGGAGCGAA CGACCTACAC CGAACTGAGA TACCTACAGC
+     1441 GTGAGCTATG AGAAAGCGCC ACGCTTCCCG AAGGGAGAAA GGCGGACAGG TATCCGGTAA
+     1501 GCGGCAGGGT CGGAACAGGA GAGCGCACGA GGGAGCTTCC AGGGGGAAAC GCCTGGTATC
+     1561 TTTATAGTCC TGTCGGGTTT CGCCACCTCT GACTTGAGCG TCGATTTTTG TGATGCTCGT
+     1621 CAGGGGGGCG GAGCCTATGG AAAAACGCCA GCAATGCGGC CTTTTTACGG TTCCTGGCCT
+     1681 TTTGCTGGCC TTTTGCTCAC ATGTTCTTTC CTGCGTTATC CCCTGATTCT GTGGATAACC
+     1741 GTATTACCGC CTTTGAGTGA GCTGATACCG CTCGCCGCAG CCGAACGACC GAGCGCAGCG
+     1801 AGTCAGTGAG CGAGGAAGCC GAAAAATCAA TAATCAGACA ACAAGATGTG CGAACTCGAT
+     1861 ATTTTACACG ACTCTCTTTA CCAATTCTGC CCCGAATTAC ACTTAAAACG ACTCAACAGC
+     1921 TTAACGTTGG CTTGCCACGC ATTACTTGAC TGTAAAACTC TCACTCTTAC CGAACTTGGC
+     1981 CGTAACCTGC CAACCAAAGC GAGAACAAAA CATAACATCA AACGAATCGA CCGATTGTTA
+     2041 GGTAATCGTC ACCTGCAGGA AGGTTTAAAC GCATTTAGGT GACACTATAG AAGTGTGTAT
+     2101 CGCTCGAGGG ATCCGAATTC GAAGACTTGG TACGGAGATG GTGAGCAAGG GCGAGGAGGA
+     2161 TAACATGGCC ATCATCAAGG AGTTCATGCG CTTCAAGGTG CACATGGAGG GCTCCGTGAA
+     2221 CGGCCACGAG TTCGAGATCG AGGGCGAGGG CGAGGGCCGC CCCTACGAGG GCACCCAGAC
+     2281 CGCCAAGCTG AAGGTGACCA AGGGTGGCCC CCTGCCCTTC GCCTGGGACA TCCTGTCCCC
+     2341 TCAGTTCATG TACGGCTCCA AGGCCTACGT GAAGCACCCC GCCGACATCC CCGACTACTT
+     2401 GAAGCTGTCC TTCCCCGAGG GCTTCAAGTG GGAGCGCGTG ATGAACTTCG AGGACGGCGG
+     2461 CGTGGTGACC GTGACCCAGG ACTCCTCCCT GCAGGACGGC GAGTTCATCT ACAAGGTGAA
+     2521 GCTGCGCGGC ACCAACTTCC CCTCCGACGG CCCCGTAATG CAGAAGAAGA CCATGGGCTG
+     2581 GGAGGCCTCC TCCGAGCGGA TGTACCCCGA GGACGGCGCC CTGAAGGGCG AGATCAAGCA
+     2641 GAGGCTGAAG CTGAAGGACG GCGGCCACTA CGACGCTGAG GTCAAGACCA CCTACAAGGC
+     2701 CAAGAAGCCC GTGCAGCTGC CCGGCGCCTA CAACGTCAAC ATCAAGTTGG ACATCACCTC
+     2761 CCACAACGAG GACTACACCA TCGTGGAACA GTACGAACGC GCCGAGGGCC GCCACTCCAC
+     2821 CGGCGGCATG GACGAGCTGT ACAAGTAG
+//
