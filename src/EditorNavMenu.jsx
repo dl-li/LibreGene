@@ -21,7 +21,6 @@ import {
   FileDown,
   Type,
   ListChecks,
-  FolderOpen,
   Save,
 } from 'lucide-react';
 import {
@@ -80,7 +79,6 @@ function PlaceholderItem({ label }) {
 }
 
 export default function EditorNavMenu({
-  onOpenFile,
   onSave,
   onSaveAs,
   canUndo,
@@ -199,10 +197,6 @@ export default function EditorNavMenu({
         <DropdownMenu modal={false}>
           <NavTrigger icon={Pencil} label="Edit" />
           <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-            <DropdownMenuItem onSelect={onOpenFile}>
-              <FolderOpen /> Open…
-              <DropdownMenuShortcut>⌘O</DropdownMenuShortcut>
-            </DropdownMenuItem>
             <DropdownMenuItem onSelect={onSave}>
               <Save /> Save
               <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
