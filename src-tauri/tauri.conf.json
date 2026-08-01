@@ -14,10 +14,10 @@
     "windows": [
       {
         "title": "LibreGene",
-        "width": 1920,
-        "height": 1080,
-        "minWidth": 1920,
-        "minHeight": 1080,
+        "width": 1400,
+        "height": 900,
+        "minWidth": 480,
+        "minHeight": 270,
         "resizable": true,
         "fullscreen": false,
         "decorations": true,

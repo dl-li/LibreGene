@@ -1534,8 +1534,8 @@ async fn open_in_new_window(
         WebviewUrl::App("index.html".into()),
     )
     .title("LibreGene - Plasmid Editor")
-    .inner_size(1920.0, 1080.0)
-    .min_inner_size(1920.0, 1080.0)
+    .inner_size(1400.0, 900.0)
+    .min_inner_size(480.0, 270.0)
     .decorations(true)
     .visible(false);
 
