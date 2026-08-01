@@ -113,6 +113,7 @@ LibreGene/
 3. 提交前跑对应的测试和构建
 4. 提交信息用英文，格式：`fix: 简短描述` 或 `refactor: 简短描述`
 5. 涉及 UI 的改动用 tmux 中的 Tauri dev 验证
+6. **除非用户明确说 commit，否则不要 commit；除非用户明确说 push，否则不要 push**（不要自作主张提交或推送）
 
 ### 前端
 
