@@ -15,8 +15,6 @@
 
 A lightweight cross-platform desktop plasmid editor. SVG rendering, feature annotation, primer design & visualization, restriction digestion analysis — all free and open-source.
 
-> **Windows build** — see [`BUILD-WINDOWS.md`](BUILD-WINDOWS.md) for the toolchain setup and `npx tauri build` instructions.
-
 <p align="center">
   <img src="ScreenShot.png" alt="LibreGene Screenshot" width="700" />
 </p>
