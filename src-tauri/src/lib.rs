@@ -1535,7 +1535,7 @@ async fn open_in_new_window(
     )
     .title("LibreGene - Plasmid Editor")
     .inner_size(1400.0, 900.0)
-    .min_inner_size(480.0, 270.0)
+    .min_inner_size(640.0, 360.0)
     .decorations(true)
     .visible(false);
 
