@@ -3,7 +3,7 @@
 基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注、序列比对、插件系统。默认输出增强型 GenBank 文件（含颜色和引物注释）。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
-**仅在 macOS 上测试过。**
+**已在 macOS 和 Windows 上测试过，Linux 尚未验证。**
 
 ## 技术栈
 
