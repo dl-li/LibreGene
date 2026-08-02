@@ -66,16 +66,6 @@ struct SequenceRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct TmRequest {
-    seq: String,
-    na_conc: Option<f64>,
-    mg_conc: Option<f64>,
-    dntp_conc: Option<f64>,
-    tris_conc: Option<f64>,
-    primer_conc: Option<f64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct SearchRequest {
     query: String,
     project_id: Option<String>,
@@ -401,32 +391,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let text = read_sequence(&project, request.start, request.end)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
-    }
-
-    /// Melting temperature (Celsius) of a primer sequence via the SantaLucia
-    /// 2004 nearest-neighbour model. Optional concentrations default to 1x Taq
-    /// buffer (na 0.050 M, mg 0.0015 M, dntp 0.0008 M, tris 0.010 M, primer
-    /// 2e-7 M). Rounded to 0.1 °C. Returns a number.
-    #[tool]
-    async fn compute_tm(
-        &self,
-        Parameters(request): Parameters<TmRequest>,
-    ) -> Result<Json<f64>, ErrorData> {
-        if request.seq.len() < 2 {
-            return Ok(Json(0.0));
-        }
-        let params = libregene_core::primer::thermodynamics::TmParams {
-            na_conc: request.na_conc.unwrap_or(0.050),
-            mg_conc: request.mg_conc.unwrap_or(0.0015),
-            dntp_conc: request.dntp_conc.unwrap_or(0.0008),
-            tris_conc: request.tris_conc.unwrap_or(0.010),
-            primer_conc: request.primer_conc.unwrap_or(2e-7),
-        };
-        let tm = libregene_core::primer::thermodynamics::compute_tm_with_params(
-            &request.seq,
-            &params,
-        );
-        Ok(Json((tm * 10.0).round() / 10.0))
     }
 
     /// IUPAC-aware search of a project's sequence on both strands (reverse
