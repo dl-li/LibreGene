@@ -14,6 +14,8 @@ import {
   updateFeatureLocation,
   updateFeatureStrand,
   addPrimer,
+  addPrimers,
+  checkPrimersBinding,
   addFeature,
   deleteFeature,
   deletePrimer,
@@ -32,7 +34,12 @@ import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
 import MapView from './MapView';
 import PrimerOverviewDialog from './components/PrimerOverviewDialog';
+import MyPrimersDialog from './MyPrimersDialog';
+import MyEnzymesDialog from './MyEnzymesDialog';
+import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
 import { findOrfs } from './plugins/orf';
+import { addMyPrimers, removeMyPrimer, libraryToPrimers } from './myPrimers';
+import { setMyEnzymes } from './myEnzymes';
 
 const EMPTY_ARRAY = [];
 
@@ -62,6 +69,12 @@ export default function ProjectWorkspace({
   registerHandle,
   onProjectsSync,
   onRekey,
+  myPrimers = [],
+  onMyPrimersChange,
+  myEnzymes = [],
+  onMyEnzymesChange,
+  autoAddPrimers = false,
+  onToggleAutoAddPrimers,
 }) {
   const [sequence, setSequence] = useState(initialData?.sequence ?? null);
   const [features, setFeatures] = useState(initialData?.features || EMPTY_ARRAY);
@@ -74,6 +87,10 @@ export default function ProjectWorkspace({
   const alignmentEnabled = !disabledPlugins.includes('alignment');
 
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
+  const [myPrimersOpen, setMyPrimersOpen] = useState(false);
+  const [myEnzymesOpen, setMyEnzymesOpen] = useState(false);
+  const [enzymeDbOpen, setEnzymeDbOpen] = useState(false);
+  const [myPrimerBinding, setMyPrimerBinding] = useState({ loading: false, results: [] });
   const [pluginDialogs, setPluginDialogs] = useState({});
   const openPrimerEditorRef = useRef(null);
   const openFeatureEditorRef = useRef(null);
@@ -301,6 +318,10 @@ export default function ProjectWorkspace({
     if (!showEnzymes) return EMPTY_ARRAY;
     const all = enzymes || [];
     if (enzymeFilter === 'all') return all;
+    if (enzymeFilter === 'myEnzymes') {
+      const set = new Set(myEnzymes);
+      return all.filter((e) => set.has(e.name));
+    }
     if (enzymeFilter === 'unique') return all.filter((e) => e.isUnique);
     if (enzymeFilter === 'unique6') return all.filter((e) => e.isUnique && e.recSeq?.length === 6);
     if (enzymeFilter === 'twice') return all.filter((e) => totalNamePairCounts.get(e.name) === 2);
@@ -334,7 +355,7 @@ export default function ProjectWorkspace({
     if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
     if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
     return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts]);
+  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes]);
 
   const handleSelectionChange = useCallback(
     (sel) => {
@@ -498,6 +519,125 @@ export default function ProjectWorkspace({
       }
     },
     [sequence, features, primers, onProjectsSync],
+  );
+
+  // --- My Primers library actions ---
+  const handleAddPrimerToMyPrimers = useCallback(
+    (primer) => {
+      if (!primer || !primer.primerSeq) return;
+      onMyPrimersChange?.(addMyPrimers([primer]));
+    },
+    [onMyPrimersChange],
+  );
+
+  const handleAddAllPrimersToMyPrimers = useCallback(() => {
+    if (!primers.length) return;
+    onMyPrimersChange?.(addMyPrimers(primers));
+  }, [primers, onMyPrimersChange]);
+
+  const handleDeleteMyPrimer = useCallback(
+    (id) => {
+      onMyPrimersChange?.(removeMyPrimer(id));
+    },
+    [onMyPrimersChange],
+  );
+
+  // Auto-add primers from opened files to My Primers.
+  useEffect(() => {
+    if (!autoAddPrimers || !primers.length) return;
+    const cur = new Set(myPrimers.map((p) => String(p.seq || p.primerSeq || '').toUpperCase()));
+    const missing = primers.some((p) => p.primerSeq && !cur.has(String(p.primerSeq).toUpperCase()));
+    if (missing) onMyPrimersChange?.(addMyPrimers(primers));
+  }, [autoAddPrimers, primers, myPrimers, onMyPrimersChange]);
+
+  // Check binding of My Primers against the current sequence when the dialog opens.
+  useEffect(() => {
+    if (!myPrimersOpen || !sequence || !myPrimers.length) {
+      setMyPrimerBinding({ loading: false, results: [] });
+      return;
+    }
+    let cancelled = false;
+    setMyPrimerBinding({ loading: true, results: [] });
+    checkPrimersBinding(libraryToPrimers(myPrimers))
+      .then((data) => {
+        if (cancelled) return;
+        setMyPrimerBinding({ loading: false, results: (data && data.results) || [] });
+      })
+      .catch(() => {
+        if (!cancelled) setMyPrimerBinding({ loading: false, results: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [myPrimersOpen, myPrimers, sequence]);
+
+  const applyAddedPrimers = useCallback(
+    (data, gen) => {
+      if (operationGenRef.current !== gen) return;
+      if (data && data.primers) {
+        setPrimers(data.primers);
+        if (data.alignments) setAlignments(data.alignments);
+        if (data.enzymes) setEnzymes(data.enzymes);
+        setIsDirty(true);
+        if (data.projects) onProjectsSync(data.projects);
+      }
+    },
+    [onProjectsSync],
+  );
+
+  const handleAddMyPrimerToFile = useCallback(
+    async (entry) => {
+      if (!entry) return;
+      const gen = operationGenRef.current;
+      try {
+        editHistoryRef.current.push({
+          sequence,
+          features: features || EMPTY_ARRAY,
+          primers: primers || EMPTY_ARRAY,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+        });
+        const data = await addPrimers(libraryToPrimers([entry]));
+        applyAddedPrimers(data, gen);
+      } catch (e) {
+        console.error('add primer from My Primers error:', e);
+      }
+    },
+    [sequence, features, primers, applyAddedPrimers],
+  );
+
+  const handleAddAllBindingPrimers = useCallback(async () => {
+    const bindingIds = new Set(
+      (myPrimerBinding.results || []).filter((r) => r.binds).map((r) => r.id),
+    );
+    const inFile = new Set(primers.map((p) => String(p.primerSeq || '').toUpperCase()));
+    const toAdd = myPrimers.filter(
+      (p) => bindingIds.has(p.id) && !inFile.has(String(p.seq || p.primerSeq || '').toUpperCase()),
+    );
+    if (!toAdd.length) return;
+    const gen = operationGenRef.current;
+    try {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        primers: primers || EMPTY_ARRAY,
+        cursorIndex: null,
+        selStart: null,
+        selEnd: null,
+      });
+      const data = await addPrimers(libraryToPrimers(toAdd));
+      applyAddedPrimers(data, gen);
+    } catch (e) {
+      console.error('add binding primers error:', e);
+    }
+  }, [myPrimerBinding.results, myPrimers, primers, sequence, features, applyAddedPrimers]);
+
+  const handleMyEnzymesChange = useCallback(
+    (list) => {
+      onMyEnzymesChange?.(setMyEnzymes(list));
+    },
+    [onMyEnzymesChange],
   );
 
   const handleFeatureAdd = useCallback(
@@ -1126,6 +1266,14 @@ export default function ProjectWorkspace({
               onAddAlignmentText={() => setAlignTextOpen(true)}
               onManageAlignments={() => setPluginDialogs((prev) => ({ ...prev, alignment: true }))}
               onEnzymeHoverChange={setEnzymeHoverCuts}
+              onOpenMyPrimers={() => setMyPrimersOpen(true)}
+              onOpenMyEnzymes={() => setMyEnzymesOpen(true)}
+              onOpenEnzymeDatabase={() => setEnzymeDbOpen(true)}
+              onAddPrimerToMyPrimers={handleAddPrimerToMyPrimers}
+              onAddAllPrimersToMyPrimers={handleAddAllPrimersToMyPrimers}
+              autoAddPrimers={autoAddPrimers}
+              onToggleAutoAddPrimers={onToggleAutoAddPrimers}
+              myEnzymes={myEnzymes}
               topology={topology}
             />
           </main>
@@ -1162,6 +1310,26 @@ export default function ProjectWorkspace({
           openPrimerEditorRef.current?.(p);
         }}
       />
+
+      <MyPrimersDialog
+        open={myPrimersOpen}
+        onOpenChange={setMyPrimersOpen}
+        myPrimers={myPrimers}
+        currentPrimers={primers}
+        binding={myPrimerBinding}
+        onAddPrimer={handleAddMyPrimerToFile}
+        onAddAllBinding={handleAddAllBindingPrimers}
+        onDelete={handleDeleteMyPrimer}
+      />
+
+      <MyEnzymesDialog
+        open={myEnzymesOpen}
+        onOpenChange={setMyEnzymesOpen}
+        enzymes={myEnzymes}
+        onChange={handleMyEnzymesChange}
+      />
+
+      <EnzymeDatabaseDialog open={enzymeDbOpen} onOpenChange={setEnzymeDbOpen} />
 
       {plugins
         .filter((plugin) => !disabledPlugins.includes(plugin.id))

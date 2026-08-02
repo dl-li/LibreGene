@@ -323,12 +323,13 @@ function SelectionLengthBadge({
     const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
     if (!p) return null;
     seqToCopy =
-      p.primerSeq || (p.matchStart !== undefined && p.matchEnd !== undefined
-        ? matchedSeqOf(p, cleanSeq)
-        : '');
+      p.primerSeq ||
+      (p.matchStart !== undefined && p.matchEnd !== undefined ? matchedSeqOf(p, cleanSeq) : '');
     len =
       (p.primerSeq || '').length ||
-      (p.matchStart !== undefined && p.matchEnd !== undefined ? matchedSeqOf(p, cleanSeq).length : 0);
+      (p.matchStart !== undefined && p.matchEnd !== undefined
+        ? matchedSeqOf(p, cleanSeq).length
+        : 0);
     bg = p.isFwd === false ? '#4A148C' : '#166534';
   } else if (isEnzymeSelection) {
     if (selStart === null || selEnd === null) return null;
@@ -526,6 +527,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onManageAlignments,
   onEnzymeHoverChange,
   topology = 'linear',
+  onOpenMyPrimers,
+  onOpenMyEnzymes,
+  onOpenEnzymeDatabase,
+  onAddPrimerToMyPrimers,
+  onAddAllPrimersToMyPrimers,
+  autoAddPrimers = false,
+  onToggleAutoAddPrimers,
+  myEnzymes = [],
 }) {
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
@@ -941,7 +950,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         if (p.matchStart !== undefined && p.matchEnd !== undefined) {
           const matchSegs = buildMatchSegs(p.matchStart, p.matchEnd, cleanSeq.length);
           if (p.isFwd === false) return { ...p, color: '#4A148C', matchSegs };
-          return { ...p, matchSegs };
+          return { ...p, color: '#166534', matchSegs };
         }
         const bs = p.bindingSites?.[0];
         if (!bs) return p;
@@ -983,7 +992,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           matchEnd: me,
           matchSegs,
           isFwd, // actual binding direction (NOT declared type)
-          color: isFwd ? safePrimerColor(p.color) : '#4A148C', // rev primers always deep purple
+          // Primer colors follow the app-wide direction convention: fwd green,
+          // rev deep purple. Imported file colors (e.g. SnapGene notes) are not
+          // surfaced on the sequence view.
+          color: isFwd ? '#166534' : '#4A148C',
           matchStr: isFwd ? matchedBases : complementStr(matchedBases),
           // tails for rendering
           mismatchStr: bs.fivePrimeTail || '',
@@ -1000,6 +1012,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const unmatchedPrimers = useMemo(() => {
     return (primers || []).filter((p) => !p.bindingSites?.length);
   }, [primers]);
+
+  const handleAddCurrentPrimerToMyPrimers = useCallback(() => {
+    if (selectionMode !== 'primer' || selectedPrimerIds.length !== 1) return;
+    const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
+    if (!p) return;
+    onAddPrimerToMyPrimers?.({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      primerSeq: p.primerSeq,
+      color: p.color,
+    });
+  }, [selectionMode, selectedPrimerIds, enrichedPrimers, onAddPrimerToMyPrimers]);
 
   const cdsWarnings = useMemo(() => {
     const result = [];
@@ -4608,6 +4633,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onAddAlignmentText={onAddAlignmentText}
           onManageAlignments={onManageAlignments}
           onPrimerDesign={handlePrimerDesign}
+          onOpenMyPrimers={onOpenMyPrimers}
+          onAddCurrentPrimerToMyPrimers={handleAddCurrentPrimerToMyPrimers}
+          onAddAllPrimersToMyPrimers={onAddAllPrimersToMyPrimers}
+          autoAddPrimers={autoAddPrimers}
+          onToggleAutoAddPrimers={onToggleAutoAddPrimers}
+          hasSelectedPrimer={selectionMode === 'primer' && selectedPrimerIds.length === 1}
+          hasPrimers={(primers || []).length > 0}
+          onOpenMyEnzymes={onOpenMyEnzymes}
+          onOpenEnzymeDatabase={onOpenEnzymeDatabase}
+          myEnzymes={myEnzymes}
           topology={topology}
         />
       )}

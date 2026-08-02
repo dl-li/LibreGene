@@ -60,6 +60,8 @@ import {
   fileNameOf,
   dirOf,
 } from './recentFiles';
+import { getMyPrimers } from './myPrimers';
+import { getMyEnzymes } from './myEnzymes';
 
 export default function App() {
   const [disabledPlugins, setDisabledPlugins] = useState(() => {
@@ -70,6 +72,15 @@ export default function App() {
     }
   });
   const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
+  const [myPrimers, setMyPrimers] = useState(() => getMyPrimers());
+  const [myEnzymes, setMyEnzymes] = useState(() => getMyEnzymes());
+  const [autoAddPrimers, setAutoAddPrimers] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('autoAddPrimers')) || false;
+    } catch {
+      return false;
+    }
+  });
   const handleTogglePlugin = useCallback((pluginId) => {
     setDisabledPlugins((prev) => {
       const next = prev.includes(pluginId)
@@ -497,6 +508,21 @@ export default function App() {
     registerHandle,
     onProjectsSync,
     onRekey,
+    myPrimers,
+    onMyPrimersChange: setMyPrimers,
+    myEnzymes,
+    onMyEnzymesChange: setMyEnzymes,
+    autoAddPrimers,
+    onToggleAutoAddPrimers: () =>
+      setAutoAddPrimers((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('autoAddPrimers', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
   };
 
   const sidebarContent = (

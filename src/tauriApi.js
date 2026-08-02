@@ -85,6 +85,10 @@ export async function saveFile(path) {
   return tauriInvoke('save_file', { path });
 }
 
+export async function writeTextFile(path, contents) {
+  return tauriInvoke('write_text_file', { path, contents });
+}
+
 // ---------------------------------------------------------------------------
 // Sequence
 // ---------------------------------------------------------------------------
@@ -157,6 +161,14 @@ export async function deletePrimer(id) {
   return tauriInvoke('delete_primer', { id });
 }
 
+export async function addPrimers(primers) {
+  return tauriInvoke('add_primers', { primers });
+}
+
+export async function checkPrimersBinding(primers) {
+  return tauriInvoke('check_primers_binding', { primers });
+}
+
 export async function computePrimerAlignment(
   primerId,
   seedLength,
@@ -199,6 +211,10 @@ export async function removeAlignment(alignmentId) {
 
 export async function setMethylation(systems, overlap = 2) {
   return tauriInvoke('set_methylation', { systems, overlap });
+}
+
+export async function getEnzymeDatabase() {
+  return tauriInvoke('get_enzyme_database');
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +310,17 @@ export async function saveFileDialog(defaultName = 'project.gbk') {
     title: 'Save GenBank file',
     defaultPath: defaultName,
     filters: [{ name: 'GenBank', extensions: ['gbk'] }],
+  });
+  reassertTrafficLights();
+  return result;
+}
+
+export async function saveTextDialog(defaultName = 'export.txt') {
+  if (!isTauri) return null;
+  const result = await tauriSave({
+    title: 'Save text file',
+    defaultPath: defaultName,
+    filters: [{ name: 'Text', extensions: ['txt'] }],
   });
   reassertTrafficLights();
   return result;
