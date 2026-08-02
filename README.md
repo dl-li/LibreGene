@@ -44,12 +44,7 @@ Requires Node.js ≥ 20, Rust ≥ 1.75, and [Tauri v2 prerequisites](https://v2.
 
 ## MCP / LLM Agent Integration
 
-LibreGene embeds an [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server so an LLM agent in your terminal can operate the app like a real user — open files, read digests, edit sequence, manage features/primers, run ORF/PCR analysis — while the UI updates live.
-
-- **Endpoint**: `http://127.0.0.1:8766/mcp` (Streamable HTTP, **loopback only** — never exposed to the network)
-- **Enabled by default**: Settings → *MCP Server* (enable toggle + port field; changes apply without restarting the app)
-- **~28 tools**: project listing/overview/region digests, sequence read/edit, feature & primer CRUD, methylation, alignments, ORF search, primer design, PCR analysis, enzyme database
-- **Coordinates**: 0-based inclusive; primer `template_end` exclusive; circular reads support `start > end` (wraps origin)
+LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (enabled by default, loopback only) so an LLM agent in your terminal can operate the app like a real user — open files, inspect plasmid structure, edit sequence and features, design primers, run ORF/PCR analysis — while the UI updates live. See *MCP Server* in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen) for setup guidance and per-client config snippets.
 
 Register it with your agent CLI:
 

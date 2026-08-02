@@ -199,10 +199,41 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **架构**：MCP server 运行在 Tauri 进程内（`src-tauri/src/mcp.rs`），Streamable HTTP 绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState` 的 `Arc<RwLock<ProjectManager>>`。
 - **共享内核**：所有 mutation 工具与对应 Tauri command 走同一套 `crate::do_*` 内部函数（`src-tauri/src/lib.rs`），同一 recompute/dirty/broadcast 路径，UI 实时更新。Tauri command 只是薄包装。
 - **启停控制**：`McpServer`（`mcp.rs`）持有配置 `{enabled, port}` 与 server task；`set_mcp_config` 在原进程内停止/重启服务器（端口冲突时自动重试），无需重启应用。默认 `enabled=true, port=8766`。配置持久化在前端 localStorage（key `mcpConfig`），启动时前端调用 `set_mcp_config` 应用。
-- **设置项**：`src/components/SettingsPage.jsx` 的 "MCP Server" 区（启用开关 + 端口）。
-- **工具**：目前约 28 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`compute_tm`、`search_sequence`、`get_enzyme_database`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、feature/primer/methylation/alignment 增删改、`find_orfs`、`design_primers`、`analyze_pcr`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要。
+- **入口**：`src/components/McpGuideDialog.jsx`（启用开关 + 端口 + 各客户端配置片段），从侧边栏 "MCP Server" 菜单项和 Empty 界面 "Connect an LLM agent via MCP" 链接打开。
+- **工具**：目前约 27 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`get_enzyme_database`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、feature/primer/methylation/alignment 增删改、`find_orfs`、`design_primers`、`analyze_pcr`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要。查 Tm 用 `check_primer_binding`（返回结合位点含 tm），不用单独的 compute_tm（已移除——裸数字返回值不符合 MCP structuredContent 规范）。
 - **坐标约定（MCP 工具）**：0-based inclusive；primer `template_end` exclusive；酶切在 `pos-1` 与 `pos` 之间；环状序列读取支持 `start > end` 绕原点，编辑区间不允许绕原点（`end = start - 1` 为纯插入）。
 - **测试**：`src-tauri` 内 `cargo test --lib` 有 McpServer 启停/换端口测试（mock runtime，真实 TCP 握手）；digest 渲染在 `libregene-core` 有单元测试。
+
+### 功能 MCP 适配清单
+
+**新增/修改功能时必须更新本清单**：每个面向用户的功能都要明确标注「已适配 MCP」（并给出对应工具名）或「未适配」。新功能默认应考虑是否需要 MCP 工具；决定不适配时也在清单中记一笔原因。
+
+已适配（功能 → MCP 工具）：
+
+- 项目/文件管理（打开/保存/关闭/切换）→ `open_file`、`save_file`、`close_project`、`activate_project`、`list_projects`
+- 序列读取 → `read_sequence`、`get_project_overview`、`get_region_view`
+- 序列编辑（插入/删除/替换）→ `edit_sequence`（带 `expected_old` 乐观校验）
+- 特征 CRUD → `add_feature`、`update_feature_location/name/color/ftype/strand`、`delete_feature`
+- 引物增删 → `add_primer`、`delete_primer`（返回重算后结合位点）
+- 引物结合检查 / Tm 查询 → `check_primer_binding`
+- 引物设计（Amplify/OE-PCR/Mutagenesis）→ `design_primers`
+- PCR 分析 → `analyze_pcr`
+- ORF 搜索 → `find_orfs`（`add_as_features` 可直接落库）
+- 序列比对（Sanger reads / 序列）→ `add_alignment`、`remove_alignment`
+- IUPAC 序列搜索 → `search_sequence`
+- 甲基化设置 → `set_methylation`
+- 酶数据库查询 → `get_enzyme_database`
+
+未适配（前端/UI 专有，MCP 不可用）：
+
+- **ROI（感兴趣区域）**：`set_roi`/`clear_roi` 只有 Tauri command，属 UI 视图状态
+- **My Primers / My Enzymes 库**：`myPrimers.js`/`myEnzymes.js` 存 localStorage，后端不可见
+- **质粒图视图（Plasmid Map）**：纯渲染
+- **前端搜索 UI**（`searchUtils.js` 的 feature/enzyme/primer 名称匹配）：MCP 侧只有序列搜索
+- **多窗口管理**（`open_in_new_window` 等）：UI 窗口概念，Agent 用 `activate_project` 切换即可
+- **视图/布局设置**（layoutParams、showFeatures/Primers/Enzymes 开关、酶切过滤器）：渲染层状态
+- **Tm 参数与引物分析设置**（`tmParams`、`primerSeedLength`）：前端设置项；MCP 工具内用默认浓度，暂未暴露参数
+
 
 ## 核心模型约定
 

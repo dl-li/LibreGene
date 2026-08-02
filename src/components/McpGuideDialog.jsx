@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Bot, Check, Copy } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { useState } from 'react';
 
 function CopyButton({ text }) {
@@ -54,7 +54,7 @@ function mcpSnippets(port) {
   return [
     {
       label: 'opencode',
-      hint: 'opencode.json（项目或全局 ~/.config/opencode/）',
+      hint: 'opencode.json (project-level or global ~/.config/opencode/)',
       text: `{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -68,17 +68,17 @@ function mcpSnippets(port) {
     },
     {
       label: 'Claude Code',
-      hint: '在终端运行一次即可',
+      hint: 'Run once in a terminal',
       text: `claude mcp add --transport http libregene ${url}`,
     },
     {
       label: 'Kimi CLI',
-      hint: '在终端运行一次即可',
+      hint: 'Run once in a terminal',
       text: `kimi mcp add --transport http libregene ${url}`,
     },
     {
-      label: '其他客户端（mcpServers JSON）',
-      hint: '适用于 Cursor / Windsurf 等使用 mcpServers 配置的客户端',
+      label: 'Other clients (mcpServers JSON)',
+      hint: 'For Cursor / Windsurf and other mcpServers-based clients',
       text: `{
   "mcpServers": {
     "libregene": {
@@ -91,6 +91,7 @@ function mcpSnippets(port) {
 }
 
 export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpConfigChange }) {
+  const [guideOpen, setGuideOpen] = useState(false);
   const enabled = Boolean(mcpConfig?.enabled);
   const port = mcpConfig?.port ?? 8766;
   return (
@@ -102,8 +103,9 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
             MCP Server
           </DialogTitle>
           <DialogDescription>
-            让 LLM Agent 通过 Model Context Protocol 直接操作当前打开的质粒（28
-            个工具：概览/序列读取/feature 编辑/碱基编辑/引物设计/ORF/比对等）。
+            Let an LLM agent operate the open plasmid via the Model Context Protocol (27 tools:
+            overview digests, sequence read/edit, feature & primer CRUD, primer design, ORF,
+            alignment, and more).
           </DialogDescription>
         </DialogHeader>
 
@@ -143,18 +145,35 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
 
           <Separator />
 
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {enabled
-                ? 'MCP 服务已在运行。在你的 Agent 客户端中添加以下任一配置：'
-                : 'MCP 服务当前已停用，请先勾选上方 Enable。'}
-            </p>
-            {mcpSnippets(port).map((s) => (
-              <Snippet key={s.label} {...s} />
-            ))}
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              配置完成后重启 Agent 会话，让它调用 <code>list_projects</code> 验证连接。
-            </p>
+          <div>
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setGuideOpen(!guideOpen)}
+            >
+              {guideOpen ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+              How to connect your agent
+            </button>
+            {guideOpen && (
+              <div className="space-y-3 mt-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {enabled
+                    ? 'The MCP server is running. Add one of the following configs to your agent client:'
+                    : 'The MCP server is currently disabled — tick Enable above first.'}
+                </p>
+                {mcpSnippets(port).map((s) => (
+                  <Snippet key={s.label} {...s} />
+                ))}
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  After configuring, restart your agent session and ask it to call{' '}
+                  <code>list_projects</code> to verify the connection.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

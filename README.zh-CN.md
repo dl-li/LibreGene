@@ -44,12 +44,7 @@ npx tauri dev
 
 ## MCP / LLM Agent 集成
 
-LibreGene 内置了 [MCP](https://modelcontextprotocol.io)（Model Context Protocol）服务器，终端里的 LLM Agent 可以像真实用户一样操作应用——打开文件、阅读摘要、编辑序列、管理特征/引物、运行 ORF/PCR 分析——UI 实时同步更新。
-
-- **端点**：`http://127.0.0.1:8766/mcp`（Streamable HTTP，**仅回环**，绝不暴露到网络）
-- **默认开启**：设置 → *MCP Server*（启用开关 + 端口；修改即时生效，无需重启应用）
-- **约 28 个工具**：项目列表/总览/区域摘要、序列读取/编辑、特征与引物增删改、甲基化、比对、ORF 搜索、引物设计、PCR 分析、酶数据库
-- **坐标**：0-based inclusive；引物 `template_end` 为 exclusive；环状序列读取支持 `start > end`（绕原点）
+LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（默认开启，仅监听本机回环），终端里的 LLM Agent 可以像真实用户一样操作应用——打开文件、浏览质粒结构、编辑序列与特征、设计引物、跑 ORF/PCR 分析——UI 实时同步更新。入口与配置指引见侧边栏的 *MCP Server*（或空项目界面的 "Connect an LLM agent via MCP" 链接）。
 
 在 Agent CLI 中注册：
 
