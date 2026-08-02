@@ -131,15 +131,9 @@ pub struct Primer {
     /// Full primer sequence 5'→3'.
     #[serde(default)]
     pub primer_seq: String,
-    #[serde(default = "default_primer_color")]
-    pub color: String,
     /// Computed binding sites, sorted by Tm descending (best first).
     #[serde(default)]
     pub binding_sites: Vec<PrimerBindingSite>,
-}
-
-fn default_primer_color() -> String {
-    "#166534".to_string()
 }
 
 /// A predicted primer pair (one fwd + one rev) that could form a PCR product.

@@ -27,9 +27,8 @@ pub struct PrimerGbEntry {
 /// Parse a single `primer_bind` feature from GenBank qualifiers.
 ///
 /// Only extracts `label`, `libregene_primer_id`, `libregene_primer_type`,
-/// `libregene_primer_seq`, and `libregene_color`. All binding site
-/// information is recomputed by the alignment engine — stored values
-/// are ignored.
+/// and `libregene_primer_seq`. All binding site information is recomputed by
+/// the alignment engine — stored values are ignored.
 ///
 /// This delegates to the shared [`crate::file_io::gbk::primer_from_qualifier_values`]
 /// helper to avoid duplicating Primer construction logic.
@@ -51,17 +50,13 @@ pub fn parse_gbk_feature(
         .get("libregene_primer_type")
         .map(|s| s.as_str())
         .unwrap_or("fwd");
-    let color = qualifiers
-        .get("libregene_color")
-        .map(|s| s.as_str())
-        .unwrap_or("#166534");
     let primer_seq = qualifiers
         .get("libregene_primer_seq")
         .map(|s| s.as_str())
         .unwrap_or("");
 
     Some(crate::file_io::gbk::primer_from_qualifier_values(
-        label, primer_id, ptype, color, primer_seq,
+        label, primer_id, ptype, primer_seq,
     ))
 }
 
@@ -136,7 +131,6 @@ mod tests {
                 name: "Primer1".to_string(),
                 r#type: "fwd".to_string(),
                 primer_seq: "AAAACGTACGCTAG".to_string(),
-                color: "#166534".to_string(),
                 binding_sites: vec![PrimerBindingSite {
                     primer_id: "P1".to_string(),
                     strand: 1,

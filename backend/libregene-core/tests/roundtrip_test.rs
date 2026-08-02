@@ -110,13 +110,13 @@ fn roundtrip_puc19_annotated() {
     assert_eq!((ampr2.segments[0].start, ampr2.segments[0].end), (1625, 2416));
     assert_eq!((ampr2.segments[1].start, ampr2.segments[1].end), (2417, 2485));
 
-    // Primer direction + color note
+    // Primer direction note (no color — primers have no static color)
     let fwd = reloaded.primers.iter().find(|p| p.name == "M13 fwd").expect("M13 fwd");
     let rev = reloaded.primers.iter().find(|p| p.name == "M13 rev").expect("M13 rev");
     assert_eq!(fwd.r#type, "fwd");
     assert_eq!(rev.r#type, "rev");
-    assert!(written.contains("color: #a020f0; direction: RIGHT"), "fwd primer note");
-    assert!(written.contains("color: #a020f0; direction: LEFT"), "rev primer note");
+    assert!(written.contains("direction: RIGHT; sequence: "), "fwd primer note");
+    assert!(written.contains("direction: LEFT; sequence: "), "rev primer note");
 
     // Color note format: merged direction for reverse features, plain for forward
     assert!(written.contains("; direction: LEFT\""),

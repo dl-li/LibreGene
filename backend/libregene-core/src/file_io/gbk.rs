@@ -35,7 +35,6 @@ pub(crate) fn primer_from_qualifier_values(
     label: &str,
     primer_id: &str,
     ptype: &str,
-    color: &str,
     primer_seq: &str,
 ) -> Primer {
     Primer {
@@ -43,11 +42,6 @@ pub(crate) fn primer_from_qualifier_values(
         name: label.to_string(),
         r#type: ptype.to_string(),
         primer_seq: primer_seq.to_string(),
-        color: if color.is_empty() {
-            "#166534".to_string()
-        } else {
-            color.to_string()
-        },
         binding_sites: Vec::new(),
     }
 }
@@ -473,12 +467,6 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
         let ms = best.template_start;
         let me = best.template_end;
 
-        let color = if p.color.is_empty() {
-            "#166534"
-        } else {
-            &p.color
-        };
-
         // SnapGene primer sequence: 5' tail lowercase + binding region uppercase
         let seq = if best.five_prime_tail.is_empty() {
             p.primer_seq.to_uppercase()
@@ -491,7 +479,7 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
             )
         };
         let direction = if p.r#type == "rev" { "LEFT" } else { "RIGHT" };
-        let note = format!("color: {}; direction: {}; sequence: {}", color, direction, seq);
+        let note = format!("direction: {}; sequence: {}", direction, seq);
 
         let loc = if me <= ms {
             // Binding site wraps the origin of a circular template.
@@ -685,7 +673,6 @@ pub(crate) fn build_primer_qualifier_pairs(
     qualifiers.push(("libregene_primer_id".to_string(), p.id.clone()));
     qualifiers.push(("libregene_primer_type".to_string(), p.r#type.clone()));
     qualifiers.push(("libregene_primer_seq".to_string(), p.primer_seq.clone()));
-    qualifiers.push(("libregene_color".to_string(), p.color.clone()));
 
     if !p.binding_sites.is_empty() {
         let parts: Vec<String> = p
@@ -952,23 +939,11 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
         .next()
         .unwrap_or(label);
 
-    let color = f
-        .qualifier_values("libregene_color")
-        .next()
-        .map(|s| s.to_string())
-        .or_else(|| {
-            let notes: Vec<&str> = f.qualifier_values("note").collect();
-            let c = parse_snapgene_color_from_notes(&notes);
-            if c.is_empty() { None } else { Some(c) }
-        })
-        .unwrap_or_else(|| "#166534".to_string());
-
     Some(Primer {
         id: primer_id.to_string(),
         name: label.to_string(),
         r#type: ptype.to_string(),
         primer_seq,
-        color,
         binding_sites: Vec::new(),
     })
 }
