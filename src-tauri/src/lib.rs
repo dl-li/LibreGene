@@ -327,6 +327,13 @@ async fn save_file(
     }
 }
 
+/// Write raw text to a file (used for My Enzymes export). Small payloads only.
+#[tauri::command]
+async fn write_text_file(path: String, contents: String) -> Result<serde_json::Value, String> {
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"status": "ok"}))
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — sequence
 // ---------------------------------------------------------------------------
@@ -733,6 +740,18 @@ async fn update_feature_location(
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — enzymes
+// ---------------------------------------------------------------------------
+
+/// Return the full static enzyme database (all records, regardless of whether
+/// they cut the current sequence).
+#[tauri::command]
+async fn get_enzyme_database() -> Result<serde_json::Value, String> {
+    let db = libregene_core::enzyme::search::get_db();
+    serde_json::to_value(&db.enzymes).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — primers
 // ---------------------------------------------------------------------------
 
@@ -859,6 +878,126 @@ async fn delete_primer(
         &projects,
         active_id.as_deref(),
     ))
+}
+
+/// Check which of the given primers can bind to the current project's sequence.
+/// Returns a lightweight per-primer summary (binds + best site), reusing the
+/// same binding-site engine as the editor for consistency.
+#[tauri::command]
+async fn check_primers_binding(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    primers: Vec<Primer>,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+
+    let (template, topology) = {
+        let pm = state.pm.read().await;
+        let project = pm
+            .get_project_by_id(&project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        (project.sequence.clone(), project.topology.clone())
+    };
+
+    let results = tokio::task::spawn_blocking(move || {
+        let updated =
+            libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers);
+        updated
+            .into_iter()
+            .map(|p| {
+                let site = p.binding_sites.first();
+                serde_json::json!({
+                    "id": p.id,
+                    "binds": site.is_some(),
+                    "site": site.map(|s| serde_json::json!({
+                        "strand": s.strand,
+                        "templateStart": s.template_start,
+                        "templateEnd": s.template_end,
+                        "tm": s.tm,
+                    })),
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+
+    Ok(serde_json::json!({ "results": results }))
+}
+
+/// Add a batch of primers to the current project (My Primers → current file).
+/// Rejects exact-sequence duplicates and name conflicts; recomputes once.
+#[tauri::command]
+async fn add_primers(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    primers: Vec<Primer>,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    };
+
+    {
+        let mut pm = state.pm.write().await;
+        let existing: Vec<Primer> = pm
+            .get_project_by_id(&project_id)
+            .map(|p| p.primers.clone())
+            .unwrap_or_default();
+
+        let mut merged = existing;
+        for primer in primers {
+            let seq_conflict = merged
+                .iter()
+                .any(|p| p.primer_seq.to_uppercase() == primer.primer_seq.to_uppercase());
+            let name_conflict =
+                merged.iter().any(|p| p.id != primer.id && p.name == primer.name);
+            if seq_conflict || name_conflict {
+                continue;
+            }
+            if let Some(pos) = merged.iter().position(|p| p.id == primer.id) {
+                merged[pos] = primer;
+            } else {
+                merged.push(primer);
+            }
+        }
+
+        if let Some(p) = pm.get_project_by_id(&project_id) {
+            let template = p.sequence.clone();
+            let topology = p.topology.clone();
+            let updated = libregene_core::primer::align::recompute_all_primers(
+                &template,
+                &topology,
+                &merged,
+            );
+            if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+                p.primers = updated;
+            }
+        } else if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            p.primers = merged;
+        }
+        pm.mark_dirty(&project_id);
+    }
+
+    // Broadcast event so listeners update their state
+    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
 }
 
 #[tauri::command]
@@ -1702,6 +1841,7 @@ pub fn run() {
             get_project_by_id,
             open_file,
             save_file,
+            write_text_file,
             update_sequence,
             set_roi,
             clear_roi,
@@ -1715,8 +1855,11 @@ pub fn run() {
             update_feature_location,
             get_primers,
             add_primer,
+            add_primers,
             delete_primer,
+            check_primers_binding,
             compute_primer_alignment,
+            get_enzyme_database,
             add_alignment,
             add_alignment_seq,
             remove_alignment,

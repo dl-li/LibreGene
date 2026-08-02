@@ -22,6 +22,7 @@ import {
   Type,
   ListChecks,
   Save,
+  Database,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -121,6 +122,16 @@ export default function EditorNavMenu({
   onAddAlignmentText,
   onManageAlignments,
   onPrimerDesign,
+  onOpenMyPrimers,
+  onAddCurrentPrimerToMyPrimers,
+  onAddAllPrimersToMyPrimers,
+  autoAddPrimers = false,
+  onToggleAutoAddPrimers,
+  hasSelectedPrimer = false,
+  hasPrimers = false,
+  onOpenMyEnzymes,
+  onOpenEnzymeDatabase,
+  myEnzymes = [],
   topology,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -278,7 +289,30 @@ export default function EditorNavMenu({
               <Plus /> Create Primer
               <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <PlaceholderItem label="My Primers" />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>My Primers</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-48">
+                <DropdownMenuItem onSelect={onOpenMyPrimers}>
+                  <ListChecks /> My Primers…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={!hasSelectedPrimer}
+                  onSelect={onAddCurrentPrimerToMyPrimers}
+                >
+                  <Plus /> Add Current Primer
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!hasPrimers} onSelect={onAddAllPrimersToMyPrimers}>
+                  <CopyPlus /> Add All from This File
+                </DropdownMenuItem>
+                <DropdownMenuCheckboxItem
+                  checked={autoAddPrimers}
+                  onCheckedChange={onToggleAutoAddPrimers}
+                >
+                  Auto-add from Opened Files
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <PlaceholderItem label="PCR Analysis" />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Primer Design</DropdownMenuSubTrigger>
@@ -340,11 +374,21 @@ export default function EditorNavMenu({
                       )}
                     </DropdownMenuRadioItem>
                   ))}
+                  {myEnzymes.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
+                    </>
+                  )}
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <PlaceholderItem label="Customize Enzyme Set" />
-            <PlaceholderItem label="Enzyme Database" />
+            <DropdownMenuItem onSelect={onOpenMyEnzymes}>
+              <Scissors /> My Enzymes…
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
+              <Database /> Enzyme Database…
+            </DropdownMenuItem>
             <PlaceholderItem label="Digestion Analysis" />
           </DropdownMenuContent>
         </DropdownMenu>
