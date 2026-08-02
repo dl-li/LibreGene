@@ -277,10 +277,28 @@ export default function ProjectWorkspace({
 
   const [showOrfs, setShowOrfs] = useState(false);
   const orfEnabled = !disabledPlugins.includes('orf') && showOrfs;
-  const orfFeatures = useMemo(
-    () => (orfEnabled && sequence ? findOrfs(sequence, topology) : EMPTY_ARRAY),
-    [orfEnabled, sequence, topology],
-  );
+  const [orfFeatures, setOrfFeatures] = useState(EMPTY_ARRAY);
+  // ORFs are computed by the backend on the active project's sequence; refetch
+  // whenever the toggle, sequence, topology, or backend availability changes.
+  // Old ORFs stay visible during the refetch to avoid flicker.
+  useEffect(() => {
+    if (!orfEnabled || backendStatus !== 'online' || !sequence) {
+      setOrfFeatures(EMPTY_ARRAY);
+      return undefined;
+    }
+    let cancelled = false;
+    findOrfs()
+      .then((feats) => {
+        if (!cancelled) setOrfFeatures(feats);
+      })
+      .catch((e) => {
+        console.error('ORF search error:', e);
+        if (!cancelled) setOrfFeatures(EMPTY_ARRAY);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orfEnabled, backendStatus, sequence, topology]);
   const editorFeatures = useMemo(
     () => [...(showFeatures ? features : EMPTY_ARRAY), ...orfFeatures],
     [showFeatures, features, orfFeatures],

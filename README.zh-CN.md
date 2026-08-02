@@ -42,6 +42,40 @@ npx tauri dev
 
 需要 Node.js ≥ 20、Rust ≥ 1.75 以及 [Tauri v2 系统依赖](https://v2.tauri.app/start/prerequisites/)。
 
+## MCP / LLM Agent 集成
+
+LibreGene 内置了 [MCP](https://modelcontextprotocol.io)（Model Context Protocol）服务器，终端里的 LLM Agent 可以像真实用户一样操作应用——打开文件、阅读摘要、编辑序列、管理特征/引物、运行 ORF/PCR 分析——UI 实时同步更新。
+
+- **端点**：`http://127.0.0.1:8766/mcp`（Streamable HTTP，**仅回环**，绝不暴露到网络）
+- **默认开启**：设置 → *MCP Server*（启用开关 + 端口；修改即时生效，无需重启应用）
+- **约 28 个工具**：项目列表/总览/区域摘要、序列读取/编辑、特征与引物增删改、甲基化、比对、ORF 搜索、引物设计、PCR 分析、酶数据库
+- **坐标**：0-based inclusive；引物 `template_end` 为 exclusive；环状序列读取支持 `start > end`（绕原点）
+
+在 Agent CLI 中注册：
+
+```bash
+# Kimi Code CLI
+kimi mcp add --transport http libregene http://127.0.0.1:8766/mcp
+
+# Claude Code
+claude mcp add --transport http libregene http://127.0.0.1:8766/mcp
+```
+
+或用标准 `mcpServers` 配置文件：
+
+```json
+{
+  "mcpServers": {
+    "libregene": {
+      "type": "http",
+      "url": "http://127.0.0.1:8766/mcp"
+    }
+  }
+}
+```
+
+服务器运行在 Tauri 进程内，先启动 LibreGene，再让 Agent 执行例如"打开 `examples/pUC19 Annotated.gbk` 并总结一下"。
+
 ## 许可证
 
 GNU General Public License v3.0 — 参见 [LICENSE](LICENSE)。

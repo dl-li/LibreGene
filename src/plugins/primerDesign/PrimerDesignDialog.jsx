@@ -2,15 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, Check } from 'lucide-react';
-import { computeTm } from '../../tauriApi';
-import { buildAmplifyGroups, buildOepcrGroups, buildMutagenesisGroups } from './candidates';
-
-// Wallace-rule fallback when the backend Tm model is unavailable (HTTP mode)
-const wallaceTm = (s) => {
-  const at = (s.match(/[AT]/gi) || []).length;
-  const gc = (s.match(/[GC]/gi) || []).length;
-  return 2 * at + 4 * gc;
-};
+import { designPrimerCandidates } from '../../tauriApi';
 
 const DEFAULTS = {
   amplify: { targetTm: 60, name: 'Amplicon' },
@@ -138,7 +130,6 @@ function PrimerDesignDialogInner({
   mode,
   segments,
   sequence,
-  topology,
   tmParams,
   onPrimerChange,
 }) {
@@ -159,17 +150,6 @@ function PrimerDesignDialogInner({
   const [error, setError] = useState('');
   const genRef = useRef(0);
 
-  const tmOf = useCallback(
-    async (s) => {
-      try {
-        return await computeTm(s, tmParams);
-      } catch {
-        return wallaceTm(s);
-      }
-    },
-    [tmParams],
-  );
-
   const setParam = useCallback((key, value) => {
     setParams((p) => ({ ...p, [key]: value }));
   }, []);
@@ -181,25 +161,25 @@ function PrimerDesignDialogInner({
       setLoading(true);
       setError('');
       try {
-        const common = { seq: sequence, targetTm: Number(params.targetTm) || 60, topology, tmOf };
+        const common = { mode, targetTm: Number(params.targetTm) || 60, tmParams };
         let result;
         if (mode === 'amplify') {
-          result = await buildAmplifyGroups({
+          result = await designPrimerCandidates({
             ...common,
             seg: segments[0],
             name: (params.name?.trim() ?? '') || 'Amplicon',
           });
         } else if (mode === 'oepcr') {
-          result = await buildOepcrGroups({
+          result = await designPrimerCandidates({
             ...common,
-            seg1: segments[0],
+            seg: segments[0],
             seg2: segments[1],
             name1: (params.name1?.trim() ?? '') || 'Fragment 1',
             name2: (params.name2?.trim() ?? '') || 'Fragment 2',
             overlapLen: Math.max(8, Number(params.overlapLen) || 20),
           });
         } else {
-          result = await buildMutagenesisGroups({
+          result = await designPrimerCandidates({
             ...common,
             seg: segments[0],
             siteName: (params.siteName?.trim() ?? '') || 'Mutation',
@@ -227,7 +207,7 @@ function PrimerDesignDialogInner({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [open, mode, segments, sequence, topology, params, tmOf]);
+  }, [open, mode, segments, sequence, params, tmParams]);
 
   const allSelected = groups.length > 0 && groups.every((_, i) => selections[i]);
 

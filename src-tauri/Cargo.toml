@@ -14,15 +14,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["test"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "net", "time"] }
 libregene-core = { path = "../backend/libregene-core" }
 log = "0.4"
 tauri-plugin-decoration = "2.1.4"
+
+# MCP (Model Context Protocol) embedded server — streamable HTTP on loopback.
+rmcp = { version = "3.1", features = ["transport-streamable-http-server"] }
+axum = "0.8"
 
 # Keep the alignment/enzyme engine fast in dev builds.
 [profile.dev.package.libregene-core]

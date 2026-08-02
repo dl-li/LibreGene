@@ -10,10 +10,12 @@ import {
   openInNewWindow,
   deleteProject,
   setWindowTitle,
+  setMcpConfig,
 } from './tauriApi';
 import { plugins } from './plugins';
 import ProjectWorkspace from './ProjectWorkspace';
 import SettingsPage from './components/SettingsPage';
+import McpGuideDialog from './components/McpGuideDialog';
 import TitleBar from './components/TitleBar';
 import {
   SidebarProvider,
@@ -48,6 +50,7 @@ import {
   ExternalLink,
   Settings,
   ArrowDownWideNarrow,
+  Bot,
   Map as MapIcon,
   Clock,
 } from 'lucide-react';
@@ -94,6 +97,21 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // MCP server config: persisted in localStorage, pushed to the Rust side on
+  // every change so the loopback server starts/stops/restarts without an app
+  // restart.
+  const handleMcpConfigChange = useCallback((next) => {
+    setMcpConfigState(next);
+    try {
+      localStorage.setItem('mcpConfig', JSON.stringify(next));
+    } catch {
+      // storage may be unavailable; config still applies in-memory
+    }
+    if (isTauri) {
+      setMcpConfig(Boolean(next.enabled), Number(next.port)).catch(() => {});
+    }
+  }, []);
   const [backendStatus, setBackendStatus] = useState(isTauri ? 'online' : 'offline');
 
   // Multi-project state
@@ -105,6 +123,7 @@ export default function App() {
   // { type: 'main' } or { type: 'project', projectId: '...' }
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
   const [alwaysExpandFeatures, setAlwaysExpandFeatures] = useState(() => {
     try {
@@ -125,6 +144,13 @@ export default function App() {
     dntpConc: 0.0008,
     trisConc: 0.01,
     primerConc: 2e-7,
+  });
+  const [mcpConfig, setMcpConfigState] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('mcpConfig')) || { enabled: true, port: 8766 };
+    } catch {
+      return { enabled: true, port: 8766 };
+    }
   });
   const [openPath] = useState('');
   const activeIdRef = useRef(null);
@@ -205,6 +231,19 @@ export default function App() {
     } catch {
       // backend unreachable; keep current project list
     }
+  }, []);
+
+  // Apply the persisted MCP config once on startup so the server reflects the
+  // saved enable/port (the Rust side already started with the default config).
+  useEffect(() => {
+    if (!isTauri) return;
+    let cfg = { enabled: true, port: 8766 };
+    try {
+      cfg = JSON.parse(localStorage.getItem('mcpConfig')) || cfg;
+    } catch {
+      /* ignore malformed stored config */
+    }
+    setMcpConfig(Boolean(cfg.enabled), Number(cfg.port)).catch(() => {});
   }, []);
 
   // Detect window type on mount
@@ -740,6 +779,16 @@ export default function App() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  onClick={() => setMcpGuideOpen(true)}
+                  tooltip="MCP Server (LLM agent)"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Bot className="size-4" />
+                  <span>MCP Server</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
                   onClick={() => setSettingsOpen(true)}
                   tooltip="Settings"
                   className="text-muted-foreground hover:text-foreground"
@@ -817,6 +866,14 @@ export default function App() {
                     <FolderOpen className="size-4" />
                     Open File
                   </Button>
+                  <button
+                    type="button"
+                    onClick={() => setMcpGuideOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Bot className="size-3.5" />
+                    Connect an LLM agent via MCP
+                  </button>
                 </div>
               </main>
             )}
@@ -837,6 +894,13 @@ export default function App() {
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
+        />
+
+        <McpGuideDialog
+          open={mcpGuideOpen}
+          onOpenChange={setMcpGuideOpen}
+          mcpConfig={mcpConfig}
+          onMcpConfigChange={handleMcpConfigChange}
         />
 
         {/* --- Unsaved Changes Dialog --- */}
