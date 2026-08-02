@@ -1,0 +1,1 @@
+Prompt: 我现在有一个用BamHI和HindIII消化过的空载BlueScribe载体，以及另一个有mEGFP的未知载体作为模板。请你帮我设计合适的PCR引物，来扩增mEGFP，使其使用相同的酶消化后可以连接到BlueScribe上，得到目录中的BlueScribe-mEGFP载体。然后告诉我应该用哪一对引物来鉴定连接涂板长出的菌落。最后，再设计一对PCR诱变引物，将mEGFP的第206位A突变为K。

@@ -1,0 +1,1 @@
+Prompt: 根据目录中的序列和Protocol，帮我设计一个靶向某基因（GOI）的质粒。其被靶向的位置，即AS序列为TTAGAGGCTACCTTCTTGCTT
