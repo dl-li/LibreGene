@@ -269,6 +269,68 @@ export async function computeTm(seq, tmParams = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// MCP server settings
+// ---------------------------------------------------------------------------
+
+export async function getMcpConfig() {
+  return tauriInvoke('get_mcp_config');
+}
+
+export async function setMcpConfig(enabled, port) {
+  return tauriInvoke('set_mcp_config', { enabled, port });
+}
+
+// ---------------------------------------------------------------------------
+// ORF search / sequence search / primer design (backend-computed)
+// ---------------------------------------------------------------------------
+
+export async function findOrfs(minAa = 75) {
+  return tauriInvoke('find_orfs', { minAa: minAa ?? null });
+}
+
+export async function searchSequence(query) {
+  return tauriInvoke('search_sequence', { query });
+}
+
+/**
+ * Generate primer design candidates in the backend.
+ * @param {object} args
+ * @param {'amplify'|'oepcr'|'mutagenesis'} args.mode
+ * @param {{start:number,end:number}} args.seg  first segment (0-based inclusive)
+ * @param {{start:number,end:number}} [args.seg2] second segment (oepcr)
+ * @param {string} [args.name] amplify primer-pair name
+ * @param {string} [args.name1] oepcr fragment 1 name
+ * @param {string} [args.name2] oepcr fragment 2 name
+ * @param {string} [args.siteName] mutagenesis site name
+ * @param {number} [args.targetTm]
+ * @param {number} [args.overlapLen] oepcr overlap length
+ * @param {number} [args.armLen] mutagenesis homology arm length
+ * @param {string} [args.mutSeq] mutagenesis replacement sequence
+ * @param {object} [args.tmParams] concentration overrides (naConc/mgConc/dntpConc/trisConc/primerConc)
+ */
+export async function designPrimerCandidates(args = {}) {
+  const tmParams = args.tmParams || {};
+  return tauriInvoke('design_primer_candidates', {
+    mode: args.mode,
+    seg: args.seg ?? null,
+    seg2: args.seg2 ?? null,
+    name: args.name ?? null,
+    name1: args.name1 ?? null,
+    name2: args.name2 ?? null,
+    siteName: args.siteName ?? null,
+    targetTm: args.targetTm ?? 60,
+    overlapLen: args.overlapLen ?? null,
+    armLen: args.armLen ?? null,
+    mutSeq: args.mutSeq ?? null,
+    naConc: tmParams.naConc ?? null,
+    mgConc: tmParams.mgConc ?? null,
+    dntpConc: tmParams.dntpConc ?? null,
+    trisConc: tmParams.trisConc ?? null,
+    primerConc: tmParams.primerConc ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Tauri dialog helpers
 // ---------------------------------------------------------------------------
 

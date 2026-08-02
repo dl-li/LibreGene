@@ -63,8 +63,8 @@ LibreGene/
 │   ├── EditorNavMenu.jsx       # 底部居中悬浮导航菜单（编辑/特征/引物/酶切/比对/搜索）
 │   ├── plugins/                # 插件系统：index.js 注册表，每个插件 { id, name, dialogKey, sidebarItems, dialog }
 │   │   └── alignment/          # 序列比对插件（管理弹窗 + 文本新增弹窗）
-│   │   └── orf/                # ORF 搜索插件（findOrfs 扫描双链，无弹窗，侧边栏开关切换 showOrfs；ORF 以 orf:true 的虚拟 CDS 注入，仅展示不落盘）
-│   │   └── primerDesign/       # 引物设计插件（Amplify/OE-PCR/PCR Mutagenesis；index.js 模式元信息，candidates.js 候选引物生成，PrimerDesignDialog.jsx 参数+候选弹窗；由 EditorNavMenu 直接接线，不走注册表）
+│   │   └── orf/                # ORF 搜索插件（无弹窗；扫描逻辑在 Rust 端 `find_orfs`，侧边栏开关切换 showOrfs；ORF 以 orf:true 的虚拟 CDS 注入，仅展示不落盘）
+│   │   └── primerDesign/       # 引物设计插件（Amplify/OE-PCR/PCR Mutagenesis；候选引物生成在 Rust 端 `design_primer_candidates`，PrimerDesignDialog.jsx 参数+候选弹窗；由 EditorNavMenu 直接接线，不走注册表）
 │   ├── fileIcons.js            # 文件名 → lucide 图标映射
 │   ├── components/
 │   │   ├── DebugPanel.jsx      # 调试面板
@@ -84,15 +84,19 @@ LibreGene/
 │   │       ├── models.rs       # 数据模型
 │   │       ├── project.rs      # ProjectManager
 │   │       ├── utils.rs        # complement / reverse_complement
+│   │       ├── orf.rs          # ORF 搜索（find_orfs，双链三框，返回虚拟 CDS Feature）
+│   │       ├── search.rs       # IUPAC 模糊序列搜索（find_seq_matches，双链）
+│   │       ├── digest.rs       # MCP 文本摘要渲染（project_digest / read_sequence，含单元测试）
 │   │       ├── enzyme/         # 酶切引擎
-│   │       ├── primer/         # 引物引擎
+│   │       ├── primer/         # 引物引擎（design.rs 为引物设计候选生成）
 │   │       └── file_io/        # 文件解析/序列化
 │   └── test_data/
 └── src-tauri/                  # Tauri v2 桌面壳
     ├── Cargo.toml
     ├── tauri.conf.json
     └── src/
-        ├── lib.rs              # Tauri commands + AppState
+        ├── lib.rs              # Tauri commands + AppState + 共享 do_* 内核
+        ├── mcp.rs              # 嵌入式 MCP server（LibreGeneMcp 工具 + McpServer 启停控制）
         └── main.rs             # 入口
 ```
 
@@ -168,21 +172,37 @@ LibreGene/
 ### Tauri Commands
 
 ```
-get_project, get_project_by_id, open_file, save_file, update_sequence,
-set_roi, clear_roi,
+get_project, get_project_by_id, open_file, save_file, write_text_file,
+update_sequence, set_roi, clear_roi,
 get_features, add_feature, delete_feature,
 update_feature_ftype, update_feature_color, update_feature_name,
 update_feature_strand, update_feature_location,
-get_primers, add_primer, delete_primer, compute_primer_alignment,
+get_primers, add_primer, add_primers, delete_primer, check_primers_binding,
+compute_primer_alignment, design_primer_candidates, find_orfs, search_sequence,
+get_enzyme_database,
 add_alignment, add_alignment_seq, remove_alignment,
 set_methylation,
 get_projects, activate_project, delete_project,
-open_in_new_window, get_window_project_id, rekey_project
+open_in_new_window, get_window_project_id, rekey_project,
+compute_tm, get_mcp_config, set_mcp_config,
+activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 ```
 
 ### HTTP API (libregene serve)
 
 统一前缀 `http://127.0.0.1:8765`，见 `src/api.js`。
+
+## MCP 支持
+
+嵌入式 MCP（Model Context Protocol）服务器让外部 LLM Agent 可以像真实用户一样操作应用。
+
+- **架构**：MCP server 运行在 Tauri 进程内（`src-tauri/src/mcp.rs`），Streamable HTTP 绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState` 的 `Arc<RwLock<ProjectManager>>`。
+- **共享内核**：所有 mutation 工具与对应 Tauri command 走同一套 `crate::do_*` 内部函数（`src-tauri/src/lib.rs`），同一 recompute/dirty/broadcast 路径，UI 实时更新。Tauri command 只是薄包装。
+- **启停控制**：`McpServer`（`mcp.rs`）持有配置 `{enabled, port}` 与 server task；`set_mcp_config` 在原进程内停止/重启服务器（端口冲突时自动重试），无需重启应用。默认 `enabled=true, port=8766`。配置持久化在前端 localStorage（key `mcpConfig`），启动时前端调用 `set_mcp_config` 应用。
+- **设置项**：`src/components/SettingsPage.jsx` 的 "MCP Server" 区（启用开关 + 端口）。
+- **工具**：目前约 28 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`compute_tm`、`search_sequence`、`get_enzyme_database`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、feature/primer/methylation/alignment 增删改、`find_orfs`、`design_primers`、`analyze_pcr`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要。
+- **坐标约定（MCP 工具）**：0-based inclusive；primer `template_end` exclusive；酶切在 `pos-1` 与 `pos` 之间；环状序列读取支持 `start > end` 绕原点，编辑区间不允许绕原点（`end = start - 1` 为纯插入）。
+- **测试**：`src-tauri` 内 `cargo test --lib` 有 McpServer 启停/换端口测试（mock runtime，真实 TCP 握手）；digest 渲染在 `libregene-core` 有单元测试。
 
 ## 核心模型约定
 

@@ -1,14 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::RwLock;
 
 use libregene_core::enzyme;
 use libregene_core::file_io;
-use libregene_core::models::{Feature, Primer, ProjectData};
+use libregene_core::models::{Feature, Primer, ProjectData, Segment};
 use libregene_core::primer;
 use libregene_core::project::ProjectManager;
+
+mod mcp;
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -168,8 +170,25 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
 
 /// Emit the current project state + filtered project list as a Tauri event.
 async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, source: Option<&str>) {
-    let pm = state.pm.read().await;
-    let wp = state.window_projects.read().await;
+    broadcast_project_arcs(
+        app_handle,
+        &state.pm,
+        &state.window_projects,
+        source,
+    )
+    .await;
+}
+
+/// Same as `broadcast_project` but takes the shared Arcs directly, so the MCP
+/// server can broadcast without a `State` handle.
+async fn broadcast_project_arcs<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+) {
+    let pm = pm.read().await;
+    let wp = wp.read().await;
     let excluded = excluded_project_ids(&wp);
     let all_projects = pm.list_projects();
     let raw_active_id = pm.active_id().map(|s| s.to_string());
@@ -225,6 +244,691 @@ async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, 
 }
 
 // ---------------------------------------------------------------------------
+// Shared mutation/analysis cores — called by both the Tauri commands and the
+// MCP server so every path goes through identical logic (recompute, dirty,
+// broadcast). Each mirrors the command it was extracted from.
+// ---------------------------------------------------------------------------
+
+async fn do_open_file(
+    pm: &Arc<RwLock<ProjectManager>>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let id = path.clone();
+    let path_buf = std::path::PathBuf::from(&path);
+
+    let result =
+        tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
+            let mut project = file_io::parse_file(&path_buf).map_err(|e| e.to_string())?;
+            enzyme::recompute(&mut project);
+            primer::recompute(&mut project);
+            Ok(project)
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))?;
+
+    match result {
+        Ok(project) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            let return_data = filter_project(&project, &params);
+
+            let (projects, active_id) = {
+                let mut pm = pm.write().await;
+                pm.load(&id, project);
+                (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+            };
+
+            Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
+        }
+        Err(e) => Ok(serde_json::json!({"error": e})),
+    }
+}
+
+async fn do_save_file(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: String,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let save_path = std::path::PathBuf::from(&path);
+    let project = {
+        let pm = pm.read().await;
+        pm.get_project_by_id(&project_id).cloned()
+    };
+    match project {
+        Some(ref p) => match file_io::gbk::write_gbk(p, &save_path) {
+            Ok(()) => {
+                let mut pm = pm.write().await;
+                pm.mark_clean(&project_id);
+                Ok(serde_json::json!({"status": "ok"}))
+            }
+            Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
+        },
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+async fn do_update_sequence(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: String,
+    sequence: String,
+) -> Result<serde_json::Value, String> {
+    {
+        let mut pm = pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            p.sequence = sequence;
+            p.length = p.sequence.len() as i64;
+            pm.mark_dirty(&project_id);
+        }
+    }
+
+    let project_clone = {
+        let pm = pm.read().await;
+        pm.get_project_by_id(&project_id).cloned()
+    };
+
+    if let Some(mut p) = project_clone {
+        let computed = tokio::task::spawn_blocking(move || {
+            enzyme::recompute(&mut p);
+            primer::recompute(&mut p);
+            p
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))?;
+
+        let mut pm = pm.write().await;
+        pm.open_project(project_id.clone(), computed);
+    }
+
+    let (result, projects, active_id) = {
+        let pm = pm.read().await;
+        let params = ProjectParams {
+            enzyme_filter: Some("all".to_string()),
+            row_start: None,
+            row_end: None,
+            cpl: None,
+        };
+        let data = pm
+            .get_project_by_id(&project_id)
+            .map(|p| filter_project(p, &params))
+            .unwrap_or(serde_json::json!({"error": "Project not found after update"}));
+        (data, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+    };
+
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
+}
+
+async fn do_activate_project(
+    pm: &Arc<RwLock<ProjectManager>>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let activated = {
+        let mut pm = pm.write().await;
+        pm.activate_project(&id)
+    };
+    if !activated {
+        return Ok(serde_json::json!({"error": format!("project not found: {}", id)}));
+    }
+
+    let result = {
+        let pm = pm.read().await;
+        match pm.get_project() {
+            Some(p) => {
+                let projects = pm.list_projects();
+                let active_id = pm.active_id().map(|s| s.to_string());
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                let mut filtered = filter_project(p, &params);
+                if let Some(ref mut map) = filtered.as_object_mut() {
+                    map.insert(
+                        "projects".to_string(),
+                        serde_json::to_value(&projects).unwrap_or_default(),
+                    );
+                    map.insert(
+                        "activeId".to_string(),
+                        serde_json::to_value(&active_id).unwrap_or_default(),
+                    );
+                }
+                filtered
+            }
+            None => serde_json::json!({"error": "project not found"}),
+        }
+    };
+
+    Ok(result)
+}
+
+async fn do_delete_project<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let closed = {
+        let mut pm = pm.write().await;
+        pm.close_project(&id)
+    };
+    if closed {
+        {
+            let mut wp = wp.write().await;
+            wp.retain(|_, v| v != &id);
+        }
+        broadcast_project_arcs(app_handle, pm, wp, source).await;
+        Ok(serde_json::json!({"status": "ok"}))
+    } else {
+        Ok(serde_json::json!({"error": "project not found"}))
+    }
+}
+
+/// Add or replace features (by id) and broadcast. The location string has
+/// already been parsed into the Feature by the caller.
+async fn do_add_features<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    features: Vec<Feature>,
+) -> Result<serde_json::Value, String> {
+    let mut feats: Vec<Feature> = pm
+        .read()
+        .await
+        .get_project_by_id(project_id)
+        .map(|p| p.features.clone())
+        .unwrap_or_default();
+
+    for feature in features {
+        if let Some(pos) = feats.iter().position(|f| f.id == feature.id) {
+            feats[pos] = feature;
+        } else {
+            feats.push(feature);
+        }
+    }
+
+    {
+        let mut pm = pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            p.features = feats;
+        }
+        pm.mark_dirty(project_id);
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    let pm = pm.read().await;
+    Ok(feature_mutation_response(&pm, project_id))
+}
+
+async fn do_delete_feature<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let (feats, projects, active_id) = {
+        let mut pm = pm.write().await;
+        let feats: Vec<Feature> = pm
+            .get_project_by_id(project_id)
+            .map(|p| p.features.iter().filter(|f| f.id != id).cloned().collect())
+            .unwrap_or_default();
+        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            p.features = feats.clone();
+        }
+        pm.mark_dirty(project_id);
+        (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+    };
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    Ok(with_projects_list(
+        serde_json::json!({ "features": feats }),
+        &projects,
+        active_id.as_deref(),
+    ))
+}
+
+/// Apply `apply` to the feature `feature_id`, mark dirty and broadcast.
+async fn do_update_feature<R: Runtime, F>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    feature_id: &str,
+    apply: F,
+) -> Result<serde_json::Value, String>
+where
+    F: FnOnce(&mut Feature) -> Result<(), String>,
+{
+    {
+        let mut pm = pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
+                apply(f)?;
+                pm.mark_dirty(project_id);
+            }
+        }
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    let pm = pm.read().await;
+    Ok(feature_mutation_response(&pm, project_id))
+}
+
+async fn do_add_primer<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    primer: Primer,
+) -> Result<serde_json::Value, String> {
+    let name_conflict = {
+        let pm = pm.read().await;
+        pm.get_project_by_id(project_id).map(|p| {
+            p.primers
+                .iter()
+                .any(|p| p.id != primer.id && p.name == primer.name)
+        }).unwrap_or(false)
+    };
+    if name_conflict {
+        return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists", primer.name)}));
+    }
+
+    {
+        let mut pm = pm.write().await;
+        let existing_primers: Vec<Primer> = pm
+            .get_project_by_id(project_id)
+            .map(|p| p.primers.clone())
+            .unwrap_or_default();
+        let mut primers = existing_primers;
+        if let Some(pos) = primers.iter().position(|p| p.id == primer.id) {
+            primers[pos] = primer.clone();
+        } else {
+            primers.push(primer.clone());
+        }
+        if let Some(p) = pm.get_project_by_id(project_id) {
+            let template = p.sequence.clone();
+            let topology = p.topology.clone();
+            let updated = libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers);
+            if let Some(p) = pm.get_project_mut_by_id(project_id) {
+                p.primers = updated;
+            }
+        } else if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            p.primers = primers;
+        }
+        pm.mark_dirty(project_id);
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    let pm = pm.read().await;
+    match pm.get_project_by_id(project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+async fn do_delete_primer<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let (primers, projects, active_id) = {
+        let mut pm = pm.write().await;
+        let primers: Vec<Primer> = pm
+            .get_project_by_id(project_id)
+            .map(|p| p.primers.iter().filter(|pr| pr.id != id).cloned().collect())
+            .unwrap_or_default();
+        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            p.primers = primers.clone();
+        }
+        pm.mark_dirty(project_id);
+        (primers, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+    };
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    Ok(with_projects_list(
+        serde_json::json!({ "primers": primers }),
+        &projects,
+        active_id.as_deref(),
+    ))
+}
+
+async fn do_set_methylation(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+    systems: Vec<String>,
+    overlap: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let systems: Vec<String> = systems
+        .into_iter()
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let overlap = overlap.unwrap_or(2);
+
+    let project_data = {
+        let mut pm = pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            p.methylation_systems = systems;
+            p.methylation_overlap = overlap;
+            Some(p.clone())
+        } else {
+            None
+        }
+    };
+
+    if let Some(mut p) = project_data {
+        let computed = tokio::task::spawn_blocking(move || {
+            enzyme::recompute_methylation_only(&mut p);
+            p
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))?;
+
+        let mut pm = pm.write().await;
+        pm.open_project(project_id.to_string(), computed);
+        pm.mark_dirty(project_id);
+    }
+
+    let (result, projects, active_id) = {
+        let pm = pm.read().await;
+        let params = ProjectParams {
+            enzyme_filter: Some("all".to_string()),
+            row_start: None,
+            row_end: None,
+            cpl: None,
+        };
+        let data = pm
+            .get_project_by_id(project_id)
+            .map(|p| filter_project(p, &params))
+            .unwrap_or(serde_json::json!({"error": "Project not found after methylation"}));
+        (data, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+    };
+
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
+}
+
+async fn do_add_alignment_seq<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    name: String,
+    seq: String,
+) -> Result<serde_json::Value, String> {
+    let project_clone = {
+        let pm = pm.read().await;
+        pm.get_project_by_id(project_id).cloned()
+    };
+    let project_clone = match project_clone {
+        Some(p) => p,
+        None => return Ok(serde_json::json!({"error": "Project not found"})),
+    };
+
+    let clean_seq: String = seq
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_uppercase();
+    if clean_seq.is_empty() {
+        return Ok(serde_json::json!({"error": "Sequence is empty"}));
+    }
+
+    let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
+        let mut p = project_clone;
+        let circular = p.topology == "circular";
+        let mut aln = libregene_core::align::align_read(&p.sequence, &clean_seq, circular)
+            .ok_or_else(|| "No significant alignment found".to_string())?;
+        aln.name = if name.trim().is_empty() {
+            "alignment".to_string()
+        } else {
+            name.trim().to_string()
+        };
+        aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+        p.alignments.push(aln);
+        Ok(p)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+
+    let computed = match computed {
+        Ok(p) => p,
+        Err(e) if e == "No significant alignment found" => return Err(e),
+        Err(e) => return Ok(serde_json::json!({"error": e})),
+    };
+
+    {
+        let mut pm = pm.write().await;
+        pm.open_project(project_id.to_string(), computed);
+        pm.mark_dirty(project_id);
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    let pm = pm.read().await;
+    match pm.get_project_by_id(project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+async fn do_remove_alignment<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    source: Option<&str>,
+    project_id: &str,
+    alignment_id: String,
+) -> Result<serde_json::Value, String> {
+    {
+        let mut pm = pm.write().await;
+        pm.remove_alignment(project_id, &alignment_id);
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, source).await;
+
+    let pm = pm.read().await;
+    match pm.get_project_by_id(project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
+async fn do_find_orfs(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+    min_aa: Option<usize>,
+) -> Result<Vec<Feature>, String> {
+    let (sequence, topology) = {
+        let pm = pm.read().await;
+        let project = pm
+            .get_project_by_id(project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        (project.sequence.clone(), project.topology.clone())
+    };
+
+    let min_aa = min_aa.unwrap_or(75);
+    tokio::task::spawn_blocking(move || {
+        libregene_core::orf::find_orfs(&sequence, &topology, min_aa)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))
+}
+
+async fn do_search_sequence(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+    query: String,
+) -> Result<Vec<libregene_core::search::SeqMatch>, String> {
+    let sequence = {
+        let pm = pm.read().await;
+        let project = pm
+            .get_project_by_id(project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        project.sequence.clone()
+    };
+
+    tokio::task::spawn_blocking(move || {
+        libregene_core::search::find_seq_matches(&sequence, &query)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))
+}
+
+async fn do_check_primers_binding(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+    primers: Vec<Primer>,
+) -> Result<serde_json::Value, String> {
+    let (template, topology) = {
+        let pm = pm.read().await;
+        let project = pm
+            .get_project_by_id(project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        (project.sequence.clone(), project.topology.clone())
+    };
+
+    let results = tokio::task::spawn_blocking(move || {
+        let updated =
+            libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers);
+        updated
+            .into_iter()
+            .map(|p| {
+                let site = p.binding_sites.first();
+                serde_json::json!({
+                    "id": p.id,
+                    "binds": site.is_some(),
+                    "site": site.map(|s| serde_json::json!({
+                        "strand": s.strand,
+                        "templateStart": s.template_start,
+                        "templateEnd": s.template_end,
+                        "tm": s.tm,
+                    })),
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+
+    Ok(serde_json::json!({ "results": results }))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn do_design_primer_candidates(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+    mode: String,
+    seg: Option<Segment>,
+    seg2: Option<Segment>,
+    name: Option<String>,
+    name1: Option<String>,
+    name2: Option<String>,
+    site_name: Option<String>,
+    target_tm: f64,
+    overlap_len: Option<usize>,
+    arm_len: Option<usize>,
+    mut_seq: Option<String>,
+    na_conc: Option<f64>,
+    mg_conc: Option<f64>,
+    dntp_conc: Option<f64>,
+    tris_conc: Option<f64>,
+    primer_conc: Option<f64>,
+) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
+    let (sequence, topology) = {
+        let pm = pm.read().await;
+        let project = pm
+            .get_project_by_id(project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        (project.sequence.clone(), project.topology.clone())
+    };
+
+    let tm_params = libregene_core::primer::thermodynamics::TmParams {
+        na_conc: na_conc.unwrap_or(0.050),
+        mg_conc: mg_conc.unwrap_or(0.0015),
+        dntp_conc: dntp_conc.unwrap_or(0.0008),
+        tris_conc: tris_conc.unwrap_or(0.010),
+        primer_conc: primer_conc.unwrap_or(2e-7),
+    };
+
+    let seg1 = seg.ok_or_else(|| "Segment required for primer design".to_string())?;
+    let overlap_len = overlap_len.unwrap_or(20).max(8);
+    let arm_len = arm_len.unwrap_or(20).max(8);
+    let mut_seq = mut_seq.unwrap_or_default();
+
+    tokio::task::spawn_blocking(move || -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
+        match mode.as_str() {
+            "amplify" => {
+                let name = name.unwrap_or_else(|| "Amplicon".to_string());
+                Ok(libregene_core::primer::design::build_amplify_groups(
+                    &sequence, &seg1, &name, target_tm, &topology, &tm_params,
+                ))
+            }
+            "oepcr" => {
+                let seg2 = seg2.ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
+                let name1 = name1.unwrap_or_else(|| "Fragment 1".to_string());
+                let name2 = name2.unwrap_or_else(|| "Fragment 2".to_string());
+                Ok(libregene_core::primer::design::build_oepcr_groups(
+                    &sequence, &seg1, &seg2, &name1, &name2, target_tm, overlap_len, &topology, &tm_params,
+                ))
+            }
+            "mutagenesis" => {
+                let site_name = site_name.unwrap_or_else(|| "Mutation".to_string());
+                Ok(libregene_core::primer::design::build_mutagenesis_groups(
+                    &sequence, &seg1, &site_name, &mut_seq, target_tm, arm_len, &tm_params,
+                ))
+            }
+            other => Err(format!("Unknown primer design mode: {other}")),
+        }
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?
+}
+
+
+// ---------------------------------------------------------------------------
 // Tauri commands — project
 // ---------------------------------------------------------------------------
 
@@ -259,40 +963,7 @@ async fn open_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    let id = path.clone();
-    let path_buf = std::path::PathBuf::from(&path);
-
-    let result =
-        tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
-            let mut project = file_io::parse_file(&path_buf).map_err(|e| e.to_string())?;
-            enzyme::recompute(&mut project);
-            primer::recompute(&mut project);
-            Ok(project)
-        })
-        .await
-        .map_err(|e| format!("task join error: {}", e))?;
-
-    match result {
-        Ok(project) => {
-            // Serialize before moving into pm.load() so the frontend can cache it
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            let return_data = filter_project(&project, &params);
-
-            let (projects, active_id) = {
-                let mut pm = state.pm.write().await;
-                pm.load(&id, project);
-                (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-            };
-
-            Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
-        }
-        Err(e) => Ok(serde_json::json!({"error": e})),
-    }
+    do_open_file(&state.pm, path).await
 }
 
 #[tauri::command]
@@ -301,28 +972,9 @@ async fn save_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    let save_path = std::path::PathBuf::from(&path);
     let project_id = resolve_project_id(&state, webview_window.label()).await;
     match project_id {
-        Some(id) => {
-            let project;
-            {
-                let pm = state.pm.read().await;
-                project = pm.get_project_by_id(&id).cloned();
-            }
-            match project {
-                Some(ref p) => match file_io::gbk::write_gbk(p, &save_path) {
-                    Ok(()) => {
-                        // Mark project as clean after successful save
-                        let mut pm = state.pm.write().await;
-                        pm.mark_clean(&id);
-                        Ok(serde_json::json!({"status": "ok"}))
-                    }
-                    Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
-                },
-                None => Ok(serde_json::json!({"error": "Project not found"})),
-            }
-        }
+        Some(id) => do_save_file(&state.pm, id, path).await,
         None => Ok(serde_json::json!({"error": "No project loaded"})),
     }
 }
@@ -349,52 +1001,7 @@ async fn update_sequence(
         Some(id) => id,
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
-
-    // Update the sequence and trigger recompute
-    {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.sequence = sequence;
-            p.length = p.sequence.len() as i64;
-            pm.mark_dirty(&project_id);
-        }
-    }
-
-    let project_clone = {
-        let pm = state.pm.read().await;
-        pm.get_project_by_id(&project_id).cloned()
-    };
-
-    if let Some(mut p) = project_clone {
-        let computed = tokio::task::spawn_blocking(move || {
-            enzyme::recompute(&mut p);
-            primer::recompute(&mut p);
-            p
-        })
-        .await
-        .map_err(|e| format!("task join error: {}", e))?;
-
-        let mut pm = state.pm.write().await;
-        pm.open_project(project_id.clone(), computed);
-    }
-
-    // Return full project data + projects list
-    let (result, projects, active_id) = {
-        let pm = state.pm.read().await;
-        let params = ProjectParams {
-            enzyme_filter: Some("all".to_string()),
-            row_start: None,
-            row_end: None,
-            cpl: None,
-        };
-        let data = pm
-            .get_project_by_id(&project_id)
-            .map(|p| filter_project(p, &params))
-            .unwrap_or(serde_json::json!({"error": "Project not found after update"}));
-        (data, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-    };
-
-    Ok(with_projects_list(result, &projects, active_id.as_deref()))
+    do_update_sequence(&state.pm, project_id, sequence).await
 }
 
 // ---------------------------------------------------------------------------
@@ -477,45 +1084,31 @@ async fn add_feature(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        let mut feats: Vec<Feature> = pm
-            .get_project_by_id(&project_id)
-            .map(|p| p.features.clone())
-            .unwrap_or_default();
-
-        // If location_str is provided, parse and validate it
-        let mut resolved = feature;
-        if let Some(loc_str) = location_str {
-            let trimmed = loc_str.trim().to_string();
-            if trimmed.is_empty() {
-                return Ok(serde_json::json!({"error": "Location cannot be empty".to_string()}));
-            }
-            let parsed = libregene_core::file_io::gbk::parse_location_string(&trimmed)
-                .ok_or_else(|| format!("Invalid location: {}", trimmed))?;
-            let (segments, start, end, strand) = parsed;
-            resolved.segments = segments;
-            resolved.start = start;
-            resolved.end = end;
-            resolved.strand = strand;
+    // If location_str is provided, parse and validate it
+    let mut resolved = feature;
+    if let Some(loc_str) = location_str {
+        let trimmed = loc_str.trim().to_string();
+        if trimmed.is_empty() {
+            return Ok(serde_json::json!({"error": "Location cannot be empty".to_string()}));
         }
-
-        if let Some(pos) = feats.iter().position(|f| f.id == resolved.id) {
-            feats[pos] = resolved;
-        } else {
-            feats.push(resolved);
-        }
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.features = feats;
-        }
-        pm.mark_dirty(&project_id);
+        let parsed = libregene_core::file_io::gbk::parse_location_string(&trimmed)
+            .ok_or_else(|| format!("Invalid location: {}", trimmed))?;
+        let (segments, start, end, strand) = parsed;
+        resolved.segments = segments;
+        resolved.start = start;
+        resolved.end = end;
+        resolved.strand = strand;
     }
 
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    Ok(feature_mutation_response(&pm, &project_id))
+    do_add_features(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        vec![resolved],
+    )
+    .await
 }
 
 #[tauri::command]
@@ -531,27 +1124,15 @@ async fn delete_feature(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    let (feats, projects, active_id) = {
-        let mut pm = state.pm.write().await;
-        let feats: Vec<Feature> = pm
-            .get_project_by_id(&project_id)
-            .map(|p| p.features.iter().filter(|f| f.id != id).cloned().collect())
-            .unwrap_or_default();
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.features = feats.clone();
-        }
-        pm.mark_dirty(&project_id);
-        (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-    };
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    Ok(with_projects_list(
-        serde_json::json!({ "features": feats }),
-        &projects,
-        active_id.as_deref(),
-    ))
+    do_delete_feature(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        id,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -568,21 +1149,19 @@ async fn update_feature_ftype(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.ftype = new_ftype;
-            }
-            pm.mark_dirty(&project_id);
-        }
-    }
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    Ok(feature_mutation_response(&pm, &project_id))
+    do_update_feature(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        &feature_id,
+        |f| {
+            f.ftype = new_ftype;
+            Ok(())
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -603,25 +1182,23 @@ async fn update_feature_color(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.color = new_color.clone();
-                // Recolor every segment too so the whole feature changes at once.
-                for seg in f.segments.iter_mut() {
-                    seg.color = Some(new_color.clone());
-                }
+    do_update_feature(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        &feature_id,
+        |f| {
+            f.color = new_color.clone();
+            // Recolor every segment too so the whole feature changes at once.
+            for seg in f.segments.iter_mut() {
+                seg.color = Some(new_color.clone());
             }
-            pm.mark_dirty(&project_id);
-        }
-    }
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    Ok(feature_mutation_response(&pm, &project_id))
+            Ok(())
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -642,21 +1219,19 @@ async fn update_feature_name(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.name = new_name;
-            }
-            pm.mark_dirty(&project_id);
-        }
-    }
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    Ok(feature_mutation_response(&pm, &project_id))
+    do_update_feature(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        &feature_id,
+        |f| {
+            f.name = new_name;
+            Ok(())
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -682,20 +1257,19 @@ async fn update_feature_strand(
         return Ok(serde_json::json!({"error": "Invalid strand: must be ., +, or -".to_string()}));
     }
 
-    {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.strand = strand;
-            }
-            pm.mark_dirty(&project_id);
-        }
-    }
-
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    Ok(feature_mutation_response(&pm, &project_id))
+    do_update_feature(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        &feature_id,
+        |f| {
+            f.strand = strand;
+            Ok(())
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -716,27 +1290,25 @@ async fn update_feature_location(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        let parsed = libregene_core::file_io::gbk::parse_location_string(&location_str)
-            .ok_or_else(|| format!("Invalid location: {}", location_str))?;
-        let (segments, start, end, strand) = parsed;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.segments = segments;
-                f.start = start;
-                f.end = end;
-                f.strand = strand;
-            }
-            pm.mark_dirty(&project_id);
-        }
-    }
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    Ok(feature_mutation_response(&pm, &project_id))
+    do_update_feature(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        &feature_id,
+        |f| {
+            let parsed = libregene_core::file_io::gbk::parse_location_string(&location_str)
+                .ok_or_else(|| format!("Invalid location: {}", location_str))?;
+            let (segments, start, end, strand) = parsed;
+            f.segments = segments;
+            f.start = start;
+            f.end = end;
+            f.strand = strand;
+            Ok(())
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -793,55 +1365,15 @@ async fn add_primer(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        let existing_primers: Vec<Primer> = pm
-            .get_project_by_id(&project_id)
-            .map(|p| p.primers.clone())
-            .unwrap_or_default();
-        // Reject duplicate names (same name, different id)
-        let name_conflict = existing_primers.iter().any(|p| {
-            p.id != primer.id && p.name == primer.name
-        });
-        if name_conflict {
-            return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists", primer.name)}));
-        }
-        let mut primers = existing_primers;
-        if let Some(pos) = primers.iter().position(|p| p.id == primer.id) {
-            primers[pos] = primer;
-        } else {
-            primers.push(primer);
-        }
-        if let Some(p) = pm.get_project_by_id(&project_id) {
-            let template = p.sequence.clone();
-            let topology = p.topology.clone();
-            let updated = libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers);
-            if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-                p.primers = updated;
-            }
-        } else if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.primers = primers;
-        }
-        pm.mark_dirty(&project_id);
-    }
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    // Return updated project
-    let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    do_add_primer(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        primer,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -857,27 +1389,15 @@ async fn delete_primer(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    let (primers, projects, active_id) = {
-        let mut pm = state.pm.write().await;
-        let primers: Vec<Primer> = pm
-            .get_project_by_id(&project_id)
-            .map(|p| p.primers.iter().filter(|pr| pr.id != id).cloned().collect())
-            .unwrap_or_default();
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.primers = primers.clone();
-        }
-        pm.mark_dirty(&project_id);
-        (primers, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-    };
-
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    Ok(with_projects_list(
-        serde_json::json!({ "primers": primers }),
-        &projects,
-        active_id.as_deref(),
-    ))
+    do_delete_primer(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        id,
+    )
+    .await
 }
 
 /// Check which of the given primers can bind to the current project's sequence.
@@ -892,38 +1412,7 @@ async fn check_primers_binding(
     let project_id = resolve_project_id(&state, webview_window.label()).await
         .ok_or_else(|| "No project loaded".to_string())?;
 
-    let (template, topology) = {
-        let pm = state.pm.read().await;
-        let project = pm
-            .get_project_by_id(&project_id)
-            .ok_or_else(|| "Project not found".to_string())?;
-        (project.sequence.clone(), project.topology.clone())
-    };
-
-    let results = tokio::task::spawn_blocking(move || {
-        let updated =
-            libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers);
-        updated
-            .into_iter()
-            .map(|p| {
-                let site = p.binding_sites.first();
-                serde_json::json!({
-                    "id": p.id,
-                    "binds": site.is_some(),
-                    "site": site.map(|s| serde_json::json!({
-                        "strand": s.strand,
-                        "templateStart": s.template_start,
-                        "templateEnd": s.template_end,
-                        "tm": s.tm,
-                    })),
-                })
-            })
-            .collect::<Vec<_>>()
-    })
-    .await
-    .map_err(|e| format!("task join error: {}", e))?;
-
-    Ok(serde_json::json!({ "results": results }))
+    do_check_primers_binding(&state.pm, &project_id, primers).await
 }
 
 /// Add a batch of primers to the current project (My Primers → current file).
@@ -1250,6 +1739,92 @@ struct BindingSiteCandidate {
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — ORF search / sequence search / primer design
+// ---------------------------------------------------------------------------
+
+/// Find open reading frames (ATG→stop, both strands, all three frames) on the
+/// active project's sequence. Returns virtual CDS features (display only),
+/// shaped exactly like the ORF plugin's old JS output: id `orf-<strand><start>:<end>`,
+/// name `ORF <start+1>..<end+1>`, per-strand colors, and a `qualifiers`
+/// `[("orf", "true")]` entry the renderer maps back to `orf: true`.
+#[tauri::command]
+async fn find_orfs(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    min_aa: Option<usize>,
+) -> Result<Vec<Feature>, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+
+    do_find_orfs(&state.pm, &project_id, min_aa).await
+}
+
+/// Search the active project's sequence for an IUPAC-aware query on both
+/// strands, mirroring `findSeqMatches` in `src/searchUtils.js`.
+#[tauri::command]
+async fn search_sequence(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<libregene_core::search::SeqMatch>, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+
+    do_search_sequence(&state.pm, &project_id, query).await
+}
+
+/// Generate primer design candidates for the active project's sequence.
+/// `mode` is "amplify" | "oepcr" | "mutagenesis"; segments are { start, end }
+/// 0-based inclusive. Tm is computed with the same TmParams defaults as the
+/// `compute_tm` command.
+#[tauri::command]
+async fn design_primer_candidates(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    mode: String,
+    seg: Option<Segment>,
+    seg2: Option<Segment>,
+    name: Option<String>,
+    name1: Option<String>,
+    name2: Option<String>,
+    site_name: Option<String>,
+    target_tm: f64,
+    overlap_len: Option<usize>,
+    arm_len: Option<usize>,
+    mut_seq: Option<String>,
+    na_conc: Option<f64>,
+    mg_conc: Option<f64>,
+    dntp_conc: Option<f64>,
+    tris_conc: Option<f64>,
+    primer_conc: Option<f64>,
+) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+
+    do_design_primer_candidates(
+        &state.pm,
+        &project_id,
+        mode,
+        seg,
+        seg2,
+        name,
+        name1,
+        name2,
+        site_name,
+        target_tm,
+        overlap_len,
+        arm_len,
+        mut_seq,
+        na_conc,
+        mg_conc,
+        dntp_conc,
+        tris_conc,
+        primer_conc,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — alignments
 // ---------------------------------------------------------------------------
 
@@ -1342,68 +1917,16 @@ async fn add_alignment_seq(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    let project_clone = {
-        let pm = state.pm.read().await;
-        pm.get_project_by_id(&project_id).cloned()
-    };
-    let project_clone = match project_clone {
-        Some(p) => p,
-        None => return Ok(serde_json::json!({"error": "Project not found"})),
-    };
-
-    let clean_seq: String = seq
-        .chars()
-        .filter(|c| c.is_ascii_alphabetic())
-        .collect::<String>()
-        .to_uppercase();
-    if clean_seq.is_empty() {
-        return Ok(serde_json::json!({"error": "Sequence is empty"}));
-    }
-
-    let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
-        let mut p = project_clone;
-        let circular = p.topology == "circular";
-        let mut aln = libregene_core::align::align_read(&p.sequence, &clean_seq, circular)
-            .ok_or_else(|| "No significant alignment found".to_string())?;
-        aln.name = if name.trim().is_empty() {
-            "alignment".to_string()
-        } else {
-            name.trim().to_string()
-        };
-        aln.id = libregene_core::align::next_alignment_id(&p.alignments);
-        p.alignments.push(aln);
-        Ok(p)
-    })
+    do_add_alignment_seq(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        name,
+        seq,
+    )
     .await
-    .map_err(|e| format!("task join error: {}", e))?;
-
-    let computed = match computed {
-        Ok(p) => p,
-        Err(e) if e == "No significant alignment found" => return Err(e),
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
-    {
-        let mut pm = state.pm.write().await;
-        pm.open_project(project_id.clone(), computed);
-        pm.mark_dirty(&project_id);
-    }
-
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
 }
 
 #[tauri::command]
@@ -1419,26 +1942,15 @@ async fn remove_alignment(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        pm.remove_alignment(&project_id, &alignment_id);
-    }
-
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    do_remove_alignment(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        &project_id,
+        alignment_id,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1458,54 +1970,7 @@ async fn set_methylation(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    let systems: Vec<String> = systems
-        .into_iter()
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let overlap = overlap.unwrap_or(2);
-
-    let project_data = {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.methylation_systems = systems;
-            p.methylation_overlap = overlap;
-            Some(p.clone())
-        } else {
-            None
-        }
-    };
-
-    if let Some(mut p) = project_data {
-        let computed = tokio::task::spawn_blocking(move || {
-            enzyme::recompute_methylation_only(&mut p);
-            p
-        })
-        .await
-        .map_err(|e| format!("task join error: {}", e))?;
-
-        let mut pm = state.pm.write().await;
-        pm.open_project(project_id.clone(), computed);
-        pm.mark_dirty(&project_id);
-    }
-
-    // Return full project data + projects list
-    let (result, projects, active_id) = {
-        let pm = state.pm.read().await;
-        let params = ProjectParams {
-            enzyme_filter: Some("all".to_string()),
-            row_start: None,
-            row_end: None,
-            cpl: None,
-        };
-        let data = pm
-            .get_project_by_id(&project_id)
-            .map(|p| filter_project(p, &params))
-            .unwrap_or(serde_json::json!({"error": "Project not found after methylation"}));
-        (data, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
-    };
-
-    Ok(with_projects_list(result, &projects, active_id.as_deref()))
+    do_set_methylation(&state.pm, &project_id, systems, overlap).await
 }
 
 // ---------------------------------------------------------------------------
@@ -1566,45 +2031,7 @@ async fn activate_project(
         }
     }
 
-    let activated = {
-        let mut pm = state.pm.write().await;
-        pm.activate_project(&id)
-    };
-    if !activated {
-        return Ok(serde_json::json!({"error": format!("project not found: {}", id)}));
-    }
-
-    // Return full project data; no separate broadcast needed (single-window app)
-    let result = {
-        let pm = state.pm.read().await;
-        match pm.get_project() {
-            Some(p) => {
-                let projects = pm.list_projects();
-                let active_id = pm.active_id().map(|s| s.to_string());
-                let params = ProjectParams {
-                    enzyme_filter: Some("all".to_string()),
-                    row_start: None,
-                    row_end: None,
-                    cpl: None,
-                };
-                let mut filtered = filter_project(p, &params);
-                if let Some(ref mut map) = filtered.as_object_mut() {
-                    map.insert(
-                        "projects".to_string(),
-                        serde_json::to_value(&projects).unwrap_or_default(),
-                    );
-                    map.insert(
-                        "activeId".to_string(),
-                        serde_json::to_value(&active_id).unwrap_or_default(),
-                    );
-                }
-                filtered
-            }
-            None => serde_json::json!({"error": "project not found"}),
-        }
-    };
-
-    Ok(result)
+    do_activate_project(&state.pm, id).await
 }
 
 #[tauri::command]
@@ -1614,21 +2041,14 @@ async fn delete_project(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let closed = {
-        let mut pm = state.pm.write().await;
-        pm.close_project(&id)
-    };
-    if closed {
-        // Clean up any project window mappings for this project
-        {
-            let mut wp = state.window_projects.write().await;
-            wp.retain(|_, v| v != &id);
-        }
-        broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-        Ok(serde_json::json!({"status": "ok"}))
-    } else {
-        Ok(serde_json::json!({"error": "project not found"}))
-    }
+    do_delete_project(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        Some(webview_window.label()),
+        id,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1823,6 +2243,35 @@ async fn rekey_project(
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — MCP server settings
+// ---------------------------------------------------------------------------
+
+/// Current MCP server runtime config (enabled + loopback port).
+#[tauri::command]
+async fn get_mcp_config(
+    mcp: State<'_, mcp::McpServer<tauri::Wry>>,
+) -> Result<serde_json::Value, String> {
+    let cfg = mcp.config();
+    Ok(serde_json::json!({ "enabled": cfg.enabled, "port": cfg.port }))
+}
+
+/// Enable/disable the MCP server or move it to a new loopback port. The server
+/// is stopped/restarted in place — no app restart needed.
+#[tauri::command]
+async fn set_mcp_config(
+    mcp: State<'_, mcp::McpServer<tauri::Wry>>,
+    enabled: bool,
+    port: u16,
+) -> Result<serde_json::Value, String> {
+    let cfg = mcp.set_config(enabled, port).await?;
+    Ok(serde_json::json!({
+        "enabled": cfg.enabled,
+        "port": cfg.port,
+        "status": "ok",
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
 
@@ -1835,6 +2284,19 @@ pub fn run() {
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
+        })
+        .setup(|app| {
+            let state = app.state::<AppState>();
+            let mcp = mcp::McpServer::new(
+                app.handle().clone(),
+                state.pm.clone(),
+                state.window_projects.clone(),
+            );
+            app.manage(mcp.clone());
+            // Start with the default config (enabled on MCP_PORT); the frontend
+            // reconciles with the persisted localStorage config on mount.
+            tauri::async_runtime::block_on(async move { mcp.apply().await });
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_project,
@@ -1859,6 +2321,9 @@ pub fn run() {
             delete_primer,
             check_primers_binding,
             compute_primer_alignment,
+            design_primer_candidates,
+            find_orfs,
+            search_sequence,
             get_enzyme_database,
             add_alignment,
             add_alignment_seq,
@@ -1871,6 +2336,8 @@ pub fn run() {
             get_window_project_id,
             rekey_project,
             compute_tm,
+            get_mcp_config,
+            set_mcp_config,
             activate_custom_titlebar,
             reassert_traffic_lights,
             restore_native_titlebar,
