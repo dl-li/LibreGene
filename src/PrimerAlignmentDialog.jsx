@@ -270,14 +270,12 @@ export default function PrimerAlignmentDialog({
             name: editName || 'New Primer',
             type: 'fwd',
             primerSeq: stripIUPAC(editSeq),
-            color: '#166534',
           }
         : {
             id: primer.id,
             name: editName || primer.name,
             type: primerType,
             primerSeq: stripIUPAC(editSeq),
-            color: '#166534',
           };
       await onPrimerChange(primerData);
       onOpenChange(false);

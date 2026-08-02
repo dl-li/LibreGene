@@ -495,7 +495,6 @@ pub fn parse_dna_primers(xml: &str, _full_seq: &str) -> Vec<Primer> {
                 name: sp.name.clone(),
                 r#type: ptype.to_string(),
                 primer_seq,
-                color: "#166534".to_string(),
                 binding_sites: Vec::new(),
             })
         })

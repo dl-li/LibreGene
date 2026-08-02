@@ -244,7 +244,6 @@ function PrimerDesignDialogInner({
           name: g.name,
           type: g.type,
           primerSeq: c.seq,
-          color: g.type === 'fwd' ? '#166534' : '#4A148C',
         });
       }
       onOpenChange(false);

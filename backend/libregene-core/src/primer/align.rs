@@ -366,7 +366,6 @@ mod tests {
             name: "Test".into(),
             r#type: "fwd".into(),
             primer_seq: "CGTACGCTAG".into(),
-            color: "#166534".into(),
             binding_sites: vec![],
         }];
         let updated = recompute_all_primers(template, "linear", &primers);
@@ -387,7 +386,6 @@ mod tests {
                 name: "Fwd".into(),
                 r#type: "fwd".into(),
                 primer_seq: "CGTACGCTAG".into(),
-                color: "#000".into(),
                 binding_sites: vec![],
             },
             Primer {
@@ -395,7 +393,6 @@ mod tests {
                 name: "Rev".into(),
                 r#type: "rev".into(),
                 primer_seq: "GCTAGCATCG".into(),
-                color: "#000".into(),
                 binding_sites: vec![],
             },
         ];
@@ -418,7 +415,6 @@ mod tests {
             name: "Fwd".into(),
             r#type: "fwd".into(),
             primer_seq: "CGTACGCTAG".into(),
-            color: "#000".into(),
             binding_sites: vec![],
         }];
         let primers = recompute_all_primers(template, "linear", &primers);
