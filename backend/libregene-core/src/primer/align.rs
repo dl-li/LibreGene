@@ -184,6 +184,56 @@ fn search_one_strand(
 }
 
 // ---------------------------------------------------------------------------
+// Anneal-core length
+// ---------------------------------------------------------------------------
+
+/// Length of the anneal core at a binding site: the number of contiguous
+/// bases at the primer's **3' end** that exactly match the template. A 5'
+/// tail that does not pair is naturally excluded.
+pub fn anneal_len(
+    template: &str,
+    topology: &str,
+    primer_seq: &str,
+    site: &PrimerBindingSite,
+) -> usize {
+    let tlen = template.len() as i64;
+    let plen = primer_seq.len();
+    if tlen == 0 || plen == 0 {
+        return 0;
+    }
+    let tpl = template.as_bytes();
+    let pri = primer_seq.as_bytes();
+    let circular = topology == "circular";
+    let mut n = 0usize;
+    while n < plen && (n as i64) < tlen {
+        let pos = if site.strand == 1 {
+            // Fwd: primer 3' end aligns at template_end-1, extending leftwards.
+            let p = site.template_end - 1 - n as i64;
+            if p < 0 && !circular {
+                break;
+            }
+            p.rem_euclid(tlen) as usize
+        } else {
+            // Rev: primer 3' end aligns at template_start, extending rightwards.
+            let p = site.template_start + n as i64;
+            if p >= tlen && !circular {
+                break;
+            }
+            p.rem_euclid(tlen) as usize
+        };
+        let mut tb = tpl[pos].to_ascii_uppercase();
+        if site.strand != 1 {
+            tb = crate::utils::complement_char(tb as char) as u8;
+        }
+        if tb != pri[plen - 1 - n].to_ascii_uppercase() {
+            break;
+        }
+        n += 1;
+    }
+    n
+}
+
+// ---------------------------------------------------------------------------
 // Batch recompute
 // ---------------------------------------------------------------------------
 

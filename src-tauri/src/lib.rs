@@ -852,6 +852,9 @@ async fn do_check_primers_binding(
                         "templateStart": s.template_start,
                         "templateEnd": s.template_end,
                         "tm": s.tm,
+                        "annealLen": libregene_core::primer::align::anneal_len(
+                            &template, &topology, &p.primer_seq, s,
+                        ),
                     })),
                 })
             })

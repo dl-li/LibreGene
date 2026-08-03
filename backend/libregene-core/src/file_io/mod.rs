@@ -18,7 +18,7 @@ pub fn parse_file(path: &Path) -> io::Result<ProjectData> {
         .to_lowercase();
 
     match ext.as_str() {
-        "gbk" | "gb" => gbk::parse_gbk(path),
+        "gbk" | "gb" | "genbank" => gbk::parse_gbk(path),
         "dna" => dna::parse_dna(path),
         "fasta" | "fa" | "fna" => fasta::parse_fasta(path),
         "ab1" => ab1::parse_ab1(path),
