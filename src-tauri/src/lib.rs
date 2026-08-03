@@ -598,6 +598,13 @@ async fn do_delete_primer<R: Runtime>(
 ) -> Result<serde_json::Value, String> {
     let (primers, projects, active_id) = {
         let mut pm = pm.write().await;
+        let exists = pm
+            .get_project_by_id(project_id)
+            .map(|p| p.primers.iter().any(|pr| pr.id == id))
+            .unwrap_or(false);
+        if !exists {
+            return Err(format!("Primer not found: {}", id));
+        }
         let primers: Vec<Primer> = pm
             .get_project_by_id(project_id)
             .map(|p| p.primers.iter().filter(|pr| pr.id != id).cloned().collect())
@@ -871,6 +878,8 @@ async fn do_design_primer_candidates(
     overlap_len: Option<usize>,
     arm_len: Option<usize>,
     mut_seq: Option<String>,
+    fwd_tail: Option<String>,
+    rev_tail: Option<String>,
     na_conc: Option<f64>,
     mg_conc: Option<f64>,
     dntp_conc: Option<f64>,
@@ -902,9 +911,15 @@ async fn do_design_primer_candidates(
         match mode.as_str() {
             "amplify" => {
                 let name = name.unwrap_or_else(|| "Amplicon".to_string());
-                Ok(libregene_core::primer::design::build_amplify_groups(
-                    &sequence, &seg1, &name, target_tm, &topology, &tm_params,
-                ))
+                match (fwd_tail, rev_tail) {
+                    (None, None) => Ok(libregene_core::primer::design::build_amplify_groups(
+                        &sequence, &seg1, &name, target_tm, &topology, &tm_params,
+                    )),
+                    (f, r) => Ok(libregene_core::primer::design::build_amplify_groups_tailed(
+                        &sequence, &seg1, &name, target_tm, &topology,
+                        f.as_deref().unwrap_or(""), r.as_deref().unwrap_or(""), &tm_params,
+                    )),
+                }
             }
             "oepcr" => {
                 let seg2 = seg2.ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
@@ -1815,6 +1830,8 @@ async fn design_primer_candidates(
         overlap_len,
         arm_len,
         mut_seq,
+        None,
+        None,
         na_conc,
         mg_conc,
         dntp_conc,
