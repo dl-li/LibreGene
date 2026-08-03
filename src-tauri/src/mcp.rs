@@ -1270,7 +1270,34 @@ impl<R: Runtime> LibreGeneMcp<R> {
 // ---------------------------------------------------------------------------
 
 #[tool_handler(name = "LibreGene")]
-impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {}
+impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
+    // Tools return Json<serde_json::Value>, so the generated outputSchema has
+    // no top-level "type". The MCP spec requires outputSchema.type == "object";
+    // strict clients (e.g. kimi-code) reject the list otherwise.
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
+        let mut tools = Self::tool_router().list_all();
+        for tool in &mut tools {
+            if let Some(schema) = &mut tool.output_schema {
+                let patched = Arc::make_mut(schema);
+                patched
+                    .entry("type")
+                    .or_insert_with(|| serde_json::Value::String("object".into()));
+            }
+        }
+        Ok(rmcp::model::ListToolsResult {
+            result_type: Some(rmcp::model::ResultType::COMPLETE),
+            tools,
+            meta: None,
+            next_cursor: None,
+            ttl_ms: None,
+            cache_scope: None,
+        })
+    }
+}
 
 /// Runtime MCP server configuration. The frontend persists the source of truth
 /// in localStorage and pushes it here via `set_mcp_config` on startup and on
