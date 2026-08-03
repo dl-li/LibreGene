@@ -21,6 +21,12 @@ pub struct DigestOptions {
     /// can reach tens of KB (one line per cutter), which blows up MCP
     /// mutation responses — mutation tools default this to true.
     pub compact_enzymes: bool,
+    /// Whole-project digests only: collapse the UNIQUE CUTTERS list (one line
+    /// per single-cut enzyme, 90+ lines on real plasmids) into a single count
+    /// line. Independent of `compact_enzymes` (which governs region views);
+    /// `get_project_overview` defaults this to true, pass compactCutters=false
+    /// for the full list.
+    pub compact_cutters: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +376,19 @@ pub fn project_digest(
                     out.push_str(&format!(
                         "ENZYMES (compact): {} single-cut, {} multi-cut (cut between pos-1 and pos, 0-based)\n",
                         unique.len(),
+                        multi
+                    ));
+                }
+            } else if opts.compact_cutters {
+                if !unique.is_empty() {
+                    out.push_str(&format!(
+                        "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)\n",
+                        unique.len()
+                    ));
+                }
+                if multi > 0 {
+                    out.push_str(&format!(
+                        "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
                         multi
                     ));
                 }
@@ -1009,6 +1028,35 @@ mod tests {
         let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
         assert!(region.contains("ENZYMES CUTTING IN REGION (compact): "));
         assert!(!region.contains("BsaI"));
+    }
+
+    #[test]
+    fn compact_cutters_collapses_unique_cutter_list() {
+        let p = synthetic_project();
+        // compactCutters=true (get_project_overview default): single count line,
+        // no per-enzyme rows; multi-cut summary line stays.
+        let opts = DigestOptions {
+            compact_cutters: true,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&p, &opts, None).unwrap();
+        assert!(out.contains(
+            "UNIQUE CUTTERS: 1 single-cut enzymes (pass compactCutters=false for full list)"
+        ));
+        assert!(!out.contains("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):"));
+        assert!(!out.contains("EcoRI"));
+        assert!(out.contains("... and 5 enzymes with >1 cut"));
+        // compactCutters=false: the full per-enzyme list is back.
+        let opts = DigestOptions {
+            compact_cutters: false,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&p, &opts, None).unwrap();
+        assert!(out.contains("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):"));
+        assert!(out.contains("EcoRI"));
+        // compact_cutters is overview-only: region views ignore it.
+        let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
+        assert!(region.contains("ENZYMES CUTTING IN REGION"));
     }
 
     #[test]

@@ -20,6 +20,32 @@ pub fn reverse_complement(seq: &str) -> String {
     seq.chars().rev().map(complement_char).collect()
 }
 
+/// Map one 0-based inclusive span after replacing `[edit_start, edit_end]`
+/// with `new_len` bases; `None` when the span collapses to nothing. Shared by
+/// `adjust_features_for_edit` and `features_edit_impact` so both stay in sync.
+fn adjust_span(
+    s: i64,
+    e: i64,
+    edit_start: i64,
+    edit_end: i64,
+    new_len: i64,
+) -> Option<(i64, i64)> {
+    let delta = new_len - (edit_end - edit_start + 1);
+    if e < edit_start {
+        return Some((s, e));
+    }
+    if s > edit_end {
+        return Some((s + delta, e + delta));
+    }
+    let ns = if s < edit_start { s } else { edit_start + new_len };
+    let ne = if e > edit_end { e + delta } else { edit_start + new_len - 1 };
+    if ns > ne {
+        None
+    } else {
+        Some((ns, ne))
+    }
+}
+
 /// Shift/clip feature coordinates after replacing `[edit_start, edit_end]`
 /// (0-based inclusive) with `new_len` bases. A pure insertion is
 /// `edit_end = edit_start - 1`. Mirrors the frontend `adjustAnnotations`.
@@ -35,25 +61,9 @@ pub fn adjust_features_for_edit(
         return;
     }
 
-    let adjust_span = |s: i64, e: i64| -> Option<(i64, i64)> {
-        if e < edit_start {
-            return Some((s, e));
-        }
-        if s > edit_end {
-            return Some((s + delta, e + delta));
-        }
-        let ns = if s < edit_start { s } else { edit_start + new_len };
-        let ne = if e > edit_end { e + delta } else { edit_start + new_len - 1 };
-        if ns > ne {
-            None
-        } else {
-            Some((ns, ne))
-        }
-    };
-
     features.retain_mut(|f| {
         if f.segments.is_empty() {
-            match adjust_span(f.start, f.end) {
+            match adjust_span(f.start, f.end, edit_start, edit_end, new_len) {
                 Some((s, e)) => {
                     f.start = s;
                     f.end = e;
@@ -62,13 +72,15 @@ pub fn adjust_features_for_edit(
                 None => false,
             }
         } else {
-            f.segments.retain_mut(|seg| match adjust_span(seg.start, seg.end) {
-                Some((s, e)) => {
-                    seg.start = s;
-                    seg.end = e;
-                    true
+            f.segments.retain_mut(|seg| {
+                match adjust_span(seg.start, seg.end, edit_start, edit_end, new_len) {
+                    Some((s, e)) => {
+                        seg.start = s;
+                        seg.end = e;
+                        true
+                    }
+                    None => false,
                 }
-                None => false,
             });
             if f.segments.is_empty() {
                 return false;
@@ -78,6 +90,60 @@ pub fn adjust_features_for_edit(
             true
         }
     });
+}
+
+/// Side effects of an edit on feature coordinates, derived with the same span
+/// math as [`adjust_features_for_edit`]: features fully inside the deleted or
+/// replaced span are `removed`, and features whose span changed other than a
+/// pure translation (a boundary clipped or the length altered) are `clipped`.
+pub fn features_edit_impact(
+    features: &[crate::models::Feature],
+    edit_start: i64,
+    edit_end: i64,
+    new_len: i64,
+) -> crate::models::FeaturesEditImpact {
+    let mut impact = crate::models::FeaturesEditImpact::default();
+    for f in features {
+        let mut new_spans: Vec<(i64, i64)> = Vec::new();
+        if f.segments.is_empty() {
+            if let Some((s, e)) = adjust_span(f.start, f.end, edit_start, edit_end, new_len) {
+                new_spans.push((s, e));
+            }
+        } else {
+            for seg in &f.segments {
+                if let Some((s, e)) = adjust_span(seg.start, seg.end, edit_start, edit_end, new_len)
+                {
+                    new_spans.push((s, e));
+                }
+            }
+        }
+        let Some((ns, ne)) = new_spans
+            .iter()
+            .map(|&(s, e)| (s, e))
+            .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+        else {
+            impact.removed_features.push(crate::models::RemovedFeatureImpact {
+                name: f.name.clone(),
+                ftype: f.ftype.clone(),
+                location: format!("{}..{}", f.start, f.end),
+            });
+            continue;
+        };
+        // A pure translation moves both boundaries by the same delta (length
+        // preserved); anything else is a boundary change worth reporting.
+        if (ns - f.start) != (ne - f.end) {
+            impact.clipped_features.push(crate::models::ClippedFeatureImpact {
+                name: f.name.clone(),
+                ftype: f.ftype.clone(),
+                before: crate::models::EditSpan {
+                    start: f.start,
+                    end: f.end,
+                },
+                after: crate::models::EditSpan { start: ns, end: ne },
+            });
+        }
+    }
+    impact
 }
 
 #[cfg(test)]
@@ -192,5 +258,89 @@ mod tests {
         assert_eq!(feats.len(), 1);
         assert_eq!(feats[0].id, "kept");
         assert_eq!((feats[0].start, feats[0].end), (199, 299));
+    }
+
+    #[test]
+    fn impact_pure_deletion_removes_inner_feature() {
+        let feats = vec![
+            feat("before", 0, 50, vec![]),
+            feat("inside", 110, 150, vec![]),
+            feat("after", 200, 300, vec![]),
+        ];
+        let impact = features_edit_impact(&feats, 100, 199, 0);
+        assert_eq!(impact.removed_features.len(), 1);
+        assert_eq!(impact.removed_features[0].name, "inside");
+        assert_eq!(impact.removed_features[0].ftype, "CDS");
+        assert_eq!(impact.removed_features[0].location, "110..150");
+        assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn impact_replace_clips_boundary_features() {
+        let feats = vec![
+            feat("left_overlap", 50, 150, vec![]),
+            feat("right_overlap", 150, 250, vec![]),
+            feat("after", 300, 400, vec![]),
+        ];
+        let impact = features_edit_impact(&feats, 100, 199, 10);
+        assert!(impact.removed_features.is_empty());
+        assert_eq!(impact.clipped_features.len(), 2);
+        let l = impact
+            .clipped_features
+            .iter()
+            .find(|c| c.name == "left_overlap")
+            .unwrap();
+        assert_eq!((l.before.start, l.before.end), (50, 150));
+        assert_eq!((l.after.start, l.after.end), (50, 109));
+        let r = impact
+            .clipped_features
+            .iter()
+            .find(|c| c.name == "right_overlap")
+            .unwrap();
+        assert_eq!((r.before.start, r.before.end), (150, 250));
+        assert_eq!((r.after.start, r.after.end), (110, 160));
+    }
+
+    #[test]
+    fn impact_pure_insertion_shift_is_not_clipped() {
+        let feats = vec![
+            feat("at", 100, 120, vec![]),
+            feat("after", 200, 300, vec![]),
+        ];
+        let impact = features_edit_impact(&feats, 100, 99, 10);
+        assert!(impact.removed_features.is_empty());
+        assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn impact_segmented_feature_clip_and_remove() {
+        let feats = vec![feat("seg", 50, 300, vec![(50, 120), (130, 150), (200, 300)])];
+        let impact = features_edit_impact(&feats, 100, 199, 0);
+        assert!(impact.removed_features.is_empty());
+        assert_eq!(impact.clipped_features.len(), 1);
+        let c = &impact.clipped_features[0];
+        assert_eq!((c.before.start, c.before.end), (50, 300));
+        assert_eq!((c.after.start, c.after.end), (50, 200));
+    }
+
+    #[test]
+    fn impact_all_segments_removed_drops_feature() {
+        let feats = vec![
+            feat("gone", 100, 200, vec![(100, 150), (160, 200)]),
+            feat("kept", 300, 400, vec![(300, 400)]),
+        ];
+        let impact = features_edit_impact(&feats, 100, 200, 0);
+        assert_eq!(impact.removed_features.len(), 1);
+        assert_eq!(impact.removed_features[0].name, "gone");
+        assert_eq!(impact.removed_features[0].location, "100..200");
+        assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn impact_noop_edit_is_empty() {
+        let feats = vec![feat("a", 0, 50, vec![])];
+        let impact = features_edit_impact(&feats, 100, 99, 0);
+        assert!(impact.removed_features.is_empty());
+        assert!(impact.clipped_features.is_empty());
     }
 }

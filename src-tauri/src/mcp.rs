@@ -47,6 +47,9 @@ struct OverviewRequest {
     project_id: Option<String>,
     max_features: Option<usize>,
     feature_filter: Option<String>,
+    /// Collapse the UNIQUE CUTTERS list into a single count line (default true;
+    /// pass false for the full per-enzyme list).
+    compact_cutters: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -56,7 +59,8 @@ struct RegionRequest {
     end: i64,
     max_features: Option<usize>,
     feature_filter: Option<String>,
-    /// Collapse the enzyme cut list into a count line (default false).
+    /// Collapse the enzyme cut list into a count line (default true; pass
+    /// false for the full list).
     compact: Option<bool>,
 }
 
@@ -412,8 +416,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (features, primers, read ranges); primer template_end is exclusive; enzyme
     /// cuts happen between pos-1 and pos. feature_filter matches feature name
     /// (case-insensitive substring) or exact ftype. Primers render as a PRIMERS
-    /// section (or "PRIMERS (none)" when the project has none). Returns
-    /// {projectId, text}.
+    /// section (or "PRIMERS (none)" when the project has none). The UNIQUE
+    /// CUTTERS list (90+ lines on real plasmids) is collapsed to a single count
+    /// line by default; pass `compactCutters: false` for the full per-enzyme
+    /// list. Returns {projectId, text}.
     #[tool]
     async fn get_project_overview(
         &self,
@@ -424,6 +430,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
             compact_enzymes: false,
+            compact_cutters: request.compact_cutters.unwrap_or(true),
         };
         let text = project_digest(&project, &opts, None)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -433,9 +440,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Compact text digest of a region of a project. Coordinates are 0-based
     /// inclusive; on circular sequences start > end wraps the origin. Only
     /// features, primer binding sites and enzyme cut positions overlapping
-    /// [start, end] are included. Set `compact: true` to collapse the enzyme
-    /// list into a single count line (the default lists every cut in the
-    /// window). Returns {projectId, text}.
+    /// [start, end] are included. The enzyme cut list is collapsed into a
+    /// single count line by default; pass `compact: false` for every cut in
+    /// the window. Returns {projectId, text}.
     #[tool]
     async fn get_region_view(
         &self,
@@ -445,7 +452,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
-            compact_enzymes: request.compact.unwrap_or(false),
+            compact_enzymes: request.compact.unwrap_or(true),
+            compact_cutters: false,
         };
         let text = project_digest(&project, &opts, Some((request.start, request.end)))
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -736,8 +744,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `expected_old` is given it must match the current [start..end] content
     /// case-insensitively or the edit is rejected with the actual content. Uses
     /// the same primer+enzyme recompute path as update_sequence. Returns
-    /// newLength, old/new region views and 30 bp sequence context on each side
-    /// of the edit.
+    /// newLength, old/new region views, 30 bp sequence context on each side of
+    /// the edit, and side-effect echo `removedFeatures`/`clippedFeatures`
+    /// (both always present, empty arrays when none): removed lists features
+    /// fully inside the deleted/replaced span ({name, ftype, location} with
+    /// the pre-edit 0-based "start..end"); clipped lists features whose
+    /// coordinates changed other than a pure translation ({name, ftype,
+    /// before, after} as {start, end}).
     #[tool]
     async fn edit_sequence(
         &self,
@@ -830,6 +843,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         );
         let new_len = new_seq.len() as i64;
 
+        // Side effects on features, derived from the pre-edit list with the
+        // same span math as the adjust below (no snapshot/compare needed).
+        let impact = libregene_core::utils::features_edit_impact(
+            &project.features,
+            start,
+            end,
+            request.replacement.len() as i64,
+        );
+
         // Shift/clip features for the edit before the sequence swap: the
         // update_sequence core never touches feature coordinates (the frontend
         // adjusts them client-side), so the MCP path must do it here.
@@ -876,6 +898,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "newLength": new_len,
             "contextBefore": context_before,
             "contextAfter": context_after,
+            "removedFeatures": serde_json::to_value(&impact.removed_features)
+                .unwrap_or_else(|_| serde_json::json!([])),
+            "clippedFeatures": serde_json::to_value(&impact.clipped_features)
+                .unwrap_or_else(|_| serde_json::json!([])),
         });
         if let Some(rv) = old_region {
             v["regionViewBefore"] = serde_json::json!(rv);
@@ -890,7 +916,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (e.g. "100..200", "complement(50..80)", "join(1..100,200..300)"); the
     /// stored coordinates are 0-based inclusive. strand (".", "+", "-") and
     /// color (hex, e.g. "#60A5FA") are optional and override the location.
-    /// Returns {ok, message, projectId, regionView} around the new feature.
+    /// Returns {ok, message, projectId, featureId, regionView} around the new
+    /// feature.
     #[tool]
     async fn add_feature(
         &self,
@@ -936,11 +963,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(Json(fail_envelope(&id, err)));
         }
         let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(
+        let mut v = ok_envelope(
             &id,
             format!("Added {} {} at {} (0-based; input location was 1-based {})", ftype, name, stored, location),
             region,
-        )))
+        );
+        v["featureId"] = serde_json::json!(feature_id);
+        Ok(Json(v))
     }
 
     /// Update a feature's attributes in one call. `feature_id` is required;
@@ -1147,8 +1176,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Returns {ok, message, projectId, regionView, significant, identity,
     /// strand, segmentCount, alignedLength, mismatches, insertions,
-    /// deletions, mismatchDetails, deletionDetails, insertionDetails, name,
-    /// alignmentId}.
+    /// deletions, mismatchDetails, deletionDetails, insertionDetails,
+    /// destroyedSites, name, alignmentId}.
     /// - `identity`: 0–1 fraction, full precision (not rounded).
     /// - `alignedLength`: template positions covered by the alignment (sum of
     ///   segment spans, bp).
@@ -1166,6 +1195,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   template position before which the extra read bases were inserted
     ///   (between pos-1 and pos; on circular templates pos=0 means between
     ///   tlen-1 and 0).
+    /// - `destroyedSites`: [{enzyme, recStart, recEnd, recSeq}] — restriction
+    ///   sites (already-computed engine results, 0-based inclusive) whose span
+    ///   intersects any difference: a mismatch position, a deletion interval,
+    ///   or an insertion point (pos-1 or pos inside the site). Always present
+    ///   (empty array when nothing is destroyed), sorted by recStart.
     /// On failure returns {ok: false, message, projectId, significant: false};
     /// a message starting with "No significant alignment found" states the
     /// reason (identity below the 0.60 minimum, or aligned span below the
@@ -1244,6 +1278,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .and_then(|p| {
                     let a = p.alignments.last()?;
                     let diff = libregene_core::align::alignment_diff(a, &p.sequence);
+                    let destroyed = libregene_core::align::destroyed_enzyme_sites(&p.enzymes, &diff);
                     Some((
                         serde_json::json!({
                             "identity": a.identity,
@@ -1256,6 +1291,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             "mismatchDetails": diff.mismatches,
                             "deletionDetails": diff.deletions,
                             "insertionDetails": diff.insertions,
+                            "destroyedSites": destroyed,
                             "name": a.name,
                             "alignmentId": a.id,
                         }),
@@ -1389,12 +1425,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// strand: for a minus-strand CDS the coding change is the reverse
     /// complement of the plus-strand edit). In that block `cds.codonIndex`
     /// is 0-based within the CDS and `cds.aaPosition1Based` is the 1-based
-    /// amino-acid position (codonIndex + 1). Replacing every base of `seg`
+    /// amino-acid position (codonIndex + 1); `cds.aaPositionExcludingMet` is
+    /// aaPosition1Based minus the initiator Met (absent for the first codon).
+    /// Replacing every base of `seg`
     /// adds a `warning` (likely wrong strand/location) but is not rejected.
-    /// When an amplify enzyme's recognition site also occurs inside the
-    /// amplified segment, the response adds an `internalSites` warning list
-    /// ({enzyme, start, end, strand}, 0-based inclusive).
-    /// Returns {projectId, groups: [PrimerGroup], mutation?, internalSites?}.
+    /// In amplify mode the response always includes an `internalSites` array
+    /// (empty when no enzyme recognition site occurs inside the amplified
+    /// segment; non-empty entries {enzyme, start, end, strand}, 0-based
+    /// inclusive, plus a `warning` that digestion would cut the product).
+    /// Returns {projectId, groups: [PrimerGroup], mutation?,
+    /// internalSites (amplify)}.
     ///
     /// Tm/annealLen here describe the DESIGNED anneal core only. If you then
     /// verify a designed primer with check_primer_binding, its annealLen/Tm
@@ -1510,6 +1550,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
 
+        let mode_is_amplify = request.mode == "amplify";
         let groups = crate::do_design_primer_candidates(
             &self.pm,
             &id,
@@ -1538,19 +1579,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(info) = mutation_info {
             v["mutation"] = info;
         }
-        if !internal_sites.is_empty() {
+        if mode_is_amplify {
             v["internalSites"] = serde_json::json!(internal_sites);
-            v["warning"] = serde_json::json!(
-                "The enzyme recognition site occurs inside the amplified segment; digestion will cut the product"
-            );
+            if !internal_sites.is_empty() {
+                v["warning"] = serde_json::json!(
+                    "The enzyme recognition site occurs inside the amplified segment; digestion will cut the product"
+                );
+            }
         }
         Ok(Json(v))
     }
 
     /// Check whether the given primers (each {name, type: "fwd"|"rev", seq})
     /// can bind to a project's sequence, without persisting them. Same engine
-    /// as check_primers_binding. Returns {projectId, results: [{id, binds,
-    /// site: {strand, templateStart, templateEnd, tm, annealLen,
+    /// as check_primers_binding. Returns {projectId, tmBasis, results: [{id,
+    /// binds, site: {strand, templateStart, templateEnd, tm, annealLen,
     /// mismatchedTail} | null}]}. templateStart is 0-based inclusive,
     /// templateEnd 0-based EXCLUSIVE (range spans templateStart..templateEnd-1);
     /// cuts are not involved. `binds: true` means the 3' anneal core matched —
@@ -1558,6 +1601,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// is the number of 5'-most bases NOT part of the contiguous 3' match
     /// (0 when the whole primer anneals; >0 for mutagenesis primers and
     /// enzyme-tail primers). `annealLen` counts only the contiguous 3' match.
+    /// `tmBasis` (always present) states the Tm/annealLen basis: they reflect
+    /// the ACTUAL contiguous 3' match, so tail bases that happen to match the
+    /// template extend annealLen and raise tm beyond design_primers' values.
     /// Unlike design_primers (which reports the DESIGNED anneal core), this
     /// recomputes the actual contiguous 3'-end match: tail bases that happen
     /// to match the template (e.g. an enzyme tail next to a matching
@@ -1582,7 +1628,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let payload = crate::do_check_primers_binding(&self.pm, &id, primers)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
-        Ok(Json(payload))
+        let mut v = payload;
+        v["projectId"] = serde_json::json!(id);
+        v["tmBasis"] = serde_json::json!(
+            "3' continuous match; tail bases that accidentally match the template are included in annealLen/Tm"
+        );
+        Ok(Json(v))
     }
 }
 
