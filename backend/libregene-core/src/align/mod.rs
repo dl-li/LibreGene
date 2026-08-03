@@ -5,14 +5,30 @@
 //! itself, then coordinates are mapped back via `% tlen` and the aligned
 //! range is split into non-wrapping segments at the origin.
 
-use crate::models::{AlignInsertion, AlignSegment, Alignment};
+use crate::models::{
+    AlignDeletion, AlignInsertion, AlignInsertionDetail, AlignMismatch, AlignSegment, Alignment,
+    AlignmentDiff,
+};
 
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -1;
 const GAP: i32 = -2;
 
-const MIN_IDENTITY: f64 = 0.6;
-const MIN_ALIGNED_LEN: usize = 50;
+/// Minimum identity (fraction) for an alignment to be kept.
+pub const MIN_IDENTITY: f64 = 0.6;
+/// Minimum aligned span (template positions) for an alignment to be kept.
+pub const MIN_ALIGNED_LEN: usize = 50;
+
+/// Why `align_read_checked` rejected an alignment candidate.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlignReject {
+    /// No local alignment with a positive score.
+    NoSignificantAlignment,
+    /// Aligned span below [`MIN_ALIGNED_LEN`].
+    TooShort { span: usize },
+    /// Identity below [`MIN_IDENTITY`].
+    LowIdentity { identity: f64, span: usize },
+}
 
 fn matches_base(a: u8, b: u8) -> bool {
     a == b && matches!(a, b'A' | b'C' | b'G' | b'T')
@@ -116,16 +132,16 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
     })
 }
 
-/// Build the render-oriented [`Alignment`] from a traceback, or `None` when
+/// Build the render-oriented [`Alignment`] from a traceback, or the reason
 /// the alignment is too weak to be meaningful.
-fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len: usize, tlen: usize) -> Option<Alignment> {
+fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len: usize, tlen: usize) -> Result<Alignment, AlignReject> {
     // Clip read-only overhang: leading/trailing columns that don't consume template.
     let lead = sw.t_aln.iter().take_while(|&&c| c == b'-').count();
     let trail = sw.t_aln.iter().rev().take_while(|&&c| c == b'-').count();
     let cols = &sw.t_aln[lead..sw.t_aln.len() - trail];
     let rcols = &sw.r_aln[lead..sw.r_aln.len() - trail];
     if cols.is_empty() {
-        return None;
+        return Err(AlignReject::NoSignificantAlignment);
     }
 
     let t_start = sw.t_start + lead;
@@ -139,8 +155,11 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
         .count();
     let identity = matched as f64 / cols.len() as f64;
 
-    if identity < MIN_IDENTITY || span < MIN_ALIGNED_LEN {
-        return None;
+    if identity < MIN_IDENTITY {
+        return Err(AlignReject::LowIdentity { identity, span });
+    }
+    if span < MIN_ALIGNED_LEN {
+        return Err(AlignReject::TooShort { span });
     }
 
     let mut segments: Vec<AlignSegment> = Vec::new();
@@ -178,7 +197,7 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
     }
     // Trailing read-only columns were clipped; any leftover pending insertion is dropped.
 
-    Some(Alignment {
+    Ok(Alignment {
         id: String::new(),
         name: String::new(),
         length: read_len,
@@ -190,21 +209,95 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
     })
 }
 
-/// Align `read` against `template`. A strong forward match (identity ≥ 0.9)
-/// is returned immediately; otherwise the reverse complement is aligned too
-/// and the better orientation wins. Returns `None` when neither works.
-pub fn align_read(template: &str, read: &str, circular: bool) -> Option<Alignment> {
+/// Machine-readable difference details derived from an [`Alignment`] model
+/// (no re-alignment): per-position mismatches, grouped deletions and
+/// insertions. All coordinates are 0-based template coordinates; a deletion
+/// that straddles the circular origin is merged into a single entry.
+pub fn alignment_diff(a: &Alignment, template: &str) -> AlignmentDiff {
+    let tbytes = template.as_bytes();
+    let tlen = tbytes.len();
+    let mut mismatches: Vec<AlignMismatch> = Vec::new();
+    let mut deletions: Vec<AlignDeletion> = Vec::new();
+
+    for seg in &a.segments {
+        let mut run_start: Option<usize> = None;
+        for (i, ch) in seg.chars.bytes().enumerate() {
+            let pos = seg.start + i;
+            if ch == b'-' {
+                if run_start.is_none() {
+                    run_start = Some(pos);
+                }
+                continue;
+            }
+            if let Some(rs) = run_start.take() {
+                deletions.push(deletion_at(tbytes, rs, pos - 1));
+            }
+            let tb = tbytes.get(pos).copied();
+            if tb.map_or(true, |t| t.to_ascii_uppercase() != ch) {
+                mismatches.push(AlignMismatch {
+                    pos,
+                    template_base: tb.map_or_else(String::new, |b| (b as char).to_string()),
+                    read_base: (ch as char).to_string(),
+                });
+            }
+        }
+        if let Some(rs) = run_start.take() {
+            deletions.push(deletion_at(tbytes, rs, seg.end));
+        }
+    }
+
+    if tlen > 0 {
+        for k in 0..deletions.len().saturating_sub(1) {
+            if deletions[k].pos + deletions[k].length == tlen && deletions[k + 1].pos == 0 {
+                let tail = deletions.swap_remove(k + 1);
+                deletions[k].length += tail.length;
+                deletions[k].bases.push_str(&tail.bases);
+                break;
+            }
+        }
+    }
+
+    AlignmentDiff {
+        mismatches,
+        deletions,
+        insertions: a
+            .insertions
+            .iter()
+            .map(|i| AlignInsertionDetail {
+                pos: i.pos,
+                bases: i.bases.clone(),
+                length: i.bases.len(),
+            })
+            .collect(),
+        aligned_length: a.segments.iter().map(|s| s.end - s.start + 1).sum(),
+    }
+}
+
+fn deletion_at(tbytes: &[u8], start: usize, end: usize) -> AlignDeletion {
+    AlignDeletion {
+        pos: start,
+        length: end - start + 1,
+        bases: (start..=end).filter_map(|p| tbytes.get(p).map(|b| *b as char)).collect(),
+    }
+}
+
+/// Align `read` against `template`, returning the better orientation, or the
+/// reason no alignment is significant. A strong forward match (identity
+/// ≥ 0.9) is returned immediately; otherwise the reverse complement is
+/// aligned too and the better orientation wins.
+pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
     let t = template.to_ascii_uppercase();
     let r = read.to_ascii_uppercase();
     let tlen = t.len();
     if tlen == 0 || r.is_empty() {
-        return None;
+        return Err(AlignReject::NoSignificantAlignment);
     }
 
     let t2 = if circular { format!("{}{}", t, t) } else { t };
     let fwd = smith_waterman(t2.as_bytes(), r.as_bytes())
+        .ok_or(AlignReject::NoSignificantAlignment)
         .and_then(|f| build_alignment(&f, r.clone(), "+", read.len(), tlen));
-    if let Some(ref a) = fwd {
+    if let Ok(ref a) = fwd {
         if a.identity >= 0.9 {
             return fwd;
         }
@@ -212,18 +305,35 @@ pub fn align_read(template: &str, read: &str, circular: bool) -> Option<Alignmen
 
     let rc = crate::utils::reverse_complement(&r);
     let rev = smith_waterman(t2.as_bytes(), rc.as_bytes())
+        .ok_or(AlignReject::NoSignificantAlignment)
         .and_then(|v| build_alignment(&v, rc, "-", read.len(), tlen));
 
     match (fwd, rev) {
-        (Some(f), Some(v)) => {
+        (Ok(f), Ok(v)) => {
             let fq = f.identity * f.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>() as f64;
             let vq = v.identity * v.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>() as f64;
-            if vq > fq { Some(v) } else { Some(f) }
+            if vq > fq { Ok(v) } else { Ok(f) }
         }
-        (Some(f), None) => Some(f),
-        (None, Some(v)) => Some(v),
-        (None, None) => None,
+        (Ok(f), Err(_)) => Ok(f),
+        (Err(_), Ok(v)) => Ok(v),
+        (Err(fe), Err(ve)) => Err(better_reject(fe, ve)),
     }
+}
+
+fn better_reject(a: AlignReject, b: AlignReject) -> AlignReject {
+    let rank = |r: &AlignReject| match r {
+        AlignReject::LowIdentity { .. } => 2,
+        AlignReject::TooShort { .. } => 1,
+        AlignReject::NoSignificantAlignment => 0,
+    };
+    if rank(&b) > rank(&a) { b } else { a }
+}
+
+/// Align `read` against `template`. A strong forward match (identity ≥ 0.9)
+/// is returned immediately; otherwise the reverse complement is aligned too
+/// and the better orientation wins. Returns `None` when neither works.
+pub fn align_read(template: &str, read: &str, circular: bool) -> Option<Alignment> {
+    align_read_checked(template, read, circular).ok()
 }
 
 /// Next free incrementing alignment id (`aln-1`, `aln-2`, ...).
@@ -339,5 +449,87 @@ mod tests {
         assert!(align_read(&t, &"A".repeat(70), false).is_none());
         // Too short
         assert!(align_read(&t, &t[10..40], false).is_none());
+    }
+
+    #[test]
+    fn test_short_read_reject_reason() {
+        let t = make_template(200, 47);
+        assert_eq!(
+            align_read_checked(&t, &t[10..40], false).unwrap_err(),
+            AlignReject::TooShort { span: 30 }
+        );
+        assert!(align_read_checked(&t, &"A".repeat(70), false).is_err());
+    }
+
+    #[test]
+    fn test_alignment_diff_details() {
+        let mut t = make_template(200, 41);
+        // Keep G out of the columns around the insertion point so the 2xG
+        // insertion cannot slide into an equally-scored position.
+        for i in 88..=93 {
+            if t.as_bytes()[i] == b'G' {
+                t.replace_range(i..i + 1, "A");
+            }
+        }
+        let sub_base = if t.as_bytes()[60] == b'A' { 'C' } else { 'A' };
+        // Read: substitution at template 60, t[80..83] deleted from the read,
+        // "GG" inserted before template column 90.
+        let read = format!(
+            "{}{}{}{}{}{}",
+            &t[50..60],
+            sub_base,
+            &t[61..80],
+            &t[83..90],
+            "GG",
+            &t[90..120]
+        );
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.strand, "+");
+        let diff = alignment_diff(&aln, &t);
+
+        assert_eq!(
+            diff.aligned_length,
+            aln.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>()
+        );
+        assert_eq!(diff.mismatches.len(), 1);
+        assert_eq!(diff.mismatches[0].pos, 60);
+        assert_eq!(diff.mismatches[0].template_base, t[60..61]);
+        assert_eq!(diff.mismatches[0].read_base, sub_base.to_string());
+
+        assert_eq!(diff.deletions.len(), 1);
+        assert_eq!(diff.deletions[0].pos, 80);
+        assert_eq!(diff.deletions[0].length, 3);
+        assert_eq!(diff.deletions[0].bases, t[80..83]);
+
+        assert_eq!(diff.insertions.len(), 1);
+        assert_eq!(diff.insertions[0].pos, 90);
+        assert_eq!(diff.insertions[0].bases, "GG");
+        assert_eq!(diff.insertions[0].length, 2);
+
+        // Totals match the legacy per-column counters.
+        assert_eq!(diff.deletions.iter().map(|d| d.length).sum::<usize>(), 3);
+        assert_eq!(diff.insertions.iter().map(|i| i.length).sum::<usize>(), 2);
+    }
+
+    #[test]
+    fn test_alignment_diff_circular_deletion_merge() {
+        let t = make_template(80, 43);
+        // Delete template bases 78, 79, 0, 1 from the read: one 4 bp deletion
+        // straddling the circular origin.
+        let read = format!("{}{}", &t[50..78], &t[2..30]);
+        let aln = align_read(&t, &read, true).unwrap();
+        assert_eq!(aln.segments.len(), 2);
+        let diff = alignment_diff(&aln, &t);
+
+        assert_eq!(diff.deletions.len(), 1);
+        assert_eq!(diff.deletions[0].pos, 78);
+        assert_eq!(diff.deletions[0].length, 4);
+        assert_eq!(diff.deletions[0].bases, format!("{}{}", &t[78..80], &t[0..2]));
+        assert!(diff.mismatches.is_empty());
+        assert!(diff.insertions.is_empty());
+        assert_eq!(
+            diff.aligned_length,
+            aln.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>()
+        );
     }
 }

@@ -301,9 +301,10 @@ async fn do_save_file(
     match project {
         Some(ref p) => match file_io::gbk::write_gbk(p, &save_path) {
             Ok(()) => {
+                let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
                 let mut pm = pm.write().await;
                 pm.mark_clean(&project_id);
-                Ok(serde_json::json!({"status": "ok"}))
+                Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
             }
             Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
         },
@@ -537,13 +538,17 @@ async fn do_add_primer<R: Runtime>(
     let name_conflict = {
         let pm = pm.read().await;
         pm.get_project_by_id(project_id).map(|p| {
-            p.primers
-                .iter()
-                .any(|p| p.id != primer.id && p.name == primer.name)
-        }).unwrap_or(false)
+            if p.primers.iter().any(|p| p.id != primer.id && p.name == primer.name) {
+                Some("primer")
+            } else if p.features.iter().any(|f| f.name == primer.name) {
+                Some("feature")
+            } else {
+                None
+            }
+        }).unwrap_or(None)
     };
-    if name_conflict {
-        return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists", primer.name)}));
+    if let Some(kind) = name_conflict {
+        return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists as a {}", primer.name, kind)}));
     }
 
     {
@@ -680,6 +685,23 @@ async fn do_set_methylation(
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
+/// Human-readable rejection reason for a failed read alignment. The prefix is
+/// kept stable so callers can detect the family (`starts_with`).
+fn alignment_reject_message(r: libregene_core::align::AlignReject) -> String {
+    use libregene_core::align::{AlignReject, MIN_ALIGNED_LEN, MIN_IDENTITY};
+    match r {
+        AlignReject::LowIdentity { identity, .. } => format!(
+            "No significant alignment found: identity {:.3} is below the {:.2} minimum",
+            identity, MIN_IDENTITY
+        ),
+        AlignReject::TooShort { span } => format!(
+            "No significant alignment found: aligned span {} bp is below the {} bp minimum",
+            span, MIN_ALIGNED_LEN
+        ),
+        AlignReject::NoSignificantAlignment => "No significant alignment found".to_string(),
+    }
+}
+
 async fn do_add_alignment_seq<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -710,8 +732,8 @@ async fn do_add_alignment_seq<R: Runtime>(
     let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
         let mut p = project_clone;
         let circular = p.topology == "circular";
-        let mut aln = libregene_core::align::align_read(&p.sequence, &clean_seq, circular)
-            .ok_or_else(|| "No significant alignment found".to_string())?;
+        let mut aln = libregene_core::align::align_read_checked(&p.sequence, &clean_seq, circular)
+            .map_err(alignment_reject_message)?;
         aln.name = if name.trim().is_empty() {
             "alignment".to_string()
         } else {
@@ -726,7 +748,7 @@ async fn do_add_alignment_seq<R: Runtime>(
 
     let computed = match computed {
         Ok(p) => p,
-        Err(e) if e == "No significant alignment found" => return Err(e),
+        Err(e) if e.starts_with("No significant alignment found") => return Err(e),
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
@@ -855,6 +877,7 @@ async fn do_check_primers_binding(
                         "annealLen": libregene_core::primer::align::anneal_len(
                             &template, &topology, &p.primer_seq, s,
                         ),
+                        "mismatchedTail": s.five_prime_tail.len(),
                     })),
                 })
             })
@@ -1884,8 +1907,8 @@ async fn add_alignment(
         }
         let mut p = project_clone;
         let circular = p.topology == "circular";
-        let mut aln = libregene_core::align::align_read(&p.sequence, &read_project.sequence, circular)
-            .ok_or_else(|| "No significant alignment found".to_string())?;
+        let mut aln = libregene_core::align::align_read_checked(&p.sequence, &read_project.sequence, circular)
+            .map_err(alignment_reject_message)?;
         aln.name = name;
         aln.id = libregene_core::align::next_alignment_id(&p.alignments);
         p.alignments.push(aln);
@@ -1896,7 +1919,7 @@ async fn add_alignment(
 
     let computed = match computed {
         Ok(p) => p,
-        Err(e) if e == "No significant alignment found" => return Err(e),
+        Err(e) if e.starts_with("No significant alignment found") => return Err(e),
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
