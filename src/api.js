@@ -29,8 +29,8 @@ export function saveFile(p) {
 
 // ── Sequence ──────────────────────────────────────────────────
 
-export function updateSequence(seq) {
-  return request('PUT', '/sequence', { sequence: seq });
+export function updateSequence(seq, features) {
+  return request('PUT', '/sequence', { sequence: seq, features: features || null });
 }
 
 // ── ROI ───────────────────────────────────────────────────────
