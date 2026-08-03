@@ -17,6 +17,10 @@ pub struct DigestOptions {
     pub max_features: Option<usize>,
     /// Substring match on feature name (case-insensitive) or exact ftype match.
     pub feature_filter: Option<String>,
+    /// Collapse the enzyme cut list into a single count line. The full list
+    /// can reach tens of KB (one line per cutter), which blows up MCP
+    /// mutation responses — mutation tools default this to true.
+    pub compact_enzymes: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -317,16 +321,21 @@ pub fn project_digest(
             }
         }
     }
-    site_lines.sort_by_key(|(start, _)| *start);
-    for (_, line) in &site_lines {
-        out.push_str(line);
-        out.push('\n');
-    }
-    if !unbound.is_empty() {
-        out.push_str(&format!(
-            "Primers without binding sites: {}\n",
-            unbound.join(", ")
-        ));
+    if !site_lines.is_empty() || !unbound.is_empty() {
+        out.push_str("PRIMERS (0-based, inclusive):\n");
+        site_lines.sort_by_key(|(start, _)| *start);
+        for (_, line) in &site_lines {
+            out.push_str(line);
+            out.push('\n');
+        }
+        if !unbound.is_empty() {
+            out.push_str(&format!(
+                "Primers without binding sites: {}\n",
+                unbound.join(", ")
+            ));
+        }
+    } else if region.is_none() {
+        out.push_str("PRIMERS (none)\n");
     }
 
     // Alignments: one line per stored read overlapping the region.
@@ -350,29 +359,39 @@ pub fn project_digest(
     match region {
         None => {
             let (unique, twice, others) = classify_enzymes(project);
-            if !unique.is_empty() {
-                out.push_str("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):\n");
-                for e in unique {
-                    out.push_str(&format!(
-                        "        {:<10} {:<28} {:<10} {}\n",
-                        e.name,
-                        cuts_desc(e),
-                        e.rec_seq,
-                        cut_type_label(&e.cut_type)
-                    ));
-                }
-            }
             // Multi-cut enzymes are summarized to keep the digest compact;
             // names are counted once even when they appear as several sites.
             let mut multi_names: Vec<&str> = twice.iter().map(|e| e.name.as_str()).collect();
             multi_names.sort_unstable();
             multi_names.dedup();
             let multi = multi_names.len() + others;
-            if multi > 0 {
-                out.push_str(&format!(
-                    "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
-                    multi
-                ));
+            if opts.compact_enzymes {
+                if !unique.is_empty() || multi > 0 {
+                    out.push_str(&format!(
+                        "ENZYMES (compact): {} single-cut, {} multi-cut (cut between pos-1 and pos, 0-based)\n",
+                        unique.len(),
+                        multi
+                    ));
+                }
+            } else {
+                if !unique.is_empty() {
+                    out.push_str("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):\n");
+                    for e in unique {
+                        out.push_str(&format!(
+                            "        {:<10} {:<28} {:<10} {}\n",
+                            e.name,
+                            cuts_desc(e),
+                            e.rec_seq,
+                            cut_type_label(&e.cut_type)
+                        ));
+                    }
+                }
+                if multi > 0 {
+                    out.push_str(&format!(
+                        "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
+                        multi
+                    ));
+                }
             }
         }
         Some((s, e)) => {
@@ -382,14 +401,21 @@ pub fn project_digest(
                 .filter(|en| enzyme_in_region(en, s, e, circular))
                 .collect();
             if !in_region.is_empty() {
-                out.push_str("ENZYMES CUTTING IN REGION (cut between pos-1 and pos, 0-based):\n");
-                for en in in_region {
+                if opts.compact_enzymes {
                     out.push_str(&format!(
-                        "        {:<10} {}   {}\n",
-                        en.name,
-                        cuts_desc(en),
-                        cut_type_label(&en.cut_type)
+                        "ENZYMES CUTTING IN REGION (compact): {} cuts (cut between pos-1 and pos, 0-based)\n",
+                        in_region.len()
                     ));
+                } else {
+                    out.push_str("ENZYMES CUTTING IN REGION (cut between pos-1 and pos, 0-based):\n");
+                    for en in in_region {
+                        out.push_str(&format!(
+                            "        {:<10} {}   {}\n",
+                            en.name,
+                            cuts_desc(en),
+                            cut_type_label(&en.cut_type)
+                        ));
+                    }
                 }
             }
         }
@@ -794,6 +820,7 @@ mod tests {
         let opts = DigestOptions {
             max_features: Some(1),
             feature_filter: None,
+            ..DigestOptions::default()
         };
         let out = project_digest(&synthetic_project(), &opts, None).unwrap();
         assert!(out.contains("... and 1 more features"));
@@ -805,6 +832,7 @@ mod tests {
         let opts = DigestOptions {
             max_features: None,
             feature_filter: Some("seg".into()),
+            ..DigestOptions::default()
         };
         let out = project_digest(&synthetic_project(), &opts, None).unwrap();
         assert!(out.contains("segFeat"));
@@ -964,5 +992,33 @@ mod tests {
         assert!(seg_in_range(50, 59, 30, 5, true));
         assert!(pos_in_range(40, 30, 5, true));
         assert!(!pos_in_range(20, 30, 5, true));
+    }
+
+    #[test]
+    fn compact_enzymes_collapses_cutter_lists() {
+        let p = synthetic_project();
+        let opts = DigestOptions {
+            compact_enzymes: true,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&p, &opts, None).unwrap();
+        // EcoRI unique + BsaI/BbsI (2 multi names) + 3 triple-cut names
+        assert!(out.contains("ENZYMES (compact): 1 single-cut, 5 multi-cut"));
+        assert!(!out.contains("UNIQUE CUTTERS"));
+        assert!(!out.contains("EcoRI"));
+        let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
+        assert!(region.contains("ENZYMES CUTTING IN REGION (compact): "));
+        assert!(!region.contains("BsaI"));
+    }
+
+    #[test]
+    fn overview_prints_primers_none_placeholder() {
+        let mut p = synthetic_project();
+        p.primers.clear();
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(out.contains("PRIMERS (none)\n"));
+        // region views never emit the placeholder (a primer may exist elsewhere)
+        let region = project_digest(&p, &DigestOptions::default(), Some((0, 10))).unwrap();
+        assert!(!region.contains("PRIMERS"));
     }
 }

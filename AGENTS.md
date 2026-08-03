@@ -200,7 +200,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **共享内核**：所有 mutation 工具与对应 Tauri command 走同一套 `crate::do_*` 内部函数（`src-tauri/src/lib.rs`），同一 recompute/dirty/broadcast 路径，UI 实时更新。Tauri command 只是薄包装。
 - **启停控制**：`McpServer`（`mcp.rs`）持有配置 `{enabled, port}` 与 server task；`set_mcp_config` 在原进程内停止/重启服务器（端口冲突时自动重试），无需重启应用。默认 `enabled=true, port=8766`。配置持久化在前端 localStorage（key `mcpConfig`），启动时前端调用 `set_mcp_config` 应用。
 - **入口**：`src/components/McpGuideDialog.jsx`（启用开关 + 端口 + 各客户端配置片段），从侧边栏 "MCP Server" 菜单项和 Empty 界面 "Connect an LLM agent via MCP" 链接打开。
-- **工具**：目前 20 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`get_enzyme_database`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、`add_feature`、`update_feature`、`add_primer`、`set_methylation`、`add_alignment`、`remove_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要。查 Tm 用 `check_primer_binding`（返回结合位点含 tm），不用单独的 compute_tm（已移除——裸数字返回值不符合 MCP structuredContent 规范）。`read_sequence` 除文本标尺外另返回机器可读的 `sequence` 纯碱基字段；`add_primer`/`check_primer_binding` 的结合位点含 `annealLen`（3' 端连续匹配长度，退火核心）；`design_primers` amplify 模式在酶识别序列落入扩增片段内部时附 `internalSites` 警告；digest 酶切列表只列单一切口酶，多切酶汇总为一行计数。
+- **工具**：目前 22 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`get_enzyme_database`、`find_restriction_sites`、`list_primers`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、`add_feature`、`update_feature`、`add_primer`、`set_methylation`、`add_alignment`、`remove_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要（compact 模式：酶切列表折叠为单行计数，避免完整酶切列表 56-82KB 撑爆输出；`get_region_view` 默认完整，可传 `compact: true`）。查 Tm 用 `check_primer_binding`（返回结合位点含 tm），不用单独的 compute_tm（已移除——裸数字返回值不符合 MCP structuredContent 规范）。`read_sequence` 除文本标尺外另返回机器可读的 `sequence` 纯碱基字段；`add_primer`/`check_primer_binding` 的结合位点含 `annealLen`（3' 端连续匹配长度，退火核心），`check_primer_binding` 另含 `mismatchedTail`（5' 端未退火碱基数，binds=true 仅代表 3' 退火核心结合）；`design_primers` amplify 模式在酶识别序列落入扩增片段内部时附 `internalSites` 警告；digest 酶切列表只列单一切口酶，多切酶汇总为一行计数。`design_primers` 与 `check_primer_binding` 的 annealLen/Tm 口径不同：design 只算设计退火区，check 算 3' 端实际连续匹配（尾巴与模板 MCS 连续匹配时 check 报的 annealLen/Tm 更高）。
 - **坐标约定（MCP 工具）**：0-based inclusive；primer `template_end` exclusive；酶切在 `pos-1` 与 `pos` 之间；环状序列读取支持 `start > end` 绕原点，编辑区间不允许绕原点（`end = start - 1` 为纯插入）。
 - **测试**：`src-tauri` 内 `cargo test --lib` 有 McpServer 启停/换端口测试（mock runtime，真实 TCP 握手）；digest 渲染在 `libregene-core` 有单元测试。
 
@@ -214,14 +214,16 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - 序列读取 → `read_sequence`（返回文本标尺 + 机器可读 `sequence` 纯碱基字段）、`get_project_overview`、`get_region_view`
 - 序列编辑（插入/删除/替换）→ `edit_sequence`（带 `expected_old` 乐观校验，失败时返回首个差异索引与 ±20 bp 对照上下文；会按 delta 平移/裁剪特征坐标，完全落在删除区间的特征被移除）
 - 特征新增与更新 → `add_feature`、`update_feature`（单一工具：`feature_id` + 可选 `name/ftype/color/strand/location`，至少一项；location 为 GenBank 1-based 字符串，message 回显存储后的 0-based 坐标）
-- 引物新增 → `add_primer`（返回重算后结合位点，含 `annealLen` 退火核心长度）
-- 引物结合检查 / Tm 查询 → `check_primer_binding`（位点含 `annealLen`）
-- 引物设计（Amplify/OE-PCR/Mutagenesis）→ `design_primers`（amplify 支持 `fwd_enzyme`/`rev_enzyme` 酶切尾巴 + `protect_bases` 保护碱基，酶识别序列落入扩增片段内部时附 `internalSites` 警告；mutagenesis 校验 `mut_seq` 与 seg 等长且差异 ≤3 bp，返回 `mutation` 自检块含正/负链上下文与 CDS 密码子/氨基酸变化——支持 join 分段 CDS，全碱基替换时附 `warning` 提示确认正链）
+- 引物新增 → `add_primer`（返回重算后结合位点，含 `annealLen` 退火核心长度；名称冲突报错会指明冲突对象是已有引物还是已有特征）
+- 引物清单 → `list_primers`（名称/序列/结合位点数/位点坐标，只读）
+- 引物结合检查 / Tm 查询 → `check_primer_binding`（位点含 `annealLen` 与 `mismatchedTail`——5' 端未退火碱基数，binds=true 仅指 3' 退火核心结合）
+- 引物设计（Amplify/OE-PCR/Mutagenesis）→ `design_primers`（amplify 支持 `fwd_enzyme`/`rev_enzyme` 酶切尾巴 + `protect_bases` 保护碱基，酶识别序列落入扩增片段内部时附 `internalSites` 警告；mutagenesis 校验 `mut_seq` 与 seg 等长且差异 ≤3 bp，返回 `mutation` 自检块含正/负链上下文与 CDS 密码子/氨基酸变化——支持 join 分段 CDS，`cds.codonIndex` 为 CDS 内 0-based、`cds.aaPosition1Based` 为 1-based 氨基酸位置，全碱基替换时附 `warning` 提示确认正链）
 - ORF 搜索 → `find_orfs`（`add_as_features` 可直接落库）
-- 序列比对（Sanger reads / 序列）→ `add_alignment`（`bases`/`path` 双输入，`path` 支持 .gbk/.dna/.fasta/.ab1，返回精确 mismatches/insertions/deletions 统计）、`remove_alignment`
+- 序列比对（Sanger reads / 序列）→ `add_alignment`（`bases`/`path` 双输入，`path` 支持 .gbk/.dna/.fasta/.ab1；返回差异明细：`mismatchDetails` 每个 mismatch 的 0-based 模板位置与模板/读段碱基、`deletionDetails` 每个 deletion 的位置/长度/缺失碱基（跨环状原点自动合并）、`insertionDetails` 每个 insertion 的插入位点（pos-1 与 pos 之间）与序列/长度；另有 `identity`（全精度不四舍五入）与 `alignedLength`（覆盖模板长度）；短读段被拒时错误信息说明原因与最小长度阈值 50 bp）、`remove_alignment`
 - IUPAC 序列搜索 → `search_sequence`
 - 甲基化设置 → `set_methylation`
 - 酶数据库查询 → `get_enzyme_database`
+- 限制酶切位点查询 → `find_restriction_sites`（按名称列出识别位点与切口：`recStart`/`recEnd` 0-based inclusive、`recSeq`、识别链 `top`/`bottom`、`cuts` 每个 `topCutIndex`/`botCutIndex`（切口在 cut-1 与 cut 之间）；复用已算好的引擎结果，环状坐标已归一化，不传 `enzymes` 返回全部，未知酶名报错并给出近似名）
 
 未适配（前端/UI 专有，MCP 不可用）：
 

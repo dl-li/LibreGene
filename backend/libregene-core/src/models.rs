@@ -325,6 +325,48 @@ pub struct Alignment {
     pub seq: String,
 }
 
+/// A single mismatched column: template position (0-based inclusive) and the
+/// template/read bases. `read_base` is oriented to the template strand
+/// (already rev-comp'd when the alignment strand is "-").
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignMismatch {
+    pub pos: usize,
+    pub template_base: String,
+    pub read_base: String,
+}
+
+/// Consecutive deleted template columns grouped into one event.
+/// `pos` is the 0-based inclusive position of the first deleted base.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignDeletion {
+    pub pos: usize,
+    pub length: usize,
+    pub bases: String,
+}
+
+/// Extra read bases inserted before template column `pos` (0-based inclusive;
+/// the insertion sits between `pos - 1` and `pos`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignInsertionDetail {
+    pub pos: usize,
+    pub bases: String,
+    pub length: usize,
+}
+
+/// Machine-readable difference details derived from an [`Alignment`] model.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentDiff {
+    pub mismatches: Vec<AlignMismatch>,
+    pub deletions: Vec<AlignDeletion>,
+    pub insertions: Vec<AlignInsertionDetail>,
+    /// Template positions covered by the alignment (sum of segment spans).
+    pub aligned_length: usize,
+}
+
 // ---------------------------------------------------------------------------
 // ProjectData
 // ---------------------------------------------------------------------------

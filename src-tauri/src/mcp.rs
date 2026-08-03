@@ -32,7 +32,7 @@ use tokio::sync::RwLock;
 use tauri::{AppHandle, Runtime};
 
 use libregene_core::digest::{DigestOptions, project_digest, read_sequence};
-use libregene_core::models::{Feature, Primer, ProjectData};
+use libregene_core::models::{Enzyme, Feature, Primer, ProjectData};
 use libregene_core::project::ProjectManager;
 
 /// Loopback port for the embedded MCP server (settings toggle comes later).
@@ -56,6 +56,8 @@ struct RegionRequest {
     end: i64,
     max_features: Option<usize>,
     feature_filter: Option<String>,
+    /// Collapse the enzyme cut list into a count line (default false).
+    compact: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -162,6 +164,19 @@ struct FindOrfsRequest {
     project_id: Option<String>,
     min_aa: Option<usize>,
     add_as_features: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct FindRestrictionSitesRequest {
+    project_id: Option<String>,
+    /// Enzyme names to report (case-insensitive); empty/omitted = all enzymes
+    /// that have a recognition site on this sequence.
+    enzymes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct ListPrimersRequest {
+    project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
@@ -334,21 +349,36 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Text digest of `region` (0-based inclusive, may wrap on circular) or the
-    /// whole project when `None`.
-    async fn digest_region(&self, project_id: &str, region: Option<(i64, i64)>) -> Option<String> {
+    /// whole project when `None`. `compact` collapses the enzyme cut list into
+    /// a count line (mutation tools use it to keep regionView small).
+    async fn digest_region(
+        &self,
+        project_id: &str,
+        region: Option<(i64, i64)>,
+        compact: bool,
+    ) -> Option<String> {
         let pm = self.pm.read().await;
         let project = pm.get_project_by_id(project_id)?;
-        project_digest(project, &DigestOptions::default(), region).ok()
+        let opts = DigestOptions {
+            compact_enzymes: compact,
+            ..DigestOptions::default()
+        };
+        project_digest(project, &opts, region).ok()
     }
 
-    /// Text digest of the region around a feature (looked up by id).
+    /// Text digest of the region around a feature (looked up by id); compact
+    /// enzyme rendering (only mutation tools call this).
     async fn digest_feature_region(&self, project_id: &str, feature_id: &str) -> Option<String> {
         let pm = self.pm.read().await;
         let project = pm.get_project_by_id(project_id)?;
         let f = project.features.iter().find(|f| f.id == feature_id)?;
         let s = (f.start - 5).max(0);
         let e = (f.end + 5).min(project.length - 1);
-        project_digest(project, &DigestOptions::default(), Some((s, e))).ok()
+        let opts = DigestOptions {
+            compact_enzymes: true,
+            ..DigestOptions::default()
+        };
+        project_digest(project, &opts, Some((s, e))).ok()
     }
 
     async fn feature_exists(&self, project_id: &str, feature_id: &str) -> bool {
@@ -381,7 +411,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Compact text digest of a whole project. Coordinates are 0-based inclusive
     /// (features, primers, read ranges); primer template_end is exclusive; enzyme
     /// cuts happen between pos-1 and pos. feature_filter matches feature name
-    /// (case-insensitive substring) or exact ftype. Returns {projectId, text}.
+    /// (case-insensitive substring) or exact ftype. Primers render as a PRIMERS
+    /// section (or "PRIMERS (none)" when the project has none). Returns
+    /// {projectId, text}.
     #[tool]
     async fn get_project_overview(
         &self,
@@ -391,6 +423,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
+            compact_enzymes: false,
         };
         let text = project_digest(&project, &opts, None)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -400,7 +433,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Compact text digest of a region of a project. Coordinates are 0-based
     /// inclusive; on circular sequences start > end wraps the origin. Only
     /// features, primer binding sites and enzyme cut positions overlapping
-    /// [start, end] are included. Returns {projectId, text}.
+    /// [start, end] are included. Set `compact: true` to collapse the enzyme
+    /// list into a single count line (the default lists every cut in the
+    /// window). Returns {projectId, text}.
     #[tool]
     async fn get_region_view(
         &self,
@@ -410,6 +445,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
+            compact_enzymes: request.compact.unwrap_or(false),
         };
         let text = project_digest(&project, &opts, Some((request.start, request.end)))
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -461,6 +497,136 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(value))
     }
 
+    /// List restriction-enzyme recognition sites on a project's sequence.
+    /// `enzymes` is an optional list of enzyme names (case-insensitive, names
+    /// from get_enzyme_database); omit it (or pass []) to report every enzyme
+    /// that has a site. Unknown names are rejected with near-match
+    /// suggestions. Sites are the already-computed engine results the UI
+    /// shows (circular-normalized, methylation-aware), so no recompute runs.
+    /// Returns {projectId, enzymes: [{name, sites: [{recStart, recEnd,
+    /// recSeq, strand, cuts: [{topCutIndex, botCutIndex}], methylationBlocked,
+    /// unique}]}]}. recStart/recEnd are 0-based inclusive; a cut happens
+    /// BETWEEN cut-1 and cut (0-based); strand is "top" or "bottom"
+    /// (recognition orientation); unique = exactly one site for that enzyme.
+    #[tool]
+    async fn find_restriction_sites(
+        &self,
+        Parameters(request): Parameters<FindRestrictionSitesRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let (id, project) = self.resolve_project(request.project_id).await?;
+        let wanted: Option<Vec<String>> = request.enzymes.map(|v| {
+            v.into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        });
+        // The engine only stores entries with at least one recognition site,
+        // so validate requested names against those.
+        let requested: Vec<String> = match &wanted {
+            Some(list) if !list.is_empty() => {
+                let names: Vec<&str> = project.enzymes.iter().map(|e| e.name.as_str()).collect();
+                let mut resolved: Vec<String> = Vec::new();
+                for n in list {
+                    match names.iter().find(|a| a.eq_ignore_ascii_case(n)) {
+                        Some(found) if !resolved.iter().any(|r| r.eq_ignore_ascii_case(found)) => {
+                            resolved.push(found.to_string());
+                        }
+                        Some(_) => {}
+                        None => {
+                            let q = n.to_lowercase();
+                            let sugg: Vec<&str> = names
+                                .iter()
+                                .copied()
+                                .filter(|a| a.to_lowercase().contains(&q))
+                                .take(5)
+                                .collect();
+                            let msg = if sugg.is_empty() {
+                                format!(
+                                    "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name (names come from get_enzyme_database)",
+                                    n
+                                )
+                            } else {
+                                format!(
+                                    "Unknown enzyme '{}'; enzymes cutting this sequence with similar names: {}",
+                                    n,
+                                    sugg.join(", ")
+                                )
+                            };
+                            return Ok(Json(fail_envelope(&id, msg)));
+                        }
+                    }
+                }
+                resolved
+            }
+            _ => Vec::new(),
+        };
+        let mut by_name: HashMap<&str, Vec<&Enzyme>> = HashMap::new();
+        for e in &project.enzymes {
+            if requested.is_empty() || requested.iter().any(|w| w.eq_ignore_ascii_case(&e.name)) {
+                by_name.entry(e.name.as_str()).or_default().push(e);
+            }
+        }
+        let mut enzyme_names: Vec<&str> = by_name.keys().copied().collect();
+        enzyme_names.sort();
+        let enzymes_json: Vec<serde_json::Value> = enzyme_names
+            .into_iter()
+            .map(|n| {
+                let mut sites = by_name[n].clone();
+                sites.sort_by_key(|e| e.rec_start);
+                serde_json::json!({
+                    "name": n,
+                    "sites": sites.iter().map(|e| serde_json::json!({
+                        "recStart": e.rec_start,
+                        "recEnd": e.rec_end,
+                        "recSeq": e.rec_seq,
+                        "strand": e.recognition_strand,
+                        "cuts": e.cut_pairs.iter().map(|p| serde_json::json!({
+                            "topCutIndex": p.top_cut_index,
+                            "botCutIndex": p.bot_cut_index,
+                        })).collect::<Vec<_>>(),
+                        "methylationBlocked": e.methylation_blocked,
+                        "unique": e.is_unique,
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        Ok(Json(serde_json::json!({ "projectId": id, "enzymes": enzymes_json })))
+    }
+
+    /// List the primers stored in a project (read-only; never recomputes or
+    /// checks binding). Returns {projectId, primers: [{id, name, type, seq,
+    /// bindingSiteCount, sites: [{strand, templateStart, templateEnd}]}]}.
+    /// templateStart is 0-based inclusive, templateEnd 0-based EXCLUSIVE
+    /// (range spans templateStart..templateEnd-1). bindingSiteCount is the
+    /// number of recomputed binding sites (0 when the primer does not bind);
+    /// sites are best-first (Tm descending, as the UI orders them).
+    #[tool]
+    async fn list_primers(
+        &self,
+        Parameters(request): Parameters<ListPrimersRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let (id, project) = self.resolve_project(request.project_id).await?;
+        let primers: Vec<serde_json::Value> = project
+            .primers
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "type": p.r#type,
+                    "seq": p.primer_seq,
+                    "bindingSiteCount": p.binding_sites.len(),
+                    "sites": p.binding_sites.iter().map(|s| serde_json::json!({
+                        "strand": s.strand,
+                        "templateStart": s.template_start,
+                        "templateEnd": s.template_end,
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        Ok(Json(serde_json::json!({ "projectId": id, "primers": primers })))
+    }
+
     // -----------------------------------------------------------------------
     // Mutations
     // -----------------------------------------------------------------------
@@ -468,7 +634,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Open a GenBank/FASTA file into the project manager (project id = file
     /// path). Enzyme and primer recompute run on a background thread; the UI is
     /// refreshed via broadcast. Returns {ok, message, projectId, regionView}
-    /// where regionView is the full overview digest of the opened project.
+    /// where regionView is the compact overview digest of the opened project
+    /// (enzyme cutters collapsed to a count line).
     #[tool]
     async fn open_file(
         &self,
@@ -485,13 +652,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // response) — the MCP server must notify the UI itself.
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
         let summary = self.project_summary(&id).await.unwrap_or_else(|| format!("Opened {}", id));
-        let region = self.digest_region(&id, None).await;
+        let region = self.digest_region(&id, None, true).await;
         Ok(Json(ok_envelope(&id, summary, region)))
     }
 
     /// Save a project to a GenBank file on disk. Uses the same serializer and
     /// mark-clean logic as the save_file command. Returns the uniform envelope
-    /// with the overview digest.
+    /// with the overview digest plus `bytesWritten` (file size in bytes, for
+    /// write verification).
     #[tool]
     async fn save_file(
         &self,
@@ -505,9 +673,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
+        let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
-        let region = self.digest_region(&id, None).await;
-        Ok(Json(ok_envelope(&id, format!("Saved {}", path), region)))
+        let region = self.digest_region(&id, None, true).await;
+        let mut env = ok_envelope(&id, format!("Saved {}", path), region);
+        if let Some(b) = bytes_written {
+            env["bytesWritten"] = serde_json::json!(b);
+        }
+        Ok(Json(env))
     }
 
     /// Close (unload) a project without saving. Mirrors delete_project; the UI
@@ -552,7 +725,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(Json(fail_envelope(&id, err)));
         }
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
-        let region = self.digest_region(&id, None).await;
+        let region = self.digest_region(&id, None, true).await;
         Ok(Json(ok_envelope(&id, format!("Activated {}", id), region)))
     }
 
@@ -643,8 +816,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (start - 30).max(0),
             (end + 30).min(len - 1),
         );
-        let old_region = project_digest(&project, &DigestOptions::default(), Some(old_win))
-            .ok();
+        let old_opts = DigestOptions {
+            compact_enzymes: true,
+            ..DigestOptions::default()
+        };
+        let old_region = project_digest(&project, &old_opts, Some(old_win)).ok();
 
         let new_seq = format!(
             "{}{}{}",
@@ -683,7 +859,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (start - 30).max(0),
             (start + repl_len + 30 - 1).min(new_len - 1),
         );
-        let new_region = self.digest_region(&id, Some(new_win)).await;
+        let new_region = self.digest_region(&id, Some(new_win), true).await;
 
         let mut v = serde_json::json!({
             "ok": true,
@@ -864,9 +1040,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Add a primer ("fwd" or "rev") and recompute its binding sites against
     /// the template. Returns {ok, message, projectId, bindingSites, regionView}
-    /// — bindingSites: [{strand, templateStart, templateEnd, tm, annealLen}],
-    /// 0-based. annealLen is the number of contiguous 3'-end bases matching
-    /// the template (the anneal core; a non-pairing 5' tail is excluded).
+    /// — bindingSites: [{strand, templateStart, templateEnd, tm, annealLen}].
+    /// templateStart is 0-based inclusive, templateEnd 0-based EXCLUSIVE (the
+    /// bound range spans templateStart..templateEnd-1). annealLen is the number
+    /// of contiguous 3'-end bases matching the template (the anneal core; a
+    /// non-pairing 5' tail is excluded).
     #[tool]
     async fn add_primer(
         &self,
@@ -922,8 +1100,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         };
         let region_view = match region {
-            Some(r) => self.digest_region(&id, Some(r)).await,
-            None => self.digest_region(&id, None).await,
+            Some(r) => self.digest_region(&id, Some(r), true).await,
+            None => self.digest_region(&id, None, true).await,
         };
         let mut env = ok_envelope(
             &id,
@@ -952,7 +1130,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         // set_methylation core does not broadcast.
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
-        let region = self.digest_region(&id, None).await;
+        let region = self.digest_region(&id, None, true).await;
         Ok(Json(ok_envelope(&id, "Updated methylation systems".to_string(), region)))
     }
 
@@ -966,10 +1144,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   `.fa`/`.fasta` (FASTA / plain text sequence), `.ab1` (ABIF
     ///   chromatogram; the basecalled PBAS sequence is extracted).
     /// Giving neither or both is an error. A name is always required.
+    ///
     /// Returns {ok, message, projectId, regionView, significant, identity,
-    /// strand, segmentCount, mismatches, insertions, deletions} — mismatches,
-    /// insertions and deletions are exact base counts from the alignment
-    /// (identity alone rounds away single mismatches).
+    /// strand, segmentCount, alignedLength, mismatches, insertions,
+    /// deletions, mismatchDetails, deletionDetails, insertionDetails, name,
+    /// alignmentId}.
+    /// - `identity`: 0–1 fraction, full precision (not rounded).
+    /// - `alignedLength`: template positions covered by the alignment (sum of
+    ///   segment spans, bp).
+    /// - `mismatches`/`insertions`/`deletions`: total base counts (identity
+    ///   alone rounds away single mismatches).
+    /// - `mismatchDetails`: [{pos, templateBase, readBase}] — one entry per
+    ///   mismatched column; `pos` is the 0-based inclusive template position;
+    ///   `readBase` is oriented to the template strand (already rev-comp'd
+    ///   when strand is "-").
+    /// - `deletionDetails`: [{pos, length, bases}] — consecutive deleted
+    ///   template columns grouped into one entry; `pos` is the 0-based
+    ///   inclusive template position of the first deleted base; entries
+    ///   straddling the circular origin are merged.
+    /// - `insertionDetails`: [{pos, bases, length}] — `pos` is the 0-based
+    ///   template position before which the extra read bases were inserted
+    ///   (between pos-1 and pos; on circular templates pos=0 means between
+    ///   tlen-1 and 0).
+    /// On failure returns {ok: false, message, projectId, significant: false};
+    /// a message starting with "No significant alignment found" states the
+    /// reason (identity below the 0.60 minimum, or aligned span below the
+    /// 50 bp minimum).
     #[tool]
     async fn add_alignment(
         &self,
@@ -1025,7 +1225,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .await
         {
             Ok(p) => p,
-            Err(e) if e == "No significant alignment found" => {
+            Err(e) if e.starts_with("No significant alignment found") => {
                 return Ok(Json(serde_json::json!({
                     "ok": false,
                     "message": e,
@@ -1043,31 +1243,19 @@ impl<R: Runtime> LibreGeneMcp<R> {
             pm.get_project_by_id(&id)
                 .and_then(|p| {
                     let a = p.alignments.last()?;
-                    let template = p.sequence.as_bytes();
-                    let mut mismatches = 0usize;
-                    let mut deletions = 0usize;
-                    for seg in &a.segments {
-                        for (i, ch) in seg.chars.bytes().enumerate() {
-                            if ch == b'-' {
-                                deletions += 1;
-                            } else if template
-                                .get(seg.start + i)
-                                .map_or(true, |t| t.to_ascii_uppercase() != ch)
-                            {
-                                mismatches += 1;
-                            }
-                        }
-                    }
-                    let inserted_bases: usize =
-                        a.insertions.iter().map(|ins| ins.bases.len()).sum();
+                    let diff = libregene_core::align::alignment_diff(a, &p.sequence);
                     Some((
                         serde_json::json!({
-                            "identity": (a.identity * 100.0).round() / 100.0,
+                            "identity": a.identity,
                             "strand": a.strand,
                             "segmentCount": a.segments.len(),
-                            "mismatches": mismatches,
-                            "insertions": inserted_bases,
-                            "deletions": deletions,
+                            "alignedLength": diff.aligned_length,
+                            "mismatches": diff.mismatches.len(),
+                            "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
+                            "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
+                            "mismatchDetails": diff.mismatches,
+                            "deletionDetails": diff.deletions,
+                            "insertionDetails": diff.insertions,
                             "name": a.name,
                             "alignmentId": a.id,
                         }),
@@ -1076,8 +1264,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })
         };
         let region = match summary {
-            Some((_, Some((s, e)))) => self.digest_region(&id, Some((s, e))).await,
-            _ => self.digest_region(&id, None).await,
+            Some((_, Some((s, e)))) => self.digest_region(&id, Some((s, e)), true).await,
+            _ => self.digest_region(&id, None, true).await,
         };
         let mut env = ok_envelope(&id, format!("Aligned {}", name), region);
         if let Some((s, _)) = summary {
@@ -1128,7 +1316,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        let region_view = self.digest_region(&id, region).await;
+        let region_view = self.digest_region(&id, region, true).await;
         Ok(Json(ok_envelope(
             &id,
             format!("Removed alignment {}", alignment_id),
@@ -1180,7 +1368,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        let region = self.digest_region(&id, Some((min_s, max_e))).await;
+        let region = self.digest_region(&id, Some((min_s, max_e)), true).await;
         Ok(Json(ok_envelope(&id, "Added ORFs as CDS features".to_string(), region)))
     }
 
@@ -1199,12 +1387,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// strand context, and CDS codon/amino-acid change when `seg` lies inside
     /// a CDS — joined multi-segment CDS features are supported — mind the CDS
     /// strand: for a minus-strand CDS the coding change is the reverse
-    /// complement of the plus-strand edit). Replacing every base of `seg`
+    /// complement of the plus-strand edit). In that block `cds.codonIndex`
+    /// is 0-based within the CDS and `cds.aaPosition1Based` is the 1-based
+    /// amino-acid position (codonIndex + 1). Replacing every base of `seg`
     /// adds a `warning` (likely wrong strand/location) but is not rejected.
     /// When an amplify enzyme's recognition site also occurs inside the
     /// amplified segment, the response adds an `internalSites` warning list
     /// ({enzyme, start, end, strand}, 0-based inclusive).
     /// Returns {projectId, groups: [PrimerGroup], mutation?, internalSites?}.
+    ///
+    /// Tm/annealLen here describe the DESIGNED anneal core only. If you then
+    /// verify a designed primer with check_primer_binding, its annealLen/Tm
+    /// can be HIGHER: check recomputes the actual contiguous 3'-end match,
+    /// which can extend into tail bases that happen to match the template
+    /// (e.g. an enzyme tail sitting next to a matching downstream site).
     #[tool]
     async fn design_primers(
         &self,
@@ -1354,7 +1550,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Check whether the given primers (each {name, type: "fwd"|"rev", seq})
     /// can bind to a project's sequence, without persisting them. Same engine
     /// as check_primers_binding. Returns {projectId, results: [{id, binds,
-    /// site: {strand, templateStart, templateEnd, tm, annealLen} | null}]}.
+    /// site: {strand, templateStart, templateEnd, tm, annealLen,
+    /// mismatchedTail} | null}]}. templateStart is 0-based inclusive,
+    /// templateEnd 0-based EXCLUSIVE (range spans templateStart..templateEnd-1);
+    /// cuts are not involved. `binds: true` means the 3' anneal core matched —
+    /// the primer may still carry mismatches at its 5' end. `mismatchedTail`
+    /// is the number of 5'-most bases NOT part of the contiguous 3' match
+    /// (0 when the whole primer anneals; >0 for mutagenesis primers and
+    /// enzyme-tail primers). `annealLen` counts only the contiguous 3' match.
+    /// Unlike design_primers (which reports the DESIGNED anneal core), this
+    /// recomputes the actual contiguous 3'-end match: tail bases that happen
+    /// to match the template (e.g. an enzyme tail next to a matching
+    /// downstream site) extend annealLen and raise tm beyond design's values.
     #[tool]
     async fn check_primer_binding(
         &self,

@@ -409,8 +409,11 @@ pub struct CdsMutation {
     pub feature_id: String,
     pub name: String,
     pub strand: String,
-    /// 0-based codon index within the CDS.
+    /// 0-based codon index within the CDS (the codon that contains the first diff).
     pub codon_index: usize,
+    /// 1-based amino-acid position within the CDS (codonIndex + 1) — the
+    /// residue that changes, in CDS order.
+    pub aa_position_1_based: usize,
     /// Codons on the CDS coding strand.
     pub codon_before: String,
     pub codon_after: String,
@@ -616,6 +619,7 @@ pub fn analyze_mutagenesis(
                 name: f.name.clone(),
                 strand: f.strand.clone(),
                 codon_index,
+                aa_position_1_based: codon_index + 1,
                 aa_before: translate_codon(&codon_before).unwrap_or("???").to_string(),
                 aa_after: translate_codon(&codon_after).unwrap_or("???").to_string(),
                 codon_before,
