@@ -120,24 +120,12 @@ struct FeatureIdValueRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct FeatureIdRequest {
-    project_id: Option<String>,
-    feature_id: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct AddPrimerRequest {
     project_id: Option<String>,
     name: String,
     #[serde(rename = "type")]
     r#type: String,
     seq: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct DeletePrimerRequest {
-    project_id: Option<String>,
-    primer_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -152,12 +140,6 @@ struct AddAlignmentRequest {
     project_id: Option<String>,
     name: String,
     seq: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct RemoveAlignmentRequest {
-    project_id: Option<String>,
-    alignment_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -187,16 +169,14 @@ struct DesignPrimersRequest {
     overlap_len: Option<usize>,
     arm_len: Option<usize>,
     mut_seq: Option<String>,
+    fwd_enzyme: Option<String>,
+    rev_enzyme: Option<String>,
+    protect_bases: Option<usize>,
     na_conc: Option<f64>,
     mg_conc: Option<f64>,
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct AnalyzePcrRequest {
-    project_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -252,6 +232,28 @@ fn fail_envelope(project_id: &str, message: String) -> serde_json::Value {
         "message": message,
         "projectId": project_id,
     })
+}
+
+/// Look up an enzyme's recognition site by name (case-insensitive); the error
+/// lists near matches so the caller can fix the name.
+fn resolve_enzyme_site(name: &str) -> Result<String, String> {
+    let db = libregene_core::enzyme::search::get_db();
+    if let Some(e) = db.enzymes.iter().find(|e| e.name.eq_ignore_ascii_case(name)) {
+        return Ok(e.site.to_ascii_uppercase());
+    }
+    let q = name.to_lowercase();
+    let suggestions: Vec<&str> = db
+        .enzymes
+        .iter()
+        .map(|e| e.name.as_str())
+        .filter(|n| n.to_lowercase().contains(&q))
+        .take(5)
+        .collect();
+    if suggestions.is_empty() {
+        Err(format!("Unknown enzyme '{}'; no similar names in the enzyme database", name))
+    } else {
+        Err(format!("Unknown enzyme '{}'; similar: {}", name, suggestions.join(", ")))
+    }
 }
 
 impl<R: Runtime> LibreGeneMcp<R> {
@@ -517,11 +519,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Replace sequence [start..end] (0-based inclusive) with `replacement`
     /// (empty = delete). A pure insertion is `end = start - 1`; ranges must not
-    /// wrap (start > end+1 rejected). When `expected_old` is given it must match
-    /// the current [start..end] content case-insensitively or the edit is
-    /// rejected with the actual content. Uses the same primer+enzyme recompute
-    /// path as update_sequence. Returns newLength, old/new region views and
-    /// 30 bp sequence context on each side of the edit.
+    /// wrap (start > end+1 rejected). Feature coordinates are shifted/clipped
+    /// for the edit (features fully inside a deleted range are removed). When
+    /// `expected_old` is given it must match the current [start..end] content
+    /// case-insensitively or the edit is rejected with the actual content. Uses
+    /// the same primer+enzyme recompute path as update_sequence. Returns
+    /// newLength, old/new region views and 30 bp sequence context on each side
+    /// of the edit.
     #[tool]
     async fn edit_sequence(
         &self,
@@ -589,6 +593,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &project.sequence[(end + 1) as usize..]
         );
         let new_len = new_seq.len() as i64;
+
+        // Shift/clip features for the edit before the sequence swap: the
+        // update_sequence core never touches feature coordinates (the frontend
+        // adjusts them client-side), so the MCP path must do it here.
+        {
+            let mut pm = self.pm.write().await;
+            if let Some(p) = pm.get_project_mut_by_id(&id) {
+                libregene_core::utils::adjust_features_for_edit(
+                    &mut p.features,
+                    start,
+                    end,
+                    request.replacement.len() as i64,
+                );
+            }
+        }
 
         let payload = crate::do_update_sequence(&self.pm, id.clone(), new_seq)
             .await
@@ -862,41 +881,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(ok_envelope(&id, format!("Set strand of feature {}", feature_id), region)))
     }
 
-    /// Delete a feature. Returns {ok, message, projectId, regionView} — the
-    /// region digest covers the deleted feature's location.
-    #[tool]
-    async fn delete_feature(
-        &self,
-        Parameters(request): Parameters<FeatureIdRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let range = {
-            let pm = self.pm.read().await;
-            pm.get_project_by_id(&id)
-                .and_then(|p| p.features.iter().find(|f| f.id == request.feature_id))
-                .map(|f| (f.start, f.end))
-        };
-        let feature_id = request.feature_id.clone();
-        let payload = crate::do_delete_feature(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            request.feature_id,
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region = match range {
-            Some((s, e)) => self.digest_region(&id, Some((s, e))).await,
-            None => self.digest_region(&id, None).await,
-        };
-        Ok(Json(ok_envelope(&id, format!("Deleted feature {}", feature_id), region)))
-    }
-
     /// Add a primer ("fwd" or "rev") and recompute its binding sites against
     /// the template. Returns {ok, message, projectId, bindingSites, regionView}
     /// — bindingSites: [{strand, templateStart, templateEnd, tm}], 0-based.
@@ -962,46 +946,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         );
         env["bindingSites"] = serde_json::json!(sites);
         Ok(Json(env))
-    }
-
-    /// Delete a primer by id. Returns the uniform envelope; regionView covers
-    /// the deleted primer's former binding site when known.
-    #[tool]
-    async fn delete_primer(
-        &self,
-        Parameters(request): Parameters<DeletePrimerRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let region = {
-            let pm = self.pm.read().await;
-            pm.get_project_by_id(&id)
-                .and_then(|p| p.primers.iter().find(|pr| pr.id == request.primer_id))
-                .and_then(|pr| pr.binding_sites.first())
-                .map(|s| (s.template_start, s.template_end - 1))
-        };
-        let primer_id = request.primer_id.clone();
-        let payload = crate::do_delete_primer(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            request.primer_id,
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region_view = match region {
-            Some((s, e)) => self.digest_region(&id, Some((s, e))).await,
-            None => self.digest_region(&id, None).await,
-        };
-        Ok(Json(ok_envelope(
-            &id,
-            format!("Deleted primer {}", primer_id),
-            region_view,
-        )))
     }
 
     /// Set the project's methylation systems (e.g. ["Dam","Dcm"], case-insensitive)
@@ -1094,31 +1038,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(env))
     }
 
-    /// Remove an alignment by id. Returns the uniform envelope with the
-    /// overview digest.
-    #[tool]
-    async fn remove_alignment(
-        &self,
-        Parameters(request): Parameters<RemoveAlignmentRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let payload = crate::do_remove_alignment(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            request.alignment_id,
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region = self.digest_region(&id, None).await;
-        Ok(Json(ok_envelope(&id, "Removed alignment".to_string(), region)))
-    }
-
     // -----------------------------------------------------------------------
     // Analysis
     // -----------------------------------------------------------------------
@@ -1169,8 +1088,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Design primer candidates — same modes/parameters as the
     /// design_primer_candidates command. mode: "amplify" | "oepcr" |
-    /// "mutagenesis"; segments are {start, end} 0-based inclusive. Returns
-    /// {projectId, groups: [PrimerGroup]}.
+    /// "mutagenesis"; segments are {start, end} 0-based inclusive.
+    /// amplify: optional `fwd_enzyme`/`rev_enzyme` (enzyme names from
+    /// get_enzyme_database, e.g. "BamHI") add a 5' tail of
+    /// `protect_bases` (default 3) GC protection bases + the recognition
+    /// site; candidates expose tail/tailLen/annealLen and Tm covers the
+    /// anneal core only.
+    /// mutagenesis: `mut_seq` is the desired PLUS-strand content of `seg`
+    /// after the edit; it must be the same length as `seg` and differ at
+    /// <= 3 bases or the call fails with the current template sequence.
+    /// The response includes a `mutation` self-check block (diffs, plus/minus
+    /// strand context, and CDS codon/amino-acid change when `seg` lies inside
+    /// a CDS — joined multi-segment CDS features are supported — mind the CDS
+    /// strand: for a minus-strand CDS the coding change is the reverse
+    /// complement of the plus-strand edit). Replacing every base of `seg`
+    /// adds a `warning` (likely wrong strand/location) but is not rejected.
+    /// Returns {projectId, groups: [PrimerGroup], mutation?}.
     #[tool]
     async fn design_primers(
         &self,
@@ -1187,6 +1120,59 @@ impl<R: Runtime> LibreGeneMcp<R> {
             end: s.end,
             color: None,
         });
+
+        let mut fwd_tail = None;
+        let mut rev_tail = None;
+        if request.mode == "amplify" && (request.fwd_enzyme.is_some() || request.rev_enzyme.is_some())
+        {
+            let protect = libregene_core::primer::design::protect_sequence(
+                request.protect_bases.unwrap_or(3),
+            );
+            for (enzyme, slot) in [
+                (&request.fwd_enzyme, &mut fwd_tail),
+                (&request.rev_enzyme, &mut rev_tail),
+            ] {
+                if let Some(name) = enzyme {
+                    match resolve_enzyme_site(name) {
+                        Ok(site) => *slot = Some(format!("{}{}", protect, site)),
+                        Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                    }
+                }
+            }
+        }
+
+        let mut mutation_info = None;
+        if request.mode == "mutagenesis" {
+            let (sequence, features) = {
+                let pm = self.pm.read().await;
+                let p = pm
+                    .get_project_by_id(&id)
+                    .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
+                (p.sequence.clone(), p.features.clone())
+            };
+            let seg_ref = seg.as_ref().ok_or_else(|| {
+                ErrorData::invalid_params("seg required for mutagenesis", None)
+            })?;
+            match libregene_core::primer::design::analyze_mutagenesis(
+                &sequence,
+                seg_ref,
+                request.mut_seq.as_deref().unwrap_or(""),
+                &features,
+            ) {
+                Ok(info) => mutation_info = Some(serde_json::to_value(info).unwrap_or_default()),
+                Err(e) => {
+                    let mut v = fail_envelope(&id, e);
+                    let lo = seg_ref.start.max(0) as usize;
+                    let hi = ((seg_ref.end + 1).min(sequence.len() as i64)) as usize;
+                    if lo < hi {
+                        v["templateBases"] =
+                            serde_json::json!(sequence[lo..hi].to_ascii_uppercase());
+                    }
+                    return Ok(Json(v));
+                }
+            }
+        }
+
         let groups = crate::do_design_primer_candidates(
             &self.pm,
             &id,
@@ -1201,6 +1187,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             request.overlap_len,
             request.arm_len,
             request.mut_seq,
+            fwd_tail,
+            rev_tail,
             request.na_conc,
             request.mg_conc,
             request.dntp_conc,
@@ -1209,32 +1197,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         )
         .await
         .map_err(|e| ErrorData::invalid_params(e, None))?;
-        Ok(Json(serde_json::json!({ "projectId": id, "groups": groups })))
-    }
-
-    /// Predict PCR product pairs from the project's primers (fwd/rev binding
-    /// sites) using compute_primer_pairs. Returns
-    /// {projectId, pairs: [{fwdPrimerId, revPrimerId, fwdPosition,
-    /// revPosition, productSize, ta}]}.
-    #[tool]
-    async fn analyze_pcr(
-        &self,
-        Parameters(request): Parameters<AnalyzePcrRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let (template, primers) = {
-            let pm = self.pm.read().await;
-            let project = pm
-                .get_project_by_id(&id)
-                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
-            (project.sequence.clone(), project.primers.clone())
-        };
-        let pairs = tokio::task::spawn_blocking(move || {
-            libregene_core::primer::align::compute_primer_pairs(&template, &primers)
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("task join error: {e}"), None))?;
-        Ok(Json(serde_json::json!({ "projectId": id, "pairs": pairs })))
+        let mut v = serde_json::json!({ "projectId": id, "groups": groups });
+        if let Some(info) = mutation_info {
+            v["mutation"] = info;
+        }
+        Ok(Json(v))
     }
 
     /// Check whether the given primers (each {name, type: "fwd"|"rev", seq})

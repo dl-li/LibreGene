@@ -17,6 +17,8 @@ use crate::models::Segment;
 pub struct PrimerCandidate {
     /// Full primer sequence 5'→3' (tail + anneal core).
     pub seq: String,
+    /// 5' tail sequence (empty when the primer has no tail).
+    pub tail: String,
     /// 5' tail length in bases.
     pub tail_len: usize,
     /// Anneal-core length in bases.
@@ -112,19 +114,20 @@ fn core_len_for_tm(
 
 /// Build the ±3 length variants and pick the default (closest Tm to target).
 fn build_variants(
-    build: impl Fn(usize) -> (String, String, usize),
+    build: impl Fn(usize) -> (String, String, String),
     core_len: usize,
     target_tm: f64,
     tm_of: impl Fn(&str) -> f64,
 ) -> (Vec<PrimerCandidate>, usize) {
     let mut candidates = Vec::with_capacity(7);
     for l in core_len.saturating_sub(3)..=core_len + 3 {
-        let (seq, anneal, tail_len) = build(l);
+        let (seq, anneal, tail) = build(l);
         candidates.push(PrimerCandidate {
             tm: round1(tm_of(&anneal)),
             gc: gc_percent(&seq),
             seq,
-            tail_len,
+            tail_len: tail.len(),
+            tail,
             anneal_len: anneal.len(),
         });
     }
@@ -146,12 +149,11 @@ fn make_group(
     tm_of: impl Fn(&str) -> f64,
 ) -> PrimerGroup {
     let core_len = core_len_for_tm(&anneal_fn, target_tm, &tm_of);
-    let tail_len = tail.len();
     let (candidates, default_index) = build_variants(
         move |l| {
             let anneal = anneal_fn(l);
             let seq = format!("{tail}{anneal}");
-            (seq, anneal, tail_len)
+            (seq, anneal, tail.clone())
         },
         core_len,
         target_tm,
@@ -171,6 +173,8 @@ fn build_amplify_groups_with(
     name: &str,
     target_tm: f64,
     topology: &str,
+    fwd_tail: String,
+    rev_tail: String,
     tm_of: impl Fn(&str) -> f64,
 ) -> Vec<PrimerGroup> {
     let circular = topology == "circular";
@@ -181,7 +185,7 @@ fn build_amplify_groups_with(
             &format!("{name}-Fwd"),
             "fwd",
             fwd_anneal,
-            String::new(),
+            fwd_tail,
             target_tm,
             &tm_of,
         ),
@@ -189,11 +193,16 @@ fn build_amplify_groups_with(
             &format!("{name}-Rev"),
             "rev",
             rev_anneal,
-            String::new(),
+            rev_tail,
             target_tm,
             tm_of,
         ),
     ]
+}
+
+/// Deterministic 5' protection bases (alternating GC) for enzyme tails.
+pub fn protect_sequence(n: usize) -> String {
+    (0..n).map(|i| if i % 2 == 0 { 'G' } else { 'C' }).collect()
 }
 
 /// Amplification primers flanking a target segment (no tails).
@@ -205,9 +214,32 @@ pub fn build_amplify_groups(
     topology: &str,
     params: &TmParams,
 ) -> Vec<PrimerGroup> {
-    build_amplify_groups_with(seq, seg, name, target_tm, topology, |s| {
-        compute_tm_with_params(s, params)
-    })
+    build_amplify_groups_tailed(seq, seg, name, target_tm, topology, "", "", params)
+}
+
+/// Amplification primers with explicit 5' tails (e.g. protect + enzyme site).
+/// Tm is computed on the anneal core only.
+#[allow(clippy::too_many_arguments)]
+pub fn build_amplify_groups_tailed(
+    seq: &str,
+    seg: &Segment,
+    name: &str,
+    target_tm: f64,
+    topology: &str,
+    fwd_tail: &str,
+    rev_tail: &str,
+    params: &TmParams,
+) -> Vec<PrimerGroup> {
+    build_amplify_groups_with(
+        seq,
+        seg,
+        name,
+        target_tm,
+        topology,
+        fwd_tail.to_ascii_uppercase(),
+        rev_tail.to_ascii_uppercase(),
+        |s| compute_tm_with_params(s, params),
+    )
 }
 
 fn build_oepcr_groups_with(
@@ -355,6 +387,264 @@ pub fn build_mutagenesis_groups(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Mutagenesis validation / self-check info
+// ---------------------------------------------------------------------------
+
+/// Max accepted base differences between `seg` and `mut_seq`.
+pub const MAX_MUTAGENESIS_DIFFS: usize = 3;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MutationDiff {
+    /// 0-based offset inside `seg`.
+    pub offset: usize,
+    pub template_base: String,
+    pub new_base: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CdsMutation {
+    pub feature_id: String,
+    pub name: String,
+    pub strand: String,
+    /// 0-based codon index within the CDS.
+    pub codon_index: usize,
+    /// Codons on the CDS coding strand.
+    pub codon_before: String,
+    pub codon_after: String,
+    pub aa_before: String,
+    pub aa_after: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MutagenesisAnalysis {
+    pub seg_start: i64,
+    pub seg_end: i64,
+    pub template_bases: String,
+    pub new_bases: String,
+    pub diffs: Vec<MutationDiff>,
+    /// Plus-strand context: 10 bp flanks + the seg, seg wrapped in [brackets].
+    pub plus_context: String,
+    /// Reverse complement of the same window (seg in [brackets]).
+    pub minus_context: String,
+    pub cds: Option<CdsMutation>,
+    /// Set when every base of `seg` is replaced (likely wrong strand/location).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+// Standard genetic code, codons ordered TCAG per position.
+const CODON_TABLE: [&str; 64] = [
+    "Phe", "Phe", "Leu", "Leu", "Ser", "Ser", "Ser", "Ser", "Tyr", "Tyr", "Ter", "Ter", "Cys",
+    "Cys", "Ter", "Trp", "Leu", "Leu", "Leu", "Leu", "Pro", "Pro", "Pro", "Pro", "His", "His",
+    "Gln", "Gln", "Arg", "Arg", "Arg", "Arg", "Ile", "Ile", "Ile", "Met", "Thr", "Thr", "Thr",
+    "Thr", "Asn", "Asn", "Lys", "Lys", "Ser", "Ser", "Arg", "Arg", "Val", "Val", "Val", "Val",
+    "Ala", "Ala", "Ala", "Ala", "Asp", "Asp", "Glu", "Glu", "Gly", "Gly", "Gly", "Gly",
+];
+
+fn codon_index_of(b: u8) -> Option<usize> {
+    match b {
+        b'T' | b't' => Some(0),
+        b'C' | b'c' => Some(1),
+        b'A' | b'a' => Some(2),
+        b'G' | b'g' => Some(3),
+        _ => None,
+    }
+}
+
+pub fn translate_codon(codon: &str) -> Option<&'static str> {
+    let b = codon.as_bytes();
+    if b.len() != 3 {
+        return None;
+    }
+    let i = codon_index_of(b[0])? * 16 + codon_index_of(b[1])? * 4 + codon_index_of(b[2])?;
+    Some(CODON_TABLE[i])
+}
+
+/// Validate a mutagenesis request and return structured self-check info.
+/// `mut_seq` is the desired plus-strand content of `seg` after the edit.
+pub fn analyze_mutagenesis(
+    seq: &str,
+    seg: &Segment,
+    mut_seq: &str,
+    features: &[crate::models::Feature],
+) -> Result<MutagenesisAnalysis, String> {
+    if seg.start < 0 || seg.end >= seq.len() as i64 || seg.start > seg.end {
+        return Err(format!(
+            "seg {}..{} out of bounds for sequence of length {} (0-based inclusive)",
+            seg.start,
+            seg.end,
+            seq.len()
+        ));
+    }
+    let template = seq[seg.start as usize..=seg.end as usize].to_ascii_uppercase();
+    let new_bases: String = mut_seq
+        .to_ascii_uppercase()
+        .chars()
+        .filter(|c| matches!(c, 'A' | 'C' | 'G' | 'T'))
+        .collect();
+    if new_bases.len() != template.len() {
+        return Err(format!(
+            "mut_seq length {} does not match seg {}..{} length {}; current seg sequence is '{}'",
+            new_bases.len(),
+            seg.start,
+            seg.end,
+            template.len(),
+            template
+        ));
+    }
+    let diffs: Vec<MutationDiff> = template
+        .bytes()
+        .zip(new_bases.bytes())
+        .enumerate()
+        .filter(|(_, (t, n))| t != n)
+        .map(|(i, (t, n))| MutationDiff {
+            offset: i,
+            template_base: (t as char).to_string(),
+            new_base: (n as char).to_string(),
+        })
+        .collect();
+    if diffs.is_empty() {
+        return Err(format!(
+            "mut_seq is identical to the current seg {}..{} sequence '{}'; nothing to mutate",
+            seg.start, seg.end, template
+        ));
+    }
+    if diffs.len() > MAX_MUTAGENESIS_DIFFS {
+        return Err(format!(
+            "mut_seq differs from the template at {} positions (max {}); check the strand and location. Current seg {}..{} is '{}', you gave '{}'",
+            diffs.len(),
+            MAX_MUTAGENESIS_DIFFS,
+            seg.start,
+            seg.end,
+            template,
+            new_bases
+        ));
+    }
+
+    let lo = (seg.start - 10).max(0) as usize;
+    let hi = ((seg.end + 11).min(seq.len() as i64)) as usize;
+    let plus = format!(
+        "{}[{}]{}",
+        &seq[lo..seg.start as usize],
+        template,
+        &seq[seg.end as usize + 1..hi]
+    );
+    let minus = {
+        let rc = rev_comp(&seq[lo..hi]);
+        let open = rc.len() - (seg.end as usize + 1 - lo);
+        let close = rc.len() - (seg.start as usize - lo);
+        format!("{}[{}]{}", &rc[..open], &rc[open..close], &rc[close..])
+    };
+
+    let cds = features
+        .iter()
+        .filter(|f| f.ftype.eq_ignore_ascii_case("cds"))
+        .filter(|f| {
+            let spans: Vec<(i64, i64)> = if f.segments.is_empty() {
+                vec![(f.start, f.end)]
+            } else {
+                f.segments.iter().map(|s| (s.start, s.end)).collect()
+            };
+            (seg.start..=seg.end)
+                .all(|p| spans.iter().any(|&(s, e)| p >= s && p <= e))
+        })
+        .find_map(|f| {
+            // Build the coding sequence in coding order: plus strand takes
+            // segments ascending, minus strand descending (each segment
+            // reverse-complemented). pos_of maps coding offset → plus coord.
+            let mut spans: Vec<(i64, i64)> = if f.segments.is_empty() {
+                vec![(f.start, f.end)]
+            } else {
+                f.segments.iter().map(|s| (s.start, s.end)).collect()
+            };
+            if f.strand == "-" {
+                spans.sort_by(|a, b| b.0.cmp(&a.0));
+            } else {
+                spans.sort_by_key(|s| s.0);
+            }
+            let minus = f.strand == "-";
+            let mut coding = Vec::new();
+            let mut pos_of: Vec<i64> = Vec::new();
+            for (s, e) in &spans {
+                if minus {
+                    for p in (*s..=*e).rev() {
+                        coding.push(crate::utils::complement_char(seq.as_bytes()[p as usize] as char) as u8);
+                        pos_of.push(p);
+                    }
+                } else {
+                    for p in *s..=*e {
+                        coding.push(seq.as_bytes()[p as usize].to_ascii_uppercase());
+                        pos_of.push(p);
+                    }
+                }
+            }
+            // Map every diff to coding-strand coordinates, then apply all
+            // diffs landing in the first diff's codon.
+            let coding_diffs: Vec<(usize, u8)> = diffs
+                .iter()
+                .map(|d| {
+                    let pos = seg.start + d.offset as i64;
+                    let offset = pos_of.iter().position(|&p| p == pos)?;
+                    let new_plus = new_bases.as_bytes()[d.offset];
+                    let new_base = if minus {
+                        crate::utils::complement_char(new_plus as char) as u8
+                    } else {
+                        new_plus
+                    };
+                    Some((offset, new_base))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let codon_index = coding_diffs[0].0 / 3;
+            if (codon_index + 1) * 3 > coding.len() {
+                return None;
+            }
+            let codon_before =
+                String::from_utf8(coding[codon_index * 3..codon_index * 3 + 3].to_vec()).ok()?;
+            let mut after = codon_before.clone().into_bytes();
+            for (offset, new_base) in &coding_diffs {
+                if offset / 3 == codon_index {
+                    after[offset % 3] = new_base.to_ascii_uppercase();
+                }
+            }
+            let codon_after = String::from_utf8(after).ok()?;
+            Some(CdsMutation {
+                feature_id: f.id.clone(),
+                name: f.name.clone(),
+                strand: f.strand.clone(),
+                codon_index,
+                aa_before: translate_codon(&codon_before).unwrap_or("???").to_string(),
+                aa_after: translate_codon(&codon_after).unwrap_or("???").to_string(),
+                codon_before,
+                codon_after,
+            })
+        });
+
+    let warning = if diffs.len() == template.len() {
+        Some(format!(
+            "all {} bases of seg {}..{} are replaced; confirm mut_seq is the PLUS-strand sequence at the right location (mind the CDS strand)",
+            template.len(), seg.start, seg.end
+        ))
+    } else {
+        None
+    };
+
+    Ok(MutagenesisAnalysis {
+        seg_start: seg.start,
+        seg_end: seg.end,
+        template_bases: template,
+        new_bases,
+        diffs,
+        plus_context: plus,
+        minus_context: minus,
+        cds,
+        warning,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,8 +723,16 @@ mod tests {
             end: 34,
             color: None,
         };
-        let groups =
-            build_amplify_groups_with(SEQ, &seg, "Amp", 30.0, "linear", |s| s.len() as f64);
+        let groups = build_amplify_groups_with(
+            SEQ,
+            &seg,
+            "Amp",
+            30.0,
+            "linear",
+            String::new(),
+            String::new(),
+            |s| s.len() as f64,
+        );
         check_groups(&groups, AMP_EXPECTED);
     }
 
@@ -725,6 +1023,250 @@ mod tests {
     }
 
     #[test]
+    fn amplify_with_enzyme_tails() {
+        let seg = Segment {
+            start: 4,
+            end: 34,
+            color: None,
+        };
+        let fwd_tail = format!("{}GGATCC", protect_sequence(3));
+        let rev_tail = format!("{}GAATTC", protect_sequence(3));
+        let groups = build_amplify_groups_tailed(
+            SEQ,
+            &seg,
+            "Tail",
+            30.0,
+            "linear",
+            &fwd_tail,
+            &rev_tail,
+            &TmParams::default(),
+        );
+        assert_eq!(fwd_tail, "GCGGGATCC");
+        assert_eq!(groups[0].candidates[0].tail, "GCGGGATCC");
+        assert_eq!(groups[1].candidates[0].tail, "GCGGAATTC");
+        for (g, tail) in groups.iter().zip([&fwd_tail, &rev_tail]) {
+            for c in &g.candidates {
+                assert_eq!(c.tail_len, tail.len());
+                assert!(c.seq.starts_with(tail));
+                // Tm reflects the anneal core only.
+                assert_eq!(
+                    c.tm,
+                    round1(compute_tm_with_params(&c.seq[c.tail_len..], &TmParams::default()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn analyze_mutagenesis_plus_strand_cds() {
+        // mEGFP-style A206K on a plus-strand CDS: CGC -> CTT gives Arg -> Leu.
+        let seq: String = "AAAAAA".repeat(20);
+        let mut seq = seq.into_bytes();
+        // CDS 30..89 (plus); codon at 60..62 = CGC.
+        seq[60] = b'C';
+        seq[61] = b'G';
+        seq[62] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = crate::models::Feature {
+            id: "cds1".into(),
+            name: "orf".into(),
+            start: 30,
+            end: 89,
+            color: "#000000".into(),
+            ftype: "CDS".into(),
+            segments: vec![],
+            strand: "+".into(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        };
+        let seg = Segment {
+            start: 60,
+            end: 62,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "CTT", &[cds]).unwrap();
+        assert_eq!(a.template_bases, "CGC");
+        assert_eq!(a.new_bases, "CTT");
+        assert_eq!(a.diffs.len(), 2);
+        assert_eq!(a.diffs[0].offset, 1);
+        assert!(a.plus_context.contains("[CGC]"));
+        assert!(a.minus_context.contains("[GCG]"));
+        let cds = a.cds.unwrap();
+        assert_eq!(cds.strand, "+");
+        assert_eq!(cds.codon_index, 10);
+        assert_eq!(cds.codon_before, "CGC");
+        assert_eq!(cds.codon_after, "CTT");
+        assert_eq!(cds.aa_before, "Arg");
+        assert_eq!(cds.aa_after, "Leu");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_minus_strand_cds() {
+        // Coding strand is minus: plus-strand CGC -> CTT means GCG -> AAG on
+        // the coding strand, i.e. Ala -> Lys.
+        let seq: String = "AAAAAA".repeat(20);
+        let mut seq = seq.into_bytes();
+        seq[60] = b'C';
+        seq[61] = b'G';
+        seq[62] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = crate::models::Feature {
+            id: "cds2".into(),
+            name: "mEGFP".into(),
+            start: 30,
+            end: 89,
+            color: "#000000".into(),
+            ftype: "CDS".into(),
+            segments: vec![],
+            strand: "-".into(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        };
+        let seg = Segment {
+            start: 60,
+            end: 62,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "CTT", &[cds]).unwrap();
+        let cds = a.cds.unwrap();
+        assert_eq!(cds.name, "mEGFP");
+        // coding_offset for pos 60 = 89-60 = 29 → codon 9, phase 2.
+        assert_eq!(cds.codon_index, 9);
+        // coding codon = revcomp(seq[60..=62]) = GCG.
+        assert_eq!(cds.codon_before, "GCG");
+        assert_eq!(cds.codon_after, "AAG");
+        assert_eq!(cds.aa_before, "Ala");
+        assert_eq!(cds.aa_after, "Lys");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_rejects_bad_input() {
+        let seq = "ACGT".repeat(20);
+        let seg = Segment {
+            start: 10,
+            end: 12,
+            color: None,
+        };
+        // Length mismatch.
+        let err = analyze_mutagenesis(&seq, &seg, "AC", &[]).unwrap_err();
+        assert!(err.contains("does not match"));
+        // Identical.
+        let err = analyze_mutagenesis(&seq, &seg, "GTA", &[]).unwrap_err();
+        assert!(err.contains("identical"));
+        // Too many diffs.
+        let seg5 = Segment {
+            start: 10,
+            end: 14,
+            color: None,
+        };
+        let err = analyze_mutagenesis(&seq, &seg5, "CCCCC", &[]).unwrap_err();
+        assert!(err.contains("max 3"));
+        assert!(err.contains("GTACG"));
+        // Out of bounds.
+        assert!(analyze_mutagenesis(&seq, &Segment { start: 0, end: 500, color: None }, "AAA", &[]).is_err());
+        // No CDS → cds is None.
+        let ok = analyze_mutagenesis(&seq, &seg, "GTT", &[]).unwrap();
+        assert!(ok.cds.is_none());
+        assert_eq!(ok.diffs.len(), 1);
+        assert!(ok.warning.is_none());
+    }
+
+    fn cds_feature(id: &str, strand: &str, segments: Vec<(i64, i64)>) -> crate::models::Feature {
+        let start = segments.iter().map(|s| s.0).min().unwrap();
+        let end = segments.iter().map(|s| s.1).max().unwrap();
+        crate::models::Feature {
+            id: id.into(),
+            name: id.into(),
+            start,
+            end,
+            color: "#000000".into(),
+            ftype: "CDS".into(),
+            segments: segments
+                .into_iter()
+                .map(|(start, end)| Segment {
+                    start,
+                    end,
+                    color: None,
+                })
+                .collect(),
+            strand: strand.into(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn analyze_mutagenesis_minus_strand_joined_cds() {
+        // mEGFP-like: complement(join(449..1162,1163..1165,1166..1168)).
+        // Plus-strand seg 548..550 = CGC -> CTT is coding GCG -> AAG (Ala->Lys).
+        let mut seq = "A".repeat(1200).into_bytes();
+        seq[548] = b'C';
+        seq[549] = b'G';
+        seq[550] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = cds_feature("mEGFP", "-", vec![(449, 1162), (1163, 1165), (1166, 1168)]);
+        let seg = Segment {
+            start: 548,
+            end: 550,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "CTT", &[cds]).unwrap();
+        let cds = a.cds.expect("joined minus-strand CDS must be annotated");
+        assert_eq!(cds.name, "mEGFP");
+        assert_eq!(cds.strand, "-");
+        // Coding order: (1166..1168) 3 + (1163..1165) 3 + (1162-550) = 618.
+        assert_eq!(cds.codon_index, 206);
+        assert_eq!(cds.codon_before, "GCG");
+        assert_eq!(cds.codon_after, "AAG");
+        assert_eq!(cds.aa_before, "Ala");
+        assert_eq!(cds.aa_after, "Lys");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_plus_strand_joined_cds() {
+        // join(30..59,70..89) plus strand; seg 72..74 in the second segment.
+        let mut seq = "A".repeat(120).into_bytes();
+        seq[72] = b'C';
+        seq[73] = b'G';
+        seq[74] = b'C';
+        seq[75] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = cds_feature("orf", "+", vec![(30, 59), (70, 89)]);
+        let seg = Segment {
+            start: 72,
+            end: 74,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "CTT", &[cds]).unwrap();
+        let cds = a.cds.expect("joined plus-strand CDS must be annotated");
+        assert_eq!(cds.strand, "+");
+        // Coding offset of plus 73 = 30 + (73-70) = 33 → codon 11 (plus 73..75).
+        assert_eq!(cds.codon_index, 11);
+        assert_eq!(cds.codon_before, "GCC");
+        assert_eq!(cds.codon_after, "TTC");
+        assert_eq!(cds.aa_before, "Ala");
+        assert_eq!(cds.aa_after, "Phe");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_full_replacement_warns() {
+        let seq = "ACGT".repeat(20);
+        let seg = Segment {
+            start: 10,
+            end: 12,
+            color: None,
+        };
+        // Template "GTA" fully replaced (e.g. coding-strand bases given as plus).
+        let a = analyze_mutagenesis(&seq, &seg, "CCC", &[]).unwrap();
+        assert_eq!(a.diffs.len(), 3);
+        let w = a.warning.expect("full replacement must warn");
+        assert!(w.contains("PLUS-strand"));
+    }
+
+    #[test]
     fn core_len_saturates_at_40() {
         // AT-only template with an unreachable target: coreLen stays at 40 and
         // the variants run 37..43 (all within the 60-nt template, so no clamp).
@@ -734,8 +1276,16 @@ mod tests {
             end: 10,
             color: None,
         };
-        let groups =
-            build_amplify_groups_with(seq, &seg, "Sat", 60.0, "linear", |s| s.len() as f64);
+        let groups = build_amplify_groups_with(
+            seq,
+            &seg,
+            "Sat",
+            60.0,
+            "linear",
+            String::new(),
+            String::new(),
+            |s| s.len() as f64,
+        );
         let lens: Vec<usize> = groups[0].candidates.iter().map(|c| c.anneal_len).collect();
         assert_eq!(lens, vec![37, 38, 39, 40, 41, 42, 43]);
     }

@@ -122,27 +122,29 @@ fn feature_location(f: &Feature) -> String {
 
 fn feature_line(f: &Feature) -> String {
     format!(
-        "        {:<12} {:<24} {}  [#{}]",
+        "        {:<12} {:<24} {}  [#{}]  (id: {})",
         f.ftype,
         feature_location(f),
         f.name,
-        f.color.trim_start_matches('#')
+        f.color.trim_start_matches('#'),
+        f.id
     )
 }
 
-fn primer_site_line(site: &PrimerBindingSite, primer_name: &str) -> (i64, String) {
+fn primer_site_line(site: &PrimerBindingSite, primer: &crate::models::Primer) -> (i64, String) {
     let strand = if site.strand == 1 { "+ strand" } else { "- strand" };
     let mismatch = if site.has_3_prime_mismatch { ", 3' mismatch" } else { "" };
     (
         site.template_start,
         format!(
-            "        primer_bind     {}..{}   {}  [Tm {:.1}, {}{}]",
+            "        primer_bind     {}..{}   {}  [Tm {:.1}, {}{}]  (id: {})",
             site.template_start,
             site.template_end - 1,
-            primer_name,
+            primer.name,
             site.tm,
             strand,
-            mismatch
+            mismatch,
+            primer.id
         ),
     )
 }
@@ -274,7 +276,7 @@ pub fn project_digest(
     let mut unbound: Vec<String> = Vec::new();
     for p in &project.primers {
         if p.binding_sites.is_empty() {
-            unbound.push(p.name.clone());
+            unbound.push(format!("{} (id: {})", p.name, p.id));
             continue;
         }
         for s in &p.binding_sites {
@@ -282,7 +284,7 @@ pub fn project_digest(
             if region.map_or(true, |(rs, re)| {
                 seg_in_range(covered.0, covered.1, rs, re, circular)
             }) {
-                site_lines.push(primer_site_line(s, &p.name));
+                site_lines.push(primer_site_line(s, p));
             }
         }
     }
@@ -697,16 +699,16 @@ mod tests {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
         assert!(out.contains("complement(10..30)"));
         assert!(out.contains("join(0..5,40..49)"));
-        assert!(out.contains("repA  [#60A5FA]"));
-        assert!(out.contains("segFeat  [#F87171]"));
+        assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
+        assert!(out.contains("segFeat  [#F87171]  (id: f2)"));
     }
 
     #[test]
     fn overview_renders_primer_sites_and_unbound() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-        assert!(out.contains("primer_bind     2..11   P1  [Tm 58.3, + strand]"));
-        assert!(out.contains("primer_bind     50..59   P1  [Tm 60.1, - strand, 3' mismatch]"));
-        assert!(out.contains("Primers without binding sites: orphan"));
+        assert!(out.contains("primer_bind     2..11   P1  [Tm 58.3, + strand]  (id: p1)"));
+        assert!(out.contains("primer_bind     50..59   P1  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
+        assert!(out.contains("Primers without binding sites: orphan (id: p2)"));
     }
 
     #[test]
