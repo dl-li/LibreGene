@@ -349,7 +349,9 @@ fn build_mutagenesis_groups_with(
     let fwd_anneal = |l: usize| slice_wrap(seq, seg.end + 1, l, true);
     let rev_anneal = |l: usize| rev_comp(&slice_wrap(seq, seg.start - l as i64, l, true));
     let fwd_tail = format!("{up_arm}{mut_clean}");
-    let rev_tail = rev_comp(&format!("{down_arm}{mut_clean}"));
+    // Rev tail mirrors the fwd tail: template-matching arm at the 5' end,
+    // mutation adjacent to the anneal core — revComp(mut + downArm).
+    let rev_tail = rev_comp(&format!("{mut_clean}{down_arm}"));
 
     vec![
         make_group(
@@ -891,49 +893,49 @@ mod tests {
                 3,
                 &[
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGAT",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGAT",
                         13,
                         27,
                         27.0,
                         55.0,
                     ),
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGATC",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGATC",
                         13,
                         28,
                         28.0,
                         56.1,
                     ),
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGATCG",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGATCG",
                         13,
                         29,
                         29.0,
                         57.1,
                     ),
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGATCGA",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGATCGA",
                         13,
                         30,
                         30.0,
                         55.8,
                     ),
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGATCGAC",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGATCGAC",
                         13,
                         31,
                         31.0,
                         56.8,
                     ),
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGATCGACG",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGATCGACG",
                         13,
                         32,
                         32.0,
                         57.8,
                     ),
                     (
-                        "CCCCGATCGAATTTCGATCGACGCCATGGATCCGATCGATCGACGC",
+                        "CGATCGAATTCCCTCGATCGACGCCATGGATCCGATCGATCGACGC",
                         13,
                         33,
                         33.0,
@@ -1003,7 +1005,7 @@ mod tests {
 
     #[test]
     fn mutagenesis_cleans_and_wraps() {
-        // mutSeq non-ACGT chars stripped; tails = upArm+mut / revComp(downArm+mut).
+        // mutSeq non-ACGT chars stripped; tails = upArm+mut / revComp(mut+downArm).
         let seq = "GGGAAACCCGGGAAACCCGGGAAACCCGGGAAACCCGGGAAACCC";
         let seg = Segment {
             start: 18,
@@ -1020,9 +1022,12 @@ mod tests {
             format!("{}GGT", &seq[9..18])
         );
         assert_eq!(groups[1].candidates[0].tail_len, 12);
+        // Rev tail: template-matching arm at 5' end, mutation adjacent to anneal.
+        assert_eq!(groups[1].candidates[0].seq[..9], rev_comp(&seq[24..33]));
+        assert_eq!(&groups[1].candidates[0].seq[9..12], "ACC");
         assert_eq!(
             groups[1].candidates[0].seq[..12],
-            rev_comp(&format!("{}GGT", &seq[24..33]))
+            rev_comp(&format!("GGT{}", &seq[24..33]))
         );
     }
 
