@@ -113,10 +113,17 @@ struct AddFeatureRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct FeatureIdValueRequest {
+struct UpdateFeatureRequest {
     project_id: Option<String>,
     feature_id: String,
-    value: String,
+    name: Option<String>,
+    ftype: Option<String>,
+    color: Option<String>,
+    /// ".", "+" or "-"
+    strand: Option<String>,
+    /// GenBank 1-based location string (e.g. "100..200", "complement(50..80)",
+    /// "join(1..100,200..300)"); stored as 0-based inclusive.
+    location: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -139,7 +146,15 @@ struct SetMethylationRequest {
 struct AddAlignmentRequest {
     project_id: Option<String>,
     name: String,
-    seq: String,
+    #[serde(alias = "seq")]
+    bases: Option<String>,
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct RemoveAlignmentRequest {
+    project_id: Option<String>,
+    alignment_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -232,6 +247,27 @@ fn fail_envelope(project_id: &str, message: String) -> serde_json::Value {
         "message": message,
         "projectId": project_id,
     })
+}
+
+/// Stored feature coordinates rendered GenBank-style but **0-based inclusive**
+/// (e.g. "99..199", "complement(49..79)", "join(0..99,199..299)").
+fn stored_location(f: &Feature) -> String {
+    let segs: Vec<(i64, i64)> = if f.segments.is_empty() {
+        vec![(f.start, f.end)]
+    } else {
+        f.segments.iter().map(|s| (s.start, s.end)).collect()
+    };
+    let inner = segs
+        .iter()
+        .map(|(s, e)| format!("{}..{}", s, e))
+        .collect::<Vec<_>>()
+        .join(",");
+    let loc = if segs.len() > 1 { format!("join({})", inner) } else { inner };
+    if f.strand == "-" {
+        format!("complement({})", loc)
+    } else {
+        loc
+    }
 }
 
 /// Look up an enzyme's recognition site by name (case-insensitive); the error
@@ -380,10 +416,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
     }
 
-    /// Read bases of a project's sequence with a coordinate ruler (10 bp groups,
-    /// 60 bp per line). Coordinates are 0-based inclusive; on circular sequences
+    /// Read bases of a project's sequence. Returns {projectId, sequence, text}
+    /// — `sequence` is the plain uppercase base string (machine-readable);
+    /// `text` is the same window with a coordinate ruler (10 bp groups, 60 bp
+    /// per line). Coordinates are 0-based inclusive; on circular sequences
     /// start > end wraps the origin. Windows larger than 10000 bp are rejected.
-    /// Returns {projectId, text}.
     #[tool]
     async fn read_sequence(
         &self,
@@ -392,7 +429,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         let text = read_sequence(&project, request.start, request.end)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
+        let bases = libregene_core::digest::read_sequence_bases(&project, request.start, request.end)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        Ok(Json(serde_json::json!({ "projectId": id, "sequence": bases, "text": text })))
     }
 
     /// IUPAC-aware search of a project's sequence on both strands (reverse
@@ -563,14 +602,35 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         if let Some(expected) = &request.expected_old {
             if !current.eq_ignore_ascii_case(expected) {
+                let exp = expected.as_bytes();
+                let cur = current.as_bytes();
+                let diff_at = exp
+                    .iter()
+                    .zip(cur.iter())
+                    .position(|(a, b)| !a.eq_ignore_ascii_case(b))
+                    .unwrap_or(exp.len().min(cur.len()));
+                let ctx_lo = diff_at.saturating_sub(20);
+                let exp_hi = (diff_at + 20).min(exp.len());
+                let cur_hi = (diff_at + 20).min(cur.len());
                 let mut v = fail_envelope(
                     &id,
                     format!(
-                        "expected_old mismatch: expected '{}' but current [{}..{}] is '{}'",
-                        expected, start, end, current
+                        "expected_old mismatch at index {} (within [{}..{}], 0-based): expected context '{}' vs current context '{}'",
+                        diff_at,
+                        start,
+                        end,
+                        String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
+                        String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
                     ),
                 );
                 v["currentContent"] = serde_json::json!(current);
+                v["mismatch"] = serde_json::json!({
+                    "index": diff_at,
+                    "expectedContext": String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
+                    "currentContext": String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
+                    "expectedLength": exp.len(),
+                    "currentLength": cur.len(),
+                });
                 return Ok(Json(v));
             }
         }
@@ -685,6 +745,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             qualifiers: Vec::new(),
         };
 
+        let stored = stored_location(&feature);
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
@@ -701,39 +762,78 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let region = self.digest_feature_region(&id, &feature_id).await;
         Ok(Json(ok_envelope(
             &id,
-            format!("Added {} {} at {}", ftype, name, location),
+            format!("Added {} {} at {} (0-based; input location was 1-based {})", ftype, name, stored, location),
             region,
         )))
     }
 
-    /// Update a feature's location (GenBank 1-based string, same formats as
-    /// add_feature). Returns the uniform envelope with the region digest.
+    /// Update a feature's attributes in one call. `feature_id` is required;
+    /// give at least one of name/ftype/color/strand/location or the call is
+    /// rejected. `location` is a GenBank 1-based location string (same formats
+    /// as add_feature, e.g. "100..200", "complement(50..80)",
+    /// "join(1..100,200..300)"); the stored coordinates are 0-based inclusive
+    /// and echoed back as such. strand must be ".", "+" or "-"; color is hex
+    /// (e.g. "#F87171") and also recolors existing segments. Returns
+    /// {ok, message, projectId, regionView} around the feature.
     #[tool]
-    async fn update_feature_location(
+    async fn update_feature(
         &self,
-        Parameters(request): Parameters<FeatureIdValueRequest>,
+        Parameters(request): Parameters<UpdateFeatureRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
         if !self.feature_exists(&id, &request.feature_id).await {
             return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
         }
+        if request.name.is_none()
+            && request.ftype.is_none()
+            && request.color.is_none()
+            && request.strand.is_none()
+            && request.location.is_none()
+        {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Nothing to update: give at least one of name/ftype/color/strand/location".to_string(),
+            )));
+        }
+        if let Some(s) = &request.strand {
+            if !matches!(s.as_str(), "." | "+" | "-") {
+                return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
+            }
+        }
         let feature_id = request.feature_id.clone();
-        let location = request.value.clone();
+        let location = request.location.clone();
         let payload = crate::do_update_feature(
             &self.app_handle,
             &self.pm,
             &self.wp,
             None,
             &id,
-            &request.feature_id,
-            |f| {
-                let parsed = libregene_core::file_io::gbk::parse_location_string(&location)
-                    .ok_or_else(|| format!("Invalid location: {}", location))?;
-                let (segments, start, end, strand) = parsed;
-                f.segments = segments;
-                f.start = start;
-                f.end = end;
-                f.strand = strand;
+            &feature_id,
+            move |f| {
+                if let Some(loc) = &location {
+                    let parsed = libregene_core::file_io::gbk::parse_location_string(loc)
+                        .ok_or_else(|| format!("Invalid location: {}", loc))?;
+                    let (segments, start, end, strand) = parsed;
+                    f.segments = segments;
+                    f.start = start;
+                    f.end = end;
+                    f.strand = strand;
+                }
+                if let Some(v) = request.name {
+                    f.name = v;
+                }
+                if let Some(v) = request.ftype {
+                    f.ftype = v;
+                }
+                if let Some(v) = &request.color {
+                    f.color = v.clone();
+                    for seg in f.segments.iter_mut() {
+                        seg.color = Some(v.clone());
+                    }
+                }
+                if let Some(v) = request.strand {
+                    f.strand = v;
+                }
                 Ok(())
             },
         )
@@ -742,148 +842,31 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
+        let message = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id)
+                .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
+                .map(|f| {
+                    format!(
+                        "Updated feature {}: {} {} at {} (0-based), strand {}",
+                        feature_id,
+                        f.ftype,
+                        f.name,
+                        stored_location(f),
+                        f.strand
+                    )
+                })
+                .unwrap_or_else(|| format!("Updated feature {}", feature_id))
+        };
         let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(&id, format!("Moved feature {}", feature_id), region)))
-    }
-
-    /// Rename a feature. Returns the uniform envelope with the region digest.
-    #[tool]
-    async fn update_feature_name(
-        &self,
-        Parameters(request): Parameters<FeatureIdValueRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        if !self.feature_exists(&id, &request.feature_id).await {
-            return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
-        }
-        let feature_id = request.feature_id.clone();
-        let payload = crate::do_update_feature(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            &request.feature_id,
-            |f| {
-                f.name = request.value;
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(&id, format!("Renamed feature {}", feature_id), region)))
-    }
-
-    /// Recolor a feature (hex like "#F87171"). Returns the uniform envelope.
-    #[tool]
-    async fn update_feature_color(
-        &self,
-        Parameters(request): Parameters<FeatureIdValueRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        if !self.feature_exists(&id, &request.feature_id).await {
-            return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
-        }
-        let feature_id = request.feature_id.clone();
-        let payload = crate::do_update_feature(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            &request.feature_id,
-            |f| {
-                f.color = request.value.clone();
-                for seg in f.segments.iter_mut() {
-                    seg.color = Some(request.value.clone());
-                }
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(&id, format!("Recolored feature {}", feature_id), region)))
-    }
-
-    /// Change a feature's ftype (CDS, promoter, terminator, ...). Returns the
-    /// uniform envelope.
-    #[tool]
-    async fn update_feature_ftype(
-        &self,
-        Parameters(request): Parameters<FeatureIdValueRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        if !self.feature_exists(&id, &request.feature_id).await {
-            return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
-        }
-        let feature_id = request.feature_id.clone();
-        let payload = crate::do_update_feature(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            &request.feature_id,
-            |f| {
-                f.ftype = request.value;
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(&id, format!("Changed ftype of feature {}", feature_id), region)))
-    }
-
-    /// Change a feature's strand (".", "+" or "-"). Returns the uniform envelope.
-    #[tool]
-    async fn update_feature_strand(
-        &self,
-        Parameters(request): Parameters<FeatureIdValueRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        if !self.feature_exists(&id, &request.feature_id).await {
-            return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
-        }
-        if !matches!(request.value.as_str(), "." | "+" | "-") {
-            return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
-        }
-        let feature_id = request.feature_id.clone();
-        let payload = crate::do_update_feature(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            &request.feature_id,
-            |f| {
-                f.strand = request.value;
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(&id, format!("Set strand of feature {}", feature_id), region)))
+        Ok(Json(ok_envelope(&id, message, region)))
     }
 
     /// Add a primer ("fwd" or "rev") and recompute its binding sites against
     /// the template. Returns {ok, message, projectId, bindingSites, regionView}
-    /// — bindingSites: [{strand, templateStart, templateEnd, tm}], 0-based.
+    /// — bindingSites: [{strand, templateStart, templateEnd, tm, annealLen}],
+    /// 0-based. annealLen is the number of contiguous 3'-end bases matching
+    /// the template (the anneal core; a non-pairing 5' tail is excluded).
     #[tool]
     async fn add_primer(
         &self,
@@ -921,6 +904,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                                 "templateEnd": s.template_end,
                                 "tm": (s.tm * 10.0).round() / 10.0,
                                 "3PrimeMismatch": s.has_3_prime_mismatch,
+                                "annealLen": libregene_core::primer::align::anneal_len(
+                                    &p.sequence, &p.topology, &pr.primer_seq, s,
+                                ),
                             })
                         })
                         .collect();
@@ -970,11 +956,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(ok_envelope(&id, "Updated methylation systems".to_string(), region)))
     }
 
-    /// Align a read sequence (name + bases) against the project template using
-    /// the same aligner as add_alignment_seq; whitespace/non-ACGT chars are
-    /// stripped and the result is stored as a real alignment. Returns
-    /// {ok, message, projectId, regionView, significant, identity, strand,
-    /// segmentCount, insertions}.
+    /// Align a read against the project template and APPEND it as a new
+    /// alignment (never overwrites existing ones; ids are aln-1, aln-2, ...).
+    /// Provide exactly one of:
+    /// - `bases`: the read sequence as a plain string (whitespace/non-ACGT
+    ///   chars are stripped).
+    /// - `path`: read the sequence from a file. Supported file types:
+    ///   `.gbk`/`.gb`/`.genbank` (GenBank), `.dna` (SnapGene),
+    ///   `.fa`/`.fasta` (FASTA / plain text sequence), `.ab1` (ABIF
+    ///   chromatogram; the basecalled PBAS sequence is extracted).
+    /// Giving neither or both is an error. A name is always required.
+    /// Returns {ok, message, projectId, regionView, significant, identity,
+    /// strand, segmentCount, mismatches, insertions, deletions} — mismatches,
+    /// insertions and deletions are exact base counts from the alignment
+    /// (identity alone rounds away single mismatches).
     #[tool]
     async fn add_alignment(
         &self,
@@ -982,6 +977,42 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
         let name = request.name.clone();
+
+        let seq = match (request.bases, request.path) {
+            (Some(_), Some(_)) => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Provide exactly one of `bases` or `path`, not both".to_string(),
+                )));
+            }
+            (None, None) => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Provide exactly one of `bases` (sequence string) or `path` (sequence file)".to_string(),
+                )));
+            }
+            (Some(bases), None) => bases,
+            (None, Some(path)) => {
+                let parsed = tokio::task::spawn_blocking(move || {
+                    libregene_core::file_io::parse_file(std::path::Path::new(&path))
+                })
+                .await
+                .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+                match parsed {
+                    Ok(data) => data.sequence,
+                    Err(e) => {
+                        return Ok(Json(fail_envelope(
+                            &id,
+                            format!(
+                                "Failed to read alignment sequence file (supported: .gbk/.gb/.genbank, .dna, .fa/.fasta, .ab1): {}",
+                                e
+                            ),
+                        )));
+                    }
+                }
+            }
+        };
+
         let payload = match crate::do_add_alignment_seq(
             &self.app_handle,
             &self.pm,
@@ -989,7 +1020,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             None,
             &id,
             request.name,
-            request.seq,
+            seq,
         )
         .await
         {
@@ -1010,18 +1041,38 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let summary = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
-                .and_then(|p| p.alignments.last())
-                .map(|a| {
-                    (
+                .and_then(|p| {
+                    let a = p.alignments.last()?;
+                    let template = p.sequence.as_bytes();
+                    let mut mismatches = 0usize;
+                    let mut deletions = 0usize;
+                    for seg in &a.segments {
+                        for (i, ch) in seg.chars.bytes().enumerate() {
+                            if ch == b'-' {
+                                deletions += 1;
+                            } else if template
+                                .get(seg.start + i)
+                                .map_or(true, |t| t.to_ascii_uppercase() != ch)
+                            {
+                                mismatches += 1;
+                            }
+                        }
+                    }
+                    let inserted_bases: usize =
+                        a.insertions.iter().map(|ins| ins.bases.len()).sum();
+                    Some((
                         serde_json::json!({
                             "identity": (a.identity * 100.0).round() / 100.0,
                             "strand": a.strand,
                             "segmentCount": a.segments.len(),
-                            "insertions": a.insertions.len(),
+                            "mismatches": mismatches,
+                            "insertions": inserted_bases,
+                            "deletions": deletions,
                             "name": a.name,
+                            "alignmentId": a.id,
                         }),
                         a.segments.first().map(|s| (s.start as i64, s.end as i64)),
-                    )
+                    ))
                 })
         };
         let region = match summary {
@@ -1036,6 +1087,53 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
         Ok(Json(env))
+    }
+
+    /// Remove an alignment by id (alignment ids are listed in the digest
+    /// ALIGNMENTS section, e.g. "aln-1"). Returns the uniform
+    /// {ok, message, projectId, regionView} envelope; regionView covers the
+    /// removed alignment's first segment.
+    #[tool]
+    async fn remove_alignment(
+        &self,
+        Parameters(request): Parameters<RemoveAlignmentRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let id = self.resolve_project_id(request.project_id).await?;
+        let alignment_id = request.alignment_id.clone();
+        let region = {
+            let pm = self.pm.read().await;
+            let p = pm
+                .get_project_by_id(&id)
+                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
+            match p.alignments.iter().find(|a| a.id == alignment_id) {
+                Some(a) => a.segments.first().map(|s| (s.start as i64, s.end as i64)),
+                None => {
+                    return Ok(Json(fail_envelope(
+                        &id,
+                        format!("Alignment not found: {}", alignment_id),
+                    )));
+                }
+            }
+        };
+        let payload = crate::do_remove_alignment(
+            &self.app_handle,
+            &self.pm,
+            &self.wp,
+            None,
+            &id,
+            request.alignment_id,
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e, None))?;
+        if let Some(err) = Self::payload_error(&payload) {
+            return Ok(Json(fail_envelope(&id, err)));
+        }
+        let region_view = self.digest_region(&id, region).await;
+        Ok(Json(ok_envelope(
+            &id,
+            format!("Removed alignment {}", alignment_id),
+            region_view,
+        )))
     }
 
     // -----------------------------------------------------------------------
@@ -1103,7 +1201,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// strand: for a minus-strand CDS the coding change is the reverse
     /// complement of the plus-strand edit). Replacing every base of `seg`
     /// adds a `warning` (likely wrong strand/location) but is not rejected.
-    /// Returns {projectId, groups: [PrimerGroup], mutation?}.
+    /// When an amplify enzyme's recognition site also occurs inside the
+    /// amplified segment, the response adds an `internalSites` warning list
+    /// ({enzyme, start, end, strand}, 0-based inclusive).
+    /// Returns {projectId, groups: [PrimerGroup], mutation?, internalSites?}.
     #[tool]
     async fn design_primers(
         &self,
@@ -1123,6 +1224,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let mut fwd_tail = None;
         let mut rev_tail = None;
+        let mut enzyme_sites: Vec<(String, String)> = Vec::new();
         if request.mode == "amplify" && (request.fwd_enzyme.is_some() || request.rev_enzyme.is_some())
         {
             let protect = libregene_core::primer::design::protect_sequence(
@@ -1134,8 +1236,47 @@ impl<R: Runtime> LibreGeneMcp<R> {
             ] {
                 if let Some(name) = enzyme {
                     match resolve_enzyme_site(name) {
-                        Ok(site) => *slot = Some(format!("{}{}", protect, site)),
+                        Ok(site) => {
+                            *slot = Some(format!("{}{}", protect, site));
+                            enzyme_sites.push((name.clone(), site));
+                        }
                         Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                    }
+                }
+            }
+        }
+
+        // amplify + enzyme tails: warn when the recognition site also occurs
+        // INSIDE the amplified segment (digestion would cut the product).
+        let mut internal_sites: Vec<serde_json::Value> = Vec::new();
+        if request.mode == "amplify" && !enzyme_sites.is_empty() {
+            if let Some(seg_ref) = seg.as_ref() {
+                let (sequence, topology) = {
+                    let pm = self.pm.read().await;
+                    let p = pm
+                        .get_project_by_id(&id)
+                        .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
+                    (p.sequence.clone(), p.topology.clone())
+                };
+                let len = sequence.len() as i64;
+                let (s, e) = (seg_ref.start, seg_ref.end);
+                let amplicon: Option<String> = if s >= 0 && e < len && s <= e {
+                    Some(sequence[s as usize..=e as usize].to_string())
+                } else if topology == "circular" && s >= 0 && e < len {
+                    Some(format!("{}{}", &sequence[s as usize..], &sequence[..=e as usize]))
+                } else {
+                    None
+                };
+                if let Some(amplicon) = amplicon {
+                    for (enzyme_name, site) in &enzyme_sites {
+                        for m in libregene_core::search::find_seq_matches(&amplicon, site) {
+                            internal_sites.push(serde_json::json!({
+                                "enzyme": enzyme_name,
+                                "start": (s + m.start) % len,
+                                "end": (s + m.end) % len,
+                                "strand": m.strand,
+                            }));
+                        }
                     }
                 }
             }
@@ -1201,13 +1342,19 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(info) = mutation_info {
             v["mutation"] = info;
         }
+        if !internal_sites.is_empty() {
+            v["internalSites"] = serde_json::json!(internal_sites);
+            v["warning"] = serde_json::json!(
+                "The enzyme recognition site occurs inside the amplified segment; digestion will cut the product"
+            );
+        }
         Ok(Json(v))
     }
 
     /// Check whether the given primers (each {name, type: "fwd"|"rev", seq})
     /// can bind to a project's sequence, without persisting them. Same engine
     /// as check_primers_binding. Returns {projectId, results: [{id, binds,
-    /// site: {strand, templateStart, templateEnd, tm} | null}]}.
+    /// site: {strand, templateStart, templateEnd, tm, annealLen} | null}]}.
     #[tool]
     async fn check_primer_binding(
         &self,

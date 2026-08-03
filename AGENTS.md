@@ -29,7 +29,7 @@ npm run lint                   # ESLint 检查所有 src/
 cd backend
 cargo test -p libregene-core --lib             # 单元测试（全部）
 cargo test -p libregene-core --test roundtrip_test      # 读写往返测试
-cargo build -p LibreGene                    # 构建 Tauri 后端
+cd src-tauri && cargo build           # 构建 Tauri 后端（须在 src-tauri 目录执行）
 
 # shadcn
 npx shadcn add <component>
@@ -107,7 +107,7 @@ LibreGene/
 - **尽量不写注释**——代码本身应该表意清晰。必要时写简短注释说明 Why（不是 What）。
 - 先读后改：改任何文件前，先 `Read` 理解上下文。
 - 改完后必须编译/构建验证。前端：`npx vite build`。后端：`cargo test -p libregene-core --lib`。
-- Rust 代码同时跑 `cargo build -p LibreGene` 确保 Tauri 壳也编译。
+- Rust 代码同时跑 `cd src-tauri && cargo build` 确保 Tauri 壳也编译（backend workspace 根目录跑 `cargo build -p LibreGene` 会报 package 不匹配）。
 - 默认已通过 `tmux` 在后台运行 `npx tauri dev`，改 UI 后切到 tmux 看效果即可。
 
 ### Bug 修复流程
@@ -200,7 +200,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **共享内核**：所有 mutation 工具与对应 Tauri command 走同一套 `crate::do_*` 内部函数（`src-tauri/src/lib.rs`），同一 recompute/dirty/broadcast 路径，UI 实时更新。Tauri command 只是薄包装。
 - **启停控制**：`McpServer`（`mcp.rs`）持有配置 `{enabled, port}` 与 server task；`set_mcp_config` 在原进程内停止/重启服务器（端口冲突时自动重试），无需重启应用。默认 `enabled=true, port=8766`。配置持久化在前端 localStorage（key `mcpConfig`），启动时前端调用 `set_mcp_config` 应用。
 - **入口**：`src/components/McpGuideDialog.jsx`（启用开关 + 端口 + 各客户端配置片段），从侧边栏 "MCP Server" 菜单项和 Empty 界面 "Connect an LLM agent via MCP" 链接打开。
-- **工具**：目前 23 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`get_enzyme_database`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、feature/primer/alignment 新增与更新、methylation 设置、`find_orfs`、`design_primers`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要。查 Tm 用 `check_primer_binding`（返回结合位点含 tm），不用单独的 compute_tm（已移除——裸数字返回值不符合 MCP structuredContent 规范）。
+- **工具**：目前 20 个工具（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`get_enzyme_database`、`open_file`、`save_file`、`close_project`、`activate_project`、`edit_sequence`、`add_feature`、`update_feature`、`add_primer`、`set_methylation`、`add_alignment`、`remove_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为 digest 渲染的编辑后区域摘要。查 Tm 用 `check_primer_binding`（返回结合位点含 tm），不用单独的 compute_tm（已移除——裸数字返回值不符合 MCP structuredContent 规范）。`read_sequence` 除文本标尺外另返回机器可读的 `sequence` 纯碱基字段；`add_primer`/`check_primer_binding` 的结合位点含 `annealLen`（3' 端连续匹配长度，退火核心）；`design_primers` amplify 模式在酶识别序列落入扩增片段内部时附 `internalSites` 警告；digest 酶切列表只列单一切口酶，多切酶汇总为一行计数。
 - **坐标约定（MCP 工具）**：0-based inclusive；primer `template_end` exclusive；酶切在 `pos-1` 与 `pos` 之间；环状序列读取支持 `start > end` 绕原点，编辑区间不允许绕原点（`end = start - 1` 为纯插入）。
 - **测试**：`src-tauri` 内 `cargo test --lib` 有 McpServer 启停/换端口测试（mock runtime，真实 TCP 握手）；digest 渲染在 `libregene-core` 有单元测试。
 
@@ -211,14 +211,14 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 已适配（功能 → MCP 工具）：
 
 - 项目/文件管理（打开/保存/关闭/切换）→ `open_file`、`save_file`、`close_project`、`activate_project`、`list_projects`
-- 序列读取 → `read_sequence`、`get_project_overview`、`get_region_view`
-- 序列编辑（插入/删除/替换）→ `edit_sequence`（带 `expected_old` 乐观校验；会按 delta 平移/裁剪特征坐标，完全落在删除区间的特征被移除）
-- 特征新增与更新 → `add_feature`、`update_feature_location/name/color/ftype/strand`
-- 引物新增 → `add_primer`（返回重算后结合位点）
-- 引物结合检查 / Tm 查询 → `check_primer_binding`
-- 引物设计（Amplify/OE-PCR/Mutagenesis）→ `design_primers`（amplify 支持 `fwd_enzyme`/`rev_enzyme` 酶切尾巴 + `protect_bases` 保护碱基；mutagenesis 校验 `mut_seq` 与 seg 等长且差异 ≤3 bp，返回 `mutation` 自检块含正/负链上下文与 CDS 密码子/氨基酸变化——支持 join 分段 CDS，全碱基替换时附 `warning` 提示确认正链）
+- 序列读取 → `read_sequence`（返回文本标尺 + 机器可读 `sequence` 纯碱基字段）、`get_project_overview`、`get_region_view`
+- 序列编辑（插入/删除/替换）→ `edit_sequence`（带 `expected_old` 乐观校验，失败时返回首个差异索引与 ±20 bp 对照上下文；会按 delta 平移/裁剪特征坐标，完全落在删除区间的特征被移除）
+- 特征新增与更新 → `add_feature`、`update_feature`（单一工具：`feature_id` + 可选 `name/ftype/color/strand/location`，至少一项；location 为 GenBank 1-based 字符串，message 回显存储后的 0-based 坐标）
+- 引物新增 → `add_primer`（返回重算后结合位点，含 `annealLen` 退火核心长度）
+- 引物结合检查 / Tm 查询 → `check_primer_binding`（位点含 `annealLen`）
+- 引物设计（Amplify/OE-PCR/Mutagenesis）→ `design_primers`（amplify 支持 `fwd_enzyme`/`rev_enzyme` 酶切尾巴 + `protect_bases` 保护碱基，酶识别序列落入扩增片段内部时附 `internalSites` 警告；mutagenesis 校验 `mut_seq` 与 seg 等长且差异 ≤3 bp，返回 `mutation` 自检块含正/负链上下文与 CDS 密码子/氨基酸变化——支持 join 分段 CDS，全碱基替换时附 `warning` 提示确认正链）
 - ORF 搜索 → `find_orfs`（`add_as_features` 可直接落库）
-- 序列比对（Sanger reads / 序列）→ `add_alignment`
+- 序列比对（Sanger reads / 序列）→ `add_alignment`（`bases`/`path` 双输入，`path` 支持 .gbk/.dna/.fasta/.ab1，返回精确 mismatches/insertions/deletions 统计）、`remove_alignment`
 - IUPAC 序列搜索 → `search_sequence`
 - 甲基化设置 → `set_methylation`
 - 酶数据库查询 → `get_enzyme_database`

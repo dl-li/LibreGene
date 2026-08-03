@@ -149,6 +149,35 @@ fn primer_site_line(site: &PrimerBindingSite, primer: &crate::models::Primer) ->
     )
 }
 
+fn alignment_in_region(a: &crate::models::Alignment, s: i64, e: i64, circular: bool) -> bool {
+    a.segments
+        .iter()
+        .any(|seg| seg_in_range(seg.start as i64, seg.end as i64, s, e, circular))
+}
+
+fn alignment_line(a: &crate::models::Alignment) -> String {
+    let inner = a
+        .segments
+        .iter()
+        .map(|seg| format!("{}..{}", seg.start, seg.end))
+        .collect::<Vec<_>>()
+        .join(",");
+    let loc = if a.segments.len() > 1 {
+        format!("join({})", inner)
+    } else {
+        inner
+    };
+    let strand = if a.strand == "-" { "- strand" } else { "+ strand" };
+    format!(
+        "        {:<24} {:<24} {}  [identity {:.1}%, significant]  (id: {})",
+        a.name,
+        loc,
+        strand,
+        a.identity * 100.0,
+        a.id
+    )
+}
+
 fn cut_type_label(cut_type: &str) -> &str {
     match cut_type {
         "5overhang" => "5' overhang",
@@ -300,6 +329,23 @@ pub fn project_digest(
         ));
     }
 
+    // Alignments: one line per stored read overlapping the region.
+    // Stored alignments always passed the significant-match thresholds.
+    let alignments: Vec<&crate::models::Alignment> = project
+        .alignments
+        .iter()
+        .filter(|a| {
+            region.map_or(true, |(s, e)| alignment_in_region(a, s, e, circular))
+        })
+        .collect();
+    if !alignments.is_empty() {
+        out.push_str("ALIGNMENTS (0-based, inclusive):\n");
+        for a in alignments {
+            out.push_str(&alignment_line(a));
+            out.push('\n');
+        }
+    }
+
     // Enzymes
     match region {
         None => {
@@ -316,20 +362,16 @@ pub fn project_digest(
                     ));
                 }
             }
-            if !twice.is_empty() {
-                out.push_str("TWICE CUTTERS:\n");
-                for e in twice {
-                    out.push_str(&format!(
-                        "        {:<10} cuts at {}\n",
-                        e.name,
-                        cuts_desc(e)
-                    ));
-                }
-            }
-            if others > 0 {
+            // Multi-cut enzymes are summarized to keep the digest compact;
+            // names are counted once even when they appear as several sites.
+            let mut multi_names: Vec<&str> = twice.iter().map(|e| e.name.as_str()).collect();
+            multi_names.sort_unstable();
+            multi_names.dedup();
+            let multi = multi_names.len() + others;
+            if multi > 0 {
                 out.push_str(&format!(
-                    "{} other enzymes cut 3+ times (use get_enzyme_database / search tools for details)\n",
-                    others
+                    "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
+                    multi
                 ));
             }
         }
@@ -354,6 +396,26 @@ pub fn project_digest(
     }
 
     Ok(out)
+}
+
+/// Plain bases of `[start, end]` (no ruler); circular wrap supported.
+pub fn read_sequence_bases(project: &ProjectData, start: i64, end: i64) -> Result<String, String> {
+    let (s, e) = validate_range(project, start, end)?;
+    let count = if s <= e { e - s + 1 } else { project.length - s + e + 1 };
+    if count as usize > MAX_READ_BASES {
+        return Err(format!(
+            "requested {} bp exceeds the {} bp read limit; request a narrower window",
+            count, MAX_READ_BASES
+        ));
+    }
+    let mut window = String::with_capacity(count as usize);
+    if s <= e {
+        window.push_str(&project.sequence[s as usize..=e as usize]);
+    } else {
+        window.push_str(&project.sequence[s as usize..]);
+        window.push_str(&project.sequence[..=e as usize]);
+    }
+    Ok(window.to_ascii_uppercase())
 }
 
 /// Bases in `[start, end]` with a coordinate ruler; circular wrap supported.
@@ -712,20 +774,19 @@ mod tests {
     }
 
     #[test]
-    fn overview_groups_enzymes_like_filter_project() {
+    fn overview_lists_unique_cutters_and_summarizes_multi_cutters() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
         assert!(out.contains("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):"));
         assert!(out.contains("EcoRI"));
         assert!(out.contains("top 10^ bot 14"));
         assert!(out.contains("GAATTC"));
         assert!(out.contains("5' overhang"));
-        assert!(out.contains("TWICE CUTTERS:"));
-        // BsaI has two sites → two entries; BbsI one site cut-twice → one entry with two cut pairs
-        assert!(out.contains("BsaI"));
-        assert!(out.contains("cuts at top 20^ bot 24"));
-        assert!(out.contains("cuts at top 40^ bot 44"));
-        assert!(out.contains("BbsI       cuts at top 15^ bot 19, top 30^ bot 34"));
-        assert!(out.contains("3 other enzymes cut 3+ times"));
+        // Multi-cut enzymes (BsaI 2 sites, BbsI cut-twice, + 3 names with 3+
+        // sites) collapse into a single summary line.
+        assert!(!out.contains("TWICE CUTTERS:"));
+        assert!(!out.contains("BsaI"));
+        assert!(!out.contains("BbsI"));
+        assert!(out.contains("... and 5 enzymes with >1 cut"));
     }
 
     #[test]
@@ -789,6 +850,14 @@ mod tests {
     }
 
     #[test]
+    fn read_sequence_bases_plain_and_wrap() {
+        let p = synthetic_project();
+        assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "ACGTACGTAC");
+        assert_eq!(read_sequence_bases(&p, 55, 4).unwrap(), "TACGTACGTA");
+        assert!(read_sequence_bases(&p, 0, 100).is_err());
+    }
+
+    #[test]
     fn read_sequence_linear_window() {
         let out = read_sequence(&synthetic_project(), 0, 19).unwrap();
         assert!(out.contains("COORDS: 0-based inclusive. Window 0..19 (20 bp)"));
@@ -828,6 +897,63 @@ mod tests {
         };
         let err = read_sequence(&big, 0, (MAX_READ_BASES + 9) as i64).unwrap_err();
         assert!(err.contains("read limit"));
+    }
+
+    #[test]
+    fn overview_renders_alignments() {
+        let mut p = synthetic_project();
+        p.alignments.push(crate::models::Alignment {
+            id: "aln-1".into(),
+            name: "read1".into(),
+            length: 70,
+            strand: "+".into(),
+            identity: 0.9857,
+            segments: vec![crate::models::AlignSegment {
+                start: 50,
+                end: 59,
+                chars: "ACGTACGTAC".into(),
+            }],
+            insertions: Vec::new(),
+            seq: String::new(),
+        });
+        p.alignments.push(crate::models::Alignment {
+            id: "aln-2".into(),
+            name: "wrapped".into(),
+            length: 60,
+            strand: "-".into(),
+            identity: 1.0,
+            segments: vec![
+                crate::models::AlignSegment {
+                    start: 55,
+                    end: 59,
+                    chars: "ACGTA".into(),
+                },
+                crate::models::AlignSegment {
+                    start: 0,
+                    end: 4,
+                    chars: "ACGTA".into(),
+                },
+            ],
+            insertions: Vec::new(),
+            seq: String::new(),
+        });
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(out.contains("ALIGNMENTS (0-based, inclusive):\n"));
+        assert!(out.contains("read1"));
+        assert!(out.contains("50..59"));
+        assert!(out.contains("+ strand  [identity 98.6%, significant]  (id: aln-1)"));
+        assert!(out.contains("join(55..59,0..4)"));
+        assert!(out.contains("- strand  [identity 100.0%, significant]  (id: aln-2)"));
+
+        // Region view lists only overlapping alignments.
+        let region = project_digest(&p, &DigestOptions::default(), Some((10, 30))).unwrap();
+        assert!(!region.contains("ALIGNMENTS"));
+        let region = project_digest(&p, &DigestOptions::default(), Some((45, 55))).unwrap();
+        assert!(region.contains("read1"));
+        assert!(region.contains("wrapped"));
+        let region = project_digest(&p, &DigestOptions::default(), Some((0, 4))).unwrap();
+        assert!(!region.contains("read1"));
+        assert!(region.contains("wrapped"));
     }
 
     #[test]
