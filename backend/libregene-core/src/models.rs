@@ -414,3 +414,59 @@ fn default_topology() -> String {
 fn default_methylation_overlap() -> i64 {
     2
 }
+
+// ---------------------------------------------------------------------------
+// Edit impact (MCP edit_sequence side-effect reporting)
+// ---------------------------------------------------------------------------
+
+/// A feature removed entirely by a sequence edit (fully inside the deleted or
+/// replaced span). `location` is the pre-edit 0-based inclusive "start..end".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedFeatureImpact {
+    pub name: String,
+    pub ftype: String,
+    pub location: String,
+}
+
+/// A feature whose coordinates changed other than a pure translation (either
+/// a boundary was clipped by the edit or the span length changed).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClippedFeatureImpact {
+    pub name: String,
+    pub ftype: String,
+    pub before: EditSpan,
+    pub after: EditSpan,
+}
+
+/// 0-based inclusive coordinate span.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditSpan {
+    pub start: i64,
+    pub end: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FeaturesEditImpact {
+    pub removed_features: Vec<RemovedFeatureImpact>,
+    pub clipped_features: Vec<ClippedFeatureImpact>,
+}
+
+// ---------------------------------------------------------------------------
+// Alignment side-effect reporting
+// ---------------------------------------------------------------------------
+
+/// A restriction-enzyme recognition site whose span intersects any alignment
+/// difference (a mismatch position, a deletion interval, or an insertion
+/// point pos-1/pos). Coordinates 0-based inclusive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestroyedEnzymeSite {
+    pub enzyme: String,
+    pub rec_start: i64,
+    pub rec_end: i64,
+    pub rec_seq: String,
+}

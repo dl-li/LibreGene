@@ -416,6 +416,11 @@ pub struct CdsMutation {
     /// 1-based amino-acid position within the CDS (codonIndex + 1) — the
     /// residue that changes, in CDS order.
     pub aa_position_1_based: usize,
+    /// aaPosition1Based without the initiator Met (aaPosition1Based - 1);
+    /// absent when the change is in the first codon (aaPosition1Based < 2),
+    /// matching literature convention (e.g. mEGFP A206K).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aa_position_excluding_met: Option<usize>,
     /// Codons on the CDS coding strand.
     pub codon_before: String,
     pub codon_after: String,
@@ -622,6 +627,7 @@ pub fn analyze_mutagenesis(
                 strand: f.strand.clone(),
                 codon_index,
                 aa_position_1_based: codon_index + 1,
+                aa_position_excluding_met: (codon_index >= 1).then_some(codon_index),
                 aa_before: translate_codon(&codon_before).unwrap_or("???").to_string(),
                 aa_after: translate_codon(&codon_after).unwrap_or("???").to_string(),
                 codon_before,
@@ -1104,6 +1110,8 @@ mod tests {
         let cds = a.cds.unwrap();
         assert_eq!(cds.strand, "+");
         assert_eq!(cds.codon_index, 10);
+        assert_eq!(cds.aa_position_1_based, 11);
+        assert_eq!(cds.aa_position_excluding_met, Some(10));
         assert_eq!(cds.codon_before, "CGC");
         assert_eq!(cds.codon_after, "CTT");
         assert_eq!(cds.aa_before, "Arg");
@@ -1143,6 +1151,8 @@ mod tests {
         assert_eq!(cds.name, "mEGFP");
         // coding_offset for pos 60 = 89-60 = 29 → codon 9, phase 2.
         assert_eq!(cds.codon_index, 9);
+        assert_eq!(cds.aa_position_1_based, 10);
+        assert_eq!(cds.aa_position_excluding_met, Some(9));
         // coding codon = revcomp(seq[60..=62]) = GCG.
         assert_eq!(cds.codon_before, "GCG");
         assert_eq!(cds.codon_after, "AAG");
@@ -1228,6 +1238,8 @@ mod tests {
         assert_eq!(cds.strand, "-");
         // Coding order: (1166..1168) 3 + (1163..1165) 3 + (1162-550) = 618.
         assert_eq!(cds.codon_index, 206);
+        assert_eq!(cds.aa_position_1_based, 207);
+        assert_eq!(cds.aa_position_excluding_met, Some(206));
         assert_eq!(cds.codon_before, "GCG");
         assert_eq!(cds.codon_after, "AAG");
         assert_eq!(cds.aa_before, "Ala");
@@ -1254,10 +1266,36 @@ mod tests {
         assert_eq!(cds.strand, "+");
         // Coding offset of plus 73 = 30 + (73-70) = 33 → codon 11 (plus 73..75).
         assert_eq!(cds.codon_index, 11);
+        assert_eq!(cds.aa_position_1_based, 12);
+        assert_eq!(cds.aa_position_excluding_met, Some(11));
         assert_eq!(cds.codon_before, "GCC");
         assert_eq!(cds.codon_after, "TTC");
         assert_eq!(cds.aa_before, "Ala");
         assert_eq!(cds.aa_after, "Phe");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_first_codon_excludes_met() {
+        // Change in the CDS's first codon (initiator Met): aaPosition1Based is
+        // 1, so aaPositionExcludingMet must be absent.
+        let mut seq = "A".repeat(120).into_bytes();
+        seq[30] = b'G';
+        seq[31] = b'T';
+        seq[32] = b'A';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = cds_feature("orf", "+", vec![(30, 89)]);
+        let seg = Segment {
+            start: 30,
+            end: 32,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "GTC", &[cds]).unwrap();
+        let cds = a.cds.as_ref().expect("CDS must be annotated");
+        assert_eq!(cds.codon_index, 0);
+        assert_eq!(cds.aa_position_1_based, 1);
+        assert_eq!(cds.aa_position_excluding_met, None);
+        let json = serde_json::to_value(&a).unwrap();
+        assert!(json["cds"].get("aaPositionExcludingMet").is_none());
     }
 
     #[test]
