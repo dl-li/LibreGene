@@ -335,6 +335,7 @@ async fn do_update_sequence(
         let computed = tokio::task::spawn_blocking(move || {
             enzyme::recompute(&mut p);
             primer::recompute(&mut p);
+            libregene_core::translate::refresh_feature_translations(&mut p);
             p
         })
         .await
@@ -1036,12 +1037,19 @@ async fn update_sequence(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     sequence: String,
+    features: Option<Vec<Feature>>,
 ) -> Result<serde_json::Value, String> {
     let project_id = resolve_project_id(&state, webview_window.label()).await;
     let project_id = match project_id {
         Some(id) => id,
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
+    if let Some(features) = features {
+        let mut pm = state.pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            p.features = features;
+        }
+    }
     do_update_sequence(&state.pm, project_id, sequence).await
 }
 

@@ -93,8 +93,8 @@ export async function writeTextFile(path, contents) {
 // Sequence
 // ---------------------------------------------------------------------------
 
-export async function updateSequence(sequence) {
-  return tauriInvoke('update_sequence', { sequence });
+export async function updateSequence(sequence, features) {
+  return tauriInvoke('update_sequence', { sequence, features: features || null });
 }
 
 // ---------------------------------------------------------------------------

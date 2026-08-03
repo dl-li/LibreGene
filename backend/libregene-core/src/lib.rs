@@ -7,6 +7,7 @@ pub mod orf;
 pub mod primer;
 pub mod project;
 pub mod search;
+pub mod translate;
 pub mod utils;
 
 pub use models::ProjectData;

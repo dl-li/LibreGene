@@ -969,11 +969,11 @@ export default function ProjectWorkspace({
 
       // Send to backend for recomputation (enzymes, primer binding sites)
       try {
-        const data = await updateSequence(newSeq);
+        const data = await updateSequence(newSeq, adjustedFeatures);
         if (operationGenRef.current !== gen) return;
         if (data && !data.error) {
           setSequence(data.sequence);
-          setFeatures(adjustedFeatures); // use our adjusted features (backend doesn't recalculate feature positions)
+          setFeatures(data.features || adjustedFeatures); // backend recomputed CDS/mRNA translations
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
           setAlignments(data.alignments || EMPTY_ARRAY);
@@ -1022,11 +1022,11 @@ export default function ProjectWorkspace({
 
     // Send to backend for recomputation
     try {
-      const data = await updateSequence(snapshot.sequence);
+      const data = await updateSequence(snapshot.sequence, snapshot.features);
       if (operationGenRef.current !== gen) return;
       if (data && !data.error) {
         setSequence(data.sequence);
-        setFeatures(snapshot.features || EMPTY_ARRAY);
+        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
@@ -1067,11 +1067,11 @@ export default function ProjectWorkspace({
     });
 
     try {
-      const data = await updateSequence(snapshot.sequence);
+      const data = await updateSequence(snapshot.sequence, snapshot.features);
       if (operationGenRef.current !== gen) return;
       if (data && !data.error) {
         setSequence(data.sequence);
-        setFeatures(snapshot.features || EMPTY_ARRAY);
+        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
