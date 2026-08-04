@@ -313,7 +313,6 @@ export default function EditorNavMenu({
                 </DropdownMenuCheckboxItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <PlaceholderItem label="PCR Analysis" />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Primer Design</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
@@ -389,7 +388,6 @@ export default function EditorNavMenu({
             <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
               <Database /> Enzyme Database…
             </DropdownMenuItem>
-            <PlaceholderItem label="Digestion Analysis" />
           </DropdownMenuContent>
         </DropdownMenu>
 
