@@ -44,32 +44,7 @@ npx tauri dev
 
 ## MCP / LLM Agent 集成
 
-LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（默认开启，仅监听本机回环），终端里的 LLM Agent 可以像真实用户一样操作应用——打开文件、浏览质粒结构、编辑序列与特征、设计引物、跑 ORF/PCR 分析——UI 实时同步更新。入口与配置指引见侧边栏的 *MCP Server*（或空项目界面的 "Connect an LLM agent via MCP" 链接）。
-
-在 Agent CLI 中注册：
-
-```bash
-# Kimi Code CLI
-kimi mcp add --transport http libregene http://127.0.0.1:8766/mcp
-
-# Claude Code
-claude mcp add --transport http libregene http://127.0.0.1:8766/mcp
-```
-
-或用标准 `mcpServers` 配置文件：
-
-```json
-{
-  "mcpServers": {
-    "libregene": {
-      "type": "http",
-      "url": "http://127.0.0.1:8766/mcp"
-    }
-  }
-}
-```
-
-服务器运行在 Tauri 进程内，先启动 LibreGene，再让 Agent 执行例如"打开 `examples/pUC19 Annotated.gbk` 并总结一下"。
+LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 通过 Model Context Protocol 像真实用户一样操作已打开的质粒——序列读取/编辑、特征与引物 CRUD、引物设计、ORF 搜索、序列比对等——UI 实时同步更新。连接方式与访问令牌见 app 侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接）。
 
 ## 许可证
 

@@ -12,8 +12,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Bot, Check, ChevronDown, ChevronRight, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { Bot, Check, ChevronDown, ChevronRight, Copy, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { getMcpToken, regenerateMcpToken } from '@/tauriApi';
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -54,35 +55,17 @@ function mcpSnippets(port) {
   return [
     {
       label: 'opencode',
-      hint: 'opencode.json (project-level or global ~/.config/opencode/)',
+      hint: 'opencode.json (project-level or global ~/.config/opencode/). First, in your shell: export LIBREGENE_MCP_TOKEN=<token> — the token shown in this dialog.',
       text: `{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "libregene": {
       "type": "remote",
       "url": "${url}",
-      "enabled": true
-    }
-  }
-}`,
-    },
-    {
-      label: 'Claude Code',
-      hint: 'Run once in a terminal',
-      text: `claude mcp add --transport http libregene ${url}`,
-    },
-    {
-      label: 'Kimi CLI',
-      hint: 'Run once in a terminal',
-      text: `kimi mcp add --transport http libregene ${url}`,
-    },
-    {
-      label: 'Other clients (mcpServers JSON)',
-      hint: 'For Cursor / Windsurf and other mcpServers-based clients',
-      text: `{
-  "mcpServers": {
-    "libregene": {
-      "url": "${url}"
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:LIBREGENE_MCP_TOKEN}"
+      }
     }
   }
 }`,
@@ -92,11 +75,23 @@ function mcpSnippets(port) {
 
 export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpConfigChange }) {
   const [guideOpen, setGuideOpen] = useState(false);
+  const [token, setToken] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    getMcpToken()
+      .then((r) => setToken(r?.token ?? ''))
+      .catch(() => {});
+  }, [open]);
+  const handleRegenerate = () => {
+    regenerateMcpToken()
+      .then((r) => setToken(r?.token ?? ''))
+      .catch(() => {});
+  };
   const enabled = Boolean(mcpConfig?.enabled);
   const port = mcpConfig?.port ?? 8766;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="grid-cols-1 sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bot className="size-4 text-muted-foreground" />
@@ -140,6 +135,28 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                   }
                 }}
               />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground shrink-0">Access token</Label>
+                <code className="flex-1 min-w-0 truncate text-[11px] font-mono bg-muted rounded px-2 py-1 select-all">
+                  {token || '…'}
+                </code>
+                <CopyButton text={token} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 shrink-0"
+                  title="Regenerate token"
+                  onClick={handleRegenerate}
+                >
+                  <RefreshCw className="size-3.5" />
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Required by the MCP server on every request. Regenerating invalidates the old token
+                immediately — update your agent client config afterwards.
+              </p>
             </div>
           </div>
 

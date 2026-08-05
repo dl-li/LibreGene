@@ -44,32 +44,7 @@ Requires Node.js ≥ 20, Rust ≥ 1.75, and [Tauri v2 prerequisites](https://v2.
 
 ## MCP / LLM Agent Integration
 
-LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (enabled by default, loopback only) so an LLM agent in your terminal can operate the app like a real user — open files, inspect plasmid structure, edit sequence and features, design primers, run ORF/PCR analysis — while the UI updates live. See *MCP Server* in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen) for setup guidance and per-client config snippets.
-
-Register it with your agent CLI:
-
-```bash
-# Kimi Code CLI
-kimi mcp add --transport http libregene http://127.0.0.1:8766/mcp
-
-# Claude Code
-claude mcp add --transport http libregene http://127.0.0.1:8766/mcp
-```
-
-Or via a standard `mcpServers` config file:
-
-```json
-{
-  "mcpServers": {
-    "libregene": {
-      "type": "http",
-      "url": "http://127.0.0.1:8766/mcp"
-    }
-  }
-}
-```
-
-The server runs inside the Tauri process, so launch LibreGene first, then ask your agent to e.g. "open `examples/pUC19 Annotated.gbk` and summarize it".
+LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — sequence read/edit, feature and primer CRUD, primer design, ORF search, alignment, and more — while the UI updates live. Launch LibreGene first; connection details and the access token are shown in the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen).
 
 ## License
 
