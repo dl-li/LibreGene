@@ -454,19 +454,3 @@ pub struct FeaturesEditImpact {
     pub removed_features: Vec<RemovedFeatureImpact>,
     pub clipped_features: Vec<ClippedFeatureImpact>,
 }
-
-// ---------------------------------------------------------------------------
-// Alignment side-effect reporting
-// ---------------------------------------------------------------------------
-
-/// A restriction-enzyme recognition site whose span intersects any alignment
-/// difference (a mismatch position, a deletion interval, or an insertion
-/// point pos-1/pos). Coordinates 0-based inclusive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DestroyedEnzymeSite {
-    pub enzyme: String,
-    pub rec_start: i64,
-    pub rec_end: i64,
-    pub rec_seq: String,
-}
