@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use rmcp::{
     ErrorData, ServerHandler,
@@ -29,7 +30,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use tokio::sync::RwLock;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 
 use libregene_core::digest::{DigestOptions, project_digest, read_sequence};
 use libregene_core::models::{Enzyme, Feature, Primer, ProjectData};
@@ -1219,8 +1220,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Returns {ok, message, projectId, regionView, significant, identity,
     /// strand, segmentCount, alignedLength, mismatches, insertions,
-    /// deletions, mismatchDetails, deletionDetails, insertionDetails,
-    /// destroyedSites, name, alignmentId}.
+    /// deletions, mismatchDetails, deletionDetails, insertionDetails, name,
+    /// alignmentId, alignments}.
     /// - `identity`: 0–1 fraction, full precision (not rounded).
     /// - `alignedLength`: template positions covered by the alignment (sum of
     ///   segment spans, bp).
@@ -1238,11 +1239,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   template position before which the extra read bases were inserted
     ///   (between pos-1 and pos; on circular templates pos=0 means between
     ///   tlen-1 and 0).
-    /// - `destroyedSites`: [{enzyme, recStart, recEnd, recSeq}] — restriction
-    ///   sites (already-computed engine results, 0-based inclusive) whose span
-    ///   intersects any difference: a mismatch position, a deletion interval,
-    ///   or an insertion point (pos-1 or pos inside the site). Always present
-    ///   (empty array when nothing is destroyed), sorted by recStart.
+    /// - `alignments`: the project's FULL alignment list (including the one
+    ///   just added), each {alignmentId, name, identity, strand,
+    ///   segmentCount, alignedLength, mismatches, insertions, deletions,
+    ///   mismatchDetails, deletionDetails, insertionDetails} — lets a caller
+    ///   inspect every stored alignment without a separate read tool. The
+    ///   top-level fields above describe the newly added alignment.
     /// On failure returns {ok: false, message, projectId, significant: false};
     /// a message starting with "No significant alignment found" states the
     /// reason (identity below the 0.60 minimum, or aligned span below the
@@ -1318,44 +1320,51 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        let summary = {
+        let (summary, alignments, region) = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
-                .and_then(|p| {
-                    let a = p.alignments.last()?;
-                    let diff = libregene_core::align::alignment_diff(a, &p.sequence);
-                    let destroyed = libregene_core::align::destroyed_enzyme_sites(&p.enzymes, &diff);
-                    Some((
-                        serde_json::json!({
-                            "identity": a.identity,
-                            "strand": a.strand,
-                            "segmentCount": a.segments.len(),
-                            "alignedLength": diff.aligned_length,
-                            "mismatches": diff.mismatches.len(),
-                            "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
-                            "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
-                            "mismatchDetails": diff.mismatches,
-                            "deletionDetails": diff.deletions,
-                            "insertionDetails": diff.insertions,
-                            "destroyedSites": destroyed,
-                            "name": a.name,
-                            "alignmentId": a.id,
-                        }),
-                        a.segments.first().map(|s| (s.start as i64, s.end as i64)),
-                    ))
+                .map(|p| {
+                    let alignments: Vec<serde_json::Value> = p
+                        .alignments
+                        .iter()
+                        .map(|a| {
+                            let diff = libregene_core::align::alignment_diff(a, &p.sequence);
+                            serde_json::json!({
+                                "alignmentId": a.id,
+                                "name": a.name,
+                                "identity": a.identity,
+                                "strand": a.strand,
+                                "segmentCount": a.segments.len(),
+                                "alignedLength": diff.aligned_length,
+                                "mismatches": diff.mismatches.len(),
+                                "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
+                                "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
+                                "mismatchDetails": diff.mismatches,
+                                "deletionDetails": diff.deletions,
+                                "insertionDetails": diff.insertions,
+                            })
+                        })
+                        .collect();
+                    let last = p.alignments.last();
+                    let region = last.and_then(|a| {
+                        a.segments.first().map(|s| (s.start as i64, s.end as i64))
+                    });
+                    (alignments.last().cloned(), alignments, region)
                 })
+                .unwrap_or((None, Vec::new(), None))
         };
-        let region = match summary {
-            Some((_, Some((s, e)))) => self.digest_region(&id, Some((s, e)), true).await,
-            _ => self.digest_region(&id, None, true).await,
+        let region_view = match region {
+            Some((s, e)) => self.digest_region(&id, Some((s, e)), true).await,
+            None => self.digest_region(&id, None, true).await,
         };
-        let mut env = ok_envelope(&id, format!("Aligned {}", name), region);
-        if let Some((s, _)) = summary {
+        let mut env = ok_envelope(&id, format!("Aligned {}", name), region_view);
+        if let Some(s) = summary {
             env["significant"] = serde_json::json!(true);
             for (k, v) in s.as_object().unwrap_or(&serde_json::Map::new()) {
                 env[k] = v.clone();
             }
         }
+        env["alignments"] = serde_json::json!(alignments);
         Ok(Json(env))
     }
 
@@ -1639,10 +1648,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Check whether the given primers (each {name, type: "fwd"|"rev", seq})
     /// can bind to a project's sequence, without persisting them. Same engine
     /// as check_primers_binding. Returns {projectId, tmBasis, results: [{id,
-    /// binds, site: {strand, templateStart, templateEnd, tm, annealLen,
-    /// mismatchedTail} | null}]}. templateStart is 0-based inclusive,
-    /// templateEnd 0-based EXCLUSIVE (range spans templateStart..templateEnd-1);
-    /// cuts are not involved. `binds: true` means the 3' anneal core matched —
+    /// binds, bindingSiteCount, site, sites}]}. `bindingSiteCount` is the
+    /// number of binding sites (0 when the primer does not bind); `site` is
+    /// the best one ({strand, templateStart, templateEnd, tm, annealLen,
+    /// mismatchedTail} or null) and `sites` lists ALL sites best-first (Tm
+    /// descending, same field shape as `site`) — use `sites` for off-target
+    /// detection. templateStart is 0-based inclusive, templateEnd 0-based
+    /// EXCLUSIVE (range spans templateStart..templateEnd-1); cuts are not
+    /// involved. `binds: true` means the 3' anneal core matched —
     /// the primer may still carry mismatches at its 5' end. `mismatchedTail`
     /// is the number of 5'-most bases NOT part of the contiguous 3' match
     /// (0 when the whole primer anneals; >0 for mutagenesis primers and
@@ -1743,11 +1756,12 @@ pub struct McpServer<R: Runtime> {
     wp: Arc<RwLock<HashMap<String, String>>>,
     config: Arc<StdMutex<McpConfig>>,
     task: Arc<StdMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
-    /// Random bearer token generated at startup; required on every MCP
-    /// request so that other local processes (or a browser via DNS
-    /// rebinding) can't drive the MCP tools. Exposed to the trusted frontend
-    /// via `get_mcp_token`.
-    auth_token: Arc<String>,
+    /// Bearer token required on every MCP request so that other local
+    /// processes (or a browser via DNS rebinding) can't drive the MCP tools.
+    /// Persisted to `<app_config_dir>/mcp_auth_token` so it survives app
+    /// restarts; only regenerated when the user explicitly asks. Exposed to
+    /// the trusted frontend via `get_mcp_token` / `regenerate_mcp_token`.
+    auth_token: Arc<StdMutex<String>>,
 }
 
 impl<R: Runtime> Clone for McpServer<R> {
@@ -1769,19 +1783,30 @@ impl<R: Runtime> McpServer<R> {
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
     ) -> Self {
+        let auth_token = load_or_create_token(&app_handle);
         Self {
             app_handle,
             pm,
             wp,
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
-            auth_token: Arc::new(generate_auth_token()),
+            auth_token: Arc::new(StdMutex::new(auth_token)),
         }
     }
 
     /// The bearer token the trusted frontend must send to use the MCP server.
-    pub fn auth_token(&self) -> &str {
-        &self.auth_token
+    pub fn auth_token(&self) -> String {
+        self.auth_token.lock().unwrap().clone()
+    }
+
+    /// Generate and persist a fresh bearer token. Takes effect immediately for
+    /// the running server (the auth middleware reads the shared token per
+    /// request), so no restart is needed.
+    pub fn regenerate_auth_token(&self) -> String {
+        let token = generate_auth_token();
+        *self.auth_token.lock().unwrap() = token.clone();
+        persist_token(&self.app_handle, &token);
+        token
     }
 
     pub fn config(&self) -> McpConfig {
@@ -1830,6 +1855,40 @@ impl<R: Runtime> McpServer<R> {
     }
 }
 
+/// Path of the persisted bearer token file. Best-effort: returns None when
+/// the config dir is unavailable (e.g. under the mock test runtime).
+fn token_file_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("mcp_auth_token"))
+}
+
+fn persist_token<R: Runtime>(app: &AppHandle<R>, token: &str) {
+    if let Some(path) = token_file_path(app) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, token);
+    }
+}
+
+/// Load the persisted token, or generate and persist a fresh one on first run.
+fn load_or_create_token<R: Runtime>(app: &AppHandle<R>) -> String {
+    if let Some(path) = token_file_path(app) {
+        if let Ok(contents) = std::fs::read_to_string(&path) {
+            let token = contents.trim().to_string();
+            if !token.is_empty() {
+                return token;
+            }
+        }
+        let token = generate_auth_token();
+        persist_token(app, &token);
+        return token;
+    }
+    generate_auth_token()
+}
+
 /// Generate a 32-byte random bearer token, hex-encoded (64 chars).
 fn generate_auth_token() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1851,48 +1910,187 @@ fn generate_auth_token() -> String {
     buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+/// Build a JSON-RPC error HTTP response (`Content-Type: application/json`).
+/// Used by the request middleware so protocol-level failures (401/406/404)
+/// carry a readable, structured body instead of rmcp's bare status text.
+fn jsonrpc_error_response(
+    status: axum::http::StatusCode,
+    id: Option<serde_json::Value>,
+    code: i64,
+    message: &str,
+) -> axum::response::Response {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id.unwrap_or(serde_json::Value::Null),
+        "error": { "code": code, "message": message },
+    });
+    let bytes = serde_json::to_vec(&body).unwrap_or_default();
+    axum::http::Response::builder()
+        .status(status)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(bytes))
+        .expect("valid response")
+}
+
+/// Extract the JSON-RPC request id from a raw body so error responses can
+/// echo it back; None (rendered as `id: null`) when the body isn't parseable
+/// or carries no id.
+fn jsonrpc_id_from_body(bytes: &[u8]) -> Option<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    match v {
+        serde_json::Value::Object(o) => o.get("id").cloned(),
+        serde_json::Value::Array(a) => a.first().and_then(|e| e.get("id").cloned()),
+        _ => None,
+    }
+}
+
 async fn serve_mcp<R: Runtime>(
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     port: u16,
-    auth_token: Arc<String>,
+    auth_token: Arc<StdMutex<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let expected_host = format!("127.0.0.1:{}", port);
 
+    // Session durability: rmcp's default SessionConfig.keep_alive closes a
+    // session after 5 minutes of inactivity. An LLM agent can pause longer
+    // than that between tool calls (the 2026-08 MCP test lost sessions this
+    // way through a 4 s keep-alive local proxy). Sessions are keyed in
+    // memory, not bound to a TCP connection — a dropped connection does not
+    // close them; only explicit DELETE, the idle timeout, or app exit does.
+    // Extend the idle timeout to 24 h. Trade-off: abandoned sessions linger
+    // until the app exits (bounded in practice — a desktop app holds a
+    // handful), which is why rmcp's own docs advise against disabling the
+    // timeout entirely on long-running public servers.
+    let mut session_manager = session::local::LocalSessionManager::default();
+    session_manager.session_config.keep_alive = Some(Duration::from_secs(24 * 60 * 60));
+
+    // SSE keep-alive pings every 3 s (rmcp default is 15 s): long-lived SSE
+    // streams (GET notification channels) stay busy enough that aggressive
+    // local proxies with short idle timeouts (e.g. 4 s on 127.0.0.1:7890)
+    // don't drop them mid-stream.
+    let mut server_config = StreamableHttpServerConfig::default();
+    server_config.sse_keep_alive = Some(Duration::from_secs(3));
+
     let service = StreamableHttpService::new(
         move || Ok(LibreGeneMcp::new(app_handle.clone(), pm.clone(), wp.clone())),
-        Arc::new(session::local::LocalSessionManager::default()),
-        StreamableHttpServerConfig::default(),
+        Arc::new(session_manager),
+        server_config,
     );
 
-    // Auth middleware: require a local bearer token AND a matching Host header.
-    // The token prevents other local processes (or a browser page via DNS
-    // rebinding) from driving the MCP tools; the Host check blocks
-    // cross-origin/rebinding requests that don't target 127.0.0.1:<port>.
-    let auth_layer = axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
-        let token = auth_token.clone();
-        let host_ok = req
-            .headers()
-            .get(axum::http::header::HOST)
-            .and_then(|h| h.to_str().ok())
-            .map(|h| h == expected_host.as_str())
-            .unwrap_or(false);
-        let bearer_ok = req
-            .headers()
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|h| h.to_str().ok())
-            .map(|h| h.strip_prefix("Bearer ").map(|t| t == token.as_str()).unwrap_or(false))
-            .unwrap_or(false);
-        async move {
-            if host_ok && bearer_ok {
-                Ok(next.run(req).await)
-            } else {
-                Err(axum::http::StatusCode::UNAUTHORIZED)
+    // Middleware: (1) require a local bearer token AND a matching Host header
+    // (the token stops other local processes / a browser page via DNS
+    // rebinding from driving the MCP tools; the Host check blocks
+    // cross-origin/rebinding requests that don't target 127.0.0.1:<port>);
+    // (2) reject missing/wrong Accept headers with a JSON-RPC error body
+    // instead of rmcp's bare 406; (3) rewrite rmcp's plain-text 404
+    // "Session not found" into a structured JSON-RPC error (code -32001) so
+    // clients can tell the session expired and must re-initialize. The
+    // request body is buffered (bounded, same 4 MiB limit as rmcp) only to
+    // echo the JSON-RPC id back in error bodies; success responses are
+    // passed through untouched (their SSE bodies must never be consumed).
+    const MCP_BODY_LIMIT: usize = 4 * 1024 * 1024;
+    let auth_token_for_layer = auth_token.clone();
+    let expected_host_for_layer = expected_host.clone();
+    let auth_layer = axum::middleware::from_fn(
+        move |req: axum::extract::Request, next: axum::middleware::Next| {
+            let auth_token = auth_token_for_layer.clone();
+            let expected_host = expected_host_for_layer.clone();
+            async move {
+                let host_ok = req
+                    .headers()
+                    .get(axum::http::header::HOST)
+                    .and_then(|h| h.to_str().ok())
+                    .map(|h| h == expected_host.as_str())
+                    .unwrap_or(false);
+                let bearer_ok = req
+                    .headers()
+                    .get(axum::http::header::AUTHORIZATION)
+                    .and_then(|h| h.to_str().ok())
+                    // Read the shared token per request so a user-triggered
+                    // regeneration takes effect without restarting the server.
+                    .map(|h| h.strip_prefix("Bearer ").map(|t| t == auth_token.lock().unwrap().as_str()).unwrap_or(false))
+                    .unwrap_or(false);
+                if !(host_ok && bearer_ok) {
+                    return jsonrpc_error_response(
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        None,
+                        -32000,
+                        "Unauthorized: every MCP request must include 'Authorization: Bearer <token>' and 'Host: 127.0.0.1:<port>'",
+                    );
+                }
+
+                let (parts, body) = req.into_parts();
+                let bytes = match axum::body::to_bytes(body, MCP_BODY_LIMIT).await {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return jsonrpc_error_response(
+                            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                            None,
+                            -32000,
+                            "Request body too large",
+                        );
+                    }
+                };
+                let req_id = jsonrpc_id_from_body(&bytes);
+
+                // Mirror rmcp's Accept requirement (it otherwise answers with
+                // a bare 406 and no readable body).
+                let accept_ok = if parts.method == axum::http::Method::GET {
+                    parts
+                        .headers
+                        .get(axum::http::header::ACCEPT)
+                        .and_then(|h| h.to_str().ok())
+                        .is_some_and(|h| h.contains("text/event-stream"))
+                } else if parts.method == axum::http::Method::POST {
+                    parts
+                        .headers
+                        .get(axum::http::header::ACCEPT)
+                        .and_then(|h| h.to_str().ok())
+                        .is_some_and(|h| h.contains("application/json") && h.contains("text/event-stream"))
+                } else {
+                    true
+                };
+                if !accept_ok {
+                    return jsonrpc_error_response(
+                        axum::http::StatusCode::NOT_ACCEPTABLE,
+                        req_id,
+                        -32600,
+                        "Not Acceptable: MCP Streamable HTTP requires an Accept header — POST /mcp needs 'Accept: application/json, text/event-stream', GET needs 'Accept: text/event-stream'",
+                    );
+                }
+
+                let req = axum::http::Request::from_parts(parts, axum::body::Body::from(bytes));
+                let resp = next.run(req).await;
+                if resp.status() == axum::http::StatusCode::NOT_FOUND {
+                    let (rparts, rbody) = resp.into_parts();
+                    match axum::body::to_bytes(rbody, 64 * 1024).await {
+                        Ok(rbytes) => {
+                            let text = String::from_utf8_lossy(&rbytes);
+                            if text.contains("Session not found") {
+                                return jsonrpc_error_response(
+                                    axum::http::StatusCode::NOT_FOUND,
+                                    req_id,
+                                    -32001,
+                                    "Session not found: the MCP session has expired or was closed (e.g. the connection was dropped by a proxy or an idle timeout). Call initialize again to create a new session.",
+                                );
+                            }
+                            return axum::http::Response::from_parts(
+                                rparts,
+                                axum::body::Body::from(rbytes),
+                            );
+                        }
+                        Err(_) => {
+                            return axum::http::Response::from_parts(rparts, axum::body::Body::empty())
+                        }
+                    }
+                }
+                resp
             }
-        }
-    });
+        },
+    );
 
     let router = axum::Router::new()
         .route("/mcp", axum::routing::any_service(service.clone()))
@@ -1923,14 +2121,14 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// Raw HTTP POST /mcp initialize; true when the MCP handshake succeeds.
-    async fn handshake_ok(port: u16) -> bool {
+    async fn handshake_ok(port: u16, token: &str) -> bool {
         let addr = format!("127.0.0.1:{}", port);
         let Ok(mut stream) = tokio::net::TcpStream::connect(&addr).await else {
             return false;
         };
         let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"cfg-test\",\"version\":\"0\"}}}";
         let req = format!(
-            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
         if stream.write_all(req.as_bytes()).await.is_err() {
@@ -1946,9 +2144,34 @@ mod tests {
         }
     }
 
-    async fn wait_up(port: u16) -> bool {
+    /// Raw HTTP POST /mcp returning the full response (status line + body).
+    /// `extra_headers` must be pre-formatted header lines each ending with
+    /// `\r\n` (e.g. Accept, Mcp-Session-Id); Content-Type,
+    /// Content-Length and `Connection: close` are added automatically.
+    async fn raw_post(port: u16, token: &str, extra_headers: &str, body: &str) -> String {
+        let addr = format!("127.0.0.1:{}", port);
+        let mut stream = tokio::net::TcpStream::connect(&addr)
+            .await
+            .expect("connect");
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\n{extra_headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(req.as_bytes()).await.expect("write request");
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 8192];
+        loop {
+            match tokio::time::timeout(Duration::from_secs(5), stream.read(&mut tmp)).await {
+                Ok(Ok(n)) if n > 0 => buf.extend_from_slice(&tmp[..n]),
+                _ => break,
+            }
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    async fn wait_up(port: u16, token: &str) -> bool {
         for _ in 0..40 {
-            if handshake_ok(port).await {
+            if handshake_ok(port, token).await {
                 return true;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1986,29 +2209,101 @@ mod tests {
     #[tokio::test]
     async fn server_starts_stops_and_restarts_on_port_change() {
         let server = test_server();
+        let token = server.auth_token();
 
         // start on a fresh port
         server.set_config(true, 19999).await.unwrap();
-        assert!(wait_up(19999).await, "server should be up on 19999");
+        assert!(wait_up(19999, &token).await, "server should be up on 19999");
 
         // disable → port released
         server.set_config(false, 19999).await.unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        assert!(!handshake_ok(19999).await, "server should be down after disable");
+        assert!(!handshake_ok(19999, &token).await, "server should be down after disable");
 
         // re-enable on a new port without an app restart
         server.set_config(true, 20001).await.unwrap();
-        assert!(wait_up(20001).await, "server should be up on 20001 after restart");
-        assert!(!handshake_ok(19999).await, "old port must stay free");
+        assert!(wait_up(20001, &token).await, "server should be up on 20001 after restart");
+        assert!(!handshake_ok(19999, &token).await, "old port must stay free");
 
         // unchanged config → no restart churn
         server.set_config(true, 20001).await.unwrap();
         tokio::time::sleep(Duration::from_millis(150)).await;
-        assert!(handshake_ok(20001).await, "server must survive a no-op set_config");
+        assert!(handshake_ok(20001, &token).await, "server must survive a no-op set_config");
 
         // clean up
         server.set_config(false, 20001).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(!handshake_ok(20001).await);
+        assert!(!handshake_ok(20001, &token).await);
+    }
+
+    #[tokio::test]
+    async fn regenerated_token_takes_effect_without_restart() {
+        let server = test_server();
+        server.set_config(true, 20003).await.unwrap();
+        let old = server.auth_token();
+        assert!(wait_up(20003, &old).await, "server should be up with the initial token");
+
+        let new = server.regenerate_auth_token();
+        assert_ne!(old, new);
+        // the running server must accept the new token and reject the old one
+        assert!(handshake_ok(20003, &new).await, "new token should be accepted");
+        assert!(!handshake_ok(20003, &old).await, "old token should be rejected");
+
+        server.set_config(false, 20003).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    #[tokio::test]
+    async fn missing_accept_header_returns_structured_406() {
+        let server = test_server();
+        let token = server.auth_token();
+        server.set_config(true, 20005).await.unwrap();
+        assert!(wait_up(20005, &token).await);
+
+        // No Accept header at all: rmcp would answer a bare 406 with no
+        // readable body; the middleware must return a JSON-RPC error body
+        // naming the required Accept header and echoing the request id.
+        let resp = raw_post(
+            20005,
+            &token,
+            "",
+            "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}",
+        )
+        .await;
+        assert!(resp.contains("406"), "expected 406, got: {resp}");
+        assert!(resp.contains("application/json"), "{resp}");
+        assert!(resp.contains("text/event-stream"), "{resp}");
+        assert!(resp.contains("-32600"), "{resp}");
+        assert!(resp.contains("\"id\":7"), "{resp}");
+
+        server.set_config(false, 20005).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    #[tokio::test]
+    async fn unknown_session_returns_structured_404() {
+        let server = test_server();
+        let token = server.auth_token();
+        server.set_config(true, 20006).await.unwrap();
+        assert!(wait_up(20006, &token).await);
+
+        // A request for a session that never existed: rmcp answers 404 with
+        // plain text; the middleware must rewrite it into a JSON-RPC error
+        // with code -32001 so clients know the session is gone and must
+        // re-initialize.
+        let resp = raw_post(
+            20006,
+            &token,
+            "Accept: application/json, text/event-stream\r\nMcp-Session-Id: does-not-exist\r\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\"}",
+        )
+        .await;
+        assert!(resp.contains("404"), "expected 404, got: {resp}");
+        assert!(resp.contains("-32001"), "{resp}");
+        assert!(resp.contains("jsonrpc"), "{resp}");
+        assert!(resp.contains("\"id\":9"), "{resp}");
+
+        server.set_config(false, 20006).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }

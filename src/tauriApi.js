@@ -280,6 +280,14 @@ export async function setMcpConfig(enabled, port) {
   return tauriInvoke('set_mcp_config', { enabled, port });
 }
 
+export async function getMcpToken() {
+  return tauriInvoke('get_mcp_token');
+}
+
+export async function regenerateMcpToken() {
+  return tauriInvoke('regenerate_mcp_token');
+}
+
 // ---------------------------------------------------------------------------
 // ORF search / sequence search / primer design (backend-computed)
 // ---------------------------------------------------------------------------

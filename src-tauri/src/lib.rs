@@ -915,20 +915,28 @@ async fn do_check_primers_binding(
         updated
             .into_iter()
             .map(|p| {
-                let site = p.binding_sites.first();
+                let sites: Vec<serde_json::Value> = p
+                    .binding_sites
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "strand": s.strand,
+                            "templateStart": s.template_start,
+                            "templateEnd": s.template_end,
+                            "tm": s.tm,
+                            "annealLen": libregene_core::primer::align::anneal_len(
+                                &template, &topology, &p.primer_seq, s,
+                            ),
+                            "mismatchedTail": s.five_prime_tail.len(),
+                        })
+                    })
+                    .collect();
                 serde_json::json!({
                     "id": p.id,
-                    "binds": site.is_some(),
-                    "site": site.map(|s| serde_json::json!({
-                        "strand": s.strand,
-                        "templateStart": s.template_start,
-                        "templateEnd": s.template_end,
-                        "tm": s.tm,
-                        "annealLen": libregene_core::primer::align::anneal_len(
-                            &template, &topology, &p.primer_seq, s,
-                        ),
-                        "mismatchedTail": s.five_prime_tail.len(),
-                    })),
+                    "binds": !p.binding_sites.is_empty(),
+                    "site": sites.first().cloned(),
+                    "bindingSiteCount": p.binding_sites.len(),
+                    "sites": sites,
                 })
             })
             .collect::<Vec<_>>()
@@ -1500,8 +1508,9 @@ async fn delete_primer(
 }
 
 /// Check which of the given primers can bind to the current project's sequence.
-/// Returns a lightweight per-primer summary (binds + best site), reusing the
-/// same binding-site engine as the editor for consistency.
+/// Returns a per-primer summary (binds + best `site`, plus the full best-first
+/// `sites` array and `bindingSiteCount`), reusing the same binding-site engine
+/// as the editor for consistency.
 #[tauri::command]
 async fn check_primers_binding(
     webview_window: tauri::WebviewWindow,
@@ -2383,6 +2392,15 @@ async fn get_mcp_token(
     Ok(serde_json::json!({ "token": mcp.auth_token() }))
 }
 
+/// Rotate the MCP bearer token on user request. The new token is persisted
+/// and takes effect immediately for the running server.
+#[tauri::command]
+async fn regenerate_mcp_token(
+    mcp: State<'_, mcp::McpServer<tauri::Wry>>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "token": mcp.regenerate_auth_token() }))
+}
+
 // ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
@@ -2451,6 +2469,7 @@ pub fn run() {
             get_mcp_config,
             set_mcp_config,
             get_mcp_token,
+            regenerate_mcp_token,
             activate_custom_titlebar,
             reassert_traffic_lights,
             restore_native_titlebar,
@@ -2496,5 +2515,56 @@ mod tests {
         assert_eq!(validate_user_path("enzymes.csv", TEXT_EXPORT_EXTS).unwrap(), "csv");
         assert_eq!(validate_user_path("data.json", TEXT_EXPORT_EXTS).unwrap(), "json");
         assert!(validate_user_path("evil.exe", TEXT_EXPORT_EXTS).is_err());
+    }
+
+    #[tokio::test]
+    async fn check_primer_binding_returns_all_sites_best_first() {
+        // "GATTACA" occurs twice in the template (linear): 0..7 and 7..14.
+        let tpl = "GATTACAGATTACA";
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.open_project(
+            "p1".to_string(),
+            ProjectData {
+                sequence: tpl.to_string(),
+                length: tpl.len() as i64,
+                topology: "linear".to_string(),
+                ..Default::default()
+            },
+        );
+        let primers = vec![Primer {
+            id: "f1".to_string(),
+            name: "f1".to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "GATTACA".to_string(),
+            binding_sites: Vec::new(),
+        }];
+        let out = do_check_primers_binding(&pm, "p1", primers).await.unwrap();
+        let results = out["results"].as_array().expect("results array");
+        assert_eq!(results.len(), 1);
+        let r0 = &results[0];
+        assert_eq!(r0["id"], "f1");
+        assert_eq!(r0["binds"], true);
+        assert_eq!(r0["bindingSiteCount"], 2);
+        let sites = r0["sites"].as_array().expect("sites array");
+        assert_eq!(sites.len(), 2);
+        // Every site carries the documented fields.
+        for s in sites {
+            for key in ["strand", "templateStart", "templateEnd", "tm", "annealLen", "mismatchedTail"]
+            {
+                assert!(s.get(key).is_some(), "site missing field {}", key);
+            }
+        }
+        // `site` is the best (first) site; `sites` is best-first (Tm desc).
+        let starts: Vec<i64> = sites
+            .iter()
+            .map(|s| s["templateStart"].as_i64().unwrap())
+            .collect();
+        assert_eq!(r0["site"]["templateStart"], sites[0]["templateStart"]);
+        assert!(starts.contains(&0) && starts.contains(&7));
+        let tms: Vec<f64> = sites
+            .iter()
+            .map(|s| s["tm"].as_f64().unwrap())
+            .collect();
+        assert!(tms.windows(2).all(|w| w[0] >= w[1]));
     }
 }
