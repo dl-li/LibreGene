@@ -49,7 +49,6 @@ import {
   X,
   ExternalLink,
   Settings,
-  ArrowDownWideNarrow,
   Bot,
   Map as MapIcon,
   Clock,
@@ -765,16 +764,6 @@ export default function App() {
                 >
                   <MapIcon className="size-4" />
                   <span>Plasmid Map</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => handlesRef.current[sidebarTargetId]?.openPrimerOverview()}
-                  tooltip="Primer Overview"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <ArrowDownWideNarrow className="size-4" />
-                  <span>Primer Overview</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
