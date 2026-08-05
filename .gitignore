@@ -15,3 +15,6 @@ backend/test_data/flySWARM.*
 
 # Local-only examples, kept off GitHub
 examples/others/
+
+# Local kimi-code config
+.kimi-code/
