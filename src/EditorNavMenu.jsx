@@ -23,6 +23,7 @@ import {
   ListChecks,
   Save,
   Database,
+  ArrowDownWideNarrow,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -70,15 +71,6 @@ function NavTrigger({ icon: Icon, label }) {
   );
 }
 
-function PlaceholderItem({ label }) {
-  return (
-    <DropdownMenuItem disabled className="justify-between">
-      <span>{label}</span>
-      <span className="ml-4 text-xs text-muted-foreground">Soon</span>
-    </DropdownMenuItem>
-  );
-}
-
 export default function EditorNavMenu({
   onSave,
   onSaveAs,
@@ -122,6 +114,7 @@ export default function EditorNavMenu({
   onAddAlignmentText,
   onManageAlignments,
   onPrimerDesign,
+  onOpenPrimerOverview,
   onOpenMyPrimers,
   onAddCurrentPrimerToMyPrimers,
   onAddAllPrimersToMyPrimers,
@@ -289,11 +282,15 @@ export default function EditorNavMenu({
               <Plus /> Create Primer
               <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onOpenPrimerOverview}>
+              <ArrowDownWideNarrow /> Primer Overview
+            </DropdownMenuItem>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>My Primers</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>My Primer Collection</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-48">
                 <DropdownMenuItem onSelect={onOpenMyPrimers}>
-                  <ListChecks /> My Primers…
+                  <ListChecks /> My Primer Collection…
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -314,7 +311,7 @@ export default function EditorNavMenu({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Primer Design</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
                   Amplify Fragment
@@ -330,7 +327,6 @@ export default function EditorNavMenu({
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <PlaceholderItem label="Options" />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -343,7 +339,7 @@ export default function EditorNavMenu({
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Choose Enzyme Set</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>Choose Enzyme Set</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
                   {ENZYME_FILTER_OPTIONS.map((opt) => (

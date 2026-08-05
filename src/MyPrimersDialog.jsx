@@ -81,15 +81,15 @@ export default function MyPrimersDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>My Primers ({myPrimers.length})</DialogTitle>
+          <DialogTitle>My Primer Collection ({myPrimers.length})</DialogTitle>
         </DialogHeader>
 
         {myPrimers.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-10 text-center">
             <div className="text-sm text-muted-foreground">Your primer library is empty.</div>
             <div className="max-w-md text-xs text-muted-foreground/70">
-              Add primers from the Primers → My Primers menu: “Add Current Primer” or “Add All from
-              This File”, or turn on “Auto-add from Opened Files”.
+              Add primers from the Primers → My Primer Collection menu: “Add Current Primer” or
+              “Add All from This File”, or turn on “Auto-add from Opened Files”.
             </div>
           </div>
         ) : (

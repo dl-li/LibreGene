@@ -162,7 +162,6 @@ LibreGene/
 
 `EditorNavMenu.jsx` 中以下菜单项为占位（disabled，标注"即将推出"）：
 
-- 引物：选项
 - 酶切：自定义酶集合
 
 导航菜单使用 `src/components/ui/dropdown-menu.jsx`（基于 `@radix-ui/react-dropdown-menu`，通过 shadcn 方式添加）。

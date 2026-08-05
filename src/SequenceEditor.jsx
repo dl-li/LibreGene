@@ -528,6 +528,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onEnzymeHoverChange,
   topology = 'linear',
   onOpenMyPrimers,
+  onOpenPrimerOverview,
   onOpenMyEnzymes,
   onOpenEnzymeDatabase,
   onAddPrimerToMyPrimers,
@@ -4634,6 +4635,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onManageAlignments={onManageAlignments}
           onPrimerDesign={handlePrimerDesign}
           onOpenMyPrimers={onOpenMyPrimers}
+          onOpenPrimerOverview={onOpenPrimerOverview}
           onAddCurrentPrimerToMyPrimers={handleAddCurrentPrimerToMyPrimers}
           onAddAllPrimersToMyPrimers={onAddAllPrimersToMyPrimers}
           autoAddPrimers={autoAddPrimers}

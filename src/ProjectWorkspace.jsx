@@ -1285,6 +1285,7 @@ export default function ProjectWorkspace({
               onManageAlignments={() => setPluginDialogs((prev) => ({ ...prev, alignment: true }))}
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
+              onOpenPrimerOverview={() => setPrimerOverviewOpen(true)}
               onOpenMyEnzymes={() => setMyEnzymesOpen(true)}
               onOpenEnzymeDatabase={() => setEnzymeDbOpen(true)}
               onAddPrimerToMyPrimers={handleAddPrimerToMyPrimers}

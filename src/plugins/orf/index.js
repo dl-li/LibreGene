@@ -24,11 +24,11 @@ export async function findOrfs(minAa = MIN_AA) {
 
 export default {
   id: 'orf',
-  name: 'ORF Search',
+  name: 'Show ORFs',
   dialogKey: null,
   // Sidebar entry toggles ORF visibility (handled in ProjectWorkspace, no dialog)
   sidebarItems: [
-    { dialogKey: 'orf', label: 'ORF Search', tooltip: 'Toggle ORF display', icon: BookA },
+    { dialogKey: 'orf', label: 'Show ORFs', tooltip: 'Toggle ORF display', icon: BookA },
   ],
   dialog: null,
 };
