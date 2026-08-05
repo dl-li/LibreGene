@@ -376,8 +376,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let pm = self.pm.read().await;
         let project = pm.get_project_by_id(project_id)?;
         let f = project.features.iter().find(|f| f.id == feature_id)?;
-        let s = (f.start - 5).max(0);
-        let e = (f.end + 5).min(project.length - 1);
+        // Clamp the +/-5 context window with saturating arithmetic so a
+        // feature near an end (or a maliciously huge coordinate that slipped
+        // past validation) can't underflow/overflow and panic the process.
+        let s = f.start.saturating_sub(5);
+        let e = (f.end.saturating_add(5)).min(project.length.saturating_sub(1));
         let opts = DigestOptions {
             compact_enzymes: true,
             ..DigestOptions::default()
@@ -934,6 +937,27 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let (segments, start, end, location_strand) = parsed;
         let strand = request.strand.clone().unwrap_or(location_strand);
 
+        // Reject coordinates outside [1, project.length]. parse_location_string
+        // only checks start<=end (no upper bound), so without this a caller
+        // could write a feature with end = i64::MAX and later panic downstream
+        // code that slices the sequence by these coordinates.
+        {
+            let pm = self.pm.read().await;
+            let plen = pm
+                .get_project_by_id(&id)
+                .map(|p| p.length)
+                .unwrap_or(0);
+            if start < 1 || end < 1 || end > plen {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!(
+                        "feature location {}..{} is out of range for project length {}",
+                        start, end, plen
+                    ),
+                )));
+            }
+        }
+
         let feature = Feature {
             id: feature_id.clone(),
             name: request.name,
@@ -1007,6 +1031,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         let feature_id = request.feature_id.clone();
         let location = request.location.clone();
+        // Pre-validate a new location against the project length (same reason
+        // as add_feature). parse_location_string has no upper bound on its own.
+        if let Some(loc) = &location {
+            let pm = self.pm.read().await;
+            let plen = pm.get_project_by_id(&id).map(|p| p.length).unwrap_or(0);
+            if let Some((_, start, end, _)) =
+                libregene_core::file_io::gbk::parse_location_string(loc)
+            {
+                if start < 1 || end < 1 || end > plen {
+                    return Ok(Json(fail_envelope(
+                        &id,
+                        format!(
+                            "feature location {}..{} is out of range for project length {}",
+                            start, end, plen
+                        ),
+                    )));
+                }
+            }
+        }
         let payload = crate::do_update_feature(
             &self.app_handle,
             &self.pm,
@@ -1227,6 +1270,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             (Some(bases), None) => bases,
             (None, Some(path)) => {
+                crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
+                    ErrorData::internal_error(format!("invalid path: {}", e), None)
+                })?;
                 let parsed = tokio::task::spawn_blocking(move || {
                     libregene_core::file_io::parse_file(std::path::Path::new(&path))
                 })
@@ -1697,6 +1743,11 @@ pub struct McpServer<R: Runtime> {
     wp: Arc<RwLock<HashMap<String, String>>>,
     config: Arc<StdMutex<McpConfig>>,
     task: Arc<StdMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+    /// Random bearer token generated at startup; required on every MCP
+    /// request so that other local processes (or a browser via DNS
+    /// rebinding) can't drive the MCP tools. Exposed to the trusted frontend
+    /// via `get_mcp_token`.
+    auth_token: Arc<String>,
 }
 
 impl<R: Runtime> Clone for McpServer<R> {
@@ -1707,6 +1758,7 @@ impl<R: Runtime> Clone for McpServer<R> {
             wp: self.wp.clone(),
             config: self.config.clone(),
             task: self.task.clone(),
+            auth_token: self.auth_token.clone(),
         }
     }
 }
@@ -1723,7 +1775,13 @@ impl<R: Runtime> McpServer<R> {
             wp,
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
+            auth_token: Arc::new(generate_auth_token()),
         }
+    }
+
+    /// The bearer token the trusted frontend must send to use the MCP server.
+    pub fn auth_token(&self) -> &str {
+        &self.auth_token
     }
 
     pub fn config(&self) -> McpConfig {
@@ -1761,8 +1819,9 @@ impl<R: Runtime> McpServer<R> {
             let pm = self.pm.clone();
             let wp = self.wp.clone();
             let port = cfg.port;
+            let token = self.auth_token.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app, pm, wp, port).await {
+                if let Err(e) = serve_mcp(app, pm, wp, port, token).await {
                     log::error!("MCP server error on port {}: {}", port, e);
                 }
             });
@@ -1771,29 +1830,81 @@ impl<R: Runtime> McpServer<R> {
     }
 }
 
+/// Generate a 32-byte random bearer token, hex-encoded (64 chars).
+fn generate_auth_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    // Mix in process id + a high-resolution counter for uniqueness without
+    // pulling a crypto crate. This is a local-only shared secret (the threat
+    // is other local processes / browser rebinding, not a remote attacker who
+    // can guess 64 hex chars); randomness quality matters less than presence.
+    let mut buf = [0u8; 32];
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ (std::process::id() as u64);
+    let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    for b in buf.iter_mut() {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *b = (s >> 33) as u8;
+    }
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 async fn serve_mcp<R: Runtime>(
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     port: u16,
+    auth_token: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let expected_host = format!("127.0.0.1:{}", port);
 
     let service = StreamableHttpService::new(
         move || Ok(LibreGeneMcp::new(app_handle.clone(), pm.clone(), wp.clone())),
         Arc::new(session::local::LocalSessionManager::default()),
         StreamableHttpServerConfig::default(),
     );
+
+    // Auth middleware: require a local bearer token AND a matching Host header.
+    // The token prevents other local processes (or a browser page via DNS
+    // rebinding) from driving the MCP tools; the Host check blocks
+    // cross-origin/rebinding requests that don't target 127.0.0.1:<port>.
+    let auth_layer = axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
+        let token = auth_token.clone();
+        let host_ok = req
+            .headers()
+            .get(axum::http::header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .map(|h| h == expected_host.as_str())
+            .unwrap_or(false);
+        let bearer_ok = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|h| h.to_str().ok())
+            .map(|h| h.strip_prefix("Bearer ").map(|t| t == token.as_str()).unwrap_or(false))
+            .unwrap_or(false);
+        async move {
+            if host_ok && bearer_ok {
+                Ok(next.run(req).await)
+            } else {
+                Err(axum::http::StatusCode::UNAUTHORIZED)
+            }
+        }
+    });
+
     let router = axum::Router::new()
         .route("/mcp", axum::routing::any_service(service.clone()))
-        .fallback_service(service);
+        .fallback_service(service)
+        .layer(auth_layer);
 
     // Retry briefly on AddrInUse so a restart that races the previous
     // instance's socket release still binds.
     loop {
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
-                log::info!("MCP server listening on http://{addr}/mcp");
+                log::info!("MCP server listening on http://{addr}/mcp (auth enabled)");
                 return axum::serve(listener, router).await.map_err(Into::into);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {

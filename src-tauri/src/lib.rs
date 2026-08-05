@@ -13,6 +13,53 @@ use libregene_core::project::ProjectManager;
 mod mcp;
 
 // ---------------------------------------------------------------------------
+// Path validation for filesystem-touching commands
+// ---------------------------------------------------------------------------
+
+/// Reject path-traversal and require a sequence-file extension.
+/// Returns Ok(normalized lowercase extension without dot) if acceptable.
+///
+/// We don't lock paths to a fixed directory (users open/save anywhere), but we
+/// do refuse parent-directory traversal components and require a known
+/// sequence/export extension so a raw path string from an untrusted caller
+/// (e.g. the MCP bridge) can't read/write arbitrary files.
+fn validate_user_path(path: &str, allowed_exts: &[&str]) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("path is empty".to_string());
+    }
+    // Reject any `..` component (works for both separators and mixed forms
+    // after we normalize). canonicalize() would also resolve symlinks, but
+    // the file may not exist yet (save target), so we inspect components.
+    let p = std::path::Path::new(trimmed);
+    for comp in p.components() {
+        use std::path::Component;
+        match comp {
+            Component::ParentDir => {
+                return Err("parent-directory traversal (..) is not allowed".to_string())
+            }
+            Component::RootDir | Component::Prefix(_) | Component::Normal(_) | Component::CurDir => {}
+        }
+    }
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !allowed_exts.iter().any(|a| *a == ext) {
+        return Err(format!(
+            "file extension '.{}' is not allowed (allowed: {})",
+            ext,
+            allowed_exts.join(", ")
+        ));
+    }
+    Ok(ext)
+}
+
+const SEQ_EXTS: &[&str] = &["gbk", "gb", "dna", "fasta", "fa", "fna", "ab1"];
+const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
+
+// ---------------------------------------------------------------------------
 // Application state
 // ---------------------------------------------------------------------------
 
@@ -253,6 +300,7 @@ async fn do_open_file(
     pm: &Arc<RwLock<ProjectManager>>,
     path: String,
 ) -> Result<serde_json::Value, String> {
+    validate_user_path(&path, SEQ_EXTS)?;
     let id = path.clone();
     let path_buf = std::path::PathBuf::from(&path);
 
@@ -293,6 +341,7 @@ async fn do_save_file(
     project_id: String,
     path: String,
 ) -> Result<serde_json::Value, String> {
+    validate_user_path(&path, &["gbk", "gb"])?;
     let save_path = std::path::PathBuf::from(&path);
     let project = {
         let pm = pm.read().await;
@@ -1024,6 +1073,7 @@ async fn save_file(
 /// Write raw text to a file (used for My Enzymes export). Small payloads only.
 #[tauri::command]
 async fn write_text_file(path: String, contents: String) -> Result<serde_json::Value, String> {
+    validate_user_path(&path, TEXT_EXPORT_EXTS)?;
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"status": "ok"}))
 }
@@ -2322,6 +2372,17 @@ async fn set_mcp_config(
     }))
 }
 
+/// Return the bearer token the trusted frontend must send to talk to the
+/// loopback MCP server. Only the in-app webview can reach this command;
+/// combined with the Host check on the server it keeps other local processes
+/// (and browser pages via DNS rebinding) from driving MCP tools.
+#[tauri::command]
+async fn get_mcp_token(
+    mcp: State<'_, mcp::McpServer<tauri::Wry>>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "token": mcp.auth_token() }))
+}
+
 // ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
@@ -2389,10 +2450,51 @@ pub fn run() {
             compute_tm,
             get_mcp_config,
             set_mcp_config,
+            get_mcp_token,
             activate_custom_titlebar,
             reassert_traffic_lights,
             restore_native_titlebar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_path_accepts_normal_sequence_file() {
+        assert_eq!(validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(), "gbk");
+        assert_eq!(validate_user_path("plasmid.fa", SEQ_EXTS).unwrap(), "fa");
+    }
+
+    #[test]
+    fn validate_path_rejects_empty() {
+        assert!(validate_user_path("   ", SEQ_EXTS).is_err());
+    }
+
+    #[test]
+    fn validate_path_rejects_parent_traversal() {
+        // The headline case: a raw path string from an untrusted caller must
+        // not be able to escape a directory or point at arbitrary files via ..
+        assert!(validate_user_path("../etc/passwd", SEQ_EXTS).is_err());
+        assert!(validate_user_path("dir/../../secret.gbk", SEQ_EXTS).is_err());
+        assert!(validate_user_path("../../../../Windows/System32/x.gbk", SEQ_EXTS).is_err());
+    }
+
+    #[test]
+    fn validate_path_rejects_wrong_extension() {
+        // Even a benign-looking path must have a sequence/export extension,
+        // so an untrusted caller can't read/write e.g. .bashrc by extension swap.
+        assert!(validate_user_path("notes.txt", SEQ_EXTS).is_err());
+        assert!(validate_user_path("noext", SEQ_EXTS).is_err());
+    }
+
+    #[test]
+    fn validate_path_accepts_text_exports_for_write() {
+        assert_eq!(validate_user_path("enzymes.csv", TEXT_EXPORT_EXTS).unwrap(), "csv");
+        assert_eq!(validate_user_path("data.json", TEXT_EXPORT_EXTS).unwrap(), "json");
+        assert!(validate_user_path("evil.exe", TEXT_EXPORT_EXTS).is_err());
+    }
 }
