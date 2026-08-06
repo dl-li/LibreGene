@@ -128,3 +128,94 @@ fn roundtrip_puc19_annotated() {
     // Segments note written in enhanced-GenBank style
     assert!(written.contains("This feature has 2 segments:"), "segments note written");
 }
+
+// ---------------------------------------------------------------------------
+// RNA / protein support
+// ---------------------------------------------------------------------------
+
+fn test_data(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("test_data")
+        .join(name)
+}
+
+/// The four example files (two formats × RNA/protein) must all parse with the
+/// right molecule type, topology, sequence length and key feature annotations.
+#[test]
+fn parse_rna_and_protein_examples() {
+    // RNA: GenBank text + SnapGene binary
+    for (path, expect_len) in [
+        (test_data("Primary-miR-1.gbk"), 91),
+        (test_data("Primary-miR-1.rna"), 91),
+    ] {
+        let project = libregene_core::file_io::parse_file(&path).expect("parse rna file");
+        assert_eq!(project.molecule_type, "rna", "molecule type for {}", path.display());
+        assert_eq!(project.topology, "linear", "topology for {}", path.display());
+        assert_eq!(project.length, expect_len, "length for {}", path.display());
+        let guide = project.features.iter().find(|f| f.name == "Guide strand").expect("Guide strand");
+        assert_eq!(guide.color, "#d34035");
+        assert_eq!((guide.start, guide.end), (55, 76));
+        let pas = project.features.iter().find(|f| f.name == "Passenger strand").expect("Passenger strand");
+        assert_eq!(pas.color, "#5c80ba");
+        assert_eq!((pas.start, pas.end), (17, 38));
+        assert!(project.features.iter().any(|f| f.name == "shRNA (miR-1 scaffold）"), "scaffold feature");
+    }
+
+    // Protein: GenBank text + SnapGene binary
+    for path in [test_data("mCherry.gpt"), test_data("mCherry.prot")] {
+        let project = libregene_core::file_io::parse_file(&path).expect("parse protein file");
+        assert_eq!(project.molecule_type, "protein", "molecule type for {}", path.display());
+        assert_eq!(project.topology, "linear", "topology for {}", path.display());
+        assert_eq!(project.length, 237, "length for {}", path.display());
+        assert!(project.sequence.ends_with('*'), "terminal stop for {}", path.display());
+        let feat = project.features.iter().find(|f| f.name == "mCherry").expect("mCherry feature");
+        assert_eq!(feat.ftype, "Region");
+        assert_eq!(feat.color, "#ff0000");
+        assert_eq!((feat.start, feat.end), (0, 236));
+    }
+}
+
+/// RNA .gbk round trip: parse → write .gbk → parse again.
+#[test]
+fn roundtrip_rna_gbk() {
+    let original = libregene_core::file_io::gbk::parse_gbk(&test_data("Primary-miR-1.gbk"))
+        .expect("parse rna gbk");
+    assert_eq!(original.molecule_type, "rna");
+
+    let tmp = std::env::temp_dir().join("libregene_rna_roundtrip.gbk");
+    libregene_core::file_io::gbk::write_gbk(&original, &tmp).expect("write rna gbk");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse rna gbk");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains("ss-RNA"), "LOCUS keeps ss-RNA molecule type");
+    assert_eq!(reloaded.molecule_type, "rna");
+    assert_eq!(reloaded.length, 91);
+    assert_eq!(reloaded.sequence.to_uppercase(), original.sequence.to_uppercase());
+    assert!(reloaded.features.iter().any(|f| f.name == "Guide strand"));
+}
+
+/// Protein .gpt round trip: parse → write .gpt → parse again.
+#[test]
+fn roundtrip_protein_gpt() {
+    let original = libregene_core::file_io::gpt::parse_gpt(&test_data("mCherry.gpt"))
+        .expect("parse protein gpt");
+    assert_eq!(original.molecule_type, "protein");
+
+    let tmp = std::env::temp_dir().join("libregene_protein_roundtrip.gpt");
+    libregene_core::file_io::gpt::write_gpt(&original, &tmp).expect("write protein gpt");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gpt::parse_gpt(&tmp).expect("re-parse protein gpt");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains(" aa "), "LOCUS uses aa units");
+    assert!(written.contains("ORIGIN"), "ORIGIN section written");
+    assert_eq!(reloaded.molecule_type, "protein");
+    assert_eq!(reloaded.length, 237);
+    assert_eq!(reloaded.sequence, original.sequence);
+    let feat = reloaded.features.iter().find(|f| f.name == "mCherry").expect("mCherry feature");
+    assert_eq!(feat.color, "#ff0000");
+    assert_eq!((feat.start, feat.end), (0, 236));
+}

@@ -348,15 +348,69 @@ export async function designPrimerCandidates(args = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Codon optimization
+// ---------------------------------------------------------------------------
+
+/** List built-in codon-usage species keys (e.g. "e_coli", "h_sapiens"). */
+export async function listCodonSpecies() {
+  return tauriInvoke('list_codon_species');
+}
+
+/**
+ * Read-only preview of a CDS/mRNA feature's synonymous codon optimization.
+ * @param {object} args
+ * @param {string} args.featureId
+ * @param {string} args.species  species key, or "custom" when customTable is given
+ * @param {'use_best_codon'|'match_codon_usage'|'harmonize_rca'} args.method
+ * @param {Array<[string,string,number]>} [args.customTable] parsed Kazusa rows (aa, codon, freq)
+ * @param {string} [args.originalSpecies] required by harmonize_rca
+ * @param {string[]} [args.avoidEnzymeSites] recognition sequences to avoid
+ * @param {[number,number,number]} [args.gcWindow] (windowBp, minGC, maxGC)
+ */
+export async function previewCodonOptimization(args = {}) {
+  return tauriInvoke('preview_codon_optimization', {
+    featureId: args.featureId,
+    species: args.species,
+    method: args.method,
+    customTable: args.customTable ?? null,
+    originalSpecies: args.originalSpecies ?? null,
+    avoidEnzymeSites: args.avoidEnzymeSites ?? null,
+    gcWindow: args.gcWindow ?? null,
+  });
+}
+
+/** Apply a codon optimization (same args as preview); returns summary + { ok, message }. */
+export async function applyCodonOptimization(args = {}) {
+  return tauriInvoke('apply_codon_optimization', {
+    featureId: args.featureId,
+    species: args.species,
+    method: args.method,
+    customTable: args.customTable ?? null,
+    originalSpecies: args.originalSpecies ?? null,
+    avoidEnzymeSites: args.avoidEnzymeSites ?? null,
+    gcWindow: args.gcWindow ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Tauri dialog helpers
 // ---------------------------------------------------------------------------
 
 export async function openFileDialog(defaultPath) {
   if (!isTauri) return null;
   const opts = {
-    title: 'Open GenBank/DNA/FASTA files',
+    title: 'Open GenBank/DNA/RNA/Protein files',
     filters: [
-      { name: 'DNA Files', extensions: ['gbk', 'gb', 'dna', 'fasta', 'fa', 'fna', 'ab1'] },
+      {
+        name: 'Sequence Files',
+        extensions: [
+          'gbk', 'gb', 'genbank', 'gbf', 'gbff',
+          'dna', 'rna', 'prot',
+          'gpt', 'gp', 'gpe', 'gpff',
+          'fasta', 'fa', 'fna', 'fas', 'ffn', 'fsa', 'faa', 'frn',
+          'seq', 'ab1',
+        ],
+      },
       { name: 'All Files', extensions: ['*'] },
     ],
     multiple: true,
@@ -373,7 +427,7 @@ export async function openAlignmentFileDialog() {
   const result = await tauriOpen({
     title: 'Add alignment sequence',
     filters: [
-      { name: 'Sequence Files', extensions: ['ab1', 'fasta', 'fa', 'fna', 'gbk', 'gb', 'dna'] },
+      { name: 'Sequence Files', extensions: ['ab1', 'fasta', 'fa', 'fna', 'fas', 'ffn', 'fsa', 'faa', 'frn', 'seq', 'gbk', 'gb', 'genbank', 'gbf', 'gbff', 'dna'] },
       { name: 'All Files', extensions: ['*'] },
     ],
     multiple: false,
@@ -383,12 +437,13 @@ export async function openAlignmentFileDialog() {
   return Array.isArray(result) ? result[0] : result;
 }
 
-export async function saveFileDialog(defaultName = 'project.gbk') {
+export async function saveFileDialog(defaultName = 'project.gbk', ext = 'gbk') {
   if (!isTauri) return null;
+  const label = ext === 'gpt' ? 'Protein GenBank' : 'GenBank';
   const result = await tauriSave({
     title: 'Save GenBank file',
     defaultPath: defaultName,
-    filters: [{ name: 'GenBank', extensions: ['gbk'] }],
+    filters: [{ name: label, extensions: [ext] }],
   });
   reassertTrafficLights();
   return result;

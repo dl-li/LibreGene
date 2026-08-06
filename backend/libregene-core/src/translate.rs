@@ -4,14 +4,14 @@
 use crate::models::{Feature, ProjectData, Segment};
 
 /// Standard genetic code, codons ordered TCAG per position (1-letter codes).
-const GENETIC_CODE: [char; 64] = [
+pub const GENETIC_CODE: [char; 64] = [
     'F', 'F', 'L', 'L', 'S', 'S', 'S', 'S', 'Y', 'Y', '*', '*', 'C', 'C', '*', 'W',
     'L', 'L', 'L', 'L', 'P', 'P', 'P', 'P', 'H', 'H', 'Q', 'Q', 'R', 'R', 'R', 'R',
     'I', 'I', 'I', 'M', 'T', 'T', 'T', 'T', 'N', 'N', 'K', 'K', 'S', 'S', 'R', 'R',
     'V', 'V', 'V', 'V', 'A', 'A', 'A', 'A', 'D', 'D', 'E', 'E', 'G', 'G', 'G', 'G',
 ];
 
-fn codon_index(b: u8) -> Option<usize> {
+pub fn codon_index(b: u8) -> Option<usize> {
     match b {
         b'T' | b't' => Some(0),
         b'C' | b'c' => Some(1),
@@ -156,6 +156,7 @@ mod tests {
             sequence: "ATGGTGAGC".to_string(),
             length: 9,
             topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
             features: vec![
                 Feature {
                     ftype: "CDS".to_string(),

@@ -97,6 +97,34 @@ const FTYPE_OPTIONS = [
   'source',
 ];
 
+// Protein projects annotate amino-acid features (GenBank/UniProt conventions).
+const PROTEIN_FTYPE_OPTIONS = [
+  'Region',
+  'Domain',
+  'Site',
+  'Active Site',
+  'Binding Site',
+  'Modified Residue',
+  'Glycosylation Site',
+  'Disulfide Bond',
+  'Signal Peptide',
+  'Transit Peptide',
+  'Propeptide',
+  'mat_peptide',
+  'Chain',
+  'Peptide',
+  'Misc Feature',
+  'misc_feature',
+  'repeat_region',
+  'variant',
+  'conflict',
+  'unsure',
+  'helix',
+  'strand',
+  'turn',
+  'source',
+];
+
 /* ---------- Qualifier extraction ---------- */
 function extractQualifiers(feature) {
   const quals = [];
@@ -197,7 +225,7 @@ function StrandSegmented({ value, onSelect }) {
   );
 }
 
-function FtypeSelect({ value, onChange, autoFocus, onBlur }) {
+function FtypeSelect({ value, onChange, autoFocus, onBlur, options = FTYPE_OPTIONS }) {
   return (
     <div className="relative inline-flex items-center">
       <select
@@ -207,7 +235,7 @@ function FtypeSelect({ value, onChange, autoFocus, onBlur }) {
         autoFocus={autoFocus}
         className="h-8 appearance-none rounded-md border border-input bg-background pl-2 pr-7 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
       >
-        {FTYPE_OPTIONS.map((o) => (
+        {options.map((o) => (
           <option key={o} value={o}>
             {o}
           </option>
@@ -232,7 +260,11 @@ export default function FeatureInfoDialog({
   onFeatureAdd,
   onDeleteFeature,
   features,
+  moleculeType = 'dna',
 }) {
+  // Protein projects annotate amino-acid features; DNA list is nucleotide-centric.
+  const isProtein = moleculeType === 'protein';
+  const ftypeOptions = isProtein ? PROTEIN_FTYPE_OPTIONS : FTYPE_OPTIONS;
   // --- Shared state ---
   const [qualifiersOpen, setQualifiersOpen] = useState(false);
 
@@ -425,7 +457,11 @@ export default function FeatureInfoDialog({
             {/* Type */}
             <span className={LABEL_CLS}>Type</span>
             <div>
-              <FtypeSelect value={createFtype} onChange={(e) => setCreateFtype(e.target.value)} />
+              <FtypeSelect
+                value={createFtype}
+                onChange={(e) => setCreateFtype(e.target.value)}
+                options={ftypeOptions}
+              />
             </div>
 
             {/* Location */}
@@ -555,6 +591,11 @@ export default function FeatureInfoDialog({
                   setEditingFtype(false);
                   onFtypeChange?.(feature.id, e.target.value);
                 }}
+                options={
+                  ftypeOptions.includes(currentFtype)
+                    ? ftypeOptions
+                    : [currentFtype, ...ftypeOptions]
+                }
               />
             ) : (
               <button

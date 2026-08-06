@@ -1,5 +1,6 @@
 pub mod align;
 pub mod annotate;
+pub mod codon;
 pub mod digest;
 pub mod enzyme;
 pub mod file_io;

@@ -78,6 +78,21 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         Topology::Linear => "linear".to_string(),
     };
 
+    // Molecule type from the LOCUS molecule-type field (e.g. "ss-RNA").
+    let molecule_type = if seq
+        .molecule_type
+        .as_deref()
+        .map(|mt| {
+            let mt = mt.to_ascii_uppercase();
+            mt.contains("RNA") || mt.contains("RRNA")
+        })
+        .unwrap_or(false)
+    {
+        "rna".to_string()
+    } else {
+        "dna".to_string()
+    };
+
     let mut features: Vec<Feature> = Vec::new();
     let mut primers: Vec<Primer> = Vec::new();
     let mut alignment_reads: Vec<(String, String)> = Vec::new();
@@ -269,6 +284,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         sequence,
         length,
         topology,
+        molecule_type,
         features,
         primers,
         alignments,
@@ -297,7 +313,10 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     } else {
         Topology::Linear
     };
-    record.molecule_type = Some("DNA".to_string());
+    record.molecule_type = Some(match project.molecule_type.as_str() {
+        "rna" => "ss-RNA".to_string(),
+        _ => "DNA".to_string(),
+    });
     record.division = "SYN".to_string();
     record.seq = project.sequence.as_bytes().to_vec();
     record.len = Some(project.sequence.len());
@@ -343,7 +362,10 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
             ),
             (
                 Cow::Borrowed("mol_type"),
-                Some("other DNA".to_string()),
+                Some(match project.molecule_type.as_str() {
+                    "rna" => "other RNA".to_string(),
+                    _ => "other DNA".to_string(),
+                }),
             ),
             (
                 Cow::Borrowed("organism"),

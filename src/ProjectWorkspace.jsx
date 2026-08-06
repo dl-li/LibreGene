@@ -82,10 +82,14 @@ export default function ProjectWorkspace({
   const [enzymes, setEnzymes] = useState(initialData?.enzymes || EMPTY_ARRAY);
   const [primers, setPrimers] = useState(initialData?.primers || EMPTY_ARRAY);
   const [alignments, setAlignments] = useState(initialData?.alignments || EMPTY_ARRAY);
+  const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
+  // Primers/enzymes/ORFs/alignments are DNA-only features; rna/protein projects
+  // render single-strand sequence + features only.
+  const isDna = moleculeType === 'dna';
   const [showAlignments, setShowAlignments] = useState(true);
   const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
   const [alignTextOpen, setAlignTextOpen] = useState(false);
-  const alignmentEnabled = !disabledPlugins.includes('alignment');
+  const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
 
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
   const [detectFeaturesOpen, setDetectFeaturesOpen] = useState(false);
@@ -133,12 +137,13 @@ export default function ProjectWorkspace({
   const isDirtyRef = useRef(false);
   const baselineSequenceRef = useRef(initialData?.sequence ?? '');
 
-  // Direct Save is only allowed for GenBank files; non-GenBank sources
-  // (.dna, .fasta, .ab1, ...) must be re-exported via Save As.
+  // Direct Save is only allowed for text GenBank formats; binary sources
+  // (.dna, .rna, .prot, .fasta, .ab1, ...) must be re-exported via Save As.
+  // Protein projects may be re-saved in place as .gpt (protein GenBank).
   const canDirectSave = useMemo(() => {
     const ext = (projectId || '').split('.').pop()?.toLowerCase();
-    return ext === 'gbk' || ext === 'gb';
-  }, [projectId]);
+    return ext === 'gbk' || ext === 'gb' || (moleculeType === 'protein' && ext === 'gpt');
+  }, [projectId, moleculeType]);
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -174,6 +179,7 @@ export default function ProjectWorkspace({
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
           setAlignments(data.alignments || EMPTY_ARRAY);
+          setMoleculeType(data.moleculeType || 'dna');
           editHistoryRef.current.reset({
             sequence: data.sequence,
             features: data.features || EMPTY_ARRAY,
@@ -225,6 +231,7 @@ export default function ProjectWorkspace({
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(data.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
+        setMoleculeType(data.moleculeType || 'dna');
         editHistoryRef.current.reset({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
@@ -250,7 +257,8 @@ export default function ProjectWorkspace({
   );
   const syncedMethKeyRef = useRef(initialData ? '' : methKey);
   useEffect(() => {
-    if (hidden) return;
+    // Methylation/Dam/Dcm only applies to DNA; skip for rna/protein projects.
+    if (hidden || !isDna) return;
     if (syncedMethKeyRef.current === methKey) return;
     if (backendStatus !== 'online' || !sequence) return;
     let cancelled = false;
@@ -270,7 +278,7 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [methKey, hidden, backendStatus, sequence, methylationSystems, methylationOverlap]);
+  }, [methKey, hidden, backendStatus, sequence, methylationSystems, methylationOverlap, isDna]);
 
   // Report dirty state up to App (sidebar dots + title bar)
   useEffect(() => {
@@ -278,7 +286,7 @@ export default function ProjectWorkspace({
   }, [projectId, isDirty, onDirtyChange]);
 
   const [showOrfs, setShowOrfs] = useState(false);
-  const orfEnabled = !disabledPlugins.includes('orf') && showOrfs;
+  const orfEnabled = isDna && !disabledPlugins.includes('orf') && showOrfs;
   const [orfFeatures, setOrfFeatures] = useState(EMPTY_ARRAY);
   // ORFs are computed by the backend on the active project's sequence; refetch
   // whenever the toggle, sequence, topology, or backend availability changes.
@@ -318,8 +326,8 @@ export default function ProjectWorkspace({
       .replace(/\.[^.]+$/, '');
   }, [projectId]);
   const editorPrimers = useMemo(
-    () => (showPrimers ? primers : EMPTY_ARRAY),
-    [showPrimers, primers],
+    () => (isDna && showPrimers ? primers : EMPTY_ARRAY),
+    [isDna, showPrimers, primers],
   );
   const editorLayoutParams = useMemo(() => layoutParams, [layoutParams]);
 
@@ -335,6 +343,8 @@ export default function ProjectWorkspace({
   }, [enzymes]);
 
   const displayEnzymes = useMemo(() => {
+    // Enzymes only exist for DNA; rna/protein render sequence + features only.
+    if (!isDna) return EMPTY_ARRAY;
     if (!showEnzymes) return EMPTY_ARRAY;
     const all = enzymes || [];
     if (enzymeFilter === 'all') return all;
@@ -375,7 +385,7 @@ export default function ProjectWorkspace({
     if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
     if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
     return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes]);
+  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes, isDna]);
 
   const handleSelectionChange = useCallback(
     (sel) => {
@@ -572,7 +582,7 @@ export default function ProjectWorkspace({
 
   // Check binding of My Primers against the current sequence when the dialog opens.
   useEffect(() => {
-    if (!myPrimersOpen || !sequence || !myPrimers.length) {
+    if (!isDna || !myPrimersOpen || !sequence || !myPrimers.length) {
       setMyPrimerBinding({ loading: false, results: [] });
       return;
     }
@@ -589,7 +599,7 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [myPrimersOpen, myPrimers, sequence]);
+  }, [myPrimersOpen, myPrimers, sequence, isDna]);
 
   const applyAddedPrimers = useCallback(
     (data, gen) => {
@@ -1103,9 +1113,11 @@ export default function ProjectWorkspace({
   const handleSaveAs = useCallback(async () => {
     if (!isTauri) return;
 
+    // Protein projects export as protein GenBank (.gpt); DNA/RNA as .gbk.
+    const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
     const rawName = projectIdRef.current ? projectIdRef.current.split('/').pop() : 'sequence.gbk';
-    const defaultName = rawName.replace(/\.[^.]+$/, '') + '.gbk';
-    const path = await saveFileDialog(defaultName);
+    const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
+    const path = await saveFileDialog(defaultName, defaultExt);
     if (!path) return; // User cancelled
 
     try {
@@ -1125,7 +1137,7 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('save as error:', e);
     }
-  }, [onRekey, sequence]);
+  }, [onRekey, sequence, moleculeType]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -1141,10 +1153,10 @@ export default function ProjectWorkspace({
       return;
     }
 
-    // Non-GenBank sources (.dna, .fasta, .ab1, ...) must not be overwritten
-    // with GenBank text — force Save As with a .gbk target.
+    // Non-GenBank sources (.dna, .rna, .prot, .fasta, .ab1, ...) must not be
+    // overwritten with text formats — force Save As with a .gbk/.gpt target.
     const ext = filePath.split('.').pop()?.toLowerCase();
-    if (ext !== 'gbk' && ext !== 'gb') {
+    if (ext !== 'gbk' && ext !== 'gb' && !(moleculeType === 'protein' && ext === 'gpt')) {
       await handleSaveAs();
       return;
     }
@@ -1160,7 +1172,34 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('save exception:', e);
     }
-  }, [handleSaveAs, sequence]);
+  }, [handleSaveAs, sequence, moleculeType]);
+
+  // Refetch the project's data after a mutation whose command response does not
+  // carry the updated sequence/features (e.g. apply_codon_optimization); record
+  // the new state in undo history and mark the project dirty so Ctrl+Z can
+  // revert the optimization.
+  const refreshProject = useCallback(async () => {
+    try {
+      const data = await getProjectById(projectIdRef.current, 'all');
+      if (data && !data.error && data.sequence) {
+        editHistoryRef.current.push({
+          sequence: data.sequence,
+          features: data.features || EMPTY_ARRAY,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+        });
+        setSequence(data.sequence);
+        setFeatures(data.features || EMPTY_ARRAY);
+        setEnzymes(data.enzymes || EMPTY_ARRAY);
+        setPrimers(data.primers || EMPTY_ARRAY);
+        setAlignments(data.alignments || EMPTY_ARRAY);
+        setIsDirty(true);
+      }
+    } catch (e) {
+      console.error('project refresh error:', e);
+    }
+  }, []);
 
   // Expose imperative handle for App (sidebar buttons, close-with-save flow)
   useEffect(() => {
@@ -1288,7 +1327,9 @@ export default function ProjectWorkspace({
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
               onOpenPrimerOverview={() => setPrimerOverviewOpen(true)}
-              onOpenDetectFeatures={isTauri ? () => setDetectFeaturesOpen(true) : undefined}
+              onOpenDetectFeatures={
+                isTauri && isDna ? () => setDetectFeaturesOpen(true) : undefined
+              }
               onOpenMyEnzymes={() => setMyEnzymesOpen(true)}
               onOpenEnzymeDatabase={() => setEnzymeDbOpen(true)}
               onAddPrimerToMyPrimers={handleAddPrimerToMyPrimers}
@@ -1297,6 +1338,7 @@ export default function ProjectWorkspace({
               onToggleAutoAddPrimers={onToggleAutoAddPrimers}
               myEnzymes={myEnzymes}
               topology={topology}
+              moleculeType={moleculeType}
             />
           </main>
           {!hidden && (
@@ -1319,19 +1361,22 @@ export default function ProjectWorkspace({
             onSelect={handleMapSelect}
             onClear={handleMapClear}
             onFeatureOpen={(f) => openFeatureEditorRef.current?.(f)}
+            moleculeType={moleculeType}
           />
         </>
       ) : null}
 
-      <PrimerOverviewDialog
-        open={primerOverviewOpen}
-        onOpenChange={setPrimerOverviewOpen}
-        primers={primers}
-        alignmentCacheRef={alignmentCacheRef}
-        onEditPrimer={(p) => {
-          openPrimerEditorRef.current?.(p);
-        }}
-      />
+      {isDna && (
+        <PrimerOverviewDialog
+          open={primerOverviewOpen}
+          onOpenChange={setPrimerOverviewOpen}
+          primers={primers}
+          alignmentCacheRef={alignmentCacheRef}
+          onEditPrimer={(p) => {
+            openPrimerEditorRef.current?.(p);
+          }}
+        />
+      )}
 
       <DetectFeaturesDialog
         open={detectFeaturesOpen}
@@ -1340,53 +1385,62 @@ export default function ProjectWorkspace({
         onAddFeature={handleFeatureAdd}
       />
 
-      <MyPrimersDialog
-        open={myPrimersOpen}
-        onOpenChange={setMyPrimersOpen}
-        myPrimers={myPrimers}
-        currentPrimers={primers}
-        binding={myPrimerBinding}
-        onAddPrimer={handleAddMyPrimerToFile}
-        onAddAllBinding={handleAddAllBindingPrimers}
-        onDelete={handleDeleteMyPrimer}
-      />
+      {isDna && (
+        <MyPrimersDialog
+          open={myPrimersOpen}
+          onOpenChange={setMyPrimersOpen}
+          myPrimers={myPrimers}
+          currentPrimers={primers}
+          binding={myPrimerBinding}
+          onAddPrimer={handleAddMyPrimerToFile}
+          onAddAllBinding={handleAddAllBindingPrimers}
+          onDelete={handleDeleteMyPrimer}
+        />
+      )}
 
-      <MyEnzymesDialog
-        open={myEnzymesOpen}
-        onOpenChange={setMyEnzymesOpen}
-        enzymes={myEnzymes}
-        onChange={handleMyEnzymesChange}
-      />
+      {isDna && (
+        <MyEnzymesDialog
+          open={myEnzymesOpen}
+          onOpenChange={setMyEnzymesOpen}
+          enzymes={myEnzymes}
+          onChange={handleMyEnzymesChange}
+        />
+      )}
 
-      <EnzymeDatabaseDialog open={enzymeDbOpen} onOpenChange={setEnzymeDbOpen} />
+      {isDna && <EnzymeDatabaseDialog open={enzymeDbOpen} onOpenChange={setEnzymeDbOpen} />}
 
-      {plugins
-        .filter((plugin) => !disabledPlugins.includes(plugin.id))
-        .map((plugin) => {
-          const DialogComp = plugin.dialog;
-          if (!DialogComp) return null;
-          return (
-            <DialogComp
-              key={plugin.id}
-              open={!!pluginDialogs[plugin.dialogKey]}
-              onOpenChange={(open) =>
-                setPluginDialogs((prev) => ({
-                  ...prev,
-                  [plugin.dialogKey]: open,
-                }))
-              }
-              alignments={alignments}
-              onAddAlignment={handleAddAlignment}
-              onRemoveAlignment={handleRemoveAlignment}
-            />
-          );
-        })}
+      {isDna &&
+        plugins
+          .filter((plugin) => !disabledPlugins.includes(plugin.id))
+          .map((plugin) => {
+            const DialogComp = plugin.dialog;
+            if (!DialogComp) return null;
+            return (
+              <DialogComp
+                key={plugin.id}
+                open={!!pluginDialogs[plugin.dialogKey]}
+                onOpenChange={(open) =>
+                  setPluginDialogs((prev) => ({
+                    ...prev,
+                    [plugin.dialogKey]: open,
+                  }))
+                }
+                alignments={alignments}
+                onAddAlignment={handleAddAlignment}
+                onRemoveAlignment={handleRemoveAlignment}
+                features={features}
+                onProjectChanged={refreshProject}
+              />
+            );
+          })}
 
-      <AddAlignmentTextDialog
-        open={alignTextOpen}
-        onOpenChange={setAlignTextOpen}
-        onSubmit={handleAddAlignmentText}
-      />
+      {isDna && (
+        <AddAlignmentTextDialog
+          open={alignTextOpen}
+          onOpenChange={setAlignTextOpen}
+          onSubmit={handleAddAlignmentText}
+        />
+      )}
 
       {/* --- Sequence Edit Dialog --- */}
       <SequenceEditDialog
@@ -1399,6 +1453,7 @@ export default function ProjectWorkspace({
         initialText={editDialog.initialText}
         onConfirm={handleEditConfirm}
         onCancel={handleEditCancel}
+        moleculeType={moleculeType}
       />
     </div>
   );

@@ -128,11 +128,16 @@ export default function EditorNavMenu({
   onOpenEnzymeDatabase,
   myEnzymes = [],
   topology,
+  moleculeType = 'dna',
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searchScope, setSearchScope] = useState('all');
   const inputRef = useRef(null);
+
+  // rna/protein projects are single-strand sequences: keep Edit/Features/Search,
+  // hide DNA-only tooling (primers, enzymes, alignment, antisense/translation).
+  const isDna = moleculeType === 'dna';
 
   const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
   const SCOPE_WORDS = {
@@ -228,15 +233,19 @@ export default function EditorNavMenu({
             >
               <CopyPlus /> Copy Sense
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!hasSelection && !hasTranslationSelection}
-              onSelect={onCopyAntisense}
-            >
-              <CopyMinus /> Copy Antisense
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled={!hasTranslationSelection} onSelect={onCopyTranslation}>
-              <CopyX /> Copy Translation
-            </DropdownMenuItem>
+            {isDna && (
+              <DropdownMenuItem
+                disabled={!hasSelection && !hasTranslationSelection}
+                onSelect={onCopyAntisense}
+              >
+                <CopyMinus /> Copy Antisense
+              </DropdownMenuItem>
+            )}
+            {isDna && (
+              <DropdownMenuItem disabled={!hasTranslationSelection} onSelect={onCopyTranslation}>
+                <CopyX /> Copy Translation
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem disabled={!canPaste} onSelect={onPaste}>
               <ClipboardPaste /> Paste
               <DropdownMenuShortcut>⌘V</DropdownMenuShortcut>
@@ -275,125 +284,129 @@ export default function EditorNavMenu({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Primers */}
-        <DropdownMenu modal={false}>
-          <NavTrigger icon={ArrowRight} label="Primers" />
-          <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-            <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
-              Show Primers
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onCreatePrimer}>
-              <Plus /> Create Primer
-              <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onOpenPrimerOverview}>
-              <ArrowDownWideNarrow /> Primer Overview
-            </DropdownMenuItem>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>My Primer Collection</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-48">
-                <DropdownMenuItem onSelect={onOpenMyPrimers}>
-                  <ListChecks /> My Primer Collection…
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!hasSelectedPrimer}
-                  onSelect={onAddCurrentPrimerToMyPrimers}
-                >
-                  <Plus /> Add Current Primer
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!hasPrimers} onSelect={onAddAllPrimersToMyPrimers}>
-                  <CopyPlus /> Add All from This File
-                </DropdownMenuItem>
-                <DropdownMenuCheckboxItem
-                  checked={autoAddPrimers}
-                  onCheckedChange={onToggleAutoAddPrimers}
-                >
-                  Auto-add from Opened Files
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-44">
-                <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
-                  Amplify Fragment
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
-                  OE-PCR
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={topology !== 'circular'}
-                  onSelect={() => onPrimerDesign?.('mutagenesis')}
-                >
-                  PCR Mutagenesis
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Primers (DNA only) */}
+        {isDna && (
+          <DropdownMenu modal={false}>
+            <NavTrigger icon={ArrowRight} label="Primers" />
+            <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
+              <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
+                Show Primers
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onCreatePrimer}>
+                <Plus /> Create Primer
+                <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onOpenPrimerOverview}>
+                <ArrowDownWideNarrow /> Primer Overview
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger inset>My Primer Collection</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-48">
+                  <DropdownMenuItem onSelect={onOpenMyPrimers}>
+                    <ListChecks /> My Primer Collection…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!hasSelectedPrimer}
+                    onSelect={onAddCurrentPrimerToMyPrimers}
+                  >
+                    <Plus /> Add Current Primer
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!hasPrimers} onSelect={onAddAllPrimersToMyPrimers}>
+                    <CopyPlus /> Add All from This File
+                  </DropdownMenuItem>
+                  <DropdownMenuCheckboxItem
+                    checked={autoAddPrimers}
+                    onCheckedChange={onToggleAutoAddPrimers}
+                  >
+                    Auto-add from Opened Files
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-44">
+                  <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
+                    Amplify Fragment
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
+                    OE-PCR
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={topology !== 'circular'}
+                    onSelect={() => onPrimerDesign?.('mutagenesis')}
+                  >
+                    PCR Mutagenesis
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
-        {/* Enzymes */}
-        <DropdownMenu modal={false}>
-          <NavTrigger icon={Scissors} label="Enzymes" />
-          <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-            <DropdownMenuCheckboxItem checked={showEnzymes} onCheckedChange={onToggleEnzymes}>
-              Show Enzyme Sites
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>Choose Enzyme Set</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-44">
-                <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
-                  {ENZYME_FILTER_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem
-                      key={opt.value}
-                      value={opt.value}
-                      className={opt.className}
-                    >
-                      {opt.value === 'unique' ? (
-                        <span>
-                          <strong>Unique</strong> Cutters
-                        </span>
-                      ) : opt.value === 'unique6' ? (
-                        <span>
-                          <strong>Unique</strong> 6 bp
-                        </span>
-                      ) : opt.value === 'twice' ? (
-                        <span>
-                          Twice-cutter<sup>²</sup>
-                        </span>
-                      ) : opt.value === 'unique+twice' ? (
-                        <span>
-                          <strong>Unique</strong> + Twice-cutter<sup>²</sup>
-                        </span>
-                      ) : (
-                        opt.label
-                      )}
-                    </DropdownMenuRadioItem>
-                  ))}
-                  {myEnzymes.length > 0 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
-                    </>
-                  )}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuItem onSelect={onOpenMyEnzymes}>
-              <Scissors /> My Enzymes…
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
-              <Database /> Enzyme Database…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Enzymes (DNA only) */}
+        {isDna && (
+          <DropdownMenu modal={false}>
+            <NavTrigger icon={Scissors} label="Enzymes" />
+            <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
+              <DropdownMenuCheckboxItem checked={showEnzymes} onCheckedChange={onToggleEnzymes}>
+                Show Enzyme Sites
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger inset>Choose Enzyme Set</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-44">
+                  <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
+                    {ENZYME_FILTER_OPTIONS.map((opt) => (
+                      <DropdownMenuRadioItem
+                        key={opt.value}
+                        value={opt.value}
+                        className={opt.className}
+                      >
+                        {opt.value === 'unique' ? (
+                          <span>
+                            <strong>Unique</strong> Cutters
+                          </span>
+                        ) : opt.value === 'unique6' ? (
+                          <span>
+                            <strong>Unique</strong> 6 bp
+                          </span>
+                        ) : opt.value === 'twice' ? (
+                          <span>
+                            Twice-cutter<sup>²</sup>
+                          </span>
+                        ) : opt.value === 'unique+twice' ? (
+                          <span>
+                            <strong>Unique</strong> + Twice-cutter<sup>²</sup>
+                          </span>
+                        ) : (
+                          opt.label
+                        )}
+                      </DropdownMenuRadioItem>
+                    ))}
+                    {myEnzymes.length > 0 && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
+                      </>
+                    )}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem onSelect={onOpenMyEnzymes}>
+                <Scissors /> My Enzymes…
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
+                <Database /> Enzyme Database…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
-        {/* Alignment */}
-        {alignmentEnabled && (
+        {/* Alignment (DNA only) */}
+        {isDna && alignmentEnabled && (
           <DropdownMenu modal={false}>
             <NavTrigger icon={ChartNoAxesGantt} label="Align" />
             <DropdownMenuContent side="top" align="center" className="min-w-56 overflow-visible">

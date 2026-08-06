@@ -26,6 +26,9 @@ export default {
   id: 'orf',
   name: 'Show ORFs',
   dialogKey: null,
+  // DNA-only: ORF scanning (both strands, genetic code) is meaningless for
+  // rna/protein projects.
+  dnaOnly: true,
   // Sidebar entry toggles ORF visibility (handled in ProjectWorkspace, no dialog)
   sidebarItems: [
     { dialogKey: 'orf', label: 'Show ORFs', tooltip: 'Toggle ORF display', icon: BookA },

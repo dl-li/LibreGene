@@ -296,6 +296,8 @@ function SelectionLengthBadge({
   enzymeActiveBlue,
   amplimerGreen,
   hasWarningBelow,
+  unit = 'bp',
+  showGc = true,
 }) {
   // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
@@ -349,10 +351,10 @@ function SelectionLengthBadge({
   const gcPct = seqToCopy.length > 0 ? Math.round((gc / seqToCopy.length) * 100) : 0;
 
   // Measure the default label width so the badge has stable width
-  const line1 = `${len} bp`;
+  const line1 = `${len} ${unit}`;
   const line2 = '100% GC';
   const w1 = measureWidth(line1, `600 11px ${monoFont}`);
-  const w2 = measureWidth(line2, `600 11px ${monoFont}`);
+  const w2 = showGc ? measureWidth(line2, `600 11px ${monoFont}`) : 0;
   const minBadgeWidth = Math.max(w1, w2) + 10;
 
   return (
@@ -376,7 +378,7 @@ function SelectionLengthBadge({
       }}
     >
       <div>{line1}</div>
-      <div>{`${gcPct}% GC`}</div>
+      {showGc && <div>{`${gcPct}% GC`}</div>}
     </div>
   );
 }
@@ -537,7 +539,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
   autoAddPrimers = false,
   onToggleAutoAddPrimers,
   myEnzymes = [],
+  moleculeType = 'dna',
 }) {
+  const isDna = moleculeType === 'dna';
+  // Length unit for the sequence: base pairs (DNA), nucleotides (ss-RNA),
+  // amino acids (protein).
+  const seqUnit = isDna ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
   const containerRef = useRef(null);
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
@@ -924,8 +931,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return '#166534';
   };
 
-  // Async Tm computation via backend NN model
+  // Async Tm computation via backend NN model (DNA only)
   useEffect(() => {
+    if (!isDna) {
+      setSelectionTm(null);
+      return;
+    }
     if (!isDragging || selStart === null || selEnd === null) {
       setSelectionTm(null);
       return;
@@ -942,7 +953,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return () => {
       cancelled = true;
     };
-  }, [isDragging, selStart, selEnd, cleanSeq, tmParams]);
+  }, [isDragging, selStart, selEnd, cleanSeq, tmParams, isDna]);
 
   // Enrich primers with flat fields from bindingSites data model (v2).
   const enrichedPrimers = useMemo(
@@ -1029,6 +1040,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   }, [selectionMode, selectedPrimerIds, enrichedPrimers, onAddPrimerToMyPrimers]);
 
   const cdsWarnings = useMemo(() => {
+    // CDS codon-length/translation warnings only make sense for DNA.
+    if (!isDna) return [];
     const result = [];
     for (const f of features || []) {
       if (!isTranslatable(f) || f.orf) continue;
@@ -1051,7 +1064,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
     }
     return result;
-  }, [features, cleanSeq]);
+  }, [features, cleanSeq, isDna]);
 
   const combinedWarnings = useMemo(() => {
     const out = [];
@@ -2087,7 +2100,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
 
       // --- Cmd/Ctrl+R: Create new primer from selection (or empty) ---
-      if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+      if (isDna && (e.ctrlKey || e.metaKey) && e.key === 'r') {
         e.preventDefault();
         setPrimerAlignmentPrimer(null); // clear edit mode
         if (hasSelection && selectionMode === 'text') {
@@ -2129,6 +2142,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     translationSel,
     designPick,
     cancelDesignPick,
+    isDna,
   ]);
 
   useEffect(() => {
@@ -2436,6 +2450,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // Pre-compute translation data (amino acid + codon index map) for translatable features
   const cdsFeatureData = useMemo(() => {
+    // Codon-based translation display only applies to DNA; rna/protein are
+    // single-strand sequences without a genetic-code readout.
+    if (!isDna) return {};
     const map = {};
     for (const f of normFeatures) {
       if (!isTranslatable(f)) continue;
@@ -2443,7 +2460,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (data.trans.length > 0) map[f.id] = data;
     }
     return map;
-  }, [normFeatures, sequence]);
+  }, [normFeatures, sequence, isDna]);
 
   // Sync to a ref so early callbacks (e.g. copySelection) can read current CDS data
   // without creating a TDZ by referencing this later-defined constant.
@@ -4300,8 +4317,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const x = getX(col);
     const fontSize = '11px';
     const fontStr = `600 ${fontSize} ${monoFont}`;
-    let label = `${len} bp`;
-    if (showTm) label += `, ${tm}°C`;
+    let label = `${len} ${seqUnit}`;
+    if (isDna && showTm) label += `, ${tm}°C`;
     const tw = measureWidth(label, fontStr);
     return (
       <g style={{ pointerEvents: 'none' }}>
@@ -4337,6 +4354,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     rowAbove,
     currentSelColor,
     selectionTm,
+    seqUnit,
+    isDna,
   ]);
 
   const renderedSelection = useMemo(() => {
@@ -4565,6 +4584,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
         enzymeActiveBlue={enzymeActiveBlue}
         amplimerGreen={amplimerGreen}
         hasWarningBelow={combinedWarnings.length > 0}
+        unit={seqUnit}
+        showGc={moleculeType !== 'protein'}
       />
       {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}
       {designPick ? (
@@ -4648,6 +4669,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onOpenEnzymeDatabase={onOpenEnzymeDatabase}
           myEnzymes={myEnzymes}
           topology={topology}
+          moleculeType={moleculeType}
         />
       )}
       <div
@@ -4685,18 +4707,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
             {renderedCursor}
             {renderedDesignPicked}
             {renderedSelection}
-            {renderedAlignments}
-            {renderedAlignmentLabels}
+            {/* rna/protein are single-strand: no alignment/enzyme/primer layers */}
+            {isDna && renderedAlignments}
+            {isDna && renderedAlignmentLabels}
             {renderedFeatures}
             {renderedFeatureLabels}
-            {renderedEnzymes}
-            {renderedPrimers}
-            {renderedEnzymeLabels}
-            {renderedEnzymeOverlay}
+            {isDna && renderedEnzymes}
+            {isDna && renderedPrimers}
+            {isDna && renderedEnzymeLabels}
+            {isDna && renderedEnzymeOverlay}
             {renderedSeqBg}
             {renderedSeqSel}
-            {renderedTranslationSelection}
-            {renderedAmplimerRegion}
+            {isDna && renderedTranslationSelection}
+            {isDna && renderedAmplimerRegion}
             {renderedTooltips}
             {renderedSelectionInfo}
             {renderedHoverIndex}
@@ -4743,6 +4766,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onFeatureAdd={onFeatureAdd}
           onDeleteFeature={onFeatureDelete}
           features={features}
+          moleculeType={moleculeType}
         />
         <PrimerAlignmentDialog
           primer={primerAlignmentPrimer}

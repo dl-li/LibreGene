@@ -1,0 +1,39 @@
+LOCUS       Primary-miR-1          91 bp ss-RNA     linear   SYN 19-JUN-2026
+DEFINITION  .
+ACCESSION   .
+VERSION     .
+KEYWORDS    pNP
+SOURCE      
+  ORGANISM  
+REFERENCE   1  (bases 1 to 91)
+  AUTHORS   .
+  TITLE     Direct Submission
+  JOURNAL   Exported Aug 6, 2026 from SnapGene 7.0.2
+            https://www.snapgene.com
+FEATURES             Location/Qualifiers
+     source          1..91
+                     /mol_type="other DNA"
+     misc_feature    1..91
+                     /label=shRNA (miR-1 scaffold）
+                     /note="color: #3366ff"
+     gap             17..37
+                     /label=AS re-com
+                     /estimated_length=21
+                     /note="color: #------"
+     misc_feature    18..39
+                     /label=Passenger strand
+                     /note="color: #5c80ba"
+     misc_feature    43..49
+                     /label=loop
+                     /note="color: #ffffff"
+     misc_feature    56..77
+                     /label=Guide strand
+                     /note="color: #d34035"
+     gap             56..76
+                     /label=AS
+                     /estimated_length=21
+                     /note="color: #------"
+ORIGIN
+        1 ttcagccgct agcagttcca tgcttccttg cattcaatag ttatattcaa gcatatggaa
+       61 tgtaaagaag tatggagcga attcaggcga g
+//

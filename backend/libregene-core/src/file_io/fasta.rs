@@ -8,6 +8,12 @@ use crate::models::ProjectData;
 
 /// Parse a FASTA file. Only the first sequence is read.
 pub fn parse_fasta(path: &Path) -> io::Result<ProjectData> {
+    parse_fasta_with_molecule_type(path, "dna")
+}
+
+/// Parse a FASTA file with an explicit molecule type — `.faa` protein FASTA is
+/// opened as a protein project without alphabet sniffing.
+pub fn parse_fasta_with_molecule_type(path: &Path, molecule_type: &str) -> io::Result<ProjectData> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -40,6 +46,7 @@ pub fn parse_fasta(path: &Path) -> io::Result<ProjectData> {
         sequence,
         length,
         topology: "linear".to_string(),
+        molecule_type: molecule_type.to_string(),
         ..Default::default()
     })
 }
