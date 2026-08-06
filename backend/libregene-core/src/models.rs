@@ -163,8 +163,10 @@ pub struct Feature {
     pub id: String,
     pub name: String,
     /// overall min (inclusive)
+    #[serde(default)]
     pub start: i64,
     /// overall max (inclusive)
+    #[serde(default)]
     pub end: i64,
     #[serde(default = "default_feature_color")]
     pub color: String,
