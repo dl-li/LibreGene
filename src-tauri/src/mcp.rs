@@ -33,7 +33,7 @@ use tokio::sync::RwLock;
 use tauri::{AppHandle, Manager, Runtime};
 
 use libregene_core::digest::{DigestOptions, project_digest, read_sequence};
-use libregene_core::models::{Enzyme, Feature, Primer, ProjectData};
+use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite, ProjectData, Segment};
 use libregene_core::project::ProjectManager;
 
 /// Loopback port for the embedded MCP server (settings toggle comes later).
@@ -109,6 +109,40 @@ struct EditSequenceRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct OptimizeCdsRequest {
+    /// Project mode: optimize a CDS/mRNA feature inside an open project.
+    project_id: Option<String>,
+    /// Feature id (project mode: required; input_path mode: optional — pick
+    /// the file's CDS/mRNA feature with this id, otherwise the whole file
+    /// sequence is treated as the coding sequence).
+    feature_id: Option<String>,
+    /// Standalone mode: raw DNA coding sequence text (whitespace/digits
+    /// ignored, ACGT only, length divisible by 3; a trailing stop codon is
+    /// fine).
+    sequence: Option<String>,
+    /// Standalone mode: local sequence file (.gbk/.gb/.genbank/.dna/.rna/
+    /// .fasta/.fa/.fna/.ab1 — DNA) or protein file (.gpt/.prot — reverse
+    /// translation).
+    input_path: Option<String>,
+    /// Optional: write the result to a file. .gbk/.gb/.genbank → DNA GenBank
+    /// with the optimized CDS annotated; .gpt → protein GenBank of the
+    /// translated sequence.
+    output_path: Option<String>,
+    /// Species key from list_species (e.g. "e_coli", "h_sapiens").
+    species: String,
+    /// use_best_codon (default) | match_codon_usage | harmonize_rca.
+    method: Option<String>,
+    /// Source table for harmonize_rca; falls back to match_codon_usage when absent.
+    original_species: Option<String>,
+    /// Restriction-site recognition sequences to avoid (IUPAC codes allowed).
+    avoid_enzyme_sites: Option<Vec<String>>,
+    /// false = read-only preview; true = replace the sequence in the project.
+    /// Only meaningful in project mode (in sequence/input_path mode pass
+    /// `output_path` instead).
+    apply: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct AddFeatureRequest {
     project_id: Option<String>,
     name: String,
@@ -156,12 +190,6 @@ struct AddAlignmentRequest {
     #[serde(alias = "seq")]
     bases: Option<String>,
     path: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct RemoveAlignmentRequest {
-    project_id: Option<String>,
-    alignment_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -226,6 +254,256 @@ struct PrimerInput {
 struct CheckPrimerBindingRequest {
     project_id: Option<String>,
     primers: Vec<PrimerInput>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct ExportSubsequenceRequest {
+    /// Project to export from (defaults to the active project).
+    project_id: Option<String>,
+    /// Required: output file path (.gbk/.gb/.genbank for DNA/RNA projects,
+    /// .gpt for protein projects).
+    output_path: String,
+    /// Region mode: start of the export window, 0-based inclusive.
+    start: Option<i64>,
+    /// Region mode: end of the export window, 0-based inclusive (start > end
+    /// wraps the origin on circular sequences).
+    end: Option<i64>,
+    /// Feature mode: export this feature's sequence (segments joined 5'→3',
+    /// reverse-complemented for minus-strand features).
+    feature_id: Option<String>,
+    /// Fragment mode (enzyme names): first enzyme; its first recognition
+    /// site's top-strand cut starts the fragment.
+    enzyme1: Option<String>,
+    /// Fragment mode (enzyme names): second enzyme (may equal `enzyme1` to
+    /// use that enzyme's first two sites).
+    enzyme2: Option<String>,
+    /// Fragment mode (explicit cuts): first cut index, 0-based (a cut at
+    /// index C severs the DNA between C-1 and C).
+    cut1: Option<i64>,
+    /// Fragment mode (explicit cuts): second cut index (same convention).
+    cut2: Option<i64>,
+    /// Amplicon mode: fwd primer (project primer name or raw sequence).
+    fwd_primer: Option<String>,
+    /// Amplicon mode: rev primer (project primer name or raw sequence).
+    rev_primer: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// optimize_cds input resolution (project / raw sequence / file)
+// ---------------------------------------------------------------------------
+
+/// One of the three mutually exclusive input modes of `optimize_cds`.
+enum OptimizeInput {
+    /// Open-project mode: `feature_id` names the CDS/mRNA feature to optimize.
+    Project {
+        project_id: Option<String>,
+        feature_id: String,
+    },
+    /// Raw DNA coding sequence text.
+    Sequence(String),
+    /// Local sequence/protein file (`file_io::parse_file`).
+    File {
+        path: String,
+        feature_id: Option<String>,
+    },
+}
+
+/// Validate the input-mode combination and resolve it to exactly one
+/// [`OptimizeInput`]. Error messages name the offending combination.
+fn resolve_optimize_input(
+    project_id: Option<&str>,
+    feature_id: Option<&str>,
+    sequence: Option<&str>,
+    input_path: Option<&str>,
+) -> Result<OptimizeInput, String> {
+    match (sequence, input_path) {
+        (Some(_), Some(_)) => Err(
+            "provide exactly one input: `project_id` (+`feature_id`), `sequence`, or `input_path` — not both `sequence` and `input_path`"
+                .to_string(),
+        ),
+        (Some(seq), None) => {
+            if project_id.is_some() {
+                return Err(
+                    "`project_id` cannot be combined with `sequence`; use exactly one input mode"
+                        .to_string(),
+                );
+            }
+            if feature_id.is_some() {
+                return Err(
+                    "`feature_id` is only valid with `project_id` (project mode) or an `input_path` file that has features"
+                        .to_string(),
+                );
+            }
+            Ok(OptimizeInput::Sequence(seq.to_string()))
+        }
+        (None, Some(path)) => {
+            if project_id.is_some() {
+                return Err(
+                    "`project_id` cannot be combined with `input_path`; use exactly one input mode"
+                        .to_string(),
+                );
+            }
+            Ok(OptimizeInput::File {
+                path: path.to_string(),
+                feature_id: feature_id.map(str::to_string),
+            })
+        }
+        (None, None) => {
+            let feature_id = feature_id.ok_or_else(|| {
+                "`feature_id` is required in project mode (or pass `sequence` or `input_path` for standalone input)"
+                    .to_string()
+            })?;
+            Ok(OptimizeInput::Project {
+                project_id: project_id.map(str::to_string),
+                feature_id: feature_id.to_string(),
+            })
+        }
+    }
+}
+
+/// Strip whitespace/digits, uppercase, and require a valid DNA coding
+/// sequence: only A/C/G/T and a length divisible by 3 (a trailing stop codon
+/// is fine — it is just another codon).
+fn clean_coding_sequence(seq: &str) -> Result<String, String> {
+    let cleaned: String = seq
+        .chars()
+        .filter(|c| !c.is_whitespace() && !c.is_ascii_digit())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if cleaned.is_empty() {
+        return Err("sequence is empty".to_string());
+    }
+    for (i, c) in cleaned.char_indices() {
+        if c != 'A' && c != 'C' && c != 'G' && c != 'T' {
+            return Err(format!(
+                "invalid base '{}' at position {} in sequence (expected A/C/G/T)",
+                c, i
+            ));
+        }
+    }
+    if cleaned.len() % 3 != 0 {
+        return Err(format!(
+            "sequence length {} not divisible by 3 (expected a complete coding sequence)",
+            cleaned.len()
+        ));
+    }
+    Ok(cleaned)
+}
+
+/// The shared optimize_cds preview fields (identical across all input modes).
+fn codon_preview_json(
+    result: &libregene_core::codon::OptimizeResult,
+    aa: &str,
+    codon_count: usize,
+    method: &str,
+    species: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "aa": aa,
+        "codonCount": codon_count,
+        "newCodons": result.new_codons,
+        "caiBefore": result.cai_before,
+        "caiAfter": result.cai_after,
+        "gcBefore": result.gc_before,
+        "gcAfter": result.gc_after,
+        "repairs": result.repairs,
+        "repairCount": result.repairs.len(),
+        "unresolved": result.unresolved,
+        "method": method,
+        "species": species,
+    })
+}
+
+/// Write an optimization result to `output_path`. The extension decides the
+/// format: .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated
+/// (`source` replaces the default minimal project when the input file already
+/// carried features), .gpt → protein GenBank of the translated sequence.
+/// Returns the written path.
+fn write_optimization_output(
+    output_path: &str,
+    dna: Option<&str>,
+    aa: &str,
+    source: Option<&ProjectData>,
+) -> Result<String, String> {
+    let ext = crate::validate_user_path(output_path, crate::CODON_OUTPUT_EXTS)?;
+    let path = std::path::Path::new(output_path);
+    match ext.as_str() {
+        "gbk" | "gb" | "genbank" => {
+            let project = match source {
+                Some(p) => p.clone(),
+                None => {
+                    let dna = dna
+                        .ok_or_else(|| "no DNA sequence available for GenBank output".to_string())?;
+                    minimal_dna_project(output_path, dna)
+                }
+            };
+            libregene_core::file_io::gbk::write_gbk(&project, path)
+                .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
+        }
+        "gpt" => {
+            let project = minimal_protein_project(output_path, aa);
+            libregene_core::file_io::gpt::write_gpt(&project, path)
+                .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
+        }
+        other => {
+            return Err(format!(
+                "unsupported output extension '.{}' (allowed: gbk, gb, genbank, gpt)",
+                other
+            ))
+        }
+    }
+    Ok(output_path.to_string())
+}
+
+fn minimal_dna_project(output_path: &str, dna: &str) -> ProjectData {
+    let name = output_project_name(output_path);
+    let len = dna.len() as i64;
+    ProjectData {
+        name,
+        sequence: dna.to_string(),
+        length: len,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        features: vec![whole_cds_feature(len)],
+        ..Default::default()
+    }
+}
+
+fn minimal_protein_project(output_path: &str, aa: &str) -> ProjectData {
+    let name = output_project_name(output_path);
+    let len = aa.len() as i64;
+    ProjectData {
+        name,
+        sequence: aa.to_string(),
+        length: len,
+        topology: "linear".to_string(),
+        molecule_type: "protein".to_string(),
+        features: vec![whole_cds_feature(len)],
+        ..Default::default()
+    }
+}
+
+fn output_project_name(output_path: &str) -> String {
+    std::path::Path::new(output_path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().replace(' ', "_"))
+        .unwrap_or_else(|| "optimized".to_string())
+}
+
+fn whole_cds_feature(len: i64) -> Feature {
+    Feature {
+        id: "cds".to_string(),
+        name: "CDS".to_string(),
+        start: 0,
+        end: len - 1,
+        color: "#60A5FA".to_string(),
+        ftype: "CDS".to_string(),
+        segments: Vec::new(),
+        strand: "+".to_string(),
+        notes: String::new(),
+        translation: String::new(),
+        qualifiers: Vec::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,11 +678,676 @@ impl<R: Runtime> LibreGeneMcp<R> {
     fn payload_error(payload: &serde_json::Value) -> Option<String> {
         payload.get("error").and_then(|v| v.as_str()).map(String::from)
     }
+
+    /// Standalone `sequence` input for optimize_cds: clean + validate the DNA
+    /// coding sequence, optimize, optionally write the result to a file.
+    async fn optimize_sequence_input(
+        &self,
+        sequence: String,
+        species: String,
+        method: String,
+        original_species: Option<String>,
+        avoid_enzyme_sites: Option<Vec<String>>,
+        output_path: Option<String>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let cleaned = clean_coding_sequence(&sequence)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let codons: Vec<String> = cleaned
+            .as_bytes()
+            .chunks(3)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect();
+        let codon_count = codons.len();
+        let sp = species.clone();
+        let m = method.clone();
+        let os = original_species.clone();
+        let aes = avoid_enzyme_sites.clone();
+        let (result, aa) = tokio::task::spawn_blocking(move || -> Result<_, String> {
+            let table = crate::codon_usage_table(&sp, None)?;
+            let opts = crate::codon_optimize_options(&m, os.as_deref(), aes, None)?;
+            let result = libregene_core::codon::optimize_codons(&codons, &table, &opts);
+            let aa: String = codons
+                .iter()
+                .map(|c| table.aa_of.get(c).copied().unwrap_or('?'))
+                .collect();
+            Ok((result, aa))
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
+        .map_err(|e| ErrorData::invalid_params(e, None))?;
+
+        let optimized: String = result.new_codons.concat();
+        let mut v = codon_preview_json(&result, &aa, codon_count, &method, &species);
+        v["ok"] = serde_json::json!(true);
+        v["optimizedSequence"] = serde_json::json!(optimized);
+        v["message"] = serde_json::json!(format!(
+            "Codon optimization (sequence input, {}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
+            species,
+            result.cai_before,
+            result.cai_after,
+            result.gc_before * 100.0,
+            result.gc_after * 100.0,
+            result.repairs.len(),
+            result.unresolved.len(),
+        ));
+        if let Some(op) = output_path {
+            let written = write_optimization_output(&op, Some(&optimized), &aa, None)
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            v["outputPath"] = serde_json::json!(written);
+        }
+        Ok(Json(v))
+    }
+
+    /// Standalone `input_path` input for optimize_cds: parse the file, run the
+    /// optimizer (feature CDS, whole sequence, or protein reverse translation),
+    /// optionally write the result to a file.
+    async fn optimize_file_input(
+        &self,
+        path: String,
+        feature_id: Option<String>,
+        species: String,
+        method: String,
+        original_species: Option<String>,
+        avoid_enzyme_sites: Option<Vec<String>>,
+        output_path: Option<String>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        crate::validate_user_path(&path, crate::SEQ_EXTS)
+            .map_err(|e| ErrorData::invalid_params(format!("invalid input_path: {}", e), None))?;
+
+        let sp = species.clone();
+        let m = method.clone();
+        let os = original_species.clone();
+        let aes = avoid_enzyme_sites.clone();
+        let fid = feature_id.clone();
+        let p = path.clone();
+        let (outcome, result, codon_count, aa, message) = tokio::task::spawn_blocking(
+            move || -> Result<
+                (
+                    FileOutcome,
+                    libregene_core::codon::OptimizeResult,
+                    usize,
+                    String,
+                    String,
+                ),
+                String,
+            > {
+            let project = libregene_core::file_io::parse_file(std::path::Path::new(&p)).map_err(
+                |e| {
+                    format!(
+                        "failed to read {} (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
+                        p, e
+                    )
+                },
+            )?;
+            if project.molecule_type == "protein" {
+                // Reverse translation: aa file → optimized DNA coding sequence.
+                let aa = project.sequence.to_ascii_uppercase();
+                let table = crate::codon_usage_table(&sp, None)?;
+                let opts = crate::codon_optimize_options(&m, os.as_deref(), aes, None)?;
+                let result = libregene_core::codon::optimize_from_aa(&aa, &table, &opts)?;
+                let dna: String = result.new_codons.concat();
+                let message = format!(
+                    "Reverse translation (protein file input, {}): {} aa → {} bp DNA, {} repairs, {} unresolved",
+                    sp,
+                    aa.chars().count(),
+                    dna.len(),
+                    result.repairs.len(),
+                    result.unresolved.len(),
+                );
+                return Ok((
+                    FileOutcome::Plain { dna },
+                    result,
+                    aa.chars().count(),
+                    aa,
+                    message,
+                ));
+            }
+            if let Some(fid) = &fid {
+                // Feature CDS inside the DNA file: write-back through the
+                // template so the full sequence (CDS replaced) is available.
+                let (new_sequence, result, coding) = crate::codon_optimize(
+                    &project,
+                    fid,
+                    &sp,
+                    &m,
+                    None,
+                    os.as_deref(),
+                    aes,
+                    None,
+                )?;
+                let message = format!(
+                    "Codon optimization for {} (file input, {}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
+                    fid,
+                    sp,
+                    result.cai_before,
+                    result.cai_after,
+                    result.repairs.len(),
+                    result.unresolved.len(),
+                );
+                let mut source_project = project.clone();
+                source_project.sequence = new_sequence.clone();
+                source_project.length = new_sequence.len() as i64;
+                Ok((
+                    FileOutcome::Feature { new_sequence, source_project },
+                    result,
+                    coding.codons.len(),
+                    coding.aa,
+                    message,
+                ))
+            } else {
+                // Whole file sequence as the coding sequence.
+                let cleaned = clean_coding_sequence(&project.sequence)
+                    .map_err(|e| format!("invalid file sequence: {}", e))?;
+                let codons: Vec<String> = cleaned
+                    .as_bytes()
+                    .chunks(3)
+                    .map(|c| String::from_utf8_lossy(c).into_owned())
+                    .collect();
+                let table = crate::codon_usage_table(&sp, None)?;
+                let opts = crate::codon_optimize_options(&m, os.as_deref(), aes, None)?;
+                let result = libregene_core::codon::optimize_codons(&codons, &table, &opts);
+                let aa: String = codons
+                    .iter()
+                    .map(|c| table.aa_of.get(c).copied().unwrap_or('?'))
+                    .collect();
+                let dna: String = result.new_codons.concat();
+                let message = format!(
+                    "Codon optimization (file input, whole sequence as CDS, {}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
+                    sp,
+                    result.cai_before,
+                    result.cai_after,
+                    result.repairs.len(),
+                    result.unresolved.len(),
+                );
+                Ok((
+                    FileOutcome::Plain { dna },
+                    result,
+                    codons.len(),
+                    aa,
+                    message,
+                ))
+            }
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
+        .map_err(|e| ErrorData::invalid_params(e, None))?;
+
+        let mut v = codon_preview_json(&result, &aa, codon_count, &method, &species);
+        v["ok"] = serde_json::json!(true);
+        v["optimizedSequence"] = serde_json::json!(match &outcome {
+            FileOutcome::Feature { new_sequence, .. } => new_sequence,
+            FileOutcome::Plain { dna } => dna,
+        });
+        v["message"] = serde_json::json!(message);
+        if let Some(op) = output_path {
+            let (dna, source) = match &outcome {
+                FileOutcome::Feature { source_project, .. } => (None, Some(source_project)),
+                FileOutcome::Plain { dna, .. } => (Some(dna.as_str()), None),
+            };
+            let written = write_optimization_output(&op, dna, &aa, source)
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            v["outputPath"] = serde_json::json!(written);
+        }
+        Ok(Json(v))
+    }
+}
+
+/// The optimized sequence carried out of `optimize_file_input`'s compute
+/// closure: a full template write-back (feature mode) or a bare DNA string.
+enum FileOutcome {
+    /// Full file sequence with the optimized CDS written back in place.
+    Feature {
+        new_sequence: String,
+        source_project: ProjectData,
+    },
+    /// The optimized coding sequence itself.
+    Plain { dna: String },
+}
+
+// ---------------------------------------------------------------------------
+// export_subsequence: region resolution + export data building
+// ---------------------------------------------------------------------------
+
+/// Linear template pieces for a 0-based inclusive region; on circular
+/// sequences a wrap (start > end) becomes two pieces.
+fn region_pieces(project: &ProjectData, s: i64, e: i64) -> Vec<(i64, i64)> {
+    if project.topology == "circular" && s > e {
+        vec![(s, project.length - 1), (0, e)]
+    } else {
+        vec![(s, e)]
+    }
+}
+
+/// The fragment between two cuts (0-based; a cut at index C severs the DNA
+/// between C-1 and C). Linear: the span between the smaller and the larger
+/// cut ([lo, hi-1]). Circular: the forward arc from cut1 to cut2, wrapping
+/// over the origin when cut1 > cut2, the whole molecule when they coincide.
+fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, i64)>, String> {
+    let len = project.length;
+    if project.topology == "circular" {
+        if c1 < c2 {
+            Ok(vec![(c1, c2 - 1)])
+        } else if c1 > c2 {
+            let mut v = vec![(c1, len - 1)];
+            if c2 > 0 {
+                v.push((0, c2 - 1));
+            }
+            Ok(v)
+        } else {
+            Ok(vec![(0, len - 1)])
+        }
+    } else {
+        let (lo, hi) = (c1.min(c2), c1.max(c2));
+        if lo == hi {
+            return Err("cut1 and cut2 are equal — the fragment between them is empty".to_string());
+        }
+        Ok(vec![(lo, hi - 1)])
+    }
+}
+
+/// The top-strand cut index (0-based) of an enzyme's `ordinal`-th recognition
+/// site (sorted by rec_start) from the already-computed engine results.
+/// Unknown enzymes error with near-match suggestions, mirroring
+/// find_restriction_sites.
+fn enzyme_cut_index(project: &ProjectData, name: &str, ordinal: usize) -> Result<i64, String> {
+    let mut hits: Vec<&Enzyme> = project
+        .enzymes
+        .iter()
+        .filter(|e| e.name.eq_ignore_ascii_case(name))
+        .collect();
+    hits.sort_by_key(|e| e.rec_start);
+    match hits.get(ordinal) {
+        Some(site) => Ok(if site.cut_pairs.is_empty() {
+            site.cut_index
+        } else {
+            site.cut_pairs[0].top_cut_index
+        }),
+        None => {
+            let q = name.to_lowercase();
+            let sugg: Vec<&str> = project
+                .enzymes
+                .iter()
+                .map(|e| e.name.as_str())
+                .filter(|n| n.to_lowercase().contains(&q))
+                .take(5)
+                .collect();
+            if hits.is_empty() {
+                if sugg.is_empty() {
+                    Err(format!(
+                        "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name",
+                        name
+                    ))
+                } else {
+                    Err(format!(
+                        "Unknown enzyme '{}'; enzymes cutting this sequence with similar names: {}",
+                        name,
+                        sugg.join(", ")
+                    ))
+                }
+            } else {
+                Err(format!(
+                    "Enzyme '{}' has only {} recognition site(s) on this sequence; cannot select site {} (0-based)",
+                    name,
+                    hits.len(),
+                    ordinal
+                ))
+            }
+        }
+    }
+}
+
+/// Resolve a fwd/rev primer argument — a project primer name (stored binding
+/// sites are reused, recomputed when empty; name lookup wins) or a raw
+/// sequence (binding sites recomputed with the primer engine) — to its best
+/// binding site on the wanted strand. Mirrors check_primer_binding's strand
+/// semantics: strand 1 = forward, strand -1 = reverse.
+fn resolve_primer_binding_site(
+    project: &ProjectData,
+    input: &str,
+    want_strand: i8,
+    role: &str,
+) -> Result<PrimerBindingSite, String> {
+    let seq: String;
+    let sites: Vec<PrimerBindingSite>;
+    if let Some(p) = project
+        .primers
+        .iter()
+        .find(|p| p.name == input || p.id == input)
+    {
+        seq = p.primer_seq.clone();
+        sites = if p.binding_sites.is_empty() {
+            libregene_core::primer::align::compute_binding_sites(
+                &project.sequence,
+                &p.primer_seq,
+                &p.r#type,
+                &p.id,
+                &project.topology,
+                0.0,
+            )
+        } else {
+            p.binding_sites.clone()
+        };
+    } else {
+        let cleaned: String = input
+            .chars()
+            .filter(|c| c.is_ascii_alphabetic())
+            .collect::<String>()
+            .to_uppercase();
+        if cleaned.is_empty() {
+            return Err(format!(
+                "{} '{}' is neither a primer name in the project nor a sequence",
+                role, input
+            ));
+        }
+        seq = cleaned.clone();
+        let probe = Primer {
+            id: role.to_string(),
+            name: role.to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: cleaned,
+            binding_sites: Vec::new(),
+        };
+        sites = libregene_core::primer::align::compute_binding_sites(
+            &project.sequence,
+            &probe.primer_seq,
+            &probe.r#type,
+            &probe.id,
+            &project.topology,
+            0.0,
+        );
+    }
+    sites
+        .iter()
+        .find(|s| s.strand == want_strand)
+        .cloned()
+        .ok_or_else(|| {
+            let strand_name = if want_strand == 1 { "forward" } else { "reverse" };
+            format!(
+                "{} '{}' ({} bp) does not bind the {} strand of the template: {} binding site(s) found, none on the {} strand",
+                role, input, seq.len(), strand_name, sites.len(), strand_name
+            )
+        })
+}
+
+/// Resolve an export_subsequence request to the template pieces it exports:
+/// linear 0-based inclusive spans in EXPORT order, `flip` (each piece's
+/// sequence is reverse-complemented when exporting a minus-strand feature)
+/// and a human-readable description of the selected region. Exactly one
+/// selector must be given; mixing selectors is rejected.
+fn resolve_export_region(
+    project: &ProjectData,
+    req: &ExportSubsequenceRequest,
+) -> Result<(Vec<(i64, i64)>, bool, String), String> {
+    let region_active = req.start.is_some() || req.end.is_some();
+    let feature_active = req.feature_id.is_some();
+    let fragment_active = req.enzyme1.is_some()
+        || req.enzyme2.is_some()
+        || req.cut1.is_some()
+        || req.cut2.is_some();
+    let amplicon_active = req.fwd_primer.is_some() || req.rev_primer.is_some();
+    let active = [region_active, feature_active, fragment_active, amplicon_active]
+        .into_iter()
+        .filter(|a| *a)
+        .count();
+    if active != 1 {
+        return Err(
+            "exactly one region selector required: (start+end), (feature_id), (enzyme1+enzyme2 | cut1+cut2), or (fwd_primer+rev_primer)"
+                .to_string(),
+        );
+    }
+    if project.length <= 0 || project.sequence.is_empty() {
+        return Err("Sequence is empty".to_string());
+    }
+    let len = project.length;
+    let circular = project.topology == "circular";
+
+    if region_active {
+        let (s, e) = match (req.start, req.end) {
+            (Some(s), Some(e)) => (s, e),
+            _ => return Err("start and end are both required (0-based inclusive)".to_string()),
+        };
+        if s > e && !circular {
+            return Err(
+                "start > end is only allowed on circular sequences (wraps the origin)".to_string(),
+            );
+        }
+        if s < 0 || e < 0 || s >= len || e >= len {
+            return Err(format!(
+                "range {}..{} out of bounds for sequence of length {} (0-based inclusive)",
+                s, e, len
+            ));
+        }
+        return Ok((
+            region_pieces(project, s, e),
+            false,
+            format!("region {}..{}", s, e),
+        ));
+    }
+
+    if feature_active {
+        let fid = req.feature_id.as_deref().unwrap_or("");
+        let f = project
+            .features
+            .iter()
+            .find(|f| f.id == fid)
+            .ok_or_else(|| format!("Feature not found: {}", fid))?;
+        let segs: Vec<(i64, i64)> = if f.segments.is_empty() {
+            vec![(f.start, f.end)]
+        } else {
+            f.segments.iter().map(|s| (s.start, s.end)).collect()
+        };
+        let mut pieces: Vec<(i64, i64)> = Vec::new();
+        for &(s, e) in &segs {
+            if s <= e {
+                pieces.push((s, e));
+            } else if circular {
+                pieces.push((s, len - 1));
+                pieces.push((0, e));
+            } else {
+                return Err(format!(
+                    "feature {} spans the origin but the project is linear",
+                    f.id
+                ));
+            }
+        }
+        for &(s, e) in &pieces {
+            if s < 0 || e >= len {
+                return Err(format!(
+                    "feature {} coordinate {}..{} out of range for sequence of length {}",
+                    f.id, s, e, len
+                ));
+            }
+        }
+        pieces.sort_unstable();
+        let minus = f.strand == "-";
+        if minus {
+            pieces.reverse();
+        }
+        return Ok((pieces, minus, format!("feature '{}' ({})", f.name, f.id)));
+    }
+
+    if fragment_active {
+        let (c1, c2, desc) = match (&req.enzyme1, &req.enzyme2, req.cut1, req.cut2) {
+            (Some(e1), Some(e2), None, None) => {
+                let c1 = enzyme_cut_index(project, e1, 0)?;
+                let c2 = if e1.eq_ignore_ascii_case(e2) {
+                    enzyme_cut_index(project, e2, 1)?
+                } else {
+                    enzyme_cut_index(project, e2, 0)?
+                };
+                (
+                    c1,
+                    c2,
+                    format!(
+                        "fragment between {} (cut {}) and {} (cut {})",
+                        e1, c1, e2, c2
+                    ),
+                )
+            }
+            (None, None, Some(a), Some(b)) => {
+                let max_cut = if circular { len - 1 } else { len };
+                if a < 0 || b < 0 || a > max_cut || b > max_cut {
+                    return Err(format!(
+                        "cut indices {} and {} out of range (0..={} for a {} bp {})",
+                        a, b, max_cut, len, project.topology
+                    ));
+                }
+                let (a, b) = if circular { (a % len, b % len) } else { (a, b) };
+                (a, b, format!("fragment between cuts {} and {}", a, b))
+            }
+            _ => {
+                return Err(
+                    "fragment mode needs enzyme1+enzyme2 (names) OR cut1+cut2 (indices), not a mix"
+                        .to_string(),
+                )
+            }
+        };
+        return Ok((fragment_pieces(project, c1, c2)?, false, desc));
+    }
+
+    let fwd = req.fwd_primer.as_deref().unwrap_or("");
+    let rev = req.rev_primer.as_deref().unwrap_or("");
+    if fwd.is_empty() || rev.is_empty() {
+        return Err(
+            "fwd_primer and rev_primer are both required (name or sequence)".to_string(),
+        );
+    }
+    let fsite = resolve_primer_binding_site(project, fwd, 1, "fwd primer")?;
+    let rsite = resolve_primer_binding_site(project, rev, -1, "rev primer")?;
+    let f_start = fsite.template_start;
+    // Rev primer's 5' end is the last template base it covers (template_end
+    // is exclusive); the amplicon runs from the fwd 5' end to that base.
+    let r_end = if rsite.template_end == 0 {
+        len - 1
+    } else {
+        rsite.template_end - 1
+    };
+    let pieces = if circular {
+        if f_start <= r_end {
+            vec![(f_start, r_end)]
+        } else {
+            vec![(f_start, len - 1), (0, r_end)]
+        }
+    } else {
+        if f_start > r_end {
+            return Err(format!(
+                "fwd primer's 5' end (position {}) is downstream of the rev primer's 5' end (position {}); the pair does not define an amplicon on a linear sequence",
+                f_start, r_end
+            ));
+        }
+        vec![(f_start, r_end)]
+    };
+    Ok((
+        pieces,
+        false,
+        format!("amplicon fwd '{}' → rev '{}'", fwd, rev),
+    ))
+}
+
+/// Build the exported sequence (template bases of the pieces, uppercase,
+/// reverse-complemented per piece when `flip`) and the features overlapping
+/// the pieces with coordinates translated to the new linear coordinate
+/// system (strand flipped when `flip`). A feature-mode export's own feature
+/// naturally lands on the full [0, len-1] span.
+fn build_export_data(project: &ProjectData, pieces: &[(i64, i64)], flip: bool) -> (String, Vec<Feature>) {
+    let mut sequence = String::new();
+    let mut windows: Vec<(i64, i64)> = Vec::with_capacity(pieces.len());
+    let mut off: i64 = 0;
+    for &(s, e) in pieces {
+        let span = &project.sequence[s as usize..=e as usize];
+        if flip {
+            sequence.push_str(&libregene_core::utils::reverse_complement(span));
+        } else {
+            sequence.push_str(span);
+        }
+        windows.push((off, off + (e - s + 1)));
+        off += e - s + 1;
+    }
+    let mut features: Vec<Feature> = Vec::new();
+    for f in &project.features {
+        let segs: Vec<(i64, i64)> = if f.segments.is_empty() {
+            vec![(f.start, f.end)]
+        } else {
+            f.segments.iter().map(|s| (s.start, s.end)).collect()
+        };
+        let mut mapped: Vec<(i64, i64)> = Vec::new();
+        for (pi, &(ps, pe)) in pieces.iter().enumerate() {
+            let (wo, _) = windows[pi];
+            for &(s, e) in &segs {
+                let os = s.max(ps);
+                let oe = e.min(pe);
+                if os <= oe {
+                    let (ns, ne) = if flip {
+                        (wo + (pe - oe), wo + (pe - os))
+                    } else {
+                        (wo + (os - ps), wo + (oe - ps))
+                    };
+                    mapped.push((ns, ne));
+                }
+            }
+        }
+        if mapped.is_empty() {
+            continue;
+        }
+        let merged = merge_sorted_segments(mapped);
+        let nstart = merged[0].0;
+        let nend = merged[merged.len() - 1].1;
+        let nstrand = if flip {
+            match f.strand.as_str() {
+                "+" => "-".to_string(),
+                "-" => "+".to_string(),
+                s => s.to_string(),
+            }
+        } else {
+            f.strand.clone()
+        };
+        features.push(Feature {
+            id: f.id.clone(),
+            name: f.name.clone(),
+            start: nstart,
+            end: nend,
+            color: f.color.clone(),
+            ftype: f.ftype.clone(),
+            segments: merged
+                .iter()
+                .map(|&(s, e)| Segment {
+                    start: s,
+                    end: e,
+                    color: None,
+                })
+                .collect(),
+            strand: nstrand,
+            notes: f.notes.clone(),
+            translation: f.translation.clone(),
+            qualifiers: f.qualifiers.clone(),
+        });
+    }
+    (sequence.to_ascii_uppercase(), features)
+}
+
+/// Sort spans ascending and merge overlapping/touching ones.
+fn merge_sorted_segments(mut segs: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    segs.sort_unstable();
+    let mut out: Vec<(i64, i64)> = Vec::new();
+    for (s, e) in segs {
+        if let Some(last) = out.last_mut() {
+            if s <= last.1 + 1 {
+                last.1 = last.1.max(e);
+                continue;
+            }
+        }
+        out.push((s, e));
+    }
+    out
 }
 
 #[tool_router]
 impl<R: Runtime> LibreGeneMcp<R> {
-    /// List all open projects. Returns {"projects": [{id, name, length, topology, dirty}], "activeId": id-or-null}.
+    /// List all open projects — the files currently loaded into memory.
+    /// A "project" is an open file: `open_file` loads a file as a project and
+    /// returns its `projectId`; every other tool addresses that project by
+    /// `project_id`. Returns {"projects": [{id, name, length, topology,
+    /// dirty}], "activeId": id-or-null}.
     #[tool]
     async fn list_projects(&self) -> Result<Json<serde_json::Value>, ErrorData> {
         let pm = self.pm.read().await;
@@ -503,24 +1446,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(serde_json::json!({ "projectId": id, "matches": matches })))
     }
 
-    /// Full static enzyme database (~196 KB, ~1100 entries) as JSON: name,
-    /// recognition site, cut offsets, cut type, methylation sensitivity.
-    /// The project digest already summarizes which enzymes actually cut the
-    /// current sequence — pull this only when you need the full catalog.
-    #[tool]
-    async fn get_enzyme_database(&self) -> Result<Json<serde_json::Value>, ErrorData> {
-        let db = libregene_core::enzyme::search::get_db();
-        let value = serde_json::to_value(&db.enzymes)
-            .map_err(|e| ErrorData::internal_error(format!("serialize enzyme db: {e}"), None))?;
-        Ok(Json(value))
-    }
-
     /// List restriction-enzyme recognition sites on a project's sequence.
-    /// `enzymes` is an optional list of enzyme names (case-insensitive, names
-    /// from get_enzyme_database); omit it (or pass []) to report every enzyme
-    /// that has a site. Unknown names are rejected with near-match
-    /// suggestions. Sites are the already-computed engine results the UI
-    /// shows (circular-normalized, methylation-aware), so no recompute runs.
+    /// `enzymes` is an optional list of enzyme names (case-insensitive); omit
+    /// it (or pass []) to report every enzyme that has a site. Unknown names
+    /// are rejected with near-match suggestions — use that error to probe
+    /// which enzyme names exist on this sequence (this is the replacement for
+    /// the removed full-database dump: query per name instead of pulling the
+    /// whole ~196 KB catalog). Sites are the already-computed engine results
+    /// the UI shows (circular-normalized, methylation-aware), so no recompute
+    /// runs.
     /// Returns {projectId, enzymes: [{name, sites: [{recStart, recEnd,
     /// recSeq, strand, cuts: [{topCutIndex, botCutIndex}], methylationBlocked,
     /// unique}]}]}. recStart/recEnd are 0-based inclusive; a cut happens
@@ -560,7 +1494,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                                 .collect();
                             let msg = if sugg.is_empty() {
                                 format!(
-                                    "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name (names come from get_enzyme_database)",
+                                    "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name",
                                     n
                                 )
                             } else {
@@ -649,11 +1583,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
     // Mutations
     // -----------------------------------------------------------------------
 
-    /// Open a GenBank/FASTA file into the project manager (project id = file
-    /// path). Enzyme and primer recompute run on a background thread; the UI is
-    /// refreshed via broadcast. Returns {ok, message, projectId, regionView}
-    /// where regionView is the compact overview digest of the opened project
-    /// (enzyme cutters collapsed to a count line).
+    /// Open a sequence file and load it into the project manager as a new
+    /// project (project id = file path; the returned `projectId` is how every
+    /// other tool refers to it — see list_projects). This is the entry point
+    /// for handing a file to the app; files are also the recommended way to
+    /// move a sequence between projects (write with save_file/export_subsequence,
+    /// read back with open_file). Enzyme and primer recompute run on a
+    /// background thread; the UI is refreshed via broadcast. Returns
+    /// {ok, message, projectId, regionView} where regionView is the compact
+    /// overview digest of the opened project (enzyme cutters collapsed to a
+    /// count line).
     #[tool]
     async fn open_file(
         &self,
@@ -674,7 +1613,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(ok_envelope(&id, summary, region)))
     }
 
-    /// Save a project to a GenBank file on disk. Uses the same serializer and
+    /// Save a project (addressed by `project_id`, defaults to the active one)
+    /// to a GenBank file on disk — the reverse of open_file: the file holds
+    /// the project's current sequence + features. Uses the same serializer and
     /// mark-clean logic as the save_file command. Returns the uniform envelope
     /// with the overview digest plus `bytesWritten` (file size in bytes, for
     /// write verification).
@@ -701,8 +1642,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(env))
     }
 
-    /// Close (unload) a project without saving. Mirrors delete_project; the UI
-    /// updates via broadcast. Returns {ok, message, projectId}.
+    /// Close (unload) a project from memory without saving. Projects are
+    /// addressed by `project_id` (see list_projects); closing is NOT a file
+    /// operation — the file on disk is untouched. Mirrors delete_project; the
+    /// UI updates via broadcast. Returns {ok, message, projectId}.
     #[tool]
     async fn close_project(
         &self,
@@ -728,8 +1671,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         })))
     }
 
-    /// Make a project the active one (mirrors activate_project). Returns
-    /// {ok, message, projectId, regionView}.
+    /// Make a project (addressed by `project_id`) the active one — the one
+    /// tools use when they omit `project_id`. Mirrors activate_project.
+    /// Returns {ok, message, projectId, regionView}.
     #[tool]
     async fn activate_project(
         &self,
@@ -1217,11 +2161,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// alignment (never overwrites existing ones; ids are aln-1, aln-2, ...).
     /// Provide exactly one of:
     /// - `bases`: the read sequence as a plain string (whitespace/non-ACGT
-    ///   chars are stripped).
+    ///   chars are stripped). For long reads prefer `path` — a file is the
+    ///   recommended way to hand a sequence to this tool.
     /// - `path`: read the sequence from a file. Supported file types:
-    ///   `.gbk`/`.gb`/`.genbank` (GenBank), `.dna` (SnapGene),
-    ///   `.fa`/`.fasta` (FASTA / plain text sequence), `.ab1` (ABIF
-    ///   chromatogram; the basecalled PBAS sequence is extracted).
+    ///   `.gbk`/`.gb`/`.genbank` (GenBank), `.dna`/`.rna`/`.prot` (SnapGene
+    ///   binary), `.gpt` (protein GenBank), `.fa`/`.fasta` (FASTA / plain
+    ///   text sequence), `.ab1` (ABIF chromatogram; the basecalled PBAS
+    ///   sequence is extracted).
     /// Giving neither or both is an error. A name is always required.
     ///
     /// Returns {ok, message, projectId, regionView, significant, identity,
@@ -1292,7 +2238,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         return Ok(Json(fail_envelope(
                             &id,
                             format!(
-                                "Failed to read alignment sequence file (supported: .gbk/.gb/.genbank, .dna, .fa/.fasta, .ab1): {}",
+                                "Failed to read alignment sequence file (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
                                 e
                             ),
                         )));
@@ -1374,53 +2320,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(env))
     }
 
-    /// Remove an alignment by id (alignment ids are listed in the digest
-    /// ALIGNMENTS section, e.g. "aln-1"). Returns the uniform
-    /// {ok, message, projectId, regionView} envelope; regionView covers the
-    /// removed alignment's first segment.
-    #[tool]
-    async fn remove_alignment(
-        &self,
-        Parameters(request): Parameters<RemoveAlignmentRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let alignment_id = request.alignment_id.clone();
-        let region = {
-            let pm = self.pm.read().await;
-            let p = pm
-                .get_project_by_id(&id)
-                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
-            match p.alignments.iter().find(|a| a.id == alignment_id) {
-                Some(a) => a.segments.first().map(|s| (s.start as i64, s.end as i64)),
-                None => {
-                    return Ok(Json(fail_envelope(
-                        &id,
-                        format!("Alignment not found: {}", alignment_id),
-                    )));
-                }
-            }
-        };
-        let payload = crate::do_remove_alignment(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            None,
-            &id,
-            request.alignment_id,
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let region_view = self.digest_region(&id, region, true).await;
-        Ok(Json(ok_envelope(
-            &id,
-            format!("Removed alignment {}", alignment_id),
-            region_view,
-        )))
-    }
-
     // -----------------------------------------------------------------------
     // Analysis
     // -----------------------------------------------------------------------
@@ -1472,8 +2371,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Design primer candidates — same modes/parameters as the
     /// design_primer_candidates command. mode: "amplify" | "oepcr" |
     /// "mutagenesis"; segments are {start, end} 0-based inclusive.
-    /// amplify: optional `fwd_enzyme`/`rev_enzyme` (enzyme names from
-    /// get_enzyme_database, e.g. "BamHI") add a 5' tail of
+    /// amplify: optional `fwd_enzyme`/`rev_enzyme` (enzyme names, e.g.
+    /// "BamHI" — probe valid names via find_restriction_sites' unknown-name
+    /// suggestions) add a 5' tail of
     /// `protect_bases` (default 3) GC protection bases + the recognition
     /// site; candidates expose tail/tailLen/annealLen and Tm covers the
     /// anneal core only.
@@ -1698,6 +2598,295 @@ impl<R: Runtime> LibreGeneMcp<R> {
         v["tmBasis"] = serde_json::json!(
             "3' continuous match; tail bases that accidentally match the template are included in annealLen/Tm"
         );
+        Ok(Json(v))
+    }
+
+    /// Optimize a coding sequence's codons (DNA Chisel ports: use_best_codon /
+    /// match_codon_usage / harmonize_rca) — project, raw sequence, or file
+    /// input. `species` is a key from list_species (e.g. "e_coli",
+    /// "h_sapiens", "s_cerevisiae"); `method` defaults to use_best_codon;
+    /// harmonize_rca additionally uses `original_species` as the source table.
+    ///
+    /// Exactly one input mode:
+    /// - `project_id` + `feature_id`: optimize the CDS/mRNA feature inside an
+    ///   open project (`project_id` omitted = active project). `apply=false`
+    ///   (default) is a read-only preview; `apply=true` replaces the feature's
+    ///   coding bases in the template (equal-length synonymous substitution,
+    ///   coordinates unchanged) through the same recompute+broadcast path as
+    ///   edit_sequence.
+    /// - `sequence`: raw DNA coding sequence text. Whitespace/digits are
+    ///   ignored, letters must be A/C/G/T, length must be divisible by 3 (a
+    ///   trailing stop codon is fine). No project is involved. For long
+    ///   sequences prefer `input_path` (file) — the recommended way to pass a
+    ///   large sequence to this tool.
+    /// - `input_path`: local file parsed with file_io. DNA files (.gbk/.gb/
+    ///   .genbank/.dna/.rna/.fasta/.fa/.fna/.ab1): with `feature_id` the
+    ///   file's CDS/mRNA feature is optimized (the written sequence carries
+    ///   the full file sequence with that CDS replaced); without `feature_id`
+    ///   the whole file sequence is treated as the coding sequence. Protein
+    ///   files (.gpt/.prot) mean REVERSE TRANSLATION: the amino acid sequence
+    ///   is turned directly into an optimized DNA coding sequence (codons
+    ///   chosen per `method` and the `species` table).
+    ///
+    /// Returns {ok, message, projectId?, aa, codonCount, newCodons,
+    /// caiBefore, caiAfter, gcBefore, gcAfter, repairs, repairCount,
+    /// unresolved, method, species, optimizedSequence?, outputPath?,
+    /// regionView?}. `optimizedSequence` (the full optimized DNA) is added in
+    /// sequence/input_path modes; `outputPath` when `output_path` was given;
+    /// `regionView` after an apply=true project write-back.
+    ///
+    /// `output_path` (any input mode, optional): writes the result to a file
+    /// — .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated,
+    /// .gpt → protein GenBank of the translated sequence; other extensions
+    /// are rejected. `apply=true` is only meaningful in project mode: in
+    /// sequence/input_path mode it requires `output_path` (there is no
+    /// project to update).
+    #[tool]
+    async fn optimize_cds(
+        &self,
+        Parameters(request): Parameters<OptimizeCdsRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let mode = resolve_optimize_input(
+            request.project_id.as_deref(),
+            request.feature_id.as_deref(),
+            request.sequence.as_deref(),
+            request.input_path.as_deref(),
+        )
+        .map_err(|e| ErrorData::invalid_params(e, None))?;
+
+        let apply = request.apply.unwrap_or(false);
+        if !matches!(mode, OptimizeInput::Project { .. }) && apply && request.output_path.is_none()
+        {
+            return Err(ErrorData::invalid_params(
+                "apply=true is only meaningful in project mode; in sequence/input_path mode pass `output_path` to write the result to a file (or set apply=false)",
+                None,
+            ));
+        }
+        if let Some(op) = &request.output_path {
+            crate::validate_user_path(op, crate::CODON_OUTPUT_EXTS).map_err(|e| {
+                ErrorData::invalid_params(format!("invalid output_path: {}", e), None)
+            })?;
+        }
+
+        let species = request.species.clone();
+        let method = request
+            .method
+            .clone()
+            .unwrap_or_else(|| "use_best_codon".to_string());
+        let original_species = request.original_species.clone();
+        let avoid_enzyme_sites = request.avoid_enzyme_sites.clone();
+
+        match mode {
+            OptimizeInput::Project { project_id, feature_id } => {
+                let id = self.resolve_project_id(project_id).await?;
+                let project = {
+                    let pm = self.pm.read().await;
+                    pm.get_project_by_id(&id).cloned().ok_or_else(|| {
+                        ErrorData::invalid_params(format!("Project not found: {}", id), None)
+                    })?
+                };
+                let f_id = feature_id.clone();
+                let sp = species.clone();
+                let m = method.clone();
+                let (new_sequence, result, coding) = tokio::task::spawn_blocking(move || {
+                    crate::codon_optimize(
+                        &project,
+                        &f_id,
+                        &sp,
+                        &m,
+                        None,
+                        original_species.as_deref(),
+                        avoid_enzyme_sites,
+                        None,
+                    )
+                })
+                .await
+                .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+
+                let mut v =
+                    codon_preview_json(&result, &coding.aa, coding.codons.len(), &method, &species);
+                v["ok"] = serde_json::json!(true);
+                v["projectId"] = serde_json::json!(id);
+                v["message"] = serde_json::json!(format!(
+                    "Codon optimization preview for {} ({}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
+                    feature_id,
+                    species,
+                    result.cai_before,
+                    result.cai_after,
+                    result.gc_before * 100.0,
+                    result.gc_after * 100.0,
+                    result.repairs.len(),
+                    result.unresolved.len(),
+                ));
+                if apply {
+                    let payload = crate::do_update_sequence(&self.pm, id.clone(), new_sequence)
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e, None))?;
+                    if let Some(err) = Self::payload_error(&payload) {
+                        return Ok(Json(fail_envelope(&id, err)));
+                    }
+                    crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+                    if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
+                        v["regionView"] = serde_json::json!(rv);
+                    }
+                    v["message"] = serde_json::json!(format!(
+                        "Optimized CDS {} ({}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
+                        feature_id,
+                        species,
+                        result.cai_before,
+                        result.cai_after,
+                        result.repairs.len(),
+                        result.unresolved.len(),
+                    ));
+                }
+                Ok(Json(v))
+            }
+            OptimizeInput::Sequence(seq) => {
+                self.optimize_sequence_input(
+                    seq,
+                    species,
+                    method,
+                    original_species,
+                    avoid_enzyme_sites,
+                    request.output_path,
+                )
+                .await
+            }
+            OptimizeInput::File { path, feature_id } => {
+                self.optimize_file_input(
+                    path,
+                    feature_id,
+                    species,
+                    method,
+                    original_species,
+                    avoid_enzyme_sites,
+                    request.output_path,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Export a subsequence of a project to a new file (GenBank) — the
+    /// recommended way to hand a sequence to another tool: export it with
+    /// this tool, then pass the output_path (instead of pasting large
+    /// sequences into tool arguments). The file holds the region's sequence
+    /// (uppercase; template strand except as noted) plus every feature
+    /// overlapping it with coordinates translated to the new linear
+    /// coordinate system; circular projects always export linear fragments.
+    ///
+    /// `project_id` defaults to the active project. `output_path` is required
+    /// — .gbk/.gb/.genbank for DNA/RNA projects, .gpt for protein projects
+    /// (other extensions are rejected).
+    ///
+    /// Exactly ONE region selector (mixing selectors is rejected):
+    /// - `start` + `end`: 0-based inclusive template coordinates; on circular
+    ///   sequences `start > end` wraps the origin.
+    /// - `feature_id`: the feature's sequence with its segments joined in
+    ///   biological order (5'→3', reverse-complemented for minus-strand
+    ///   features). The exported feature spans the whole exported sequence;
+    ///   other features overlapping its segments are carried along
+    ///   (coordinates translated, strand flipped to match the rev-comp'd
+    ///   orientation).
+    /// - `enzyme1` + `enzyme2`: the fragment between the two enzymes' cut
+    ///   sites (names — unknown names are rejected with near-match
+    ///   suggestions, the same probe find_restriction_sites uses). Each
+    ///   enzyme contributes the top-strand cut of its first recognition site
+    ///   on the sequence; passing the same name twice uses that enzyme's
+    ///   first two sites. On circular sequences the fragment is the forward
+    ///   arc from enzyme1's cut to enzyme2's cut (wrapping the origin when
+    ///   needed); on linear sequences the two cuts may be given in either
+    ///   order.
+    /// - `cut1` + `cut2` (alternative to the enzyme names): explicit cut
+    ///   indices, 0-based — a cut at index C severs the DNA between C-1 and
+    ///   C (0..=len; the fragment is [min, max-1] on linear sequences, the
+    ///   forward arc on circular ones).
+    /// - `fwd_primer` + `rev_primer`: the amplicon between the two primers'
+    ///   binding sites. Each is a project primer name (stored binding sites
+    ///   are used; name lookup wins) or a raw sequence (binding sites
+    ///   recomputed with the primer engine, like check_primer_binding). The
+    ///   fwd primer's best forward-strand site and the rev primer's best
+    ///   reverse-strand site define the amplicon [fwdStart, revEnd-1]
+    ///   (0-based inclusive) — the PCR product's top strand. A primer that
+    ///   does not bind the strand its role needs is an error.
+    ///
+    /// Returns {ok, message, projectId, outputPath, length, regionView?}.
+    /// `length` is the exported sequence length (bp/nt/aa); `regionView` is
+    /// a compact digest of the source project over the exported region's
+    /// bounding box. The exported sequence itself is NOT echoed — read it
+    /// back with open_file/read_sequence on the written file.
+    #[tool]
+    async fn export_subsequence(
+        &self,
+        Parameters(request): Parameters<ExportSubsequenceRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let (id, project) = self.resolve_project(request.project_id.clone()).await?;
+        let ext = crate::validate_user_path(&request.output_path, crate::CODON_OUTPUT_EXTS)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let is_protein = project.molecule_type == "protein";
+        let wants_gpt = ext == "gpt";
+        if wants_gpt != is_protein {
+            return Ok(Json(fail_envelope(
+                &id,
+                format!(
+                    "molecule type '{}' exports as {} (DNA/RNA → .gbk/.gb/.genbank, protein → .gpt)",
+                    project.molecule_type,
+                    if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
+                ),
+            )));
+        }
+        let unit = match project.molecule_type.as_str() {
+            "rna" => "nt",
+            "protein" => "aa",
+            _ => "bp",
+        };
+
+        let (pieces, flip, desc) = resolve_export_region(&project, &request)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let bbox = (pieces[0].0, pieces[pieces.len() - 1].1);
+        let out_name = output_project_name(&request.output_path);
+        let path = request.output_path.clone();
+        let message_path = path.clone();
+        let out_project = tokio::task::spawn_blocking(move || {
+            let (sequence, features) = build_export_data(&project, &pieces, flip);
+            let length = sequence.len() as i64;
+            ProjectData {
+                name: out_name,
+                sequence,
+                length,
+                topology: "linear".to_string(),
+                molecule_type: project.molecule_type.clone(),
+                features,
+                ..Default::default()
+            }
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+        let length = out_project.length;
+
+        let written = tokio::task::spawn_blocking(move || {
+            let res = if wants_gpt {
+                libregene_core::file_io::gpt::write_gpt(&out_project, std::path::Path::new(&path))
+            } else {
+                libregene_core::file_io::gbk::write_gbk(&out_project, std::path::Path::new(&path))
+            };
+            res.map_err(|e| format!("failed to write {}: {}", path, e))
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+        if let Err(e) = written {
+            return Err(ErrorData::invalid_params(e, None));
+        }
+
+        let region = self.digest_region(&id, Some(bbox), true).await;
+        let mut v = ok_envelope(
+            &id,
+            format!("Exported {} ({} {}) to {}", desc, length, unit, message_path),
+            region,
+        );
+        v["outputPath"] = serde_json::json!(message_path);
+        v["length"] = serde_json::json!(length);
         Ok(Json(v))
     }
 }
@@ -2311,5 +3500,793 @@ mod tests {
 
         server.set_config(false, 20006).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // ------------------------------------------------------------------
+    // optimize_cds: input resolution / sequence cleaning / file output
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn clean_coding_sequence_strips_junk_and_validates() {
+        assert_eq!(
+            clean_coding_sequence("atg gtg agc\n1 2 3\ntaa").unwrap(),
+            "ATGGTGAGCTAA"
+        );
+        assert_eq!(clean_coding_sequence("ATG").unwrap(), "ATG");
+        assert_eq!(clean_coding_sequence("1atg2").unwrap(), "ATG");
+        assert!(clean_coding_sequence("ATGN").is_err()); // ambiguous base
+        assert!(clean_coding_sequence("ATGGT").is_err()); // length not %3
+        assert!(clean_coding_sequence("").is_err()); // empty
+        assert!(clean_coding_sequence("   \n\t ").is_err()); // only junk
+    }
+
+    #[test]
+    fn resolve_optimize_input_requires_exactly_one_mode() {
+        // project mode: no sequence/input_path → feature_id required
+        assert!(matches!(
+            resolve_optimize_input(None, Some("f1"), None, None),
+            Ok(OptimizeInput::Project { feature_id, .. }) if feature_id == "f1"
+        ));
+        assert!(resolve_optimize_input(None, None, None, None).is_err());
+        // sequence mode
+        assert!(matches!(
+            resolve_optimize_input(None, None, Some("ATG"), None),
+            Ok(OptimizeInput::Sequence(_))
+        ));
+        // file mode with optional feature_id
+        assert!(matches!(
+            resolve_optimize_input(None, Some("f1"), None, Some("x.gbk")),
+            Ok(OptimizeInput::File { feature_id: Some(_), .. })
+        ));
+        assert!(matches!(
+            resolve_optimize_input(None, None, None, Some("x.gbk")),
+            Ok(OptimizeInput::File { feature_id: None, .. })
+        ));
+        // conflicts must error
+        assert!(resolve_optimize_input(None, None, Some("ATG"), Some("x.gbk")).is_err());
+        assert!(resolve_optimize_input(Some("p1"), None, Some("ATG"), None).is_err());
+        assert!(resolve_optimize_input(Some("p1"), None, None, Some("x.gbk")).is_err());
+        assert!(resolve_optimize_input(None, Some("f1"), Some("ATG"), None).is_err());
+    }
+
+    #[test]
+    fn write_optimization_output_rejects_unknown_extension() {
+        assert!(write_optimization_output("out.fasta", Some("ATG"), "M", None).is_err());
+        assert!(write_optimization_output("out.ab1", Some("ATG"), "M", None).is_err());
+        assert!(write_optimization_output("out.txt", Some("ATG"), "M", None).is_err());
+        assert!(write_optimization_output("../esc.gbk", Some("ATG"), "M", None).is_err());
+    }
+
+    #[test]
+    fn write_optimization_output_roundtrips_gbk_and_gpt() {
+        let dir = std::env::temp_dir().join(format!("libregene-codon-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let gbk_path = dir.join("out.gbk");
+        let written =
+            write_optimization_output(gbk_path.to_str().unwrap(), Some("ATGGTGAGCTAA"), "MVS*", None)
+                .unwrap();
+        assert_eq!(written, gbk_path.to_str().unwrap());
+        let parsed = libregene_core::file_io::parse_file(&gbk_path).unwrap();
+        assert_eq!(parsed.sequence, "ATGGTGAGCTAA");
+        assert_eq!(parsed.molecule_type, "dna");
+        assert!(parsed.features.iter().any(|f| f.ftype == "CDS"));
+
+        let gpt_path = dir.join("out.gpt");
+        write_optimization_output(gpt_path.to_str().unwrap(), None, "MVS*", None).unwrap();
+        let parsed = libregene_core::file_io::parse_file(&gpt_path).unwrap();
+        assert_eq!(parsed.molecule_type, "protein");
+        assert_eq!(parsed.sequence, "mvs*"); // the gpt writer lower-cases
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn test_handler() -> LibreGeneMcp<MockRuntime> {
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        LibreGeneMcp::new(
+            app.handle().clone(),
+            Arc::new(RwLock::new(ProjectManager::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        )
+    }
+
+    #[tokio::test]
+    async fn optimize_cds_sequence_preview_and_validation() {
+        let server = test_handler();
+        // happy path: sequence input → optimizedSequence, no projectId
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            sequence: Some("GAG GAG GAG\nTAA".to_string()),
+            ..Default::default()
+        };
+        let out = server.optimize_cds(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["aa"], "EEE*");
+        assert_eq!(v["codonCount"], 4);
+        assert_eq!(v["optimizedSequence"], "GAAGAAGAATAA"); // E→GAA, stop→TAA (e_coli best)
+        assert!(v.get("projectId").is_none());
+
+        // apply=true without output_path in sequence mode → clear error
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            sequence: Some("ATGGTGAGCTAA".to_string()),
+            apply: Some(true),
+            ..Default::default()
+        };
+        let err = match server.optimize_cds(Parameters(req)).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected apply validation error"),
+        };
+        assert!(err.message.contains("apply=true"), "{}", err.message);
+        assert!(err.message.contains("output_path"), "{}", err.message);
+
+        // sequence + input_path conflict
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            sequence: Some("ATG".to_string()),
+            input_path: Some("x.gbk".to_string()),
+            ..Default::default()
+        };
+        assert!(server.optimize_cds(Parameters(req)).await.is_err());
+
+        // project mode without feature_id → clear error
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            ..Default::default()
+        };
+        let err = match server.optimize_cds(Parameters(req)).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected missing-feature_id error"),
+        };
+        assert!(err.message.contains("feature_id"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn optimize_cds_file_reverse_translates_protein_gpt() {
+        let gpt = include_str!("../../backend/test_data/mCherry.gpt");
+        let path = std::env::temp_dir().join(format!("libregene-mcp-revtest-{}.gpt", std::process::id()));
+        std::fs::write(&path, gpt).unwrap();
+        let server = test_handler();
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            input_path: Some(path.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let out = server.optimize_cds(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        let aa = v["aa"].as_str().unwrap();
+        assert!(aa.starts_with("MVSKGEEDNM"), "aa: {}", aa);
+        assert!(aa.ends_with('*'), "aa: {}", aa);
+        let dna = v["optimizedSequence"].as_str().unwrap();
+        assert_eq!(dna.len(), aa.chars().count() * 3);
+        assert!(dna.bytes().all(|b| matches!(b, b'A' | b'C' | b'G' | b'T')));
+        assert!(v["message"].as_str().unwrap().contains("Reverse translation"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn optimize_cds_sequence_writes_output_file() {
+        let out_path = std::env::temp_dir().join(format!("libregene-mcp-outtest-{}.gbk", std::process::id()));
+        let server = test_handler();
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            sequence: Some("ATGGTGAGCTAA".to_string()),
+            output_path: Some(out_path.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let out = server.optimize_cds(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["outputPath"], out_path.to_str().unwrap());
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, "ATGGTGAGCTAA");
+        assert!(parsed.features.iter().any(|f| f.ftype == "CDS"));
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    #[tokio::test]
+    async fn optimize_cds_file_with_feature_writes_optimized_gbk() {
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-feattest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src.gbk");
+        // GAG GAG GAG TAA = EEE*; E's best codon is GAA, so the optimized
+        // whole-file sequence (CDS replaced in place) must be GAAGAAGAATAA.
+        let project = ProjectData {
+            name: "test".to_string(),
+            sequence: "GAGGAGGAGTAA".to_string(),
+            length: 12,
+            topology: "linear".to_string(),
+            features: vec![Feature {
+                id: "cds".to_string(),
+                name: "cds".to_string(),
+                start: 0,
+                end: 11,
+                color: "#60A5FA".to_string(),
+                ftype: "CDS".to_string(),
+                segments: Vec::new(),
+                strand: "+".to_string(),
+                notes: String::new(),
+                translation: String::new(),
+                qualifiers: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        libregene_core::file_io::gbk::write_gbk(&project, &src).unwrap();
+
+        let out_path = dir.join("out.gbk");
+        let server = test_handler();
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            input_path: Some(src.to_string_lossy().into_owned()),
+            feature_id: Some("cds_0".to_string()), // id rebuilt as {label}_{start} on parse
+            output_path: Some(out_path.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let out = server.optimize_cds(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["aa"], "EEE*");
+        assert_eq!(v["optimizedSequence"], "GAAGAAGAATAA");
+        assert_eq!(v["outputPath"], out_path.to_str().unwrap());
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, "GAAGAAGAATAA");
+        assert!(parsed.features.iter().any(|f| f.ftype == "CDS"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ------------------------------------------------------------------
+    // export_subsequence
+    // ------------------------------------------------------------------
+
+    /// Deterministic pseudo-random ACGT sequence (unique long substrings).
+    fn synthetic_dna(length: usize, mut seed: u64) -> String {
+        let mut out = String::with_capacity(length);
+        for _ in 0..length {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            out.push(b"ACGT"[(seed >> 33) as usize & 3] as char);
+        }
+        out
+    }
+
+    fn feature(id: &str, name: &str, start: i64, end: i64, strand: &str) -> Feature {
+        Feature {
+            id: id.to_string(),
+            name: name.to_string(),
+            start,
+            end,
+            color: "#60A5FA".to_string(),
+            ftype: "CDS".to_string(),
+            segments: Vec::new(),
+            strand: strand.to_string(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        }
+    }
+
+    /// Handler whose project manager holds one project (id = name, active).
+    async fn handler_with_project(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let id = project.name.clone();
+        pm.write().await.load(&id, project);
+        LibreGeneMcp::new(
+            app.handle().clone(),
+            pm,
+            Arc::new(RwLock::new(HashMap::new())),
+        )
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_region_writes_gbk_with_translated_features() {
+        let seq = synthetic_dna(200, 7);
+        let project = ProjectData {
+            name: "region_test".to_string(),
+            sequence: seq.clone(),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("f1", "gene", 50, 100, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-region-{}.gbk", std::process::id()));
+        let req = ExportSubsequenceRequest {
+            start: Some(40),
+            end: Some(160),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["length"], 121);
+        assert_eq!(v["outputPath"], out_path.to_str().unwrap());
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, seq[40..=160].to_ascii_uppercase());
+        let f = parsed
+            .features
+            .iter()
+            .find(|f| f.name == "gene")
+            .expect("overlapping feature carried over");
+        assert_eq!((f.start, f.end), (10, 60), "feature translated by -40");
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_region_wraps_on_circular() {
+        let seq = synthetic_dna(100, 11);
+        // Cross-origin feature 95..99 + 0..5 (stored as two segments).
+        let mut f = feature("f1", "ori", 95, 5, "+");
+        f.segments = vec![
+            Segment { start: 95, end: 99, color: None },
+            Segment { start: 0, end: 5, color: None },
+        ];
+        let project = ProjectData {
+            name: "circ_test".to_string(),
+            sequence: seq.clone(),
+            length: 100,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![f],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-circ-{}.gbk", std::process::id()));
+        let req = ExportSubsequenceRequest {
+            start: Some(90),
+            end: Some(9),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["length"], 20);
+        let expected = format!("{}{}", &seq[90..], &seq[..=9]);
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, expected);
+        // the cross-origin feature becomes one contiguous span 5..16
+        let f = parsed
+            .features
+            .iter()
+            .find(|f| f.name == "ori")
+            .expect("feature carried over");
+        assert_eq!((f.start, f.end), (5, 15));
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_feature_joins_segments_5_to_3() {
+        let seq = synthetic_dna(100, 13);
+        let mut cds = feature("cds", "spliced", 10, 39, "+");
+        cds.segments = vec![
+            Segment { start: 10, end: 19, color: None },
+            Segment { start: 30, end: 39, color: None },
+        ];
+        let inner = feature("in", "inner", 32, 35, "+");
+        let project = ProjectData {
+            name: "feat_test".to_string(),
+            sequence: seq.clone(),
+            length: 100,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![cds, inner],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-feat-{}.gbk", std::process::id()));
+        let req = ExportSubsequenceRequest {
+            feature_id: Some("cds".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["length"], 20);
+        let expected = format!("{}{}", &seq[10..=19], &seq[30..=39]);
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, expected);
+        let exported = parsed
+            .features
+            .iter()
+            .find(|f| f.name == "spliced")
+            .expect("exported feature spans the whole sequence");
+        assert_eq!((exported.start, exported.end), (0, 19));
+        let inner = parsed
+            .features
+            .iter()
+            .find(|f| f.name == "inner")
+            .expect("inner feature carried over");
+        assert_eq!((inner.start, inner.end), (12, 15));
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_minus_strand_feature_is_reverse_complemented() {
+        let seq = synthetic_dna(100, 17);
+        let project = ProjectData {
+            name: "minus_test".to_string(),
+            sequence: seq.clone(),
+            length: 100,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![
+                feature("rev", "repressor", 40, 59, "-"),
+                feature("fwd", "promoter", 45, 50, "+"),
+            ],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-minus-{}.gbk", std::process::id()));
+        let req = ExportSubsequenceRequest {
+            feature_id: Some("rev".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["length"], 20);
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        let expected = libregene_core::utils::reverse_complement(&seq[40..=59]);
+        assert_eq!(parsed.sequence, expected);
+        let exported = parsed
+            .features
+            .iter()
+            .find(|f| f.name == "repressor")
+            .expect("exported feature carried over");
+        assert_eq!((exported.start, exported.end), (0, 19));
+        assert_eq!(
+            exported.strand, ".",
+            "plus-strand round-trips as '.' (gbk only encodes '-' via complement)"
+        );
+        let prom = parsed
+            .features
+            .iter()
+            .find(|f| f.name == "promoter")
+            .expect("overlapping plus-strand feature carried over, flipped");
+        assert_eq!((prom.start, prom.end), (9, 14));
+        assert_eq!(prom.strand, "-", "plus-strand feature flips in a rev-comp export");
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_enzyme_fragment_and_explicit_cuts() {
+        // "ACGT" repeat has no EcoRI/BamHI recognition sites, so the placed
+        // sites are the only ones: EcoRI cuts G^AATTC (cut 41), BamHI G^GATCC
+        // (cut 101).
+        let mut seq = "ACGT".repeat(50);
+        seq.replace_range(40..46, "GAATTC");
+        seq.replace_range(100..106, "GGATCC");
+        let mut project = ProjectData {
+            name: "enz_test".to_string(),
+            sequence: seq.clone(),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        assert_eq!(enzyme_cut_index(&project, "EcoRI", 0).unwrap(), 41);
+        assert_eq!(enzyme_cut_index(&project, "BamHI", 0).unwrap(), 101);
+
+        let server = handler_with_project(project.clone()).await;
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-export-enz-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let out_path = dir.join("frag.gbk");
+        let req = ExportSubsequenceRequest {
+            enzyme1: Some("EcoRI".to_string()),
+            enzyme2: Some("BamHI".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["length"], 60, "fragment [41..=100] = 60 bp");
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, seq[41..=100].to_string());
+
+        // explicit cut indices mode (cuts may be given in either order)
+        let out_path2 = dir.join("cuts.gbk");
+        let req = ExportSubsequenceRequest {
+            cut1: Some(70),
+            cut2: Some(30),
+            output_path: out_path2.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["length"], 40, "[30, 69] = 40 bp");
+        let parsed = libregene_core::file_io::parse_file(&out_path2).unwrap();
+        assert_eq!(parsed.sequence, seq[30..=69].to_string());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_primer_amplicon() {
+        let seq = synthetic_dna(200, 19);
+        let project = ProjectData {
+            name: "amp_test".to_string(),
+            sequence: seq.clone(),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-export-amp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // raw primer sequences
+        let out_path = dir.join("amp.gbk");
+        let req = ExportSubsequenceRequest {
+            fwd_primer: Some(seq[50..70].to_string()),
+            rev_primer: Some(libregene_core::utils::reverse_complement(&seq[100..120])),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["length"], 70, "amplicon [50, 119]");
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.sequence, seq[50..=119].to_string());
+
+        // same amplicon via stored project primers (name lookup path)
+        let fwd = Primer {
+            id: "F1".to_string(),
+            name: "F1".to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: seq[50..70].to_string(),
+            binding_sites: Vec::new(),
+        };
+        let rev = Primer {
+            id: "R1".to_string(),
+            name: "R1".to_string(),
+            r#type: "rev".to_string(),
+            primer_seq: libregene_core::utils::reverse_complement(&seq[100..120]),
+            binding_sites: Vec::new(),
+        };
+        let mut project = ProjectData {
+            name: "amp_name_test".to_string(),
+            sequence: seq.clone(),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            primers: vec![fwd, rev],
+            ..Default::default()
+        };
+        libregene_core::primer::recompute(&mut project);
+        let server = handler_with_project(project).await;
+        let out_path2 = dir.join("amp-name.gbk");
+        let req = ExportSubsequenceRequest {
+            fwd_primer: Some("F1".to_string()),
+            rev_primer: Some("R1".to_string()),
+            output_path: out_path2.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["length"], 70);
+        let parsed = libregene_core::file_io::parse_file(&out_path2).unwrap();
+        assert_eq!(parsed.sequence, seq[50..=119].to_string());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_circular_primer_amplicon_wraps_origin() {
+        let seq = synthetic_dna(200, 23);
+        let project = ProjectData {
+            name: "amp_circ".to_string(),
+            sequence: seq.clone(),
+            length: 200,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-export-ampc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out_path = dir.join("amp.gbk");
+        // fwd primer sits at the very end (188..200, its site wraps the origin),
+        // rev primer at 30..45: the amplicon wraps 188..199 + 0..44.
+        let req = ExportSubsequenceRequest {
+            fwd_primer: Some(seq[188..200].to_string()),
+            rev_primer: Some(libregene_core::utils::reverse_complement(&seq[30..45])),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["length"], 57, "12 bp (188..199) + 45 bp (0..44)");
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        let expected = format!("{}{}", &seq[188..], &seq[..=44]);
+        assert_eq!(parsed.sequence, expected);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_protein_writes_gpt() {
+        let aa = "MVSKGEEDNMAAEF".to_string();
+        let project = ProjectData {
+            name: "prot_test".to_string(),
+            sequence: aa.clone(),
+            length: aa.len() as i64,
+            topology: "linear".to_string(),
+            molecule_type: "protein".to_string(),
+            features: vec![feature("prot", "mCherry", 0, (aa.len() - 1) as i64, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-export-prot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let out_path = dir.join("out.gpt");
+        let req = ExportSubsequenceRequest {
+            start: Some(0),
+            end: Some((aa.len() - 1) as i64),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["ok"], true);
+        assert_eq!(out.0["length"], aa.len() as i64);
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        assert_eq!(parsed.molecule_type, "protein");
+        assert_eq!(parsed.sequence, aa.to_lowercase(), "the gpt writer lower-cases");
+
+        // protein project must not go to a .gbk path
+        let req = ExportSubsequenceRequest {
+            start: Some(0),
+            end: Some(3),
+            output_path: dir.join("out.gbk").to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(out.0["message"].as_str().unwrap().contains(".gpt"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn export_subsequence_rejects_bad_requests() {
+        let seq = synthetic_dna(100, 29);
+        let project = ProjectData {
+            name: "bad_test".to_string(),
+            sequence: seq.clone(),
+            length: 100,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("f1", "gene", 10, 50, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-bad-{}.gbk", std::process::id()));
+        let expect_err = |req: ExportSubsequenceRequest| async {
+            match server.export_subsequence(Parameters(req)).await {
+                Err(e) => e.message.into_owned(),
+                Ok(v) => v.0["message"].as_str().unwrap_or("").to_string(),
+            }
+        };
+
+        // multiple selectors
+        let msg = expect_err(ExportSubsequenceRequest {
+            start: Some(0),
+            end: Some(9),
+            feature_id: Some("f1".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("exactly one region selector"), "{}", msg);
+
+        // start without end
+        let msg = expect_err(ExportSubsequenceRequest {
+            start: Some(0),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("both required"), "{}", msg);
+
+        // linear start > end
+        let msg = expect_err(ExportSubsequenceRequest {
+            start: Some(50),
+            end: Some(10),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("only allowed on circular"), "{}", msg);
+
+        // unknown feature
+        let msg = expect_err(ExportSubsequenceRequest {
+            feature_id: Some("nope".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("Feature not found"), "{}", msg);
+
+        // unknown enzyme
+        let msg = expect_err(ExportSubsequenceRequest {
+            enzyme1: Some("EcoRI".to_string()),
+            enzyme2: Some("NotARealEnzyme".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("Unknown enzyme"), "{}", msg);
+
+        // mixed fragment selectors
+        let msg = expect_err(ExportSubsequenceRequest {
+            enzyme1: Some("EcoRI".to_string()),
+            cut1: Some(10),
+            cut2: Some(20),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("not a mix"), "{}", msg);
+
+        // equal cuts on a linear sequence
+        let msg = expect_err(ExportSubsequenceRequest {
+            cut1: Some(10),
+            cut2: Some(10),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("equal"), "{}", msg);
+
+        // primer that is neither a name nor a sequence
+        let msg = expect_err(ExportSubsequenceRequest {
+            fwd_primer: Some("!!!".to_string()),
+            rev_primer: Some(seq[20..40].to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("neither a primer name"), "{}", msg);
+
+        // primer that only binds the reverse strand in the fwd role
+        let msg = expect_err(ExportSubsequenceRequest {
+            fwd_primer: Some(libregene_core::utils::reverse_complement(&seq[20..40])),
+            rev_primer: Some(libregene_core::utils::reverse_complement(&seq[50..70])),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains("does not bind the forward strand"), "{}", msg);
+
+        // DNA project must not go to a .gpt path
+        let msg = expect_err(ExportSubsequenceRequest {
+            start: Some(0),
+            end: Some(9),
+            output_path: out_path.to_string_lossy().replace("bad", "bad2").replace(".gbk", ".gpt"),
+            ..Default::default()
+        })
+        .await;
+        assert!(msg.contains(".gpt"), "{}", msg);
+
+        std::fs::remove_file(&out_path).ok();
     }
 }
