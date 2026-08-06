@@ -64,3 +64,15 @@ This project uses Rust crates, each under its own license. Key dependencies incl
 | aho-corasick | MIT |
 
 See `backend/libregene-core/Cargo.toml` and `src-tauri/Cargo.toml` for the full list.
+
+---
+
+## Auto-Annotation Data
+
+### pLannotate / SnapGene (GenoLIB) feature database
+- **Source**: pLannotate by Matthew J. McGuffie & Jeffrey E. Barrick (The University of Texas at Austin), https://github.com/mmcguffi/pLannotate
+- **License**: GPL-3.0-only (code); database files distributed under the pLannotate project
+- **Files**: `backend/libregene-core/data/features.fasta`, `features.tsv`, `feature_colors.tsv`, `feature_orientation.txt`
+- **Paper**: McGuffie & Barrick, "pLannotate: engineered plasmid annotation", Nucleic Acids Research 2021, doi:10.1093/nar/gkab374
+- **Data provenance**: The feature sequences trace to the SnapGene feature database (originating from the GenoLIB biological part database, cross-referenced/deduplicated against Addgene GenBank records) plus additional curated elements; the FPbase/Rfam/Swiss-Prot parts of pLannotate are not bundled.
+- The matching engine in `backend/libregene-core/src/annotate.rs` is an independent Rust reimplementation of pLannotate's algorithm (scoring, filtering, overlap elimination, circular wrap), not a copy of its code.
