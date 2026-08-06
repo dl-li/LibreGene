@@ -178,6 +178,7 @@ update_feature_ftype, update_feature_color, update_feature_name,
 update_feature_strand, update_feature_location,
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding,
 compute_primer_alignment, design_primer_candidates, find_orfs, search_sequence,
+annotate_features,
 get_enzyme_database,
 add_alignment, add_alignment_seq, remove_alignment,
 set_methylation,
@@ -225,6 +226,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - 甲基化设置 → `set_methylation`
 - 酶数据库查询 → `get_enzyme_database`
 - 限制酶切位点查询 → `find_restriction_sites`（按名称列出识别位点与切口：`recStart`/`recEnd` 0-based inclusive、`recSeq`、识别链 `top`/`bottom`、`cuts` 每个 `topCutIndex`/`botCutIndex`（切口在 cut-1 与 cut 之间）；复用已算好的引擎结果，环状坐标已归一化，不传 `enzymes` 返回全部，未知酶名报错并给出近似名）
+- 自动标注（检测常见特征）→ `get_project_overview`（overview 末尾附加 `DETECTED COMMON FEATURES (auto)` 节：只列非 fragment 特征，每行 `name | type | strand | start..end | identity%`，附 `(already annotated)` 标记；fragment 命中不展示以免误导；只读摘要不落库，不受 compact 参数影响；检测引擎本身另接 Tauri command `annotate_features` 返回完整 camelCase JSON）
 
 未适配（前端/UI 专有，MCP 不可用）：
 
@@ -236,6 +238,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **视图/布局设置**（layoutParams、showFeatures/Primers/Enzymes 开关、酶切过滤器）：渲染层状态
 - **Tm 参数与引物分析设置**（`tmParams`、`primerSeedLength`）：前端设置项；MCP 工具内用默认浓度，暂未暴露参数
 - **`add_alignment` 的 createdSites（新建酶切位点）**：未实现——`add_alignment` 不修改模板序列，创建位点需按差异重建「编辑后序列」并独立于已算好的引擎结果重新扫酶数据库（反向链/环状合并下重建语义与 alignment 差异表示耦合，语义复杂、价值有限）；如需实际修序列后查位点，走 `edit_sequence` + `find_restriction_sites`
+- **自动标注前端弹窗（Detect Common Features dialog）**：UI 专有，未单独适配——检测引擎已接 Tauri command `annotate_features`，MCP 侧经 `get_project_overview` 的 `DETECTED COMMON FEATURES (auto)` 节查看检测结果；批量落库需前端交互（或逐特征 `add_feature`），MCP 无批量导入工具
 
 
 ## 核心模型约定

@@ -529,6 +529,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   topology = 'linear',
   onOpenMyPrimers,
   onOpenPrimerOverview,
+  onOpenDetectFeatures,
   onOpenMyEnzymes,
   onOpenEnzymeDatabase,
   onAddPrimerToMyPrimers,
@@ -4636,6 +4637,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onPrimerDesign={handlePrimerDesign}
           onOpenMyPrimers={onOpenMyPrimers}
           onOpenPrimerOverview={onOpenPrimerOverview}
+          onOpenDetectFeatures={onOpenDetectFeatures}
           onAddCurrentPrimerToMyPrimers={handleAddCurrentPrimerToMyPrimers}
           onAddAllPrimersToMyPrimers={onAddAllPrimersToMyPrimers}
           autoAddPrimers={autoAddPrimers}

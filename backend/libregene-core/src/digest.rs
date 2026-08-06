@@ -27,6 +27,14 @@ pub struct DigestOptions {
     /// `get_project_overview` defaults this to true, pass compactCutters=false
     /// for the full list.
     pub compact_cutters: bool,
+    /// Whole-project digests only: append a brief auto-annotation section
+    /// (`DETECTED COMMON FEATURES (auto)`) listing non-fragment features the
+    /// annotate engine found against the embedded SnapGene database, one line
+    /// each with identity and an `(already annotated)` marker. Fragments are
+    /// omitted to avoid misleading partial hits. Never affects region views.
+    /// The section itself is already compact, so it is independent of
+    /// `compact_enzymes`/`compact_cutters`.
+    pub include_auto_annotation: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +244,68 @@ fn classify_enzymes(project: &ProjectData) -> (Vec<&Enzyme>, Vec<&Enzyme>, usize
 // Public API
 // ---------------------------------------------------------------------------
 
+/// annotate.rs appends " (fragment)" to partial hits; strip it here so the
+/// marker column is authoritative and fragment names don't double-mark.
+fn auto_feature_display_name(f: &crate::annotate::AnnotatedFeature) -> &str {
+    f.name
+        .strip_suffix(" (fragment)")
+        .unwrap_or(f.name.as_str())
+}
+
+/// True when any existing project feature overlaps the auto-detected feature
+/// by name (case-insensitive) or by coordinates — i.e. it is likely already
+/// annotated in the project.
+fn auto_feature_already_annotated(
+    project: &ProjectData,
+    f: &crate::annotate::AnnotatedFeature,
+) -> bool {
+    let circular = project.topology == "circular";
+    let display_name = auto_feature_display_name(f);
+    project.features.iter().any(|ef| {
+        let name_match = ef.name.eq_ignore_ascii_case(display_name);
+        let coord_match = if ef.segments.is_empty() {
+            seg_in_range(ef.start, ef.end, f.start, f.end, circular)
+        } else {
+            ef.segments
+                .iter()
+                .any(|s| seg_in_range(s.start, s.end, f.start, f.end, circular))
+        };
+        name_match || coord_match
+    })
+}
+
+/// Brief auto-annotation section for whole-project overviews: one line per
+/// detected common feature. The engine builds a k-mer index once per process
+/// (first call only); the section is kept intentionally compact so no
+/// `compact_*` option affects it.
+fn push_auto_annotation(out: &mut String, project: &ProjectData) {
+    out.push_str("DETECTED COMMON FEATURES (auto):\n");
+    let detected: Vec<_> =
+        crate::annotate::annotate_sequence(&project.sequence, project.topology == "circular")
+            .into_iter()
+            .filter(|f| !f.fragment)
+            .collect();
+    if detected.is_empty() {
+        out.push_str("(none)\n");
+        return;
+    }
+    for f in &detected {
+        out.push_str(&format!(
+            "        {} | {} | {} | {}..{} | {:.1}%",
+            auto_feature_display_name(f),
+            f.ftype,
+            f.strand,
+            f.start,
+            f.end,
+            f.identity
+        ));
+        if auto_feature_already_annotated(project, f) {
+            out.push_str(" | (already annotated)");
+        }
+        out.push('\n');
+    }
+}
+
 /// Full or region-filtered project digest. `region` is 0-based inclusive;
 /// `start > end` wraps the origin on circular sequences.
 pub fn project_digest(
@@ -438,6 +508,12 @@ pub fn project_digest(
                 }
             }
         }
+    }
+
+    // Auto-annotation is a whole-project overview concern only; region views
+    // keep the digest focused on the requested window.
+    if region.is_none() && opts.include_auto_annotation {
+        push_auto_annotation(&mut out, project);
     }
 
     Ok(out)
@@ -1068,5 +1144,117 @@ mod tests {
         // region views never emit the placeholder (a primer may exist elsewhere)
         let region = project_digest(&p, &DigestOptions::default(), Some((0, 10))).unwrap();
         assert!(!region.contains("PRIMERS"));
+    }
+
+    fn seq_from_gbk(gbk: &str) -> String {
+        let mut out = String::new();
+        let mut in_seq = false;
+        for line in gbk.lines() {
+            if line.starts_with("ORIGIN") {
+                in_seq = true;
+                continue;
+            }
+            if in_seq {
+                if line.starts_with("//") {
+                    break;
+                }
+                out.extend(line.chars().filter(|c| c.is_ascii_alphabetic()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn overview_auto_annotation_marks_existing_features() {
+        let gbk = include_str!("../../../examples/pUC19 Annotated.gbk");
+        let seq = seq_from_gbk(gbk);
+        assert_eq!(seq.len(), 2686);
+        let mut p = ProjectData {
+            name: "pUC19".into(),
+            sequence: seq,
+            length: 2686,
+            topology: "circular".into(),
+            ..Default::default()
+        };
+        // The project already carries AmpR and the ori at the engine's known
+        // coords (AmpR ~1625..2485, rep_origin ~866..1454).
+        p.features = vec![
+            Feature {
+                id: "f-amp".into(),
+                name: "AmpR".into(),
+                start: 1625,
+                end: 2485,
+                color: "#60A5FA".into(),
+                ftype: "CDS".into(),
+                segments: vec![Segment {
+                    start: 1625,
+                    end: 2485,
+                    color: None,
+                }],
+                strand: "-".into(),
+                notes: String::new(),
+                translation: String::new(),
+                qualifiers: Vec::new(),
+            },
+            Feature {
+                id: "f-ori".into(),
+                name: "my ori".into(),
+                start: 866,
+                end: 1454,
+                color: "#F87171".into(),
+                ftype: "rep_origin".into(),
+                segments: vec![Segment {
+                    start: 866,
+                    end: 1454,
+                    color: None,
+                }],
+                strand: "+".into(),
+                notes: String::new(),
+                translation: String::new(),
+                qualifiers: Vec::new(),
+            },
+        ];
+        let opts = DigestOptions {
+            include_auto_annotation: true,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&p, &opts, None).unwrap();
+        assert!(out.contains("DETECTED COMMON FEATURES (auto):\n"));
+        let amp_line = out
+            .lines()
+            .find(|l| l.contains("AmpR | CDS"))
+            .expect("AmpR auto line");
+        assert!(amp_line.contains("(already annotated)"), "line: {amp_line}");
+        let ori_line = out
+            .lines()
+            .find(|l| l.contains(" | rep_origin | "))
+            .expect("rep_origin auto line");
+        assert!(ori_line.contains("(already annotated)"), "line: {ori_line}");
+        // Fragments are omitted entirely; remaining unannotated hits
+        // (MCS, lac promoter, CAP binding site, ...) stay unmarked.
+        assert!(!out.contains("(fragment)"), "fragments leaked:\n{out}");
+        assert!(
+            out.lines()
+                .any(|l| l.contains("| promoter |") && !l.contains("(already annotated)")),
+            "expected an unmarked promoter line:\n{out}"
+        );
+        // Region views never append the section.
+        let region = project_digest(&p, &opts, Some((0, 100))).unwrap();
+        assert!(!region.contains("DETECTED COMMON FEATURES"));
+    }
+
+    #[test]
+    fn overview_auto_annotation_empty_prints_none() {
+        // "ACGT"*15 hits nothing in the embedded SnapGene database.
+        let p = synthetic_project();
+        let opts = DigestOptions {
+            include_auto_annotation: true,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&p, &opts, None).unwrap();
+        assert!(out.contains("DETECTED COMMON FEATURES (auto):\n(none)\n"));
+        // Off by default: no section unless explicitly requested.
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(!out.contains("DETECTED COMMON FEATURES"));
     }
 }
