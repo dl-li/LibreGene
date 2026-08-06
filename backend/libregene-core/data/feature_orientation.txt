@@ -1,0 +1,19 @@
+CDS
+exon
+gene
+intron
+mat_peptide
+mobile_element
+mRNA
+ncRNA
+oriT
+polyA_site
+protein_bind
+tRNA
+promoter
+-35_signal
+-10_signal
+RBS
+terminator
+swissprot
+origin of replication
