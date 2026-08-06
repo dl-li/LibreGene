@@ -56,8 +56,17 @@ fn validate_user_path(path: &str, allowed_exts: &[&str]) -> Result<String, Strin
     Ok(ext)
 }
 
-const SEQ_EXTS: &[&str] = &["gbk", "gb", "dna", "fasta", "fa", "fna", "ab1"];
+const SEQ_EXTS: &[&str] = &[
+    "gbk", "gb", "genbank", "gbf", "gbff",
+    "dna", "rna", "prot",
+    "gpt", "gp", "gpe", "gpff",
+    "fasta", "fa", "fna", "fas", "ffn", "fsa", "faa", "frn",
+    "ab1", "seq",
+];
 const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
+/// Output extensions accepted by MCP `optimize_cds`'s `output_path`
+/// (.gbk/.gb/.genbank → DNA GenBank, .gpt → protein GenBank).
+const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -203,6 +212,7 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
         "sequence": &project.sequence,
         "length": project.length,
         "topology": &project.topology,
+        "moleculeType": &project.molecule_type,
         "features": &project.features,
         "primers": &project.primers,
         "alignments": &project.alignments,
@@ -341,22 +351,29 @@ async fn do_save_file(
     project_id: String,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    validate_user_path(&path, &["gbk", "gb"])?;
+    let ext = validate_user_path(&path, &["gbk", "gb", "gpt"])?;
     let save_path = std::path::PathBuf::from(&path);
     let project = {
         let pm = pm.read().await;
         pm.get_project_by_id(&project_id).cloned()
     };
     match project {
-        Some(ref p) => match file_io::gbk::write_gbk(p, &save_path) {
-            Ok(()) => {
-                let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
-                let mut pm = pm.write().await;
-                pm.mark_clean(&project_id);
-                Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
+        Some(ref p) => {
+            let result = if ext == "gpt" {
+                file_io::gpt::write_gpt(p, &save_path)
+            } else {
+                file_io::gbk::write_gbk(p, &save_path)
+            };
+            match result {
+                Ok(()) => {
+                    let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
+                    let mut pm = pm.write().await;
+                    pm.mark_clean(&project_id);
+                    Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
+                }
+                Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
             }
-            Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
-        },
+        }
         None => Ok(serde_json::json!({"error": "Project not found"})),
     }
 }
@@ -918,6 +935,122 @@ async fn do_annotate_features(
     })
     .await
     .map_err(|e| format!("task join error: {}", e))
+}
+
+fn parse_optimize_method(s: &str) -> Result<libregene_core::codon::OptimizeMethod, String> {
+    let normalized = s.trim().to_ascii_lowercase().replace('_', "");
+    match normalized.as_str() {
+        "usebestcodon" => Ok(libregene_core::codon::OptimizeMethod::UseBestCodon),
+        "matchcodonusage" => Ok(libregene_core::codon::OptimizeMethod::MatchCodonUsage),
+        "harmonizerca" => Ok(libregene_core::codon::OptimizeMethod::HarmonizeRca),
+        _ => Err(format!(
+            "unknown method '{}' (expected use_best_codon, match_codon_usage, or harmonize_rca)",
+            s
+        )),
+    }
+}
+
+/// Resolve the codon-usage table: a caller-supplied custom table wins,
+/// otherwise the built-in table for `species`.
+pub(crate) fn codon_usage_table(
+    species: &str,
+    custom_table: Option<Vec<(char, String, f64)>>,
+) -> Result<libregene_core::codon::CodonUsageTable, String> {
+    match custom_table {
+        Some(rows) => Ok(libregene_core::codon::table_from_custom(&rows)),
+        None => match libregene_core::codon::get_table(species) {
+            Some(t) => Ok(t.clone()),
+            None => Err(format!(
+                "unknown species '{}' (available: {})",
+                species,
+                libregene_core::codon::list_species().join(", ")
+            )),
+        },
+    }
+}
+
+/// Build [`OptimizeOptions`] from the string `method` and the optional
+/// source-table / avoidance / GC-window parameters shared by all callers.
+pub(crate) fn codon_optimize_options(
+    method: &str,
+    original_species: Option<&str>,
+    avoid_enzyme_sites: Option<Vec<String>>,
+    gc_window: Option<(usize, f64, f64)>,
+) -> Result<libregene_core::codon::OptimizeOptions, String> {
+    let original_table = match original_species {
+        Some(s) => Some(
+            libregene_core::codon::get_table(s)
+                .ok_or_else(|| format!("unknown species '{}'", s))?
+                .clone(),
+        ),
+        None => None,
+    };
+    Ok(libregene_core::codon::OptimizeOptions {
+        method: parse_optimize_method(method)?,
+        original_table,
+        avoid_enzyme_sites: avoid_enzyme_sites.unwrap_or_default(),
+        gc_window,
+        ..libregene_core::codon::OptimizeOptions::default()
+    })
+}
+
+/// Shared codon-optimization core (Tauri commands + MCP `optimize_cds`): find
+/// the CDS/mRNA feature, extract its coding sequence, run the optimizer, and
+/// build the equal-length replacement sequence via `segments_on_template`
+/// write-back (minus-strand pieces reverse-complemented). Read-only — callers
+/// decide whether to apply via `do_update_sequence`.
+pub(crate) fn codon_optimize(
+    project: &ProjectData,
+    feature_id: &str,
+    species: &str,
+    method: &str,
+    custom_table: Option<Vec<(char, String, f64)>>,
+    original_species: Option<&str>,
+    avoid_enzyme_sites: Option<Vec<String>>,
+    gc_window: Option<(usize, f64, f64)>,
+) -> Result<
+    (
+        String,
+        libregene_core::codon::OptimizeResult,
+        libregene_core::codon::CodingDna,
+    ),
+    String,
+> {
+    let feature = project
+        .features
+        .iter()
+        .find(|f| f.id == feature_id)
+        .ok_or_else(|| format!("Feature not found: {}", feature_id))?;
+    if feature.ftype != "CDS" && feature.ftype != "mRNA" {
+        return Err(format!(
+            "feature '{}' is {} (only CDS/mRNA can be codon-optimized)",
+            feature_id, feature.ftype
+        ));
+    }
+    let coding =
+        libregene_core::codon::extract_codons(&project.sequence, feature, &project.topology)?;
+
+    let table = codon_usage_table(species, custom_table)?;
+    let opts = codon_optimize_options(method, original_species, avoid_enzyme_sites, gc_window)?;
+    let result = libregene_core::codon::optimize_codons(&coding.codons, &table, &opts);
+
+    let new_coding: String = result.new_codons.concat();
+    let mut bytes = project.sequence.as_bytes().to_vec();
+    let minus = feature.strand == "-";
+    let mut off = 0usize;
+    for &(s, e) in &coding.segments_on_template {
+        let len = e - s + 1;
+        let piece = &new_coding[off..off + len];
+        if minus {
+            let rc = libregene_core::utils::reverse_complement(piece);
+            bytes[s as usize..=e as usize].copy_from_slice(rc.as_bytes());
+        } else {
+            bytes[s as usize..=e as usize].copy_from_slice(piece.as_bytes());
+        }
+        off += len;
+    }
+    let new_sequence = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+    Ok((new_sequence, result, coding))
 }
 
 async fn do_check_primers_binding(
@@ -1925,6 +2058,141 @@ async fn annotate_features(
     do_annotate_features(&state.pm, &project_id).await
 }
 
+// ---------------------------------------------------------------------------
+// Tauri commands — codon optimization
+// ---------------------------------------------------------------------------
+
+/// List the built-in codon-usage species keys (e.g. "e_coli", "h_sapiens").
+#[tauri::command]
+async fn list_codon_species() -> Vec<String> {
+    libregene_core::codon::list_species()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Preview a CDS/mRNA feature's synonymous codon optimization without
+/// modifying the project. Returns the translated aa, the replacement codons,
+/// CAI/GC before and after, per-codon repairs, and unresolved violations.
+/// `method` is use_best_codon | match_codon_usage | harmonize_rca;
+/// harmonize_rca additionally uses `original_species` as the source table.
+#[tauri::command]
+async fn preview_codon_optimization(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    feature_id: String,
+    species: String,
+    method: String,
+    custom_table: Option<Vec<(char, String, f64)>>,
+    original_species: Option<String>,
+    avoid_enzyme_sites: Option<Vec<String>>,
+    gc_window: Option<(usize, f64, f64)>,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+    let project = {
+        let pm = state.pm.read().await;
+        pm.get_project_by_id(&project_id)
+            .ok_or_else(|| "Project not found".to_string())?
+            .clone()
+    };
+    let f_id = feature_id.clone();
+    let sp = species.clone();
+    let m = method.clone();
+    let (_, result, coding) = tokio::task::spawn_blocking(move || {
+        codon_optimize(
+            &project,
+            &f_id,
+            &sp,
+            &m,
+            custom_table,
+            original_species.as_deref(),
+            avoid_enzyme_sites,
+            gc_window,
+        )
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))??;
+    Ok(codon_optimization_json(&result, &coding, &method, &species))
+}
+
+/// Apply a synonymous codon optimization: replace the feature's coding bases
+/// in the template sequence (equal-length, so feature coordinates are
+/// unchanged), then recompute enzymes/primers/translations and mark the
+/// project dirty. Returns the same summary as preview plus ok/message.
+#[tauri::command]
+async fn apply_codon_optimization(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    feature_id: String,
+    species: String,
+    method: String,
+    custom_table: Option<Vec<(char, String, f64)>>,
+    original_species: Option<String>,
+    avoid_enzyme_sites: Option<Vec<String>>,
+    gc_window: Option<(usize, f64, f64)>,
+) -> Result<serde_json::Value, String> {
+    let project_id = resolve_project_id(&state, webview_window.label()).await
+        .ok_or_else(|| "No project loaded".to_string())?;
+    let project = {
+        let pm = state.pm.read().await;
+        pm.get_project_by_id(&project_id)
+            .ok_or_else(|| "Project not found".to_string())?
+            .clone()
+    };
+    let f_id = feature_id.clone();
+    let sp = species.clone();
+    let m = method.clone();
+    let (new_sequence, result, coding) = tokio::task::spawn_blocking(move || {
+        codon_optimize(
+            &project,
+            &f_id,
+            &sp,
+            &m,
+            custom_table,
+            original_species.as_deref(),
+            avoid_enzyme_sites,
+            gc_window,
+        )
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))??;
+    do_update_sequence(&state.pm, project_id.clone(), new_sequence).await?;
+    let mut v = codon_optimization_json(&result, &coding, &method, &species);
+    v["ok"] = serde_json::json!(true);
+    v["message"] = serde_json::json!(format!(
+        "Optimized CDS {} ({}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
+        feature_id,
+        species,
+        result.cai_before,
+        result.cai_after,
+        result.repairs.len(),
+        result.unresolved.len()
+    ));
+    Ok(v)
+}
+
+fn codon_optimization_json(
+    result: &libregene_core::codon::OptimizeResult,
+    coding: &libregene_core::codon::CodingDna,
+    method: &str,
+    species: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "aa": coding.aa,
+        "codonCount": coding.codons.len(),
+        "newCodons": result.new_codons,
+        "caiBefore": result.cai_before,
+        "caiAfter": result.cai_after,
+        "gcBefore": result.gc_before,
+        "gcAfter": result.gc_after,
+        "repairs": result.repairs,
+        "unresolved": result.unresolved,
+        "method": method,
+        "species": species,
+    })
+}
+
 /// Generate primer design candidates for the active project's sequence.
 /// `mode` is "amplify" | "oepcr" | "mutagenesis"; segments are { start, end }
 /// 0-based inclusive. Tm is computed with the same TmParams defaults as the
@@ -2499,6 +2767,9 @@ pub fn run() {
             find_orfs,
             search_sequence,
             annotate_features,
+            list_codon_species,
+            preview_codon_optimization,
+            apply_codon_optimization,
             get_enzyme_database,
             add_alignment,
             add_alignment_seq,
@@ -2531,6 +2802,10 @@ mod tests {
     fn validate_path_accepts_normal_sequence_file() {
         assert_eq!(validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(), "gbk");
         assert_eq!(validate_user_path("plasmid.fa", SEQ_EXTS).unwrap(), "fa");
+        assert_eq!(validate_user_path("reads.faa", SEQ_EXTS).unwrap(), "faa");
+        assert_eq!(validate_user_path("genome.gbff", SEQ_EXTS).unwrap(), "gbff");
+        assert_eq!(validate_user_path("entry.gp", SEQ_EXTS).unwrap(), "gp");
+        assert_eq!(validate_user_path("mystery.seq", SEQ_EXTS).unwrap(), "seq");
     }
 
     #[test]
@@ -2560,6 +2835,16 @@ mod tests {
         assert_eq!(validate_user_path("enzymes.csv", TEXT_EXPORT_EXTS).unwrap(), "csv");
         assert_eq!(validate_user_path("data.json", TEXT_EXPORT_EXTS).unwrap(), "json");
         assert!(validate_user_path("evil.exe", TEXT_EXPORT_EXTS).is_err());
+    }
+
+    #[test]
+    fn validate_path_accepts_codon_output_exts() {
+        assert_eq!(validate_user_path("out.gbk", CODON_OUTPUT_EXTS).unwrap(), "gbk");
+        assert_eq!(validate_user_path("out.GB", CODON_OUTPUT_EXTS).unwrap(), "gb");
+        assert_eq!(validate_user_path("out.gpt", CODON_OUTPUT_EXTS).unwrap(), "gpt");
+        assert!(validate_user_path("out.fasta", CODON_OUTPUT_EXTS).is_err());
+        assert!(validate_user_path("out.ab1", CODON_OUTPUT_EXTS).is_err());
+        assert!(validate_user_path("out.txt", CODON_OUTPUT_EXTS).is_err());
     }
 
     #[tokio::test]
