@@ -34,6 +34,7 @@ import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
 import MapView from './MapView';
 import PrimerOverviewDialog from './components/PrimerOverviewDialog';
+import DetectFeaturesDialog from './DetectFeaturesDialog';
 import MyPrimersDialog from './MyPrimersDialog';
 import MyEnzymesDialog from './MyEnzymesDialog';
 import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
@@ -87,6 +88,7 @@ export default function ProjectWorkspace({
   const alignmentEnabled = !disabledPlugins.includes('alignment');
 
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
+  const [detectFeaturesOpen, setDetectFeaturesOpen] = useState(false);
   const [myPrimersOpen, setMyPrimersOpen] = useState(false);
   const [myEnzymesOpen, setMyEnzymesOpen] = useState(false);
   const [enzymeDbOpen, setEnzymeDbOpen] = useState(false);
@@ -1286,6 +1288,7 @@ export default function ProjectWorkspace({
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
               onOpenPrimerOverview={() => setPrimerOverviewOpen(true)}
+              onOpenDetectFeatures={isTauri ? () => setDetectFeaturesOpen(true) : undefined}
               onOpenMyEnzymes={() => setMyEnzymesOpen(true)}
               onOpenEnzymeDatabase={() => setEnzymeDbOpen(true)}
               onAddPrimerToMyPrimers={handleAddPrimerToMyPrimers}
@@ -1328,6 +1331,13 @@ export default function ProjectWorkspace({
         onEditPrimer={(p) => {
           openPrimerEditorRef.current?.(p);
         }}
+      />
+
+      <DetectFeaturesDialog
+        open={detectFeaturesOpen}
+        onOpenChange={setDetectFeaturesOpen}
+        features={features}
+        onAddFeature={handleFeatureAdd}
       />
 
       <MyPrimersDialog

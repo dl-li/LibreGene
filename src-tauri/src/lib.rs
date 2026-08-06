@@ -896,6 +896,30 @@ async fn do_search_sequence(
     .map_err(|e| format!("task join error: {}", e))
 }
 
+/// Run automatic annotation of a project's sequence against the embedded
+/// SnapGene feature database. Read-only: returns detected features, never
+/// modifies the project (no dirty/broadcast). Coordinates are 0-based
+/// inclusive; circular sequences may report origin-wrapping features with
+/// `start > end` and split `segments`.
+async fn do_annotate_features(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
+    let (sequence, topology) = {
+        let pm = pm.read().await;
+        let project = pm
+            .get_project_by_id(project_id)
+            .ok_or_else(|| "Project not found".to_string())?;
+        (project.sequence.clone(), project.topology.clone())
+    };
+
+    tokio::task::spawn_blocking(move || {
+        libregene_core::annotate::annotate_sequence(&sequence, topology == "circular")
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))
+}
+
 async fn do_check_primers_binding(
     pm: &Arc<RwLock<ProjectManager>>,
     project_id: &str,
@@ -1881,6 +1905,26 @@ async fn search_sequence(
     do_search_sequence(&state.pm, &project_id, query).await
 }
 
+/// Run automatic annotation of a project's sequence against the embedded
+/// SnapGene feature database. Read-only: returns detected features (camelCase,
+/// 0-based inclusive coordinates), does not modify the project. `project_id`
+/// defaults to the calling window's project.
+#[tauri::command]
+async fn annotate_features(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
+    let project_id = match project_id {
+        Some(id) => id,
+        None => resolve_project_id(&state, webview_window.label())
+            .await
+            .ok_or_else(|| "No project loaded".to_string())?,
+    };
+
+    do_annotate_features(&state.pm, &project_id).await
+}
+
 /// Generate primer design candidates for the active project's sequence.
 /// `mode` is "amplify" | "oepcr" | "mutagenesis"; segments are { start, end }
 /// 0-based inclusive. Tm is computed with the same TmParams defaults as the
@@ -2454,6 +2498,7 @@ pub fn run() {
             design_primer_candidates,
             find_orfs,
             search_sequence,
+            annotate_features,
             get_enzyme_database,
             add_alignment,
             add_alignment_seq,

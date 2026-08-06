@@ -289,11 +289,20 @@ export async function regenerateMcpToken() {
 }
 
 // ---------------------------------------------------------------------------
-// ORF search / sequence search / primer design (backend-computed)
+// ORF search / sequence search / primer design / auto-annotation (backend-computed)
 // ---------------------------------------------------------------------------
 
 export async function findOrfs(minAa = 75) {
   return tauriInvoke('find_orfs', { minAa: minAa ?? null });
+}
+
+/**
+ * Detect common features (promoters, CDS, origins, …) in the active project's
+ * sequence against the embedded SnapGene feature database.
+ * Returns a read-only array of AnnotatedFeature (camelCase).
+ */
+export async function annotateFeatures() {
+  return tauriInvoke('annotate_features');
 }
 
 export async function searchSequence(query) {

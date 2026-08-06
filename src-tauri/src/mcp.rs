@@ -423,7 +423,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// section (or "PRIMERS (none)" when the project has none). The UNIQUE
     /// CUTTERS list (90+ lines on real plasmids) is collapsed to a single count
     /// line by default; pass `compactCutters: false` for the full per-enzyme
-    /// list. Returns {projectId, text}.
+    /// list. The digest ends with a `DETECTED COMMON FEATURES (auto)` section
+    /// listing non-fragment features auto-annotated against the embedded
+    /// SnapGene database, one line each (name | type | strand | start..end |
+    /// identity%) with an `(already annotated)` marker. Fragment hits are
+    /// omitted to avoid misleading partial matches. Returns {projectId, text}.
     #[tool]
     async fn get_project_overview(
         &self,
@@ -435,6 +439,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             feature_filter: request.feature_filter,
             compact_enzymes: false,
             compact_cutters: request.compact_cutters.unwrap_or(true),
+            include_auto_annotation: true,
         };
         let text = project_digest(&project, &opts, None)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -458,6 +463,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             feature_filter: request.feature_filter,
             compact_enzymes: request.compact.unwrap_or(true),
             compact_cutters: false,
+            include_auto_annotation: false,
         };
         let text = project_digest(&project, &opts, Some((request.start, request.end)))
             .map_err(|e| ErrorData::invalid_params(e, None))?;

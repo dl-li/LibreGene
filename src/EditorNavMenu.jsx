@@ -24,6 +24,7 @@ import {
   Save,
   Database,
   ArrowDownWideNarrow,
+  ScanSearch,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -94,6 +95,7 @@ export default function EditorNavMenu({
   alwaysExpandFeatures,
   onToggleAlwaysExpandFeatures,
   onCreateFeature,
+  onOpenDetectFeatures,
   showPrimers,
   onTogglePrimers,
   onCreatePrimer,
@@ -260,6 +262,9 @@ export default function EditorNavMenu({
             <DropdownMenuItem onSelect={onCreateFeature}>
               <Plus /> Create Feature
               <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenDetectFeatures} disabled={!onOpenDetectFeatures}>
+              <ScanSearch /> Detect Common Features
             </DropdownMenuItem>
             <DropdownMenuCheckboxItem
               checked={alwaysExpandFeatures}
