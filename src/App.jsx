@@ -514,6 +514,13 @@ export default function App() {
   // Sidebar buttons target the visible workspace: projectId in project windows,
   // activeId in the main window
   const sidebarTargetId = isProjectWindow ? windowInfo.projectId : activeId;
+  // rna/protein projects hide DNA-only sidebar entries (ORFs, codon
+  // optimization); DNA-only plugins are marked dnaOnly in the registry.
+  const activeMoleculeType = projects.find((p) => p.id === activeId)?.moleculeType || 'dna';
+  const isActiveDna = activeMoleculeType === 'dna';
+  const visiblePlugins = plugins.filter(
+    (plugin) => !disabledPlugins.includes(plugin.id) && (isActiveDna || !plugin.dnaOnly),
+  );
 
   const workspaceProps = {
     backendStatus,
@@ -738,24 +745,22 @@ export default function App() {
         <SidebarGroup className="mt-auto">
           <SidebarGroupContent>
             <SidebarMenu>
-              {plugins
-                .filter((plugin) => !disabledPlugins.includes(plugin.id))
-                .flatMap((plugin) =>
-                  plugin.sidebarItems.map((item) => (
-                    <SidebarMenuItem key={`${plugin.id}-${item.dialogKey}`}>
-                      <SidebarMenuButton
-                        onClick={() =>
-                          handlesRef.current[sidebarTargetId]?.openPluginDialog(item.dialogKey)
-                        }
-                        tooltip={item.tooltip}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <item.icon className="size-4" />
-                        <span>{item.label}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )),
-                )}
+              {visiblePlugins.flatMap((plugin) =>
+                plugin.sidebarItems.map((item) => (
+                  <SidebarMenuItem key={`${plugin.id}-${item.dialogKey}`}>
+                    <SidebarMenuButton
+                      onClick={() =>
+                        handlesRef.current[sidebarTargetId]?.openPluginDialog(item.dialogKey)
+                      }
+                      tooltip={item.tooltip}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <item.icon className="size-4" />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )),
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => handlesRef.current[sidebarTargetId]?.openMapView()}
@@ -826,6 +831,7 @@ export default function App() {
                   hidden={p.id !== activeId}
                   initialData={initialDataRef.current[p.id]}
                   topology={p.topology || 'circular'}
+                  moleculeType={p.moleculeType || 'dna'}
                   {...workspaceProps}
                 />
               ))
@@ -842,7 +848,7 @@ export default function App() {
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {['.gbk', '.dna', '.fasta', '.ab1'].map((ext) => (
+                    {['.gbk', '.gbff', '.dna', '.fasta', '.faa', '.ab1', '.rna', '.prot', '.gpt', '.gp', '.seq'].map((ext) => (
                       <span
                         key={ext}
                         className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"

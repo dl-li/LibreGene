@@ -92,6 +92,7 @@ impl ProjectManager {
                     "name": id,
                     "length": p.length,
                     "topology": p.topology,
+                    "moleculeType": p.molecule_type,
                     "dirty": self.dirty_projects.contains(id.as_str()),
                 })
             }))

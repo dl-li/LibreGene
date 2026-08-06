@@ -88,7 +88,11 @@ export default function SequenceEditDialog({
   initialText = '',
   onConfirm,
   onCancel,
+  moleculeType = 'dna',
 }) {
+  // Length unit: base pairs (DNA), nucleotides (ss-RNA), amino acids (protein).
+  const isProtein = moleculeType === 'protein';
+  const unit = moleculeType === 'dna' ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
   // 输入框中的文本
   const [inputText, setInputText] = useState('');
   const inputRef = useRef(null);
@@ -122,8 +126,7 @@ export default function SequenceEditDialog({
   const netChange = mode === 'replace' ? insertLen - deleteLen : 0;
 
   // 可提交条件：非删除模式需要内容不为空（输入已被过滤为纯字母）
-  const canConfirm =
-    mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0);
+  const canConfirm = mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0);
 
   const handleConfirm = () => {
     if (!canConfirm) return;
@@ -171,7 +174,9 @@ export default function SequenceEditDialog({
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
                   {selStart} – {selEnd}
                 </code>
-                <span className="tabular-nums">({deleteLen} bp)</span>
+                <span className="tabular-nums">
+                  ({deleteLen} {unit})
+                </span>
               </>
             )}
           </div>
@@ -199,7 +204,7 @@ export default function SequenceEditDialog({
                 value={inputText}
                 onChange={(e) => setInputText(filterLetters(e.target.value))}
                 onKeyDown={handleKeyDown}
-                placeholder="Enter DNA / RNA sequence…"
+                placeholder={isProtein ? 'Enter amino acid sequence…' : 'Enter DNA / RNA sequence…'}
                 rows={4}
                 spellCheck={false}
                 className="font-mono text-sm w-full rounded-lg border bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
@@ -212,24 +217,32 @@ export default function SequenceEditDialog({
             {mode === 'insert' && (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
                 Insert
-                <span className="font-semibold tabular-nums">+{insertLen} bp</span>
+                <span className="font-semibold tabular-nums">
+                  +{insertLen} {unit}
+                </span>
               </span>
             )}
             {mode === 'delete' && (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
                 Delete
-                <span className="font-semibold tabular-nums">−{deleteLen} bp</span>
+                <span className="font-semibold tabular-nums">
+                  −{deleteLen} {unit}
+                </span>
               </span>
             )}
             {mode === 'replace' && (
               <>
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
                   Delete
-                  <span className="font-semibold tabular-nums">−{deleteLen} bp</span>
+                  <span className="font-semibold tabular-nums">
+                    −{deleteLen} {unit}
+                  </span>
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
                   Insert
-                  <span className="font-semibold tabular-nums">+{insertLen} bp</span>
+                  <span className="font-semibold tabular-nums">
+                    +{insertLen} {unit}
+                  </span>
                 </span>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${netChange > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : netChange < 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-border bg-muted text-muted-foreground'}`}
@@ -237,17 +250,18 @@ export default function SequenceEditDialog({
                   Net
                   <span className="font-semibold tabular-nums">
                     {netChange > 0 ? '+' : ''}
-                    {netChange} bp
+                    {netChange} {unit}
                   </span>
                 </span>
               </>
             )}
           </div>
-
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          {(mode === 'insert' || mode === 'replace') && inputText.trim().length > 0 && (
+          {(mode === 'insert' || mode === 'replace') &&
+            inputText.trim().length > 0 &&
+            !isProtein && (
               <Button
                 variant="secondary"
                 size="sm"

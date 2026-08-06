@@ -390,6 +390,9 @@ pub struct ProjectData {
     /// "circular" | "linear"
     #[serde(default = "default_topology")]
     pub topology: String,
+    /// "dna" | "rna" | "protein"
+    #[serde(default = "default_molecule_type")]
+    pub molecule_type: String,
     #[serde(default)]
     pub features: Vec<Feature>,
     #[serde(default)]
@@ -411,6 +414,10 @@ pub struct ProjectData {
 
 fn default_topology() -> String {
     "circular".to_string()
+}
+
+fn default_molecule_type() -> String {
+    "dna".to_string()
 }
 
 fn default_methylation_overlap() -> i64 {

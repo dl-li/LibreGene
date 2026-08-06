@@ -1,0 +1,26 @@
+LOCUS       mCherry         237 aa            linear   UNA 06-AUG-2026
+DEFINITION  .
+ACCESSION   .
+VERSION     .
+DBSOURCE    .
+KEYWORDS    .
+SOURCE      natural protein sequence
+  ORGANISM  unspecified
+REFERENCE   1  (residues 1 to 237)
+  AUTHORS   Li Donglin
+  TITLE     Direct Submission
+  JOURNAL   Exported Aug 6, 2026 from SnapGene 7.0.2
+            https://www.snapgene.com
+FEATURES             Location/Qualifiers
+     source          1..237
+                     /organism="unspecified"
+     Region          1..237
+                     /note="color: #ff0000"
+                     /calculated_mol_wt=-1
+                     /label=mCherry
+ORIGIN
+        1 mvskgeednm aiikefmrfk vhmegsvngh kfeiegegeg rpyegtqtak lkvtkggplp
+       61 fawdilspqf mygskayvkh padipdylkl sfpegfkwer vmnfedggvv tvtqdsslqd
+      121 gefiykvklr gtnfpsdgpv mqkktmgwea ssermypedg alkgeikqrl klkdgghyda
+      181 evkttykakk pvqlpgaynv niklditshn edytiveqye raegrhstgg mdelyk*
+//

@@ -1,17 +1,21 @@
-//! SnapGene `.dna` parser.
+//! SnapGene binary parser — `.dna`, `.rna`, `.prot`.
 //!
-//! The `.dna` format uses a TLV (Type-Length-Value) binary structure:
+//! The three formats share a TLV (Type-Length-Value) structure:
 //!
 //! ```text
 //! Cookie:  1 byte (0x09) + 4 bytes BE u32 (14) + 8 bytes "SnapGene"
-//! Header:  3 × uint16 (file ver, DNA type, export ver) = 6 bytes
+//! Header:  3 × uint16 (molecule kind, file ver, export ver) = 6 bytes
 //! Blocks:  [1 byte type | 4 bytes BE u32 length | payload ...]
 //! ```
 //!
+//! The first header field is the molecule kind: 1 = DNA, 2 = protein, 7 = RNA.
+//! The sequence block type follows the kind: 0x00 (DNA), 0x15 (protein),
+//! 0x20 (RNA).
+//!
 //! Block types used:
-//! - 0: DNA sequence (plain text)
+//! - 0x00 / 0x15 / 0x20: sequence (plain text)
 //! - 5: Primers (XML)
-//! - 8: Additional sequence properties (XML, contains topology)
+//! - 8: Additional sequence properties (XML)
 //! - 10: Features (XML)
 
 use std::fs;
@@ -151,8 +155,10 @@ fn read_be_u16(data: &[u8], offset: &mut usize) -> io::Result<u16> {
 // Parser
 // ---------------------------------------------------------------------------
 
-/// Parse a SnapGene `.dna` file and return a [`ProjectData`].
-pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
+/// Parse a SnapGene `.dna`/`.rna`/`.prot` file and return a [`ProjectData`].
+///
+/// The molecule kind is read from the header (1 = DNA, 2 = protein, 7 = RNA).
+pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
     let data = fs::read(path)?;
 
     let mut offset = 0usize;
@@ -190,13 +196,24 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
     if offset + 6 > data.len() {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "header truncated"));
     }
+    let molecule_kind = read_be_u16(&data, &mut offset)?;
     let _file_ver = read_be_u16(&data, &mut offset)?;
-    let _dna_type = read_be_u16(&data, &mut offset)?;
     let _export_ver = read_be_u16(&data, &mut offset)?;
+
+    let molecule_type = match molecule_kind {
+        2 => "protein",
+        7 => "rna",
+        _ => "dna",
+    };
 
     // --- TLV blocks ---
     let mut sequence = String::new();
-    let mut topology = "circular".to_string();
+    // DNA defaults to circular; RNA/protein are linear unless properties say otherwise.
+    let mut topology = if molecule_type == "dna" {
+        "circular".to_string()
+    } else {
+        "linear".to_string()
+    };
     let mut features_xml = String::new();
     let mut primers_xml = String::new();
 
@@ -215,12 +232,14 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
         offset += block_len;
 
         match block_type {
-            0 => {
-                // DNA sequence — plain UTF-8 text
+            0 | 0x15 | 0x20 => {
+                // Sequence — plain UTF-8 text. The block type varies by molecule
+                // kind (DNA 0x00, protein 0x15, RNA 0x20). Protein sequences may
+                // contain a terminal '*' stop marker — keep it.
                 sequence = String::from_utf8_lossy(payload)
                     .to_uppercase()
                     .chars()
-                    .filter(|c| c.is_ascii_alphabetic())
+                    .filter(|c| c.is_ascii_alphabetic() || (molecule_type == "protein" && *c == '*'))
                     .collect();
             }
             5 => {
@@ -442,10 +461,16 @@ pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
         sequence,
         length,
         topology,
+        molecule_type: molecule_type.to_string(),
         features,
         primers,
         ..Default::default()
     })
+}
+
+/// Parse a SnapGene `.dna` file (kept for callers of the old entry point).
+pub fn parse_dna(path: &Path) -> io::Result<ProjectData> {
+    parse_snapgene(path)
 }
 
 // ---------------------------------------------------------------------------
@@ -543,5 +568,52 @@ mod tests {
     #[test]
     fn test_reverse_complement() {
         assert_eq!(crate::utils::reverse_complement("ATGC"), "GCAT");
+    }
+
+    fn test_data(path: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("test_data")
+            .join(path)
+    }
+
+    #[test]
+    fn parse_rna_snapgene() {
+        let project = parse_snapgene(&test_data("Primary-miR-1.rna")).unwrap();
+        assert_eq!(project.molecule_type, "rna");
+        assert_eq!(project.topology, "linear");
+        assert_eq!(project.length, 91);
+        assert_eq!(project.features.len(), 6);
+        let guide = project.features.iter().find(|f| f.name == "Guide strand").unwrap();
+        assert_eq!(guide.color, "#d34035");
+        assert_eq!((guide.start, guide.end), (55, 76));
+        let scaffold = project.features.iter().find(|f| f.name == "shRNA (miR-1 scaffold）").unwrap();
+        assert_eq!(scaffold.color, "#3366ff");
+        let pas = project.features.iter().find(|f| f.name == "Passenger strand").unwrap();
+        assert_eq!(pas.color, "#5c80ba");
+    }
+
+    #[test]
+    fn parse_protein_snapgene() {
+        let project = parse_snapgene(&test_data("mCherry.prot")).unwrap();
+        assert_eq!(project.molecule_type, "protein");
+        assert_eq!(project.topology, "linear");
+        assert_eq!(project.length, 237);
+        // The terminal '*' stop marker survives the alphabetic filter.
+        assert!(project.sequence.ends_with('*'));
+        assert_eq!(project.features.len(), 1);
+        let feat = &project.features[0];
+        assert_eq!(feat.ftype, "Region");
+        assert_eq!(feat.name, "mCherry");
+        assert_eq!(feat.color, "#ff0000");
+        assert_eq!((feat.start, feat.end), (0, 236));
+    }
+
+    #[test]
+    fn parse_dna_still_works() {
+        let project = parse_snapgene(&test_data("BlueScribe-mEGFP.dna")).unwrap();
+        assert_eq!(project.molecule_type, "dna");
+        assert!(project.length > 3000);
     }
 }

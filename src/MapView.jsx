@@ -636,9 +636,11 @@ export default function MapView({
   onSelect,
   onClear,
   onFeatureOpen,
+  moleculeType = 'dna',
 }) {
   const [forceView, setForceView] = useState(null); // null = follow topology
   const view = forceView ?? topology;
+  const unit = moleculeType === 'dna' ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
   const sel =
     selection && selection.selStart != null && selection.selEnd != null
       ? { start: selection.selStart, end: selection.selEnd }
@@ -676,7 +678,7 @@ export default function MapView({
         <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted-foreground">
           <span>
             {sel
-              ? `${sel.start + 1} .. ${sel.end + 1} = ${sel.end - sel.start + 1} bp`
+              ? `${sel.start + 1} .. ${sel.end + 1} = ${sel.end - sel.start + 1} ${unit}`
               : view === 'circular'
                 ? 'Circular'
                 : 'Linear'}

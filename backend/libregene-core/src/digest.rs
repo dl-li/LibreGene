@@ -608,6 +608,7 @@ mod tests {
             sequence: "ACGT".repeat(15),
             length: 60,
             topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
             features: vec![
                 Feature {
                     id: "f1".into(),
