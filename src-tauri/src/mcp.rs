@@ -2940,7 +2940,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let (pieces, flip, desc) = resolve_export_region(&project, &request)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let bbox = (pieces[0].0, pieces[pieces.len() - 1].1);
+        // Bounding box for the regionView digest: the full span the feature
+        // occupies on the template, regardless of strand/piece ordering. Using
+        // pieces[0]/pieces[len-1] breaks for multi-segment minus-strand features
+        // where pieces are in descending order, producing start > end and either
+        // a dropped regionView (linear) or a wrong wrap-around window (circular).
+        let bbox = (
+            pieces.iter().map(|p| p.0).min().unwrap_or(0),
+            pieces.iter().map(|p| p.1).max().unwrap_or(0),
+        );
         let out_name = output_project_name(&request.output_path);
         let path = request.output_path.clone();
         let message_path = path.clone();
@@ -4055,6 +4063,64 @@ mod tests {
             .expect("overlapping plus-strand feature carried over, flipped");
         assert_eq!((prom.start, prom.end), (9, 14));
         assert_eq!(prom.strand, "-", "plus-strand feature flips in a rev-comp export");
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    /// Regression: a multi-segment minus-strand feature (e.g. spliced CDS)
+    /// produced a regionView bbox with start > end before the fix, which
+    /// either dropped the regionView digest (linear) or showed a wrong
+    /// wrap-around window (circular). The bbox must cover the full span
+    /// occupied by the feature on the template, regardless of piece order.
+    #[tokio::test]
+    async fn export_subsequence_multi_segment_minus_strand_regionview_span() {
+        use libregene_core::models::Segment;
+        let seq = synthetic_dna(120, 23);
+        // Two-segment minus-strand feature: pieces (after resolve) are
+        // descending, which is what triggered the original bbox bug.
+        let multi_seg = Feature {
+            id: "split".to_string(),
+            name: "split_cds".to_string(),
+            start: 10,
+            end: 60,
+            color: "#60A5FA".to_string(),
+            ftype: "CDS".to_string(),
+            segments: vec![
+                Segment { start: 40, end: 60, color: None },
+                Segment { start: 10, end: 30, color: None },
+            ],
+            strand: "-".to_string(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        };
+        let project = ProjectData {
+            name: "multi_minus".to_string(),
+            sequence: seq.clone(),
+            length: 120,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![multi_seg],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-multi-minus-{}.gbk", std::process::id()));
+        let req = ExportSubsequenceRequest {
+            feature_id: Some("split".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "export should succeed");
+        // The headline assertion: regionView must be present (non-null) and
+        // describe a span within the feature's real coordinates [10, 60].
+        // Before the fix, bbox was (40, 30) → start > end → regionView dropped.
+        let region = v["regionView"].as_str().unwrap_or("");
+        assert!(
+            !region.is_empty(),
+            "regionView must not be empty for a multi-segment minus-strand feature (was dropped by bbox bug)"
+        );
         std::fs::remove_file(&out_path).ok();
     }
 
