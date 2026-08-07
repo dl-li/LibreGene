@@ -330,10 +330,14 @@ pub fn project_digest(
             .methylation_systems
             .iter()
             .map(|s| {
-                let mut c = s.chars();
-                match c.next() {
-                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                    None => String::new(),
+                if s.eq_ignore_ascii_case("ecoki") {
+                    "EcoKI".to_string()
+                } else {
+                    let mut c = s.chars();
+                    match c.next() {
+                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                        None => String::new(),
+                    }
                 }
             })
             .collect();

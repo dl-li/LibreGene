@@ -183,13 +183,6 @@ struct AddPrimerRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct SetMethylationRequest {
-    project_id: Option<String>,
-    systems: Vec<String>,
-    overlap: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct AddAlignmentRequest {
     project_id: Option<String>,
     name: String,
@@ -2184,28 +2177,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         );
         env["bindingSites"] = serde_json::json!(sites);
         Ok(Json(env))
-    }
-
-    /// Set the project's methylation systems (e.g. ["Dam","Dcm"], case-insensitive)
-    /// and optional +/- bp overlap beyond recognition sites. Recomputes enzyme
-    /// methylation flags like the set_methylation command. Returns the uniform
-    /// envelope with the overview digest.
-    #[tool]
-    async fn set_methylation(
-        &self,
-        Parameters(request): Parameters<SetMethylationRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let payload = crate::do_set_methylation(&self.pm, &id, request.systems, request.overlap)
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        // set_methylation core does not broadcast.
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
-        let region = self.digest_region(&id, None, true).await;
-        Ok(Json(ok_envelope(&id, "Updated methylation systems".to_string(), region)))
     }
 
     /// Align a read against the project template and APPEND it as a new
