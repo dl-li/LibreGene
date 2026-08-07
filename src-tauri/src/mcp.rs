@@ -3159,10 +3159,46 @@ fn persist_token<R: Runtime>(app: &AppHandle<R>, token: &str) {
     if let Some(path) = token_file_path(app) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
+            restrict_token_dir(parent);
         }
         let _ = std::fs::write(&path, token);
+        restrict_token_file(&path);
     }
 }
+
+/// Tighten permissions on the token file itself.
+///
+/// The token is the single shared secret guarding the loopback MCP server,
+/// so on multi-user Unix a default 0644 would let other local users read it
+/// and impersonate the MCP client. 0600 restricts it to the owner.
+#[cfg(unix)]
+fn restrict_token_file(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        perms.set_mode(0o600);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_token_file(_path: &std::path::Path) {
+    // Windows %APPDATA% inherits a user-only ACL by default; token_file_path
+    // already derives from app_config_dir, so no extra tightening is needed.
+}
+
+#[cfg(unix)]
+fn restrict_token_dir(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        perms.set_mode(0o700);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_token_dir(_path: &std::path::Path) {}
 
 /// Load the persisted token, or generate and persist a fresh one on first run.
 fn load_or_create_token<R: Runtime>(app: &AppHandle<R>) -> String {
