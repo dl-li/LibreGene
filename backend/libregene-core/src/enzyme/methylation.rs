@@ -13,6 +13,10 @@
 use crate::models::Enzyme;
 use crate::primer::alignment::wrap_template_region;
 
+/// All known methylation systems (lowercase, canonical form). A circular DNA
+/// project whose GBK file carries no methylation annotation defaults to these.
+pub const ALL_SYSTEMS: [&str; 3] = ["dam", "dcm", "ecoki"];
+
 /// Dam methylation: G(m6A)TC
 fn is_dam_site(seq: &[u8]) -> bool {
     seq.len() >= 4
