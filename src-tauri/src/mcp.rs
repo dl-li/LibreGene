@@ -104,7 +104,13 @@ struct EditSequenceRequest {
     project_id: Option<String>,
     start: i64,
     end: i64,
-    replacement: String,
+    /// Replacement sequence as a plain string (empty = delete). Exactly one
+    /// of `replacement` / `replacement_path` must be given.
+    replacement: Option<String>,
+    /// Read the replacement sequence from a local file instead of a string
+    /// (.gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc., same formats as
+    /// open_file) — the recommended way to hand a long insert to this tool.
+    replacement_path: Option<String>,
     expected_old: Option<String>,
 }
 
@@ -1693,7 +1699,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Replace sequence [start..end] (0-based inclusive) with `replacement`
     /// (empty = delete). A pure insertion is `end = start - 1`; ranges must not
-    /// wrap (start > end+1 rejected). Feature coordinates are shifted/clipped
+    /// wrap (start > end+1 rejected). The replacement sequence is given either
+    /// as a plain string (`replacement`) or read from a local sequence file
+    /// (`replacement_path` — .gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc.,
+    /// the same formats open_file accepts; exactly one of the two must be
+    /// given, and a file is the recommended way to hand a long insert to this
+    /// tool). Feature coordinates are shifted/clipped
     /// for the edit (features fully inside a deleted range are removed). When
     /// `expected_old` is given it must match the current [start..end] content
     /// case-insensitively or the edit is rejected with the actual content. Uses
@@ -1733,6 +1744,46 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 ),
             )));
         }
+
+        let replacement = match (request.replacement, request.replacement_path) {
+            (Some(_), Some(_)) => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Provide exactly one of `replacement` or `replacement_path`, not both"
+                        .to_string(),
+                )));
+            }
+            (None, None) => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Provide exactly one of `replacement` (sequence string, empty = delete) or `replacement_path` (sequence file)"
+                        .to_string(),
+                )));
+            }
+            (Some(s), None) => s,
+            (None, Some(path)) => {
+                crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
+                    ErrorData::internal_error(format!("invalid replacement_path: {}", e), None)
+                })?;
+                let parsed = tokio::task::spawn_blocking(move || {
+                    libregene_core::file_io::parse_file(std::path::Path::new(&path))
+                })
+                .await
+                .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+                match parsed {
+                    Ok(data) => data.sequence,
+                    Err(e) => {
+                        return Ok(Json(fail_envelope(
+                            &id,
+                            format!(
+                                "Failed to read replacement sequence file (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
+                                e
+                            ),
+                        )));
+                    }
+                }
+            }
+        };
 
         let is_insertion = end + 1 == start;
         let current: String = if is_insertion {
@@ -1792,7 +1843,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let new_seq = format!(
             "{}{}{}",
             &project.sequence[..start as usize],
-            request.replacement,
+            replacement,
             &project.sequence[(end + 1) as usize..]
         );
         let new_len = new_seq.len() as i64;
@@ -1803,7 +1854,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &project.features,
             start,
             end,
-            request.replacement.len() as i64,
+            replacement.len() as i64,
         );
 
         // Shift/clip features for the edit before the sequence swap: the
@@ -1816,7 +1867,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     &mut p.features,
                     start,
                     end,
-                    request.replacement.len() as i64,
+                    replacement.len() as i64,
                 );
             }
         }
@@ -1830,7 +1881,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // update_sequence core does not broadcast — notify the UI ourselves.
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
 
-        let repl_len = request.replacement.len() as i64;
+        let repl_len = replacement.len() as i64;
         let new_win = (
             (start - 30).max(0),
             (start + repl_len + 30 - 1).min(new_len - 1),
@@ -4288,5 +4339,140 @@ mod tests {
         assert!(msg.contains(".gpt"), "{}", msg);
 
         std::fs::remove_file(&out_path).ok();
+    }
+
+    // ------------------------------------------------------------------
+    // edit_sequence: replacement from file
+    // ------------------------------------------------------------------
+
+    fn edit_test_project() -> ProjectData {
+        let seq = synthetic_dna(200, 42);
+        ProjectData {
+            name: "edit_test".to_string(),
+            sequence: seq,
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("f1", "gene", 50, 100, "+")],
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_replacement_from_fasta_file() {
+        let server = handler_with_project(edit_test_project()).await;
+        let insert = "AAACCCGGGTTT";
+        let fasta = std::env::temp_dir()
+            .join(format!("libregene-mcp-edit-ins-{}.fasta", std::process::id()));
+        std::fs::write(&fasta, format!(">insert\n{}\n", insert)).unwrap();
+
+        // pure insertion at position 60 via replacement_path
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 60,
+                end: 59,
+                replacement_path: Some(fasta.to_string_lossy().into_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(v["newLength"], 212);
+
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(p.sequence.len(), 212);
+        assert_eq!(&p.sequence[60..72], insert);
+        // feature 50..100 spans the insertion point → end shifted by 12
+        let f = p.features.iter().find(|f| f.name == "gene").unwrap();
+        assert_eq!((f.start, f.end), (50, 112));
+        drop(pm);
+        std::fs::remove_file(&fasta).ok();
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_replacement_input_validation() {
+        let server = handler_with_project(edit_test_project()).await;
+
+        // both replacement and replacement_path → error
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 10,
+                end: 20,
+                replacement: Some("ACGT".to_string()),
+                replacement_path: Some("x.fasta".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(out.0["message"].as_str().unwrap().contains("exactly one"), "{}", out.0);
+
+        // neither → error
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 10,
+                end: 20,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(out.0["message"].as_str().unwrap().contains("exactly one"), "{}", out.0);
+
+        // bad extension → hard error from validate_user_path
+        let res = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 10,
+                end: 20,
+                replacement_path: Some("notes.txt".to_string()),
+                ..Default::default()
+            }))
+            .await;
+        assert!(res.is_err(), "txt path must be rejected");
+
+        // unreadable/missing file → fail envelope
+        let missing = std::env::temp_dir()
+            .join(format!("libregene-mcp-edit-missing-{}.fasta", std::process::id()));
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 10,
+                end: 20,
+                replacement_path: Some(missing.to_string_lossy().into_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("Failed to read replacement"),
+            "{}",
+            out.0
+        );
+
+        // sequence must be untouched after all these failures
+        let pm = server.pm.read().await;
+        assert_eq!(pm.get_project_by_id("edit_test").unwrap().sequence.len(), 200);
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_string_replacement_still_works() {
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 10,
+                end: 19,
+                replacement: Some("TT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(v["newLength"], 192);
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(&p.sequence[10..12], "TT");
     }
 }
