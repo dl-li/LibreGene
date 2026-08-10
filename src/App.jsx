@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   openFile,
+  createProject,
   isTauri,
   openFileDialog,
   listenProjectUpdates,
@@ -16,6 +17,7 @@ import { plugins } from './plugins';
 import ProjectWorkspace from './ProjectWorkspace';
 import SettingsPage from './components/SettingsPage';
 import McpGuideDialog from './components/McpGuideDialog';
+import NewSequenceDialog from './NewSequenceDialog';
 import TitleBar from './components/TitleBar';
 import {
   SidebarProvider,
@@ -44,6 +46,7 @@ import {
 import {
   LoaderCircle,
   FolderOpen,
+  FilePlus2,
   ChevronDown,
   AlertTriangle,
   X,
@@ -123,6 +126,7 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
+  const [newSeqOpen, setNewSeqOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
   const [alwaysExpandFeatures, setAlwaysExpandFeatures] = useState(() => {
     try {
@@ -389,6 +393,25 @@ export default function App() {
     }
   }, [openPath, projects, refreshProjects]);
 
+  // Create an in-memory project from the New Sequence dialog; hand the
+  // response to the new workspace (same pattern as handleOpenFile).
+  const handleCreateProject = useCallback(
+    async (payload) => {
+      try {
+        const data = await createProject(payload);
+        if (data && data.sequence && data.id) {
+          initialDataRef.current[data.id] = data;
+          await refreshProjects();
+          return { ok: true };
+        }
+        return { ok: false, error: data?.error || 'Failed to create project' };
+      } catch (e) {
+        return { ok: false, error: e?.message || String(e) };
+      }
+    },
+    [refreshProjects],
+  );
+
   // Switching is lossless (workspaces stay mounted) — just update activeId
   const handleSwitchProject = useCallback((id) => {
     if (!id || id === activeIdRef.current) return;
@@ -608,10 +631,19 @@ export default function App() {
                 <SidebarMenuButton
                   onClick={handleOpenFile}
                   tooltip="Open File"
-                  className="border border-dashed border-sidebar-border text-muted-foreground hover:border-primary/40 hover:text-primary"
                 >
                   <FolderOpen className="size-4" />
                   <span>Open File…</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setNewSeqOpen(true)}
+                  tooltip="New File"
+                  className="border border-dashed border-sidebar-border text-muted-foreground hover:border-primary/40 hover:text-primary"
+                >
+                  <FilePlus2 className="size-4" />
+                  <span>New File…</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -857,10 +889,16 @@ export default function App() {
                       </span>
                     ))}
                   </div>
-                  <Button onClick={handleOpenFile} size="lg" className="mt-1">
-                    <FolderOpen className="size-4" />
-                    Open File
-                  </Button>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Button onClick={handleOpenFile} size="lg">
+                      <FolderOpen className="size-4" />
+                      Open File
+                    </Button>
+                    <Button variant="outline" size="lg" onClick={() => setNewSeqOpen(true)}>
+                      <FilePlus2 className="size-4" />
+                      New Sequence
+                    </Button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setMcpGuideOpen(true)}
@@ -896,6 +934,12 @@ export default function App() {
           onOpenChange={setMcpGuideOpen}
           mcpConfig={mcpConfig}
           onMcpConfigChange={handleMcpConfigChange}
+        />
+
+        <NewSequenceDialog
+          open={newSeqOpen}
+          onOpenChange={setNewSeqOpen}
+          onConfirm={handleCreateProject}
         />
 
         {/* --- Unsaved Changes Dialog --- */}

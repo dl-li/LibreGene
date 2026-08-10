@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::RwLock;
 
@@ -346,6 +347,125 @@ async fn do_open_file(
     }
 }
 
+/// A feature to embed in a newly created project (see `create_project`).
+/// Coordinates are 0-based inclusive; origin-wrapping features arrive as
+/// multiple `segments`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewFeatureInput {
+    pub name: String,
+    pub ftype: String,
+    pub color: String,
+    pub strand: String,
+    pub segments: Vec<Segment>,
+}
+
+/// Convert a [`NewFeatureInput`] into a project [`Feature`], deriving the
+/// overall bounds from the segment list. None for empty segments.
+fn feature_from_input(input: NewFeatureInput, id: &str) -> Option<Feature> {
+    if input.segments.is_empty() {
+        return None;
+    }
+    let start = input.segments.iter().map(|s| s.start).min().unwrap_or(0);
+    let end = input.segments.iter().map(|s| s.end).max().unwrap_or(0);
+    Some(Feature {
+        id: id.to_string(),
+        name: input.name,
+        start,
+        end,
+        color: input.color,
+        ftype: input.ftype,
+        segments: input.segments,
+        strand: input.strand,
+        notes: String::new(),
+        translation: String::new(),
+        qualifiers: Vec::new(),
+    })
+}
+
+/// Create a new in-memory project from pasted sequence (empty-page "New
+/// Sequence"). The virtual id is `untitled-{millis}` (no extension) so the
+/// frontend canDirectSave check fails and the first save goes through
+/// Save As + rekey_project. Returns the same shape as `do_open_file` plus the
+/// generated project id.
+async fn do_create_project(
+    pm: &Arc<RwLock<ProjectManager>>,
+    name: String,
+    sequence: String,
+    molecule_type: String,
+    topology: String,
+    features: Vec<NewFeatureInput>,
+) -> Result<serde_json::Value, String> {
+    let seq = sequence.to_ascii_uppercase();
+    if seq.is_empty() {
+        return Ok(serde_json::json!({"error": "Sequence is empty"}));
+    }
+    let molecule = molecule_type.trim().to_ascii_lowercase();
+    let molecule_type = match molecule.as_str() {
+        "rna" | "protein" => molecule,
+        _ => "dna".to_string(),
+    };
+    // RNA/Protein are single-strand: always linear. DNA honors the toggle.
+    let topo = topology.trim().to_ascii_lowercase();
+    let topology = if molecule_type != "dna" {
+        "linear".to_string()
+    } else if topo == "linear" {
+        "linear".to_string()
+    } else {
+        "circular".to_string()
+    };
+
+    let features: Vec<Feature> = features
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, f)| feature_from_input(f, &format!("feature_{}", i)))
+        .collect();
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let id = format!("untitled-{}", ts);
+
+    let length = seq.len() as i64;
+    let mut project = ProjectData {
+        name,
+        sequence: seq,
+        length,
+        topology,
+        molecule_type,
+        features,
+        ..Default::default()
+    };
+    let computed = tokio::task::spawn_blocking(move || {
+        enzyme::recompute(&mut project);
+        primer::recompute(&mut project);
+        libregene_core::translate::refresh_feature_translations(&mut project);
+        project
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+
+    let params = ProjectParams {
+        enzyme_filter: Some("all".to_string()),
+        row_start: None,
+        row_end: None,
+        cpl: None,
+    };
+    let mut return_data = filter_project(&computed, &params);
+    if let Some(ref mut map) = return_data.as_object_mut() {
+        map.insert("id".to_string(), serde_json::json!(id));
+    }
+
+    let (projects, active_id) = {
+        let mut pm = pm.write().await;
+        pm.load(&id, computed);
+        (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+    };
+
+    Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
+}
+
 async fn do_save_file(
     pm: &Arc<RwLock<ProjectManager>>,
     project_id: String,
@@ -359,6 +479,13 @@ async fn do_save_file(
     };
     match project {
         Some(ref p) => {
+            // Protein projects cannot round-trip through the DNA GenBank
+            // writer (amino-acid letters would corrupt the file) — force .gpt.
+            if p.molecule_type == "protein" && ext != "gpt" {
+                return Ok(serde_json::json!({
+                    "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
+                }));
+            }
             let result = if ext == "gpt" {
                 file_io::gpt::write_gpt(p, &save_path)
             } else {
@@ -1222,6 +1349,23 @@ async fn open_file(
     do_open_file(&state.pm, path).await
 }
 
+/// Create a new in-memory project from a pasted sequence (Empty-page "New
+/// Sequence" dialog). `molecule_type` is dna | rna | protein; `topology`
+/// circular | linear (RNA/Protein forced linear); `features` are detected
+/// annotation hits converted to 0-based segments by the frontend. Returns the
+/// same shape as `open_file` plus the generated project id.
+#[tauri::command]
+async fn create_project(
+    state: State<'_, AppState>,
+    name: String,
+    sequence: String,
+    molecule_type: String,
+    topology: String,
+    features: Vec<NewFeatureInput>,
+) -> Result<serde_json::Value, String> {
+    do_create_project(&state.pm, name, sequence, molecule_type, topology, features).await
+}
+
 #[tauri::command]
 async fn save_file(
     webview_window: tauri::WebviewWindow,
@@ -2058,6 +2202,22 @@ async fn annotate_features(
     do_annotate_features(&state.pm, &project_id).await
 }
 
+/// Run automatic annotation on a bare sequence (no project required), for the
+/// Empty-page "New Sequence" dialog's live feature preview. `circular` doubles
+/// the query so origin-wrapping features are found. Read-only; returns
+/// camelCase AnnotatedFeature with 0-based inclusive coordinates.
+#[tauri::command]
+async fn annotate_sequence(
+    sequence: String,
+    circular: bool,
+) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
+    tokio::task::spawn_blocking(move || {
+        libregene_core::annotate::annotate_sequence(&sequence, circular)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — codon optimization
 // ---------------------------------------------------------------------------
@@ -2744,6 +2904,7 @@ pub fn run() {
             get_project,
             get_project_by_id,
             open_file,
+            create_project,
             save_file,
             write_text_file,
             update_sequence,
@@ -2767,6 +2928,7 @@ pub fn run() {
             find_orfs,
             search_sequence,
             annotate_features,
+            annotate_sequence,
             list_codon_species,
             preview_codon_optimization,
             apply_codon_optimization,
