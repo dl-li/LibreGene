@@ -103,6 +103,24 @@ fn enzyme_in_region(en: &Enzyme, s: i64, e: i64, circular: bool) -> bool {
 // Line renderers
 // ---------------------------------------------------------------------------
 
+/// Length unit for the molecule type (LOCUS line, read windows, error messages).
+fn unit_for(molecule_type: &str) -> &'static str {
+    match molecule_type {
+        "rna" => "nt",
+        "protein" => "aa",
+        _ => "bp",
+    }
+}
+
+/// Human-readable molecule type label for the LOCUS line.
+fn molecule_label(molecule_type: &str) -> &'static str {
+    match molecule_type {
+        "rna" => "RNA",
+        "protein" => "Protein",
+        _ => "DNA",
+    }
+}
+
 fn feature_matches_filter(feat: &Feature, filter: Option<&str>) -> bool {
     match filter {
         None => true,
@@ -318,14 +336,19 @@ pub fn project_digest(
         None => None,
     };
     let circular = project.topology == "circular";
+    let is_dna = project.is_dna();
     let mut out = String::new();
 
     // LOCUS line
     let mut locus = format!(
-        "LOCUS       {}    {} bp    {}",
-        project.name, project.length, project.topology
+        "LOCUS       {}    {} {}    {} {}",
+        project.name,
+        project.length,
+        unit_for(&project.molecule_type),
+        project.topology,
+        molecule_label(&project.molecule_type),
     );
-    if !project.methylation_systems.is_empty() {
+    if is_dna && !project.methylation_systems.is_empty() {
         let systems: Vec<String> = project
             .methylation_systems
             .iter()
@@ -351,9 +374,13 @@ pub fn project_digest(
     }
     out.push_str(&locus);
     out.push('\n');
-    out.push_str(
-        "COORDS: 0-based inclusive (features, primers, read ranges); primer template_end exclusive; enzyme cuts between pos-1 and pos\n",
-    );
+    if is_dna {
+        out.push_str(
+            "COORDS: 0-based inclusive (features, primers, read ranges); primer template_end exclusive; enzyme cuts between pos-1 and pos\n",
+        );
+    } else {
+        out.push_str("COORDS: 0-based inclusive (features, read ranges)\n");
+    }
 
     // Features
     let features: Vec<&Feature> = project
@@ -384,7 +411,8 @@ pub fn project_digest(
         }
     }
 
-    // Primers: one line per binding site overlapping the region (sorted by start)
+    // Primers: one line per binding site overlapping the region (sorted by start).
+    // Single-strand molecules (rna/protein) carry no primers.
     let mut site_lines: Vec<(i64, String)> = Vec::new();
     let mut unbound: Vec<String> = Vec::new();
     for p in &project.primers {
@@ -401,7 +429,7 @@ pub fn project_digest(
             }
         }
     }
-    if !site_lines.is_empty() || !unbound.is_empty() {
+    if is_dna && (!site_lines.is_empty() || !unbound.is_empty()) {
         out.push_str("PRIMERS (0-based, inclusive):\n");
         site_lines.sort_by_key(|(start, _)| *start);
         for (_, line) in &site_lines {
@@ -414,7 +442,7 @@ pub fn project_digest(
                 unbound.join(", ")
             ));
         }
-    } else if region.is_none() {
+    } else if is_dna && region.is_none() {
         out.push_str("PRIMERS (none)\n");
     }
 
@@ -435,88 +463,91 @@ pub fn project_digest(
         }
     }
 
-    // Enzymes
-    match region {
-        None => {
-            let (unique, twice, others) = classify_enzymes(project);
-            // Multi-cut enzymes are summarized to keep the digest compact;
-            // names are counted once even when they appear as several sites.
-            let mut multi_names: Vec<&str> = twice.iter().map(|e| e.name.as_str()).collect();
-            multi_names.sort_unstable();
-            multi_names.dedup();
-            let multi = multi_names.len() + others;
-            if opts.compact_enzymes {
-                if !unique.is_empty() || multi > 0 {
-                    out.push_str(&format!(
-                        "ENZYMES (compact): {} single-cut, {} multi-cut (cut between pos-1 and pos, 0-based)\n",
-                        unique.len(),
-                        multi
-                    ));
-                }
-            } else if opts.compact_cutters {
-                if !unique.is_empty() {
-                    out.push_str(&format!(
-                        "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)\n",
-                        unique.len()
-                    ));
-                }
-                if multi > 0 {
-                    out.push_str(&format!(
-                        "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
-                        multi
-                    ));
-                }
-            } else {
-                if !unique.is_empty() {
-                    out.push_str("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):\n");
-                    for e in unique {
+    // Enzymes (DNA only — single-strand molecules have no restriction sites)
+    if is_dna {
+        match region {
+            None => {
+                let (unique, twice, others) = classify_enzymes(project);
+                // Multi-cut enzymes are summarized to keep the digest compact;
+                // names are counted once even when they appear as several sites.
+                let mut multi_names: Vec<&str> = twice.iter().map(|e| e.name.as_str()).collect();
+                multi_names.sort_unstable();
+                multi_names.dedup();
+                let multi = multi_names.len() + others;
+                if opts.compact_enzymes {
+                    if !unique.is_empty() || multi > 0 {
                         out.push_str(&format!(
-                            "        {:<10} {:<28} {:<10} {}\n",
-                            e.name,
-                            cuts_desc(e),
-                            e.rec_seq,
-                            cut_type_label(&e.cut_type)
+                            "ENZYMES (compact): {} single-cut, {} multi-cut (cut between pos-1 and pos, 0-based)\n",
+                            unique.len(),
+                            multi
+                        ));
+                    }
+                } else if opts.compact_cutters {
+                    if !unique.is_empty() {
+                        out.push_str(&format!(
+                            "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)\n",
+                            unique.len()
+                        ));
+                    }
+                    if multi > 0 {
+                        out.push_str(&format!(
+                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
+                            multi
+                        ));
+                    }
+                } else {
+                    if !unique.is_empty() {
+                        out.push_str("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):\n");
+                        for e in unique {
+                            out.push_str(&format!(
+                                "        {:<10} {:<28} {:<10} {}\n",
+                                e.name,
+                                cuts_desc(e),
+                                e.rec_seq,
+                                cut_type_label(&e.cut_type)
+                            ));
+                        }
+                    }
+                    if multi > 0 {
+                        out.push_str(&format!(
+                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
+                            multi
                         ));
                     }
                 }
-                if multi > 0 {
-                    out.push_str(&format!(
-                        "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
-                        multi
-                    ));
-                }
             }
-        }
-        Some((s, e)) => {
-            let in_region: Vec<&Enzyme> = project
-                .enzymes
-                .iter()
-                .filter(|en| enzyme_in_region(en, s, e, circular))
-                .collect();
-            if !in_region.is_empty() {
-                if opts.compact_enzymes {
-                    out.push_str(&format!(
-                        "ENZYMES CUTTING IN REGION (compact): {} cuts (cut between pos-1 and pos, 0-based)\n",
-                        in_region.len()
-                    ));
-                } else {
-                    out.push_str("ENZYMES CUTTING IN REGION (cut between pos-1 and pos, 0-based):\n");
-                    for en in in_region {
+            Some((s, e)) => {
+                let in_region: Vec<&Enzyme> = project
+                    .enzymes
+                    .iter()
+                    .filter(|en| enzyme_in_region(en, s, e, circular))
+                    .collect();
+                if !in_region.is_empty() {
+                    if opts.compact_enzymes {
                         out.push_str(&format!(
-                            "        {:<10} {}   {}\n",
-                            en.name,
-                            cuts_desc(en),
-                            cut_type_label(&en.cut_type)
+                            "ENZYMES CUTTING IN REGION (compact): {} cuts (cut between pos-1 and pos, 0-based)\n",
+                            in_region.len()
                         ));
+                    } else {
+                        out.push_str("ENZYMES CUTTING IN REGION (cut between pos-1 and pos, 0-based):\n");
+                        for en in in_region {
+                            out.push_str(&format!(
+                                "        {:<10} {}   {}\n",
+                                en.name,
+                                cuts_desc(en),
+                                cut_type_label(&en.cut_type)
+                            ));
+                        }
                     }
                 }
             }
         }
     }
 
-    // Auto-annotation is a whole-project overview concern only; region views
-    // keep the digest focused on the requested window.
-    if region.is_none() && opts.include_auto_annotation {
+    // Auto-annotation is a whole-project overview concern only (and the DNA
+    // feature database is meaningless for single-strand molecules); region
+    // views keep the digest focused on the requested window.
+    if is_dna && region.is_none() && opts.include_auto_annotation {
         push_auto_annotation(&mut out, project);
     }
 
@@ -528,9 +559,10 @@ pub fn read_sequence_bases(project: &ProjectData, start: i64, end: i64) -> Resul
     let (s, e) = validate_range(project, start, end)?;
     let count = if s <= e { e - s + 1 } else { project.length - s + e + 1 };
     if count as usize > MAX_READ_BASES {
+        let unit = unit_for(&project.molecule_type);
         return Err(format!(
-            "requested {} bp exceeds the {} bp read limit; request a narrower window",
-            count, MAX_READ_BASES
+            "requested {} {} exceeds the {} {} read limit; request a narrower window",
+            count, unit, MAX_READ_BASES, unit
         ));
     }
     let mut window = String::with_capacity(count as usize);
@@ -549,9 +581,10 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
     let circular = project.topology == "circular";
     let count = if s <= e { e - s + 1 } else { project.length - s + e + 1 };
     if count as usize > MAX_READ_BASES {
+        let unit = unit_for(&project.molecule_type);
         return Err(format!(
-            "requested {} bp exceeds the {} bp read limit; request a narrower window",
-            count, MAX_READ_BASES
+            "requested {} {} exceeds the {} {} read limit; request a narrower window",
+            count, unit, MAX_READ_BASES, unit
         ));
     }
     let bytes = project.sequence.as_bytes();
@@ -568,9 +601,10 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
     const LINE_BASES: usize = GROUP * COLS;
 
     let mut out = String::new();
+    let unit = unit_for(&project.molecule_type);
     out.push_str(&format!(
-        "COORDS: 0-based inclusive. Window {}..{} ({} bp) of {} bp {} (wrap: {})\n",
-        s, e, count, project.length, project.topology, circular
+        "COORDS: 0-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})\n",
+        s, e, count, unit, project.length, unit, project.topology, circular
     ));
     // Ruler labels the group start positions of the first line.
     out.push_str(&" ".repeat(7));
@@ -876,10 +910,78 @@ mod tests {
     fn overview_contains_header_and_coords() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
         assert!(out.starts_with(
-            "LOCUS       TestPlasmid    60 bp    circular    methylation: Dam,Dcm    ROI: 5..20\n"
+            "LOCUS       TestPlasmid    60 bp    circular DNA    methylation: Dam,Dcm    ROI: 5..20\n"
         ));
         assert!(out.contains("COORDS: 0-based inclusive"));
         assert!(out.contains("FEATURES (0-based, inclusive):\n"));
+    }
+
+    fn protein_project() -> ProjectData {
+        let mut p = synthetic_project();
+        p.name = "TestProtein".to_string();
+        p.sequence = "MAAA".repeat(10);
+        p.length = 40;
+        p.topology = "linear".to_string();
+        p.molecule_type = "protein".to_string();
+        p
+    }
+
+    #[test]
+    fn overview_protein_uses_aa_and_omits_dna_sections() {
+        // Protein projects keep features but drop every DNA-only section,
+        // even when the underlying model still carries primers/enzymes.
+        let out = project_digest(&protein_project(), &DigestOptions::default(), None).unwrap();
+        assert!(out.starts_with("LOCUS       TestProtein    40 aa    linear Protein"));
+        assert!(!out.contains("methylation:"));
+        assert!(!out.contains("PRIMERS"));
+        assert!(!out.contains("ENZYMES"));
+        assert!(!out.contains("UNIQUE CUTTERS"));
+        assert!(!out.contains("enzyme cuts between pos-1 and pos"));
+        assert!(out.contains("FEATURES (0-based, inclusive):\n"));
+        assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
+        // Region views also skip the enzyme layer for non-DNA.
+        let region = project_digest(&protein_project(), &DigestOptions::default(), Some((0, 39))).unwrap();
+        assert!(!region.contains("ENZYMES CUTTING IN REGION"));
+        // Auto-annotation never runs on non-DNA projects.
+        let opts = DigestOptions {
+            include_auto_annotation: true,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&protein_project(), &opts, None).unwrap();
+        assert!(!out.contains("DETECTED COMMON FEATURES"));
+    }
+
+    #[test]
+    fn overview_rna_uses_nt() {
+        let mut p = synthetic_project();
+        p.name = "TestRNA".to_string();
+        p.sequence = "ACGU".repeat(15);
+        p.length = 60;
+        p.topology = "linear".to_string();
+        p.molecule_type = "rna".to_string();
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(out.starts_with("LOCUS       TestRNA    60 nt    linear RNA"));
+        assert!(!out.contains("PRIMERS"));
+        assert!(!out.contains("ENZYMES"));
+    }
+
+    #[test]
+    fn read_sequence_protein_uses_aa_units() {
+        let p = protein_project();
+        let out = read_sequence(&p, 0, 9).unwrap();
+        assert!(out.contains("COORDS: 0-based inclusive. Window 0..9 (10 aa) of 40 aa linear (wrap: false)"));
+        assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "MAAAMAAAMA");
+        // Read-limit error message uses the mapped unit too.
+        let big = ProjectData {
+            name: "bigProt".into(),
+            sequence: "M".repeat(MAX_READ_BASES + 10),
+            length: (MAX_READ_BASES + 10) as i64,
+            topology: "linear".into(),
+            molecule_type: "protein".into(),
+            ..Default::default()
+        };
+        let err = read_sequence_bases(&big, 0, (MAX_READ_BASES + 9) as i64).unwrap_err();
+        assert!(err.contains("aa"), "error should use aa units: {err}");
     }
 
     #[test]

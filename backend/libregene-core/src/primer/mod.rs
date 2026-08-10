@@ -29,6 +29,11 @@ pub fn init(_pm: &mut ProjectManager) {}
 
 /// Recompute binding sites for all primers in the project.
 pub fn recompute(project: &mut ProjectData) {
+    // Primers bind double-stranded DNA only — single-strand molecules carry none.
+    if !project.is_dna() {
+        project.primers.clear();
+        return;
+    }
     if project.primers.is_empty() {
         return;
     }
@@ -38,4 +43,29 @@ pub fn recompute(project: &mut ProjectData) {
         &project.primers,
     );
     project.primers = updated;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Primer;
+
+    #[test]
+    fn recompute_skips_non_dna_projects() {
+        let mut project = ProjectData {
+            sequence: "ACGT".repeat(10),
+            topology: "circular".to_string(),
+            molecule_type: "rna".to_string(),
+            primers: vec![Primer {
+                id: "p1".into(),
+                name: "P1".into(),
+                r#type: "fwd".into(),
+                primer_seq: "ACGTACGTAC".into(),
+                binding_sites: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        recompute(&mut project);
+        assert!(project.primers.is_empty(), "rna projects must not carry primers");
+    }
 }

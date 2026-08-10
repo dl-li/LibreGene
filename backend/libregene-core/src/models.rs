@@ -420,6 +420,14 @@ fn default_molecule_type() -> String {
     "dna".to_string()
 }
 
+impl ProjectData {
+    /// True unless the project is explicitly RNA or protein. Empty/unknown
+    /// molecule_type (hand-built structs skip the serde default) counts as DNA.
+    pub fn is_dna(&self) -> bool {
+        self.molecule_type != "rna" && self.molecule_type != "protein"
+    }
+}
+
 fn default_methylation_overlap() -> i64 {
     2
 }

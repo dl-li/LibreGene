@@ -627,7 +627,27 @@ impl<R: Runtime> LibreGeneMcp<R> {
     async fn project_summary(&self, project_id: &str) -> Option<String> {
         let pm = self.pm.read().await;
         let p = pm.get_project_by_id(project_id)?;
-        Some(format!("{}: {} bp {}", p.name, p.length, p.topology))
+        let unit = match p.molecule_type.as_str() {
+            "rna" => "nt",
+            "protein" => "aa",
+            _ => "bp",
+        };
+        Some(format!("{}: {} {} {}", p.name, p.length, unit, p.topology))
+    }
+
+    /// Resolve the project id and reject non-DNA projects for DNA-only tools.
+    async fn require_dna_project(&self, project_id: Option<String>) -> Result<String, ErrorData> {
+        let (id, project) = self.resolve_project(project_id).await?;
+        if !project.is_dna() {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "This tool only supports DNA projects; project '{}' is a {} project",
+                    id, project.molecule_type
+                ),
+                None,
+            ));
+        }
+        Ok(id)
     }
 
     /// Text digest of `region` (0-based inclusive, may wrap on circular) or the
@@ -1369,7 +1389,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// listing non-fragment features auto-annotated against the embedded
     /// SnapGene database, one line each (name | type | strand | start..end |
     /// identity%) with an `(already annotated)` marker. Fragment hits are
-    /// omitted to avoid misleading partial matches. Returns {projectId, text}.
+    /// omitted to avoid misleading partial matches. Length units and sections
+    /// follow the molecule type: DNA projects get bp + PRIMERS/ENZYMES/
+    /// methylation/auto-annotation; RNA/protein projects use nt/aa and omit all
+    /// DNA-only sections (features still render). Returns {projectId, text}.
     #[tool]
     async fn get_project_overview(
         &self,
@@ -1433,12 +1456,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// IUPAC-aware search of a project's sequence on both strands (reverse
     /// strand skipped for palindromic queries). Hits are 0-based inclusive.
     /// Returns {projectId, matches: [{start, end, strand}]}.
+    /// DNA-only: rejects RNA/protein projects (single-strand, no reverse
+    /// strand to search).
     #[tool]
     async fn search_sequence(
         &self,
         Parameters(request): Parameters<SearchRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.require_dna_project(request.project_id).await?;
         let matches = crate::do_search_sequence(&self.pm, &id, request.query)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
@@ -1459,12 +1484,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// unique}]}]}. recStart/recEnd are 0-based inclusive; a cut happens
     /// BETWEEN cut-1 and cut (0-based); strand is "top" or "bottom"
     /// (recognition orientation); unique = exactly one site for that enzyme.
+    /// DNA-only: rejects RNA/protein projects (no restriction sites).
     #[tool]
     async fn find_restriction_sites(
         &self,
         Parameters(request): Parameters<FindRestrictionSitesRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
+        if !project.is_dna() {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "This tool only supports DNA projects; project '{}' is a {} project",
+                    id, project.molecule_type
+                ),
+                None,
+            ));
+        }
         let wanted: Option<Vec<String>> = request.enzymes.map(|v| {
             v.into_iter()
                 .map(|s| s.trim().to_string())
@@ -1708,7 +1743,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// fully inside the deleted/replaced span ({name, ftype, location} with
     /// the pre-edit 0-based "start..end"); clipped lists features whose
     /// coordinates changed other than a pure translation ({name, ftype,
-    /// before, after} as {start, end}).
+    /// before, after} as {start, end}). On protein projects the replacement is
+    /// uppercased and must be amino-acid letters (A-Z, optional trailing '*'
+    /// stop codon); lengths are reported in aa (nt for RNA, bp for DNA).
     #[tool]
     async fn edit_sequence(
         &self,
@@ -1777,6 +1814,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 }
             }
         };
+
+        // Protein projects: normalize the replacement to uppercase and require
+        // the amino-acid alphabet (A-Z, optional single trailing '*' stop).
+        let mut replacement = replacement;
+        if project.molecule_type == "protein" {
+            let up = replacement.to_ascii_uppercase();
+            let body = up.strip_suffix('*').unwrap_or(&up);
+            if up.matches('*').count() > 1 || !body.chars().all(|c| c.is_ascii_alphabetic()) {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Invalid protein replacement: only amino-acid letters (A-Z) and an optional trailing '*' (stop codon) are allowed".to_string(),
+                )));
+            }
+            replacement = up;
+        }
 
         let is_insertion = end + 1 == start;
         let current: String = if is_insertion {
@@ -1875,6 +1927,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
 
         let repl_len = replacement.len() as i64;
+        let unit = match project.molecule_type.as_str() {
+            "rna" => "nt",
+            "protein" => "aa",
+            _ => "bp",
+        };
         let new_win = (
             (start - 30).max(0),
             (start + repl_len + 30 - 1).min(new_len - 1),
@@ -1884,10 +1941,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut v = serde_json::json!({
             "ok": true,
             "message": format!(
-                "Replaced [{}..{}] ({} bp) with {} bp; new length {} (was {})",
+                "Replaced [{}..{}] ({} {}) with {} {}; new length {} (was {})",
                 start, end,
                 if is_insertion { 0 } else { end - start + 1 },
+                unit,
                 repl_len,
+                unit,
                 new_len,
                 len
             ),
@@ -2112,12 +2171,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// bound range spans templateStart..templateEnd-1). annealLen is the number
     /// of contiguous 3'-end bases matching the template (the anneal core; a
     /// non-pairing 5' tail is excluded).
+    /// DNA-only: rejects RNA/protein projects (single-strand molecules carry
+    /// no primers).
     #[tool]
     async fn add_primer(
         &self,
         Parameters(request): Parameters<AddPrimerRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.require_dna_project(request.project_id).await?;
         let primer_id = next_id("primer");
         let name = request.name.clone();
         let primer = Primer {
@@ -2228,7 +2289,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         &self,
         Parameters(request): Parameters<AddAlignmentRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.require_dna_project(request.project_id).await?;
         let name = request.name.clone();
 
         let seq = match (request.bases, request.path) {
@@ -2351,12 +2412,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// are appended as real CDS features (through the add-feature path, with
     /// recompute/broadcast) and {ok, message, projectId, regionView} is
     /// returned; otherwise returns {projectId, orfs: [Feature]}.
+    /// DNA-only: rejects RNA/protein projects (single-strand, no ORFs).
     #[tool]
     async fn find_orfs(
         &self,
         Parameters(request): Parameters<FindOrfsRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.require_dna_project(request.project_id).await?;
         let orfs = crate::do_find_orfs(&self.pm, &id, request.min_aa)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
@@ -2424,12 +2486,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// can be HIGHER: check recomputes the actual contiguous 3'-end match,
     /// which can extend into tail bases that happen to match the template
     /// (e.g. an enzyme tail sitting next to a matching downstream site).
+    /// DNA-only: rejects RNA/protein projects (no primer design on
+    /// single-strand molecules).
     #[tool]
     async fn design_primers(
         &self,
         Parameters(request): Parameters<DesignPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.require_dna_project(request.project_id).await?;
         let seg = request.seg.map(|s| libregene_core::models::Segment {
             start: s.start,
             end: s.end,
@@ -2595,12 +2659,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// recomputes the actual contiguous 3'-end match: tail bases that happen
     /// to match the template (e.g. an enzyme tail next to a matching
     /// downstream site) extend annealLen and raise tm beyond design's values.
+    /// DNA-only: rejects RNA/protein projects (no primer binding on
+    /// single-strand molecules).
     #[tool]
     async fn check_primer_binding(
         &self,
         Parameters(request): Parameters<CheckPrimerBindingRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.require_dna_project(request.project_id).await?;
         let primers: Vec<Primer> = request
             .primers
             .into_iter()
@@ -2635,7 +2701,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   (default) is a read-only preview; `apply=true` replaces the feature's
     ///   coding bases in the template (equal-length synonymous substitution,
     ///   coordinates unchanged) through the same recompute+broadcast path as
-    ///   edit_sequence.
+    ///   edit_sequence. Project mode requires a DNA project — protein projects
+    ///   are rejected with a hint to use `sequence`/`input_path` instead
+    ///   (amino acids are reverse-translated there).
     /// - `sequence`: raw DNA coding sequence text. Whitespace/digits are
     ///   ignored, letters must be A/C/G/T, length must be divisible by 3 (a
     ///   trailing stop codon is fine). No project is involved. For long
@@ -2707,6 +2775,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         ErrorData::invalid_params(format!("Project not found: {}", id), None)
                     })?
                 };
+                if project.molecule_type == "protein" {
+                    return Err(ErrorData::invalid_params(
+                        "optimize_cds project mode re-encodes a CDS feature inside a DNA project; a protein project has no coding DNA to re-encode — pass `sequence` (raw coding DNA) or `input_path` instead (a protein .gpt/.prot file is reverse-translated to optimized DNA)".to_string(),
+                        None,
+                    ));
+                }
                 let f_id = feature_id.clone();
                 let sp = species.clone();
                 let m = method.clone();
@@ -4445,5 +4519,172 @@ mod tests {
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
         assert_eq!(&p.sequence[10..12], "TT");
+    }
+
+    // ------------------------------------------------------------------
+    // Molecule-type gates
+    // ------------------------------------------------------------------
+
+    fn protein_test_project() -> ProjectData {
+        ProjectData {
+            name: "prot".to_string(),
+            sequence: "MVSKGEEDNM".repeat(5),
+            length: 50,
+            topology: "linear".to_string(),
+            molecule_type: "protein".to_string(),
+            features: vec![feature("f1", "mCherry", 0, 49, "+")],
+            ..Default::default()
+        }
+    }
+
+    fn rna_test_project() -> ProjectData {
+        ProjectData {
+            name: "rna".to_string(),
+            sequence: "ACGU".repeat(25),
+            length: 100,
+            topology: "linear".to_string(),
+            molecule_type: "rna".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn dna_only_tools_reject_protein_and_rna_projects() {
+        let server = handler_with_project(protein_test_project()).await;
+
+        let err = match server
+            .search_sequence(Parameters(SearchRequest {
+                project_id: Some("prot".to_string()),
+                query: "ACG".to_string(),
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("search_sequence should reject a protein project"),
+        };
+        assert!(err.message.contains("only supports DNA"), "{}", err.message);
+
+        let err = match server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: Some("prot".to_string()),
+                enzymes: None,
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("find_restriction_sites should reject a protein project"),
+        };
+        assert!(err.message.contains("only supports DNA"), "{}", err.message);
+
+        // RNA projects are gated the same way
+        let server = handler_with_project(rna_test_project()).await;
+        let err = match server
+            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+                project_id: Some("rna".to_string()),
+                primers: vec![PrimerInput {
+                    name: "p1".to_string(),
+                    r#type: "fwd".to_string(),
+                    seq: "ACGTACGTAC".to_string(),
+                }],
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("check_primer_binding should reject an rna project"),
+        };
+        assert!(err.message.contains("only supports DNA"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn optimize_cds_project_mode_rejects_protein_project() {
+        let server = handler_with_project(protein_test_project()).await;
+        let req = OptimizeCdsRequest {
+            project_id: Some("prot".to_string()),
+            feature_id: Some("f1".to_string()),
+            species: "e_coli".to_string(),
+            ..Default::default()
+        };
+        let err = match server.optimize_cds(Parameters(req)).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected protein project-mode rejection"),
+        };
+        assert!(
+            err.message.contains("input_path") && err.message.contains("reverse-translated"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_protein_uppercases_and_validates_alphabet() {
+        let server = handler_with_project(protein_test_project()).await;
+        // lowercase replacement is normalized to uppercase and stored as-is
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 0,
+                end: 3,
+                replacement: Some("mvs*".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert!(
+            v["message"].as_str().unwrap().contains("aa"),
+            "message should use aa units: {}",
+            v["message"]
+        );
+        let pm = server.pm.read().await;
+        assert_eq!(&pm.get_project_by_id("prot").unwrap().sequence[0..4], "MVS*");
+
+        // non-amino-acid characters are rejected
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 5,
+                end: 8,
+                replacement: Some("MVS1".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("amino-acid"),
+            "{}",
+            out.0
+        );
+
+        // a '*' anywhere but the end is rejected too
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 5,
+                end: 8,
+                replacement: Some("M*VS".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        // the failed edits must not have mutated the sequence
+        let pm = server.pm.read().await;
+        assert_eq!(&pm.get_project_by_id("prot").unwrap().sequence[5..9], "EEDN");
+    }
+
+    #[tokio::test]
+    async fn get_project_overview_protein_omits_dna_sections() {
+        let server = handler_with_project(protein_test_project()).await;
+        let out = server
+            .get_project_overview(Parameters(OverviewRequest {
+                project_id: Some("prot".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let text = out.0["text"].as_str().unwrap();
+        assert!(text.contains("50 aa"), "overview: {text}");
+        assert!(!text.contains("PRIMERS"), "overview: {text}");
+        assert!(!text.contains("ENZYMES"), "overview: {text}");
+        assert!(!text.contains("DETECTED COMMON FEATURES"), "overview: {text}");
     }
 }
