@@ -76,7 +76,11 @@ pub fn translate_feature(seq: &str, f: &Feature) -> String {
 
 /// Recompute `translation` for every translatable feature (CDS, mRNA) from the
 /// current sequence. Non-translatable features keep their stored value.
+/// Translation is a DNA concept — non-DNA projects keep stored values untouched.
 pub fn refresh_feature_translations(project: &mut ProjectData) {
+    if !project.is_dna() {
+        return;
+    }
     for f in project.features.iter_mut() {
         if f.ftype == "CDS" || f.ftype == "mRNA" {
             f.translation = translate_feature(&project.sequence, f);
@@ -185,5 +189,32 @@ mod tests {
         assert_eq!(p.features[0].translation, "MVS");
         assert_eq!(p.features[1].translation, "MVS");
         assert_eq!(p.features[2].translation, "keep");
+    }
+
+    #[test]
+    fn refresh_skips_non_dna_projects() {
+        let mut p = ProjectData {
+            name: "p".to_string(),
+            definition: String::new(),
+            keywords: String::new(),
+            lab_host: String::new(),
+            sequence: "MVS".to_string(),
+            length: 3,
+            topology: "linear".to_string(),
+            molecule_type: "protein".to_string(),
+            features: vec![Feature {
+                ftype: "CDS".to_string(),
+                translation: "keep".to_string(),
+                ..feat("cds", 0, 2, "+", vec![])
+            }],
+            primers: Vec::new(),
+            alignments: Vec::new(),
+            enzymes: Vec::new(),
+            methylation_systems: Vec::new(),
+            methylation_overlap: 0,
+            roi: None,
+        };
+        refresh_feature_translations(&mut p);
+        assert_eq!(p.features[0].translation, "keep");
     }
 }

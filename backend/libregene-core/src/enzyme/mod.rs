@@ -38,6 +38,11 @@ struct SiteHit {
 
 /// Recompute all enzyme sites for the current project.
 pub fn recompute(project: &mut ProjectData) {
+    // Restriction sites are a DNA concept — single-strand molecules never get them.
+    if !project.is_dna() {
+        project.enzymes.clear();
+        return;
+    }
     if project.sequence.len() < 4 {
         project.enzymes.clear();
         return;
@@ -477,6 +482,26 @@ fn deduplicate_hits(hits: &[SiteHit], _rec_len: usize, is_palindromic: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -------------------------------------------------------------------------
+    // Molecule-type guard
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn recompute_skips_non_dna_projects() {
+        let mut project = ProjectData {
+            sequence: "GAATTC".repeat(3), // three EcoRI recognition sites
+            topology: "circular".to_string(),
+            molecule_type: "protein".to_string(),
+            ..Default::default()
+        };
+        project.length = project.sequence.len() as i64;
+        recompute(&mut project);
+        assert!(
+            project.enzymes.is_empty(),
+            "protein projects must never get restriction sites"
+        );
+    }
 
     // -------------------------------------------------------------------------
     // Cut position formula tests

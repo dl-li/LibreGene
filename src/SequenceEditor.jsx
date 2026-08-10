@@ -922,7 +922,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (scroller) setViewportH(scroller.clientHeight || 900);
   }, [layoutKey]);
 
-  const cleanSeq = sequence || '';
+  const cleanSeq = moleculeType === 'protein' ? (sequence || '').toUpperCase() : sequence || '';
 
   // Ensure primer color is a valid non-black hex, falling back to default green
   const safePrimerColor = (c) => {
