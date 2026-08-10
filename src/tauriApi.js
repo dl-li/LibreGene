@@ -81,6 +81,36 @@ export async function openFile(path) {
   return tauriInvoke('open_file', { path });
 }
 
+/**
+ * Create a new in-memory project from pasted sequence (Empty-page "New
+ * Sequence" dialog). Returns the same shape as openFile plus `id` (the
+ * generated project id, `untitled-<millis>`).
+ * @param {object} args
+ * @param {string} args.name
+ * @param {string} args.sequence
+ * @param {'dna'|'rna'|'protein'} args.moleculeType
+ * @param {'circular'|'linear'} args.topology
+ * @param {Array<{name:string,ftype:string,color:string,strand:string,segments:Array<{start:number,end:number}>}>} [args.features]
+ */
+export async function createProject(args = {}) {
+  return tauriInvoke('create_project', {
+    name: args.name,
+    sequence: args.sequence,
+    moleculeType: args.moleculeType,
+    topology: args.topology,
+    features: args.features ?? [],
+  });
+}
+
+/**
+ * Run automatic annotation on a bare sequence (no project required), for the
+ * New Sequence dialog's live feature preview. Returns read-only AnnotatedFeature
+ * (camelCase, 0-based inclusive).
+ */
+export async function annotateSequenceText(sequence, circular = false) {
+  return tauriInvoke('annotate_sequence', { sequence, circular });
+}
+
 export async function saveFile(path) {
   return tauriInvoke('save_file', { path });
 }
