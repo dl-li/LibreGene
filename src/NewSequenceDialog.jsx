@@ -195,7 +195,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
         </DialogHeader>
 
         <div className="grid min-h-0 flex-1 gap-5 sm:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-1">
             <div>
               <Label className="text-xs text-muted-foreground">Molecule type</Label>
               <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/40 p-1">
@@ -280,7 +280,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
-                      <th className="w-8 py-2 pr-3" />
+                      <th className="w-8 py-2 pl-3 pr-3" />
                       <th className="py-2 pr-3 text-left font-semibold">Name</th>
                       <th className="py-2 pr-3 text-left font-semibold">Type</th>
                       <th className="py-2 pr-3 text-left font-semibold">Strand</th>
@@ -291,7 +291,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                   <tbody>
                     {items.map((hit, i) => (
                       <tr key={i} className="border-b border-border/30">
-                        <td className="py-2 pr-3">
+                        <td className="py-2 pl-3 pr-3">
                           <input
                             type="checkbox"
                             checked={selected.has(i)}
