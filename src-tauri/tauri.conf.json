@@ -49,6 +49,44 @@
     ],
     "resources": [
       "../assets/Fonts/*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["gbk", "gb", "genbank", "gbf", "gbff"],
+        "name": "GenBank File",
+        "description": "GenBank sequence file",
+        "role": "Editor"
+      },
+      {
+        "ext": ["gpt", "gp", "gpe", "gpff", "prot"],
+        "name": "Protein Sequence File",
+        "description": "GenPept/protein sequence file",
+        "role": "Editor"
+      },
+      {
+        "ext": ["dna", "rna"],
+        "name": "Sequence File",
+        "description": "SnapGene DNA/RNA sequence file",
+        "role": "Editor"
+      },
+      {
+        "ext": ["fasta", "fa", "fna", "fas", "ffn", "fsa", "faa", "frn"],
+        "name": "FASTA File",
+        "description": "FASTA sequence file",
+        "role": "Editor"
+      },
+      {
+        "ext": ["ab1"],
+        "name": "ABI Trace File",
+        "description": "Sanger sequencing trace file",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["seq"],
+        "name": "Sequence File",
+        "description": "Plain sequence file",
+        "role": "Editor"
+      }
     ]
   }
 }

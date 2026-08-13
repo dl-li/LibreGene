@@ -5,6 +5,8 @@ import {
   isTauri,
   openFileDialog,
   listenProjectUpdates,
+  listenFileOpened,
+  takePendingOpens,
   getProjects,
   activateProject,
   getWindowProjectId,
@@ -209,6 +211,11 @@ export default function App() {
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
+
+  const projectsRef = useRef([]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
 
   // Sidebar hover state
   const [sidebarHover, setSidebarHover] = useState(false);
@@ -451,6 +458,37 @@ export default function App() {
     setRecentFiles(removeRecentFile(path));
   }, []);
 
+  // Open a file handed over by the OS (Open With / double-click / dock drop /
+  // second-instance forward). Dedups against both already-open projects and
+  // in-flight opens (the backend queues AND emits, so a cold-start path can
+  // arrive twice).
+  const openingRef = useRef(new Set());
+  const openExternalPath = useCallback(
+    async (path) => {
+      if (!path || openingRef.current.has(path)) return;
+      openingRef.current.add(path);
+      try {
+        if (projectsRef.current.some((p) => p.id === path)) {
+          handleSwitchProject(path);
+          return;
+        }
+        const data = await openFile(path);
+        if (data && data.sequence) {
+          initialDataRef.current[path] = data;
+          setRecentFiles(addRecentFile(path));
+        } else if (data && data.error) {
+          console.error('open external file error:', data.error);
+        }
+        await refreshProjects();
+      } catch (e) {
+        console.error('open external file error:', e);
+      } finally {
+        openingRef.current.delete(path);
+      }
+    },
+    [refreshProjects, handleSwitchProject],
+  );
+
   // Internal: actually perform the close (no dirty check)
   const doCloseProject = useCallback(
     async (id) => {
@@ -486,6 +524,31 @@ export default function App() {
     },
     [dirtyById, openUnsavedDialog, doCloseProject],
   );
+
+  // Main window only: open files handed over by the OS. Listen for runtime
+  // "file-opened" events and drain the backend queue once on mount (cold
+  // start via Open With fires before the webview is ready).
+  useEffect(() => {
+    if (!isTauri || windowInfo?.type !== 'main') return;
+    let cancelled = false;
+    const listener = listenFileOpened((path) => {
+      if (!cancelled) openExternalPath(path);
+    });
+    (async () => {
+      try {
+        const pending = await takePendingOpens();
+        if (!cancelled && Array.isArray(pending)) {
+          pending.forEach((p) => openExternalPath(p));
+        }
+      } catch {
+        // backend unreachable; nothing to drain
+      }
+    })();
+    return () => {
+      cancelled = true;
+      listener.close();
+    };
+  }, [windowInfo, openExternalPath]);
 
   // --- Unsaved changes dialog handlers ---
   const handleUnsavedSave = useCallback(async () => {
@@ -628,10 +691,7 @@ export default function App() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={handleOpenFile}
-                  tooltip="Open File"
-                >
+                <SidebarMenuButton onClick={handleOpenFile} tooltip="Open File">
                   <FolderOpen className="size-4" />
                   <span>Open File…</span>
                 </SidebarMenuButton>
@@ -880,7 +940,19 @@ export default function App() {
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {['.gbk', '.gbff', '.dna', '.fasta', '.faa', '.ab1', '.rna', '.prot', '.gpt', '.gp', '.seq'].map((ext) => (
+                    {[
+                      '.gbk',
+                      '.gbff',
+                      '.dna',
+                      '.fasta',
+                      '.faa',
+                      '.ab1',
+                      '.rna',
+                      '.prot',
+                      '.gpt',
+                      '.gp',
+                      '.seq',
+                    ].map((ext) => (
                       <span
                         key={ext}
                         className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
