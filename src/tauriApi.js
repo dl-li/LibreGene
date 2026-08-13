@@ -434,11 +434,28 @@ export async function openFileDialog(defaultPath) {
       {
         name: 'Sequence Files',
         extensions: [
-          'gbk', 'gb', 'genbank', 'gbf', 'gbff',
-          'dna', 'rna', 'prot',
-          'gpt', 'gp', 'gpe', 'gpff',
-          'fasta', 'fa', 'fna', 'fas', 'ffn', 'fsa', 'faa', 'frn',
-          'seq', 'ab1',
+          'gbk',
+          'gb',
+          'genbank',
+          'gbf',
+          'gbff',
+          'dna',
+          'rna',
+          'prot',
+          'gpt',
+          'gp',
+          'gpe',
+          'gpff',
+          'fasta',
+          'fa',
+          'fna',
+          'fas',
+          'ffn',
+          'fsa',
+          'faa',
+          'frn',
+          'seq',
+          'ab1',
         ],
       },
       { name: 'All Files', extensions: ['*'] },
@@ -457,7 +474,27 @@ export async function openAlignmentFileDialog() {
   const result = await tauriOpen({
     title: 'Add alignment sequence',
     filters: [
-      { name: 'Sequence Files', extensions: ['ab1', 'fasta', 'fa', 'fna', 'fas', 'ffn', 'fsa', 'faa', 'frn', 'seq', 'gbk', 'gb', 'genbank', 'gbf', 'gbff', 'dna'] },
+      {
+        name: 'Sequence Files',
+        extensions: [
+          'ab1',
+          'fasta',
+          'fa',
+          'fna',
+          'fas',
+          'ffn',
+          'fsa',
+          'faa',
+          'frn',
+          'seq',
+          'gbk',
+          'gb',
+          'genbank',
+          'gbf',
+          'gbff',
+          'dna',
+        ],
+      },
       { name: 'All Files', extensions: ['*'] },
     ],
     multiple: false,
@@ -501,6 +538,25 @@ export function listenProjectUpdates(callback) {
   // unlisten function would be assigned to a discarded closure and the
   // backend subscription would leak.
   const ready = tauriListen('project-update', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}
+
+/** Drain OS-opened file paths queued before the webview was ready. */
+export async function takePendingOpens() {
+  return tauriInvoke('take_pending_opens');
+}
+
+/** Listen for OS file-open events (Open With / double-click / second instance). */
+export function listenFileOpened(callback) {
+  let closed = false;
+  const ready = tauriListen('file-opened', (event) => {
     if (!closed) callback(event.payload);
   });
   return {

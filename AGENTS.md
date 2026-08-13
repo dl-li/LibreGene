@@ -96,9 +96,9 @@ LibreGene/
 │   └── test_data/
 └── src-tauri/                  # Tauri v2 桌面壳
     ├── Cargo.toml
-    ├── tauri.conf.json
+    ├── tauri.conf.json           # 含 bundle.fileAssociations（系统文件关联，右键"打开方式"直开）
     └── src/
-        ├── lib.rs              # Tauri commands + AppState + 共享 do_* 内核
+        ├── lib.rs              # Tauri commands + AppState + 共享 do_* 内核 + OS 文件打开事件（Opened/argv/单实例转发 → pending_opens 队列 + file-opened 事件）
         ├── mcp.rs              # 嵌入式 MCP server（LibreGeneMcp 工具 + McpServer 启停控制）
         └── main.rs             # 入口
 ```
@@ -176,7 +176,7 @@ LibreGene/
 ### Tauri Commands
 
 ```
-get_project, get_project_by_id, open_file, create_project, save_file, write_text_file,
+get_project, get_project_by_id, open_file, take_pending_opens, create_project, save_file, write_text_file,
 update_sequence, set_roi, clear_roi,
 get_features, add_feature, delete_feature,
 update_feature_ftype, update_feature_color, update_feature_name,
@@ -247,6 +247,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **`add_alignment` 的 createdSites（新建酶切位点）**：未实现——`add_alignment` 不修改模板序列，创建位点需按差异重建「编辑后序列」并独立于已算好的引擎结果重新扫酶数据库（反向链/环状合并下重建语义与 alignment 差异表示耦合，语义复杂、价值有限）；如需实际修序列后查位点，走 `edit_sequence` + `find_restriction_sites`
 - **自动标注前端弹窗（Detect Common Features dialog）**：UI 专有，未单独适配——检测引擎已接 Tauri command `annotate_features`，MCP 侧经 `get_project_overview` 的 `DETECTED COMMON FEATURES (auto)` 节查看检测结果；批量落库需前端交互（或逐特征 `add_feature`），MCP 无批量导入工具
 - **新建序列项目（Empty 页 New Sequence dialog → `create_project`）**：UI 专有，未适配 MCP——粘贴序列 + 勾选特征建项目的交互属前端弹窗流程；MCP 侧可写临时序列文件（FASTA/GBK）+ `open_file` 实现同等效果（含特征），或用 `edit_sequence`/`add_feature` 在已有项目上重建
+- **系统文件关联打开（Open With / 双击 / 拖到 Dock）**：OS 集成，前端专有——`bundle.fileAssociations` 注册扩展名（macOS Info.plist / Windows NSIS 安装时写入）；macOS 走 `RunEvent::Opened`，Windows/Linux 走 argv（二次启动经 tauri-plugin-single-instance 转发给已运行实例），后端统一过滤（存在 + SEQ_EXTS 扩展名）入 `AppState.pending_opens` 队列并发 `file-opened` 事件并聚焦主窗口；前端主窗口挂载时 `take_pending_opens` 排空队列 + 监听事件，复用 `open_file` 命令打开（已打开的路径改为激活）。Agent 直接用 `open_file` 即可
 
 
 ## 核心模型约定

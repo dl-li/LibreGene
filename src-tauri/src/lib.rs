@@ -79,6 +79,50 @@ pub struct AppState {
     /// Main window ("main") is NOT in this map — it uses the active project.
     /// Project windows ("project-{sanitized_id}") are mapped to their project.
     pub window_projects: Arc<RwLock<HashMap<String, String>>>,
+    /// Paths handed to us by the OS (Open With / double-click / second
+    /// instance) that the frontend hasn't consumed yet. The frontend drains
+    /// this via `take_pending_opens` on mount so cold-start events that
+    /// arrive before the webview is ready are not lost.
+    pub pending_opens: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+/// Filter OS-supplied open targets (argv / Opened events) to existing files
+/// with a supported sequence extension.
+fn collect_open_targets<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
+    args.into_iter()
+        .filter(|a| !a.starts_with('-'))
+        .filter(|a| {
+            let p = std::path::Path::new(a);
+            p.is_file()
+                && p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| SEQ_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Queue OS-opened paths for the frontend and notify it, then focus the main
+/// window. The frontend opens each path through the normal `open_file` path.
+fn queue_open_targets(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    if let Ok(mut pending) = state.pending_opens.lock() {
+        for p in &paths {
+            if !pending.contains(p) {
+                pending.push(p.clone());
+            }
+        }
+    }
+    for p in paths {
+        let _ = app.emit("file-opened", p);
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,6 +1391,18 @@ async fn open_file(
     path: String,
 ) -> Result<serde_json::Value, String> {
     do_open_file(&state.pm, path).await
+}
+
+/// Drain OS-opened file paths queued before the frontend was ready (cold
+/// start via Open With / double-click / second-instance forwarding). The
+/// frontend opens each through the normal `open_file` command.
+#[tauri::command]
+fn take_pending_opens(state: State<'_, AppState>) -> Vec<String> {
+    state
+        .pending_opens
+        .lock()
+        .map(|mut p| std::mem::take(&mut *p))
+        .unwrap_or_default()
 }
 
 /// Create a new in-memory project from a pasted sequence (Empty-page "New
@@ -2879,13 +2935,21 @@ async fn regenerate_mcp_token(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_decoration::init())
+        // Keep one process on Windows/Linux: a second launch (e.g. opening
+        // another file from Explorer) forwards its argv to the running
+        // instance instead of spawning a new one. No-op on macOS, where the
+        // OS routes open requests to the running app via RunEvent::Opened.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            queue_open_targets(app, collect_open_targets(argv.into_iter().skip(1)));
+        }))
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
+            pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
         })
         .setup(|app| {
             let state = app.state::<AppState>();
@@ -2898,12 +2962,18 @@ pub fn run() {
             // Start with the default config (enabled on MCP_PORT); the frontend
             // reconciles with the persisted localStorage config on mount.
             tauri::async_runtime::block_on(async move { mcp.apply().await });
+            // Cold-start file open (Windows/Linux: path passed in argv).
+            queue_open_targets(
+                app.handle(),
+                collect_open_targets(std::env::args().skip(1)),
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_project,
             get_project_by_id,
             open_file,
+            take_pending_opens,
             create_project,
             save_file,
             write_text_file,
@@ -2952,8 +3022,23 @@ pub fn run() {
             reassert_traffic_lights,
             restore_native_titlebar,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    app.run(|app_handle, event| {
+        // macOS routes Open With / double-click / dock drops here (including
+        // cold start). Windows/Linux open targets arrive via argv instead.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = event {
+            let paths = urls
+                .into_iter()
+                .filter_map(|u| u.to_file_path().ok())
+                .filter_map(|p| p.to_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>();
+            queue_open_targets(app_handle, collect_open_targets(paths));
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app_handle, event);
+    });
 }
 
 #[cfg(test)]
