@@ -8,9 +8,12 @@ const TWO_PI = Math.PI * 2;
 // angle θ: 0 = top, clockwise, one full turn = sequence length
 const pol = (cx, cy, r, th) => [cx + r * Math.sin(th), cy - r * Math.cos(th)];
 
+// arrowhead base flares this many px beyond the band on each side
+const HEAD_FLARE = 4;
+
 function arcArrowPath(cx, cy, rOut, rIn, th0, th1, strand) {
   const rMid = (rOut + rIn) / 2;
-  const head = Math.min(((rOut - rIn) * 1.1) / rMid, (th1 - th0) * 0.6);
+  const head = Math.min(((rOut - rIn + HEAD_FLARE * 2) * 1.1) / rMid, (th1 - th0) * 0.6);
   if (th1 - th0 < 1e-4) return '';
   const large = th1 - th0 - head > Math.PI ? 1 : 0;
   if (strand === '-') {
@@ -18,15 +21,19 @@ function arcArrowPath(cx, cy, rOut, rIn, th0, th1, strand) {
     const [x1o, y1o] = pol(cx, cy, rOut, th1);
     const [x1i, y1i] = pol(cx, cy, rIn, th1);
     const [x0i, y0i] = pol(cx, cy, rIn, th0 + head);
+    const [x0of, y0of] = pol(cx, cy, rOut + HEAD_FLARE, th0 + head);
+    const [x0if, y0if] = pol(cx, cy, rIn - HEAD_FLARE, th0 + head);
     const [tx, ty] = pol(cx, cy, rMid, th0);
-    return `M ${x0o} ${y0o} A ${rOut} ${rOut} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rIn} ${rIn} 0 ${large} 0 ${x0i} ${y0i} L ${tx} ${ty} Z`;
+    return `M ${x0o} ${y0o} A ${rOut} ${rOut} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rIn} ${rIn} 0 ${large} 0 ${x0i} ${y0i} L ${x0if} ${y0if} L ${tx} ${ty} L ${x0of} ${y0of} Z`;
   }
   const [x0o, y0o] = pol(cx, cy, rOut, th0);
   const [x1o, y1o] = pol(cx, cy, rOut, th1 - head);
   const [x1i, y1i] = pol(cx, cy, rIn, th1 - head);
   const [x0i, y0i] = pol(cx, cy, rIn, th0);
+  const [x1of, y1of] = pol(cx, cy, rOut + HEAD_FLARE, th1 - head);
+  const [x1if, y1if] = pol(cx, cy, rIn - HEAD_FLARE, th1 - head);
   const [tx, ty] = pol(cx, cy, rMid, th1);
-  return `M ${x0o} ${y0o} A ${rOut} ${rOut} 0 ${large} 1 ${x1o} ${y1o} L ${tx} ${ty} L ${x1i} ${y1i} A ${rIn} ${rIn} 0 ${large} 0 ${x0i} ${y0i} Z`;
+  return `M ${x0o} ${y0o} A ${rOut} ${rOut} 0 ${large} 1 ${x1o} ${y1o} L ${x1of} ${y1of} L ${tx} ${ty} L ${x1if} ${y1if} L ${x1i} ${y1i} A ${rIn} ${rIn} 0 ${large} 0 ${x0i} ${y0i} Z`;
 }
 
 function arcSectorPath(cx, cy, rOut, rIn, th0, th1) {
@@ -64,6 +71,22 @@ function normSegments(f, len) {
     }
   }
   return out.sort((a, b) => a.start - b.start);
+}
+
+const featTotalLen = (f, len) =>
+  normSegments(f, len).reduce((a, s) => a + s.end - s.start + 1, 0);
+
+// suppress the arrowhead when the tip end is covered by a longer feature
+function tipBuried(f, features, len) {
+  const segs = normSegments(f, len);
+  const tip = f.strand === '-' ? segs[0].start : segs[segs.length - 1].end;
+  const fl = featTotalLen(f, len);
+  return features.some(
+    (g) =>
+      g.id !== f.id &&
+      featTotalLen(g, len) > fl &&
+      normSegments(g, len).some((s) => tip >= s.start && tip <= s.end),
+  );
 }
 
 // SnapGene-style label layout: split labels into right/left halves by angle,
@@ -138,6 +161,7 @@ export function CircularMap({
   onSelect,
   onClear,
   onFeatureOpen,
+  bg = bgColor,
 }) {
   const R = 150;
   const half = 9;
@@ -214,7 +238,7 @@ export function CircularMap({
       ref={svgRef}
       viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
       className="w-full select-none touch-none"
-      style={{ background: bgColor }}
+      style={{ background: bg }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -238,6 +262,8 @@ export function CircularMap({
       )}
       {features.map((f) => {
         const segs = normSegments(f, length);
+        const hasDir = f.strand === '+' || f.strand === '-';
+        const buried = hasDir && tipBuried(f, features, length);
         const hovered = hoverId === f.id;
         return (
           <g
@@ -264,7 +290,7 @@ export function CircularMap({
             {segs.map((s, i) => {
               const th0 = (s.start / length) * TWO_PI;
               const th1 = ((s.end + 1) / length) * TWO_PI;
-              const isTip = f.strand === '-' ? i === 0 : i === segs.length - 1;
+              const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
               const d = isTip
                 ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
                 : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
@@ -286,7 +312,7 @@ export function CircularMap({
                 if (o0 > o1) return null;
                 const th0 = (s.start / length) * TWO_PI;
                 const th1 = ((s.end + 1) / length) * TWO_PI;
-                const isTip = f.strand === '-' ? i === 0 : i === segs.length - 1;
+                const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
                 const fd = isTip
                   ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
                   : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
@@ -298,8 +324,8 @@ export function CircularMap({
                         d={arcSectorPath(
                           cx,
                           cy,
-                          R + half,
-                          R - half,
+                          R + half + HEAD_FLARE,
+                          R - half - HEAD_FLARE,
                           (o0 / length) * TWO_PI,
                           ((o1 + 1) / length) * TWO_PI,
                         )}
@@ -402,7 +428,15 @@ export function CircularMap({
   );
 }
 
-export function LinearMap({ length, features, selection, onSelect, onClear, onFeatureOpen }) {
+export function LinearMap({
+  length,
+  features,
+  selection,
+  onSelect,
+  onClear,
+  onFeatureOpen,
+  bg = bgColor,
+}) {
   const W = 640;
   const x0 = 24;
   const x1 = W - 24;
@@ -477,7 +511,7 @@ export function LinearMap({ length, features, selection, onSelect, onClear, onFe
       ref={svgRef}
       viewBox={`0 0 ${W} ${H}`}
       className="w-full select-none touch-none"
-      style={{ background: bgColor }}
+      style={{ background: bg }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -505,12 +539,17 @@ export function LinearMap({ length, features, selection, onSelect, onClear, onFe
         const hovered = hoverId === f.id;
         const fx0 = px(f.start);
         const fx1 = px(f.end + 1);
-        const head = Math.min(8, Math.max(2, (fx1 - fx0) / 2));
+        const head = Math.min(10, Math.max(2, (fx1 - fx0) / 2));
         const h = 8;
+        const hf = h + HEAD_FLARE;
+        const hasDir = f.strand === '+' || f.strand === '-';
         const tipRight = f.strand !== '-';
-        const pts = tipRight
-          ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1},${lineY} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
-          : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0},${lineY} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
+        const buried = hasDir && tipBuried(f, features, length);
+        const pts = !hasDir || buried
+          ? `${fx0},${lineY - h} ${fx1},${lineY - h} ${fx1},${lineY + h} ${fx0},${lineY + h}`
+          : tipRight
+            ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1 - head},${lineY - hf} ${fx1},${lineY} ${fx1 - head},${lineY + hf} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
+            : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0 + head},${lineY - hf} ${fx0},${lineY} ${fx0 + head},${lineY + hf} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
         return (
           <g
             key={f.id}
@@ -550,9 +589,9 @@ export function LinearMap({ length, features, selection, onSelect, onClear, onFe
                     <clipPath id={clipId}>
                       <rect
                         x={px(o0)}
-                        y={lineY - 8}
+                        y={lineY - 8 - HEAD_FLARE}
                         width={Math.max(1, px(o1 + 1) - px(o0))}
-                        height={16}
+                        height={16 + HEAD_FLARE * 2}
                       />
                     </clipPath>
                     <polygon
