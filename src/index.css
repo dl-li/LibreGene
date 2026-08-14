@@ -114,6 +114,16 @@ svg text {
   backface-visibility: hidden;
 }
 
+/* 表格内的原生 checkbox / radio 跟随主题色 */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--primary);
+}
+input[type='checkbox']:not(:disabled),
+input[type='radio']:not(:disabled) {
+  cursor: pointer;
+}
+
 /* 隐藏原生滚动条（编辑器区域用自定义 FeatureScrollbar） */
 .hide-scrollbar {
   scrollbar-width: none;
@@ -236,6 +246,16 @@ svg text {
   to {
     opacity: 1;
     translate: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-bar-enter,
+  .nav-menu-content[data-state='open'],
+  .nav-menu-content[data-state='closed'],
+  .nav-menu-content[data-state='open'] > * {
+    animation-duration: 0.01s !important;
+    animation-delay: 0s !important;
   }
 }
 

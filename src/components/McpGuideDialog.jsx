@@ -98,7 +98,7 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
             MCP Server
           </DialogTitle>
           <DialogDescription>
-            Let an LLM agent operate the open plasmid via the Model Context Protocol (20 tools:
+            Let an LLM agent operate the open plasmid via the Model Context Protocol (21 tools:
             overview digests, sequence read/edit, feature & primer CRUD, primer design, ORF,
             alignment, and more).
           </DialogDescription>

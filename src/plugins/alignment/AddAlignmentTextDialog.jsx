@@ -1,6 +1,15 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { InlineNotice } from '@/components/ui/notice';
 import { LoaderCircle } from 'lucide-react';
 
 export default function AddAlignmentTextDialog({ open, onOpenChange, onSubmit }) {
@@ -32,32 +41,47 @@ export default function AddAlignmentTextDialog({ open, onOpenChange, onSubmit })
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Name (optional)"
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-foreground/30"
-          />
-          <textarea
-            value={seq}
-            onChange={(e) => setSeq(e.target.value)}
-            placeholder={'Paste a DNA sequence or FASTA text…'}
-            rows={8}
-            className="resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs outline-none focus:border-foreground/30"
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="align-name" className="text-xs text-muted-foreground">
+              Name (optional)
+            </Label>
+            <Input
+              id="align-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. read-01.ab1"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="align-seq" className="text-xs text-muted-foreground">
+              Sequence (DNA or FASTA)
+            </Label>
+            <textarea
+              id="align-seq"
+              value={seq}
+              onChange={(e) => setSeq(e.target.value)}
+              placeholder={'Paste a DNA sequence or FASTA text…'}
+              rows={8}
+              spellCheck={false}
+              className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            />
+          </div>
         </div>
 
-        {error && <div className="pt-1 text-xs text-destructive">{error}</div>}
+        {error && <InlineNotice tone="error">{error}</InlineNotice>}
 
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-[11px] text-muted-foreground/60">
+        <DialogFooter className="gap-2 sm:gap-2">
+          <span className="mr-auto text-[11px] text-muted-foreground/60">
             The reverse complement is also tried automatically
           </span>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
           <Button size="sm" onClick={handleSubmit} disabled={busy || !seq.trim()}>
             {busy && <LoaderCircle className="size-4 animate-spin" />}
             Align
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

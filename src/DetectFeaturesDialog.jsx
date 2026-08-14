@@ -7,6 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/notice';
 import { LoaderCircle, ScanSearch, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateFeatures } from './tauriApi';
@@ -172,7 +173,7 @@ export default function DetectFeaturesDialog({
             </div>
           ) : (
             <table className="w-full border-collapse text-sm">
-              <thead>
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
                 <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
                   <th className="w-8 py-2 pr-3">
                     <input
@@ -214,7 +215,7 @@ export default function DetectFeaturesDialog({
                       <span className="font-medium">{hit.name}</span>
                       {exists && (
                         <span className="ml-1.5 rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
-                          已存在
+                          Added
                         </span>
                       )}
                       {!exists && hit.fragment && (
@@ -250,11 +251,7 @@ export default function DetectFeaturesDialog({
           )}
         </div>
 
-        {addError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-            {addError}
-          </div>
-        )}
+        {addError && <InlineNotice tone="error">{addError}</InlineNotice>}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={adding}>

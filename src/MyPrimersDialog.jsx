@@ -7,7 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Trash2, Plus, LoaderCircle, ArrowRight, Check } from 'lucide-react';
+import { Trash2, Plus, LoaderCircle, ArrowRight, Check, ArrowRightLeft } from 'lucide-react';
 
 const DIR_COLORS = { fwd: '#166534', rev: '#4A148C' };
 
@@ -86,17 +86,20 @@ export default function MyPrimersDialog({
 
         {myPrimers.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-10 text-center">
-            <div className="text-sm text-muted-foreground">Your primer library is empty.</div>
-            <div className="max-w-md text-xs text-muted-foreground/70">
-              Add primers from the Primers → My Primer Collection menu: “Add Current Primer” or
-              “Add All from This File”, or turn on “Auto-add from Opened Files”.
+            <div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <ArrowRightLeft className="size-5" />
+            </div>
+            <div className="text-sm font-medium">Your primer library is empty</div>
+            <div className="max-w-md text-xs leading-relaxed text-muted-foreground">
+              Add primers from the Primers → My Primer Collection menu: “Add Current Primer” or “Add
+              All from This File”, or turn on “Auto-add from Opened Files”.
             </div>
           </div>
         ) : (
           <>
             <div className="flex-1 overflow-auto -mx-8 px-8">
               <table className="w-full border-collapse text-sm">
-                <thead>
+                <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
                   <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
                     <th className="text-left font-semibold py-2 pr-3">Name</th>
                     <th className="text-left font-semibold py-2 pr-3">Sequence</th>
@@ -122,7 +125,7 @@ export default function MyPrimersDialog({
                               <span className="text-sm font-medium">{n}</span>
                               {isDupName(n) && (
                                 <span className="ml-1 rounded bg-amber-100 px-1 py-px text-[10px] leading-tight text-amber-700">
-                                  重名
+                                  Dup
                                 </span>
                               )}
                             </span>
@@ -146,7 +149,7 @@ export default function MyPrimersDialog({
                           <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
                             <Check className="size-3.5" /> In file
                           </span>
-                        ) : p.binds ? (
+                        ) : p.binds && p.site ? (
                           <span className="font-mono text-xs" style={{ color: DIR_COLORS[p.type] }}>
                             {p.site.strand === -1 ? 'R' : 'F'} {p.site.templateStart + 1}..
                             {p.site.templateEnd}

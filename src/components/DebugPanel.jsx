@@ -80,14 +80,14 @@ export default function DebugPanel({
         className="w-80 sm:max-w-xs overflow-y-auto"
         showCloseButton={true}
       >
-        <SheetHeader className="px-0 pt-2 pb-1">
+        <SheetHeader className="px-4 pt-4 pb-1">
           <SheetTitle className="flex items-center gap-2 text-base">
             <SlidersHorizontal className="size-4 text-muted-foreground" />
             Debug 面板
           </SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-3 text-sm">
+        <div className="space-y-3 px-4 pb-6 text-sm">
           {/* ── 显示开关 ── */}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">

@@ -12,7 +12,7 @@ export default function TitleBar({ title, dirty = false }) {
     // If activation hangs or the plugin never marks its root element, fall back
     const timer = setTimeout(() => {
       const active = document.querySelector(
-        '[data-tauri-plugin-decoration-root][data-tauri-plugin-decoration-active]'
+        '[data-tauri-plugin-decoration-root][data-tauri-plugin-decoration-active]',
       );
       if (!active) {
         invoke('restore_native_titlebar').catch(() => {});

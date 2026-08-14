@@ -58,14 +58,14 @@ export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
           <DialogTitle>Enzyme Database ({records ? records.length : '…'})</DialogTitle>
         </DialogHeader>
 
-        <div className="flex items-center gap-2 pb-2">
-          <Search className="size-4 shrink-0 text-muted-foreground" />
+        <div className="relative pb-2">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter by name, recognition site…"
             spellCheck={false}
-            className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 text-sm outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/50"
+            className="h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-3 text-sm shadow-xs outline-none transition-shadow placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/50"
           />
         </div>
 
@@ -78,7 +78,7 @@ export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
             </div>
           ) : (
             <table className="w-full border-collapse text-sm">
-              <thead>
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
                 <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
                   <th className="text-left font-semibold py-2 pr-3">Name</th>
                   <th className="text-left font-semibold py-2 pr-3">Recognition</th>
