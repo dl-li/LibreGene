@@ -91,9 +91,8 @@
   }
 }
 
-/* 全局禁用原生文本选择 */
-svg,
-svg * {
+/* 全局禁用原生文本选择（输入框等可编辑区域除外） */
+*:not(input):not(textarea):not([contenteditable='true']) {
   user-select: none !important;
   -webkit-user-select: none !important;
 }

@@ -23,7 +23,8 @@ import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm } from './tauriApi';
 import { buildSearchResults } from './searchUtils';
-import { AlertTriangle } from 'lucide-react';
+import { showContextMenu } from './contextMenu';
+import { AlertTriangle, Copy, CopyPlus, CopyMinus, CopyX, Pencil, Tag } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Standard genetic code table
@@ -1884,6 +1885,208 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [hasSelection, cleanSeq, selStart, selEnd, translationSel, cdsFeatureDataRef],
   );
 
+  // --- Custom context menus (right-click) ---
+  const writeClipboard = useCallback((text) => {
+    if (text) navigator.clipboard.writeText(text).catch(() => {});
+  }, []);
+
+  // Select a feature as a text selection spanning its full extent (same as left-click)
+  const selectFeature = useCallback(
+    (f) => {
+      const fStart = Math.min(...f.segments.map((s) => s.start));
+      const fEnd = Math.max(...f.segments.map((s) => s.end));
+      setSelStart(fStart);
+      setSelEnd(fEnd);
+      setCursorIndex(fEnd + 1);
+      clearCursorTimer();
+      setSelectionMode('text');
+      setSelectedPrimerIds([]);
+      setTranslationSel(null);
+      translationDragRef.current = null;
+      setIsTranslationDragging(false);
+      isPrimerDraggingRef.current = false;
+      primerDragRef.current = null;
+      if (primerDimTimerRef.current) {
+        clearTimeout(primerDimTimerRef.current);
+        primerDimTimerRef.current = null;
+      }
+      setPrimerDimActive(false);
+    },
+    [clearCursorTimer],
+  );
+
+  const openFeatureMenu = useCallback(
+    (e, f) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectFeature(f);
+      const fStart = Math.min(...f.segments.map((s) => s.start));
+      const fEnd = Math.max(...f.segments.map((s) => s.end));
+      const sense = cleanSeq.substring(fStart, fEnd + 1);
+      const isRev = f.strand === '-';
+      const items = [
+        { icon: Tag, label: 'Copy Feature Name', onSelect: () => writeClipboard(f.name) },
+        {
+          icon: CopyPlus,
+          label: 'Copy (+) Strand',
+          bold: !isRev,
+          onSelect: () => writeClipboard(sense),
+        },
+        {
+          icon: CopyMinus,
+          label: 'Copy (−) Strand',
+          bold: isRev,
+          onSelect: () => writeClipboard(reverseComplement(sense)),
+        },
+      ];
+      const cds = cdsFeatureDataRef.current[f.id];
+      if (cds && cds.trans.length) {
+        items.push({
+          icon: CopyX,
+          label: 'Copy Translation',
+          onSelect: () => writeClipboard(cds.trans.map((t) => t.aa).join('')),
+        });
+      }
+      if (!f.orf) {
+        items.push({ type: 'separator' });
+        items.push({
+          icon: Pencil,
+          label: 'Edit Feature…',
+          onSelect: () => {
+            setCreateFeatureLoc(null);
+            setFeatureInfoFeature(f);
+          },
+        });
+      }
+      showContextMenu(e.clientX, e.clientY, items);
+    },
+    [cleanSeq, selectFeature, writeClipboard],
+  );
+
+  // Select a primer (same as left-click on its arrow, without starting a drag)
+  const selectPrimer = useCallback(
+    (p) => {
+      setSelStart(null);
+      setSelEnd(null);
+      setCursorIndex(null);
+      setIsEnzymeSelection(false);
+      setSelectedEnzymeIds([]);
+      lastEnzymeSelRef.current = null;
+      setTranslationSel(null);
+      translationDragRef.current = null;
+      setIsTranslationDragging(false);
+      setSelectionMode('primer');
+      setSelectedPrimerIds([p.id]);
+      clearCursorTimer();
+    },
+    [clearCursorTimer],
+  );
+
+  const primerMenuItems = useCallback(
+    (p) => [
+      { icon: Tag, label: 'Copy Primer Name', onSelect: () => writeClipboard(p.name) },
+      {
+        icon: Copy,
+        label: 'Copy Primer Sequence',
+        onSelect: () => writeClipboard(p.primerSeq || matchedSeqOf(p, cleanSeq)),
+      },
+    ],
+    [cleanSeq, writeClipboard],
+  );
+
+  const openPrimerMenu = useCallback(
+    (e, p) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectPrimer(p);
+      showContextMenu(e.clientX, e.clientY, [
+        ...primerMenuItems(p),
+        { type: 'separator' },
+        {
+          icon: Pencil,
+          label: 'Edit Primer…',
+          onSelect: () => {
+            setCreatePrimerSeq(null);
+            setPrimerAlignmentPrimer(enrichedPrimers.find((ep) => ep.id === p.id) || null);
+          },
+        },
+      ]);
+    },
+    [selectPrimer, primerMenuItems, enrichedPrimers],
+  );
+
+  const copyAmplimer = useCallback(() => {
+    if (selectedPrimerIds.length !== 2) return;
+    const fp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[0]);
+    const rp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[1]);
+    const fwdPrimer = fp && fp.isFwd ? fp : rp;
+    const revPrimer = fp && !fp.isFwd ? fp : rp;
+    if (!fwdPrimer || !revPrimer) return;
+    const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
+    const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
+    let intervening;
+    if (fwdPrimer.matchEnd < revPrimer.matchStart) {
+      intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
+    } else {
+      intervening =
+        cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
+    }
+    writeClipboard(fSeq + intervening + reverseComplement(rSeq));
+  }, [selectedPrimerIds, enrichedPrimers, cleanSeq, writeClipboard]);
+
+  // Generic right-click on the editor canvas: menu reflects the current selection.
+  // Feature / primer elements attach their own menus and stopPropagation.
+  const handleContextMenu = useCallback(
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const items = [];
+      if (hasTranslationSelection) {
+        items.push(
+          { icon: CopyX, label: 'Copy Translation', onSelect: () => copySelection('translation') },
+          { icon: CopyPlus, label: 'Copy (+) Strand', onSelect: () => copySelection('sense') },
+        );
+        if (isDna) {
+          items.push({
+            icon: CopyMinus,
+            label: 'Copy (−) Strand',
+            onSelect: () => copySelection('antisense'),
+          });
+        }
+      } else if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
+        items.push({ icon: Copy, label: 'Copy Amplimer', onSelect: copyAmplimer });
+      } else if (selectionMode === 'primer' && selectedPrimerIds.length === 1) {
+        const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
+        if (p) items.push(...primerMenuItems(p));
+      } else if (hasSelection) {
+        items.push({
+          icon: CopyPlus,
+          label: 'Copy (+) Strand',
+          onSelect: () => copySelection('sense'),
+        });
+        if (isDna) {
+          items.push({
+            icon: CopyMinus,
+            label: 'Copy (−) Strand',
+            onSelect: () => copySelection('antisense'),
+          });
+        }
+      }
+      showContextMenu(e.clientX, e.clientY, items);
+    },
+    [
+      hasSelection,
+      hasTranslationSelection,
+      selectionMode,
+      selectedPrimerIds,
+      enrichedPrimers,
+      isDna,
+      copySelection,
+      copyAmplimer,
+      primerMenuItems,
+    ],
+  );
+
   // --- Paste: build insert/replace request from clipboard text ---
   const requestPaste = useCallback(
     (clipboardText) => {
@@ -2587,7 +2790,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 onMouseLeave={() => {
                   featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250);
                 }}
+                onContextMenu={(e) => openFeatureMenu(e, f)}
                 onMouseDown={(e) => {
+                  if (e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
 
@@ -2831,7 +3036,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
               onMouseLeave={() => {
                 featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250);
               }}
+              onContextMenu={(e) => openFeatureMenu(e, f)}
               onMouseDown={(e) => {
+                if (e.button !== 0) return;
                 e.stopPropagation();
                 e.preventDefault();
 
@@ -2883,7 +3090,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
             key={key}
             onMouseEnter={() => setHoveredFeature(f.id)}
             onMouseLeave={() => setHoveredFeature(null)}
+            onContextMenu={(e) => openFeatureMenu(e, f)}
             onMouseDown={(e) => {
+              if (e.button !== 0) return;
               e.stopPropagation();
               e.preventDefault();
 
@@ -2943,6 +3152,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     charsPerLine,
     startTranslationSelection,
     alignLaneInfo,
+    openFeatureMenu,
   ]);
 
   const renderedAlignments = useMemo(() => {
@@ -3189,7 +3399,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
 
       return (
-        <g key={p.id}>
+        <g key={p.id} onContextMenu={(e) => openPrimerMenu(e, p)}>
           {segs.map((seg) => {
             const isTail = seg === tailSeg,
               isArrow = seg === arrowSeg;
@@ -3535,6 +3745,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selectedPrimerIds,
     isPrimerDragging,
     primerDimActive,
+    openPrimerMenu,
   ]);
 
   // Pre-compute enzyme geometry — one entry per cut pair (cut-twice enzymes get 2 entries)
@@ -4674,6 +4885,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       )}
       <div
         ref={containerRef}
+        onContextMenu={handleContextMenu}
         style={{
           backgroundColor: bgColor,
           width: '100%',

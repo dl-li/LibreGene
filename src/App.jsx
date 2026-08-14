@@ -21,6 +21,7 @@ import SettingsPage from './components/SettingsPage';
 import McpGuideDialog from './components/McpGuideDialog';
 import NewSequenceDialog from './NewSequenceDialog';
 import TitleBar from './components/TitleBar';
+import ContextMenuHost from './components/ContextMenuHost';
 import {
   SidebarProvider,
   Sidebar,
@@ -1051,6 +1052,7 @@ export default function App() {
           </DialogContent>
         </Dialog>
       </SidebarProvider>
+      <ContextMenuHost />
     </TooltipProvider>
   );
 }

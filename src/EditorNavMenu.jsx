@@ -231,14 +231,14 @@ export default function EditorNavMenu({
               disabled={!hasSelection && !hasTranslationSelection}
               onSelect={onCopySense}
             >
-              <CopyPlus /> Copy Sense
+              <CopyPlus /> Copy (+) Strand
             </DropdownMenuItem>
             {isDna && (
               <DropdownMenuItem
                 disabled={!hasSelection && !hasTranslationSelection}
                 onSelect={onCopyAntisense}
               >
-                <CopyMinus /> Copy Antisense
+                <CopyMinus /> Copy (−) Strand
               </DropdownMenuItem>
             )}
             {isDna && (
