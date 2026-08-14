@@ -7,6 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/notice';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { monoFont } from './editorConstants';
 
@@ -494,17 +495,13 @@ export default function FeatureInfoDialog({
           </div>
 
           {/* Create error */}
-          {createError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-              {createError}
-            </div>
-          )}
+          {createError && <InlineNotice tone="error">{createError}</InlineNotice>}
 
           {/* Name conflict warning */}
           {nameConflict && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <InlineNotice tone="warning">
               Name "{createName}" is already used by another feature
-            </div>
+            </InlineNotice>
           )}
 
           {/* Footer */}

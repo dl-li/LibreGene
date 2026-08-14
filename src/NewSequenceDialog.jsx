@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { InlineNotice } from '@/components/ui/notice';
 import { LoaderCircle, ScanSearch, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateSequenceText } from './tauriApi';
@@ -166,13 +167,24 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
     } finally {
       setSubmitting(false);
     }
-  }, [validation.valid, submitting, items, selected, onConfirm, name, effectiveSeq, molType, topology, onOpenChange]);
+  }, [
+    validation.valid,
+    submitting,
+    items,
+    selected,
+    onConfirm,
+    name,
+    effectiveSeq,
+    molType,
+    topology,
+    onOpenChange,
+  ]);
 
   const segBtn = (value, label, group) => (
     <button
       key={value}
       type="button"
-      onClick={() => group === 'mol' ? setMolType(value) : setTopology(value)}
+      onClick={() => (group === 'mol' ? setMolType(value) : setTopology(value))}
       className={cn(
         'rounded-md px-2 py-1.5 text-xs font-medium capitalize transition-colors',
         (group === 'mol' ? molType : topology) === value
@@ -205,7 +217,9 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
               </div>
             </div>
             <div>
-              <Label htmlFor="new-seq-name" className="text-xs text-muted-foreground">Name</Label>
+              <Label htmlFor="new-seq-name" className="text-xs text-muted-foreground">
+                Name
+              </Label>
               <Input
                 id="new-seq-name"
                 value={name}
@@ -236,7 +250,11 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                 spellCheck={false}
               />
               <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className={validation.valid ? 'text-muted-foreground' : 'font-medium text-red-600'}>
+                <span
+                  className={
+                    validation.valid ? 'text-muted-foreground' : 'font-medium text-red-600'
+                  }
+                >
                   {validation.valid
                     ? `${effectiveSeq.length} ${unit}`
                     : validation.invalidChars.length
@@ -245,7 +263,8 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                 </span>
                 {!validation.valid && validation.invalidChars.length > 0 && (
                   <span className="text-muted-foreground">
-                    Allowed: {molType === 'protein' ? 'A–Z (* only as trailing stop)' : 'ACGTURYSWKMBDHVN'}
+                    Allowed:{' '}
+                    {molType === 'protein' ? 'A–Z (* only as trailing stop)' : 'ACGTURYSWKMBDHVN'}
                   </span>
                 )}
               </div>
@@ -278,7 +297,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                 </div>
               ) : (
                 <table className="w-full border-collapse text-sm">
-                  <thead>
+                  <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted">
                     <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
                       <th className="w-8 py-2 pl-3 pr-3" />
                       <th className="py-2 pr-3 text-left font-semibold">Name</th>
@@ -338,17 +357,16 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
           </div>
         </div>
 
-        {submitError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-            {submitError}
-          </div>
-        )}
+        {submitError && <InlineNotice tone="error">{submitError}</InlineNotice>}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={!validation.valid || !effectiveSeq || submitting}>
+          <Button
+            onClick={handleConfirm}
+            disabled={!validation.valid || !effectiveSeq || submitting}
+          >
             {submitting && <LoaderCircle className="size-4 animate-spin" />}
             {submitting ? 'Creating…' : 'Create Project'}
           </Button>

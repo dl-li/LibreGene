@@ -12,39 +12,27 @@ const DEFAULTS = {
 
 const FWD_COLOR = '#166534';
 const REV_COLOR = '#4A148C';
-const BAND_H = 3.5;
-const HEAD_H = 6.5;
-const HEAD_LEN = 9;
+const HEAD_H = 5;
+const HEAD_LEN = 7;
 
-// Block arrow like the editor's primers: filled band + arrowhead at the 3' end;
-// x5 = 5' end, x3 = 3' tip; tailLen portion from the 5' end drawn lighter
-function PrimerArrow({ x5, x3, y, color, tailLen = 0 }) {
+// Harpoon arrow like the editor's primers: 2.5px stroke line + a single
+// diagonal barb at the 3' tip (barbUp for primers above the template);
+// tailLen portion from the 5' end drawn lighter
+function PrimerArrow({ x5, x3, y, color, tailLen = 0, barbUp = true }) {
   const d = x3 > x5 ? 1 : -1;
-  const xb = x3 - HEAD_LEN * d;
-  const te = tailLen > 0 ? x5 + tailLen * d : x5;
+  const tx = tailLen > 0 ? x5 + tailLen * d : x5;
   return (
-    <g>
-      {tailLen > 0 && (
-        <rect
-          x={Math.min(x5, te)}
-          y={y - BAND_H}
-          width={Math.abs(te - x5)}
-          height={BAND_H * 2}
-          fill={color}
-          fillOpacity={0.3}
-        />
-      )}
-      <path
-        d={`M ${te} ${y - BAND_H} L ${xb} ${y - BAND_H} L ${xb} ${y - HEAD_H} L ${x3} ${y} L ${xb} ${y + HEAD_H} L ${xb} ${y + BAND_H} L ${te} ${y + BAND_H} Z`}
-        fill={color}
-      />
+    <g fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round">
+      {tailLen > 0 && <line x1={x5} y1={y} x2={tx} y2={y} strokeOpacity={0.35} />}
+      <line x1={tx} y1={y} x2={x3} y2={y} />
+      <path d={`M ${x3} ${y} L ${x3 - HEAD_LEN * d} ${y + (barbUp ? -HEAD_H : HEAD_H)}`} />
     </g>
   );
 }
 
 function PrimerLabel({ x, y, anchor, color, children }) {
   return (
-    <text x={x} y={y} fontSize="9" fontWeight="600" fill={color} textAnchor={anchor}>
+    <text x={x} y={y} fontSize="9" fontWeight="600" fontStyle="italic" fill={color} textAnchor={anchor}>
       {children}
     </text>
   );
@@ -65,7 +53,7 @@ function AmplifySchematic({ name }) {
       <PrimerLabel x={20} y={10} anchor="start" color={FWD_COLOR}>{`${name}-Fwd`}</PrimerLabel>
       <PrimerArrow x5={20} x3={96} y={21} color={FWD_COLOR} />
       <TemplateLines x1={20} x2={240} y={40} />
-      <PrimerArrow x5={240} x3={164} y={60} color={REV_COLOR} />
+      <PrimerArrow x5={240} x3={164} y={60} color={REV_COLOR} barbUp={false} />
       <PrimerLabel x={240} y={74} anchor="end" color={REV_COLOR}>{`${name}-Rev`}</PrimerLabel>
     </svg>
   );
@@ -80,9 +68,9 @@ function OepcrSchematic({ name1, name2 }) {
       <PrimerArrow x5={104} x3={170} y={21} color={FWD_COLOR} tailLen={22} />
       <TemplateLines x1={20} x2={240} y={40} />
       <line x1={127} y1={50} x2={133} y2={38} stroke="currentColor" strokeWidth="2" />
-      <PrimerArrow x5={156} x3={96} y={62} color={REV_COLOR} tailLen={22} />
+      <PrimerArrow x5={156} x3={96} y={62} color={REV_COLOR} tailLen={22} barbUp={false} />
       <PrimerLabel x={96} y={76} anchor="start" color={REV_COLOR}>{`${name1}-Rev`}</PrimerLabel>
-      <PrimerArrow x5={240} x3={184} y={62} color={REV_COLOR} />
+      <PrimerArrow x5={240} x3={184} y={62} color={REV_COLOR} barbUp={false} />
       <PrimerLabel x={240} y={76} anchor="end" color={REV_COLOR}>{`${name2}-Rev`}</PrimerLabel>
     </svg>
   );
@@ -103,7 +91,7 @@ function MutagenesisSchematic({ name }) {
         <line x1={119} y1={38} x2={129} y2={50} />
         <line x1={129} y1={38} x2={119} y2={50} />
       </g>
-      <PrimerArrow x5={196} x3={70} y={62} color={REV_COLOR} tailLen={56} />
+      <PrimerArrow x5={196} x3={70} y={62} color={REV_COLOR} tailLen={56} barbUp={false} />
       <PrimerLabel x={196} y={76} anchor="end" color={REV_COLOR}>{`${name}-Rev`}</PrimerLabel>
     </svg>
   );

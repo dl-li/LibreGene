@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { InlineNotice } from '@/components/ui/notice';
 import {
   Select,
   SelectContent,
@@ -16,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { LoaderCircle, Sparkles, TriangleAlert } from 'lucide-react';
+import { LoaderCircle, Sparkles } from 'lucide-react';
 import { monoFont } from '../../editorConstants';
 import { listCodonSpecies, previewCodonOptimization, applyCodonOptimization } from '../../tauriApi';
 
@@ -440,19 +441,18 @@ export default function CodonOptimizationDialog({
               )}
 
               {unresolved.length > 0 && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                <InlineNotice tone="warning" className="items-start">
                   <span>
                     {unresolved.length} violation(s) could not be repaired:{' '}
                     {unresolved.slice(0, 6).join('; ')}
                     {unresolved.length > 6 ? ', …' : ''}
                   </span>
-                </div>
+                </InlineNotice>
               )}
             </div>
           )}
 
-          {error && <div className="text-xs text-destructive">{error}</div>}
+          {error && <InlineNotice tone="error">{error}</InlineNotice>}
         </div>
 
         <DialogFooter className="mt-1">

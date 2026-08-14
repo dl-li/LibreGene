@@ -207,7 +207,7 @@ export default function SequenceEditDialog({
                 placeholder={isProtein ? 'Enter amino acid sequence…' : 'Enter DNA / RNA sequence…'}
                 rows={4}
                 spellCheck={false}
-                className="font-mono text-sm w-full rounded-lg border bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                className="font-mono text-sm w-full rounded-lg border border-input bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
               />
             </div>
           )}

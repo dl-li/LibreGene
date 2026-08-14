@@ -7,6 +7,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/notice';
 import { Repeat, Trash2, AlertTriangle, RotateCcw, Copy, Check } from 'lucide-react';
 import { monoFont } from './editorConstants';
 import { computePrimerAlignment } from './tauriApi';
@@ -440,18 +441,18 @@ export default function PrimerAlignmentDialog({
 
         {/* Invalid character warning */}
         {isInvalid && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800">
-            <AlertTriangle className="size-3.5 shrink-0" />
-            <span>Invalid character(s):</span>
-            <span className="font-mono">{invalidChars.join(', ')}</span>
-          </div>
+          <InlineNotice tone="warning">
+            <span>
+              Invalid character(s): <span className="font-mono">{invalidChars.join(', ')}</span>
+            </span>
+          </InlineNotice>
         )}
 
         {/* Name conflict */}
         {nameConflict && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+          <InlineNotice tone="error">
             Name "{editName}" is already used by another primer
-          </div>
+          </InlineNotice>
         )}
 
         {/* Bottom buttons */}

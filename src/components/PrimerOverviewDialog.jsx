@@ -82,7 +82,7 @@ export default function PrimerOverviewDialog({
 
         <div className="flex-1 overflow-auto -mx-8 px-8">
           <table className="w-full border-collapse text-sm">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
               <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="text-left font-semibold py-2 pr-3">Name</th>
                 <th className="text-left font-semibold py-2 pr-3">Sequence</th>
