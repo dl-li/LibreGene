@@ -11,11 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InlineNotice } from '@/components/ui/notice';
-import { LoaderCircle, ScanSearch, AlertTriangle } from 'lucide-react';
+import { LoaderCircle, ScanSearch, AlertTriangle, Map as MapIcon, Table as TableIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateSequenceText } from './tauriApi';
+import { CircularMap, LinearMap } from './MapView';
 
 const EMPTY_ARRAY = [];
+const NOOP = () => {};
 
 const DNA_IUPAC = 'ACGTURYSWKMBDHVN';
 
@@ -64,6 +66,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
   const [raw, setRaw] = useState('');
   const [items, setItems] = useState(EMPTY_ARRAY);
   const [selected, setSelected] = useState(() => new Set());
+  const [viewMode, setViewMode] = useState('map');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -83,6 +86,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
       setRaw('');
       setItems(EMPTY_ARRAY);
       setSelected(new Set());
+      setViewMode('map');
       setLoading(false);
       setError('');
       setSubmitError('');
@@ -135,6 +139,25 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
       return next;
     });
   }, []);
+
+  // checked features, shaped for the map components
+  const mapFeatures = useMemo(
+    () =>
+      items
+        .map((h, i) => ({ h, i }))
+        .filter(({ i }) => selected.has(i))
+        .map(({ h, i }) => ({
+          id: `nf-${i}`,
+          name: h.name,
+          ftype: h.ftype,
+          color: h.color,
+          strand: h.strand,
+          start: h.start,
+          end: h.end,
+          segments: h.segments?.length ? h.segments : [{ start: h.start, end: h.end }],
+        })),
+    [items, selected],
+  );
 
   const handleConfirm = useCallback(async () => {
     if (!validation.valid || submitting) return;
@@ -272,8 +295,33 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
           </div>
 
           <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-muted/20">
-            <div className="border-b border-border/60 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Detected Features
+            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Detected Features
+              </span>
+              {molType !== 'protein' && (
+                <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+                  {[
+                    { value: 'map', label: 'Map', Icon: MapIcon },
+                    { value: 'table', label: 'Table', Icon: TableIcon },
+                  ].map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setViewMode(value)}
+                      className={cn(
+                        'flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                        viewMode === value
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="size-3" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               {molType === 'protein' ? (
@@ -294,6 +342,31 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                 <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
                   <ScanSearch className="size-5 opacity-50" />
                   <span>No common features detected</span>
+                </div>
+              ) : viewMode === 'map' ? (
+                <div className="flex min-h-full items-center justify-center p-3">
+                  {molType === 'dna' && topology === 'circular' ? (
+                    <CircularMap
+                      length={effectiveSeq.length}
+                      features={mapFeatures}
+                      name={name.trim() || 'Untitled'}
+                      selection={null}
+                      onSelect={NOOP}
+                      onClear={NOOP}
+                      onFeatureOpen={NOOP}
+                      bg="transparent"
+                    />
+                  ) : (
+                    <LinearMap
+                      length={effectiveSeq.length}
+                      features={mapFeatures}
+                      selection={null}
+                      onSelect={NOOP}
+                      onClear={NOOP}
+                      onFeatureOpen={NOOP}
+                      bg="transparent"
+                    />
+                  )}
                 </div>
               ) : (
                 <table className="w-full border-collapse text-sm">
