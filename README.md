@@ -43,6 +43,16 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
   <img src="screenshots/primer-design.png" alt="Primer design dialog" width="49%" />
 </p>
 
+### Codon Optimization
+
+- **9 species codon usage tables** — optimize any CDS/mRNA feature for the expression host of your choice
+- **Three strategies** — use best codon, match codon usage (keeps natural synonymous diversity), or harmonize relative codon adaptation against the source species
+- **Preview before applying** — translation check, CAI and GC% before/after at a glance; equal-length synonymous substitution leaves feature coordinates untouched; optionally avoid creating specified restriction sites
+
+<p align="center">
+  <img src="screenshots/codon-optimize.png" alt="Codon optimization dialog" width="700" />
+</p>
+
 ### Restriction Enzymes
 
 - **Built-in 900+ enzyme database** with methylation-aware filtering
