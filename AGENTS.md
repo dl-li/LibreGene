@@ -54,7 +54,7 @@ LibreGene/
 │   ├── editHistory.js          # 撤销/重做历史栈
 │   ├── api.js                  # HTTP/WebSocket API 客户端（非 Tauri 模式）
 │   ├── tauriApi.js             # Tauri IPC API 客户端
-│   ├── searchUtils.js          # IUPAC 模糊搜索匹配引擎
+│   ├── searchUtils.js          # IUPAC 模糊搜索匹配引擎（查询含核苷酸字母表外的字符时按肽段展开为简并密码子搜索）
 │   ├── FeatureInfoDialog.jsx   # 特征编辑弹窗
 │   ├── SequenceEditDialog.jsx  # 序列编辑（插入/删除/替换）确认弹窗
 │   ├── NewSequenceDialog.jsx   # 空页面「新建序列」弹窗（选 DNA/RNA/Peptide、粘贴 FASTA/纯文本、防抖实时特征预览、勾选特征建项目；引擎在 Rust 端 `annotate_sequence`，建项目走 `create_project`）
@@ -87,7 +87,7 @@ LibreGene/
 │   │       ├── project.rs      # ProjectManager
 │   │       ├── utils.rs        # complement / reverse_complement
 │   │       ├── orf.rs          # ORF 搜索（find_orfs，双链三框，返回虚拟 CDS Feature）
-│   │       ├── search.rs       # IUPAC 模糊序列搜索（find_seq_matches，双链）
+│   │       ├── search.rs       # IUPAC 模糊序列搜索（find_seq_matches，双链；肽段样式的查询展开为简并密码子）
 │   │       ├── codon.rs        # 密码子优化引擎（含 codon_usage.tsv 9 物种表）
 │   │       ├── digest.rs       # MCP 文本摘要渲染（project_digest / read_sequence，含单元测试）
 │   │       ├── enzyme/         # 酶切引擎
@@ -229,7 +229,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - 引物设计（Amplify/OE-PCR/Mutagenesis）→ `design_primers`（amplify 支持 `fwd_enzyme`/`rev_enzyme` 酶切尾巴 + `protect_bases` 保护碱基，amplify 恒返回 `internalSites`（空数组表示无内部酶切位点，非空时附 `warning`）；mutagenesis 校验 `mut_seq` 与 seg 等长且差异 ≤3 bp，返回 `mutation` 自检块含正/负链上下文与 CDS 密码子/氨基酸变化——支持 join 分段 CDS，`cds.codonIndex` 为 CDS 内 0-based、`cds.aaPosition1Based` 为 1-based 氨基酸位置（含起始 Met）、`cds.aaPositionExcludingMet` 为不含 Met 的位置（aaPosition1Based - 1，首个密码子时省略），全碱基替换时附 `warning` 提示确认正链；DNA 专属——protein/rna 项目 isError）
 - ORF 搜索 → `find_orfs`（`add_as_features` 可直接落库；DNA 专属——protein/rna 项目 isError）
 - 序列比对（Sanger reads / 序列）→ `add_alignment`（`bases`/`path` 双输入，长读段建议 `path`；`path` 支持 .gbk/.dna/.fasta/.ab1；返回差异明细：`mismatchDetails` 每个 mismatch 的 0-based 模板位置与模板/读段碱基、`deletionDetails` 每个 deletion 的位置/长度/缺失碱基（跨环状原点自动合并）、`insertionDetails` 每个 insertion 的插入位点（pos-1 与 pos 之间）与序列/长度；另有 `identity`（全精度不四舍五入）与 `alignedLength`（覆盖模板长度）；成功响应恒附带 `alignments` 数组——该项目当前全部比对（每个含 alignmentId/name/identity/strand/segmentCount/alignedLength/mismatches/insertions/deletions 及差异明细），无需单独只读工具即可查看所有已存比对；短读段被拒时错误信息说明原因与最小长度阈值 50 bp；DNA 专属——protein/rna 项目 isError）
-- IUPAC 序列搜索 → `search_sequence`（DNA 专属——protein/rna 单链无反向链可搜，isError）
+- IUPAC 序列搜索 → `search_sequence`（查询含核苷酸 IUPAC 字母表之外的字符（E/F/I/L/P/Q/`*`/X/Z 等）时按肽段处理：每个残基展开为简并 IUPAC 密码子模式（标准遗传密码，`*`→`TRR`、X→`NNN`、B/Z 支持），匹配任何翻译后等于该肽段的编码区，双链；纯核苷酸字母的查询仍按核苷酸搜索；DNA 专属——protein/rna 单链无反向链可搜，isError）
 - 甲基化系统 → 无独立 MCP 工具（`set_methylation` 已移除）；`get_project_overview` 的 LOCUS 行展示当前甲基化系统（`methylation: Dam,Dcm,EcoKI`）；环状 DNA 的甲基化系统持久化在 GBK `KEYWORDS` 的 `methylation: Dam,Dcm,EcoKI` 标注中（无甲基化写 `methylation: none`），读取时解析回 `methylation_systems`；GBK 未注明时默认三个系统全开（dam/dcm/ecoki），保存时再显式注明；前端设置仍走 Tauri command `set_methylation`
 - 限制酶切位点查询 → `find_restriction_sites`（按名称列出识别位点与切口：`recStart`/`recEnd` 0-based inclusive、`recSeq`、识别链 `top`/`bottom`、`cuts` 每个 `topCutIndex`/`botCutIndex`（切口在 cut-1 与 cut 之间）；复用已算好的引擎结果，环状坐标已归一化，不传 `enzymes` 返回全部，未知酶名报错并给出近似名——用这个报错探测本序列上有切口的酶名，替代已删除的整库 `get_enzyme_database` 工具；DNA 专属——protein/rna 项目 isError）
 - 自动标注（检测常见特征）→ `get_project_overview`（overview 末尾附加 `DETECTED COMMON FEATURES (auto)` 节：只列非 fragment 特征，每行 `name | type | strand | start..end | identity%`，附 `(already annotated)` 标记；fragment 命中不展示以免误导；只读摘要不落库，不受 compact 参数影响；仅 DNA 项目输出（非 DNA 无该节）；检测引擎本身另接 Tauri command `annotate_features` 返回完整 camelCase JSON）

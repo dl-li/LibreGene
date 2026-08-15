@@ -57,6 +57,63 @@ fn normalize_query(query: &str) -> Option<String> {
     Some(q)
 }
 
+/// Amino acid residue → degenerate IUPAC codon pattern (standard code).
+/// B = Asx (D/N), Z = Glx (E/Q), X = any, '*' = stop.
+fn aa_codon_pattern(c: u8) -> Option<&'static str> {
+    Some(match c {
+        b'A' => "GCN",
+        b'R' => "MGN",
+        b'N' => "AAY",
+        b'D' => "GAY",
+        b'C' => "TGY",
+        b'Q' => "CAR",
+        b'E' => "GAR",
+        b'G' => "GGN",
+        b'H' => "CAY",
+        b'I' => "ATH",
+        b'L' => "YTN",
+        b'K' => "AAR",
+        b'M' => "ATG",
+        b'F' => "TTY",
+        b'P' => "CCN",
+        b'S' => "WSN",
+        b'T' => "ACN",
+        b'W' => "TGG",
+        b'Y' => "TAY",
+        b'V' => "GTN",
+        b'B' => "RAY",
+        b'Z' => "SAR",
+        b'X' => "NNN",
+        b'*' => "TRR",
+        _ => return None,
+    })
+}
+
+/// A query that looks like a peptide (contains a letter outside the
+/// nucleotide IUPAC alphabet, e.g. E/F/I/L/P/Q/*) is treated as one: each
+/// residue expands to its degenerate IUPAC codon pattern, so the scanner
+/// matches any coding region that translates to it. Pure nucleotide-letter
+/// queries stay nucleotide searches. None if the query is not a valid peptide.
+fn normalize_peptide_query(query: &str) -> Option<String> {
+    let q = query.trim().to_ascii_uppercase();
+    if q.is_empty() {
+        return None;
+    }
+    let mut peptide_only = false;
+    let mut out = String::with_capacity(q.len() * 3);
+    for b in q.bytes() {
+        out.push_str(aa_codon_pattern(b)?);
+        if iupac::iupac_expand(b).is_empty() {
+            peptide_only = true;
+        }
+    }
+    if peptide_only {
+        Some(out)
+    } else {
+        None
+    }
+}
+
 fn scan_strand(seq: &str, pattern: &[u8], strand: &str, out: &mut Vec<SeqMatch>) {
     let n = seq.len();
     let m = pattern.len();
@@ -83,9 +140,15 @@ fn scan_strand(seq: &str, pattern: &[u8], strand: &str, out: &mut Vec<SeqMatch>)
 }
 
 /// Find all hits of `query` (IUPAC-aware) on both strands of `seq`.
+/// A query that looks like a peptide (letters outside the nucleotide IUPAC
+/// alphabet) is expanded to degenerate IUPAC codons before scanning.
 pub fn find_seq_matches(seq: &str, query: &str) -> Vec<SeqMatch> {
-    let Some(pattern) = normalize_query(query) else {
-        return Vec::new();
+    let pattern = match normalize_peptide_query(query) {
+        Some(p) => p,
+        None => match normalize_query(query) {
+            Some(p) => p,
+            None => return Vec::new(),
+        },
     };
     if seq.is_empty() {
         return Vec::new();
@@ -235,7 +298,7 @@ mod tests {
 
     #[test]
     fn invalid_or_empty_query() {
-        assert!(find_seq_matches("ACGT", "X").is_empty());
+        assert!(find_seq_matches("ACGT", "J").is_empty());
         assert!(find_seq_matches("ACGT", "A C").is_empty());
         assert!(find_seq_matches("ACGT", "  ").is_empty());
         assert!(find_seq_matches("ACGT", "").is_empty());
@@ -245,6 +308,83 @@ mod tests {
     #[test]
     fn query_longer_than_seq() {
         assert!(find_seq_matches("AC", "ACGT").is_empty());
+    }
+
+    #[test]
+    fn peptide_query_matches_coding_regions() {
+        // "M*" expands to ATGTRR: ATG followed by any stop codon.
+        assert_eq!(
+            find_seq_matches("GGATGTAA", "M*"),
+            vec![SeqMatch {
+                start: 2,
+                end: 7,
+                strand: "+".into()
+            }]
+        );
+        // TCACAT is the reverse complement of ATGTGA (M* with TGA stop).
+        assert_eq!(
+            find_seq_matches("GTCACATG", "M*"),
+            vec![SeqMatch {
+                start: 1,
+                end: 6,
+                strand: "-".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn peptide_stop_matches_all_stop_codons() {
+        // "*" expands to TRR (TAA/TAG/TGA); rc YYA also hits on '-' strand.
+        assert_eq!(
+            find_seq_matches("CTAGC", "*"),
+            vec![
+                SeqMatch {
+                    start: 1,
+                    end: 3,
+                    strand: "+".into()
+                },
+                SeqMatch {
+                    start: 0,
+                    end: 2,
+                    strand: "-".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn peptide_query_without_stop() {
+        // "MQW" expands to ATGCARTGG; Q is not a nucleotide letter, so the
+        // query is treated as a peptide even without '*'.
+        assert_eq!(
+            find_seq_matches("ATGCAATGG", "MQW"),
+            vec![SeqMatch {
+                start: 0,
+                end: 8,
+                strand: "+".into()
+            }]
+        );
+        // Pure nucleotide-letter queries are never treated as peptides.
+        assert_eq!(
+            find_seq_matches("ATGCAA", "TGC"),
+            vec![
+                SeqMatch {
+                    start: 1,
+                    end: 3,
+                    strand: "+".into()
+                },
+                SeqMatch {
+                    start: 2,
+                    end: 4,
+                    strand: "-".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn peptide_query_with_invalid_residue() {
+        assert!(find_seq_matches("ATGTAA", "M*1").is_empty());
     }
 
     #[test]
