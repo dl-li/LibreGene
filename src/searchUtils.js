@@ -63,6 +63,52 @@ export function normalizeSeqQuery(query) {
   return q;
 }
 
+const AA_CODON_PATTERNS = {
+  A: 'GCN',
+  R: 'MGN',
+  N: 'AAY',
+  D: 'GAY',
+  C: 'TGY',
+  Q: 'CAR',
+  E: 'GAR',
+  G: 'GGN',
+  H: 'CAY',
+  I: 'ATH',
+  L: 'YTN',
+  K: 'AAR',
+  M: 'ATG',
+  F: 'TTY',
+  P: 'CCN',
+  S: 'WSN',
+  T: 'ACN',
+  W: 'TGG',
+  Y: 'TAY',
+  V: 'GTN',
+  B: 'RAY',
+  Z: 'SAR',
+  X: 'NNN',
+  '*': 'TRR',
+};
+
+// A query that looks like a peptide (contains a letter outside the nucleotide
+// IUPAC alphabet, e.g. E/F/I/L/P/Q/*) is treated as one: each residue expands
+// to its degenerate IUPAC codon pattern, so the existing scanner matches any
+// coding region that translates to it. Pure nucleotide-letter queries stay
+// nucleotide searches. Null if the query is not a valid peptide.
+export function normalizePeptideQuery(query) {
+  const q = (query || '').trim().toUpperCase();
+  if (!q) return null;
+  let peptideOnly = false;
+  let out = '';
+  for (const c of q) {
+    const p = AA_CODON_PATTERNS[c];
+    if (!p) return null;
+    if (!basesOf(c)) peptideOnly = true;
+    out += p;
+  }
+  return peptideOnly ? out : null;
+}
+
 function scanStrand(seq, pattern, strand, out) {
   const n = seq.length;
   const m = pattern.length;
@@ -81,7 +127,7 @@ function scanStrand(seq, pattern, strand, out) {
 }
 
 export function findSeqMatches(seq, query) {
-  const pattern = normalizeSeqQuery(query);
+  const pattern = normalizePeptideQuery(query) || normalizeSeqQuery(query);
   if (!pattern || !seq) return [];
   const out = [];
   scanStrand(seq, pattern, '+', out);
