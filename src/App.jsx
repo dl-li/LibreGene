@@ -602,11 +602,16 @@ export default function App() {
   // activeId in the main window
   const sidebarTargetId = isProjectWindow ? windowInfo.projectId : activeId;
   // rna/protein projects hide DNA-only sidebar entries (ORFs, codon
-  // optimization); DNA-only plugins are marked dnaOnly in the registry.
+  // optimization); DNA-only plugins are marked dnaOnly in the registry,
+  // RNA-only plugins (RNA folding) are marked rnaOnly.
   const activeMoleculeType = projects.find((p) => p.id === activeId)?.moleculeType || 'dna';
   const isActiveDna = activeMoleculeType === 'dna';
+  const isActiveRna = activeMoleculeType === 'rna';
   const visiblePlugins = plugins.filter(
-    (plugin) => !disabledPlugins.includes(plugin.id) && (isActiveDna || !plugin.dnaOnly),
+    (plugin) =>
+      !disabledPlugins.includes(plugin.id) &&
+      (isActiveDna || !plugin.dnaOnly) &&
+      (isActiveRna || !plugin.rnaOnly),
   );
 
   const workspaceProps = {
