@@ -24,7 +24,7 @@
 ### 特征标注
 
 - **极简显示** — CDS / mRNA 特征自动翻译，氨基酸直接渲染在序列下方
-- **自动检测与标注** — 在「新建序列」对话框粘贴序列，常见特征（启动子、抗性标记、ori、标签等）自动检测，一键勾选即可标注
+- **自动检测与标注** — 在「新建序列」对话框粘贴序列，常见特征（启动子、抗性标记、ori、标签等）通过 [pLannotate](https://github.com/mmcguffi/pLannotate) 特征数据库自动检测，一键勾选即可标注
 - **ORF 搜索** — 双链六读框扫描开放阅读框，结果内联显示
 - 支持复合（多段）特征、自定义颜色、链方向切换，增强型 GenBank 读写可保留颜色和引物注释
 
@@ -72,13 +72,22 @@
   <img src="screenshots/alignment.png" alt="序列比对视图" width="700" />
 </p>
 
+### RNA 二级结构
+
+- **MFE 折叠** — 基于 Turner 2004 最近邻模型的最小自由能预测，由 [RibossFold](https://github.com/mirditalab/RibossFold) 以 WebAssembly 在本地运行
+- **交互式布局** — 采用 [forna](https://github.com/ViennaRNA/forna)（ViennaRNA）经典力导向结构视图，支持平移缩放和拖拽核苷酸
+
+<p align="center">
+  <img src="screenshots/rna-fold.png" alt="RNA 二级结构预测" width="700" />
+</p>
+
 ### 更多
 
 - **SVG 质粒图谱**，多行自适应换行显示
 - **插件系统** — 可扩展架构，方便添加自定义工具
 - **多项目标签页** — 侧边栏快速切换
 - **完整的撤销/重做** — 序列编辑和特征修改均可回退
-- **GenBank / SnapGene** — 读写 .gb/.gbk，读取 .dna（SnapGene）
+- **GenBank / SnapGene** — 读写 .gb/.gbk，读取 .dna（[SnapGene](https://www.snapgene.com)）
 
 ## 快速开始
 
