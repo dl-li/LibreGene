@@ -84,6 +84,9 @@ pub struct AppState {
     /// this via `take_pending_opens` on mount so cold-start events that
     /// arrive before the webview is ready are not lost.
     pub pending_opens: Arc<std::sync::Mutex<Vec<String>>>,
+    /// The disabled status line at the top of the tray menu, kept so
+    /// `set_mcp_config` can refresh its text when the MCP config changes.
+    pub tray_status: Arc<std::sync::Mutex<Option<tauri::menu::MenuItem<tauri::Wry>>>>,
 }
 
 /// Filter OS-supplied open targets (argv / Opened events) to existing files
@@ -2898,10 +2901,14 @@ async fn get_mcp_config(
 #[tauri::command]
 async fn set_mcp_config(
     mcp: State<'_, mcp::McpServer<tauri::Wry>>,
+    state: State<'_, AppState>,
     enabled: bool,
     port: u16,
 ) -> Result<serde_json::Value, String> {
     let cfg = mcp.set_config(enabled, port).await?;
+    if let Some(item) = state.tray_status.lock().unwrap().as_ref() {
+        let _ = item.set_text(mcp_status_text(cfg.enabled, cfg.port));
+    }
     Ok(serde_json::json!({
         "enabled": cfg.enabled,
         "port": cfg.port,
@@ -2930,6 +2937,73 @@ async fn regenerate_mcp_token(
 }
 
 // ---------------------------------------------------------------------------
+// System tray — closing the main window hides it (close-to-tray) so the
+// process and the embedded MCP server stay alive for agents.
+// ---------------------------------------------------------------------------
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+fn mcp_status_text(enabled: bool, port: u16) -> String {
+    if enabled {
+        format!("MCP: running · port {port}")
+    } else {
+        "MCP: disabled".to_string()
+    }
+}
+
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let mcp_cfg = app.state::<mcp::McpServer<tauri::Wry>>().config();
+    let status =
+        MenuItemBuilder::with_id("mcp-status", mcp_status_text(mcp_cfg.enabled, mcp_cfg.port))
+            .enabled(false)
+            .build(app)?;
+    *app.state::<AppState>().tray_status.lock().unwrap() = Some(status.clone());
+
+    let menu = MenuBuilder::new(app)
+        .item(&status)
+        .item(&PredefinedMenuItem::separator(app)?)
+        .item(&MenuItemBuilder::with_id("show", "Show LibreGene").build(app)?)
+        .item(&MenuItemBuilder::with_id("quit", "Quit LibreGene").build(app)?)
+        .build()?;
+
+    TrayIconBuilder::with_id("main-tray")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .icon(
+            app.default_window_icon()
+                .expect("app icon missing")
+                .clone(),
+        )
+        .tooltip("LibreGene")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
 
@@ -2946,10 +3020,21 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             queue_open_targets(app, collect_open_targets(argv.into_iter().skip(1)));
         }))
+        // Close-to-tray: closing the main window only hides it, keeping the
+        // process (and the MCP server) alive. Project windows close normally.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
+            tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
         .setup(|app| {
             let state = app.state::<AppState>();
@@ -2962,6 +3047,7 @@ pub fn run() {
             // Start with the default config (enabled on MCP_PORT); the frontend
             // reconciles with the persisted localStorage config on mount.
             tauri::async_runtime::block_on(async move { mcp.apply().await });
+            setup_tray(app)?;
             // Cold-start file open (Windows/Linux: path passed in argv).
             queue_open_targets(
                 app.handle(),
@@ -3028,13 +3114,22 @@ pub fn run() {
         // macOS routes Open With / double-click / dock drops here (including
         // cold start). Windows/Linux open targets arrive via argv instead.
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Opened { urls } = event {
-            let paths = urls
-                .into_iter()
-                .filter_map(|u| u.to_file_path().ok())
-                .filter_map(|p| p.to_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>();
-            queue_open_targets(app_handle, collect_open_targets(paths));
+        match event {
+            tauri::RunEvent::Opened { urls } => {
+                let paths = urls
+                    .into_iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .filter_map(|p| p.to_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>();
+                queue_open_targets(app_handle, collect_open_targets(paths));
+            }
+            // Clicking the Dock icon with no visible windows reopens the
+            // (hidden) main window.
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => show_main_window(app_handle),
+            _ => {}
         }
         #[cfg(not(target_os = "macos"))]
         let _ = (app_handle, event);
