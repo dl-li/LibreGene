@@ -24,7 +24,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 ### Feature Annotation
 
 - **Clean, minimal display** — CDS and mRNA features are translated on the fly, amino acids rendered right under the sequence
-- **Auto-detection** — paste a sequence into the *New Sequence* dialog and common features (promoters, resistance markers, ori, tags…) are detected and can be annotated with one click
+- **Auto-detection** — paste a sequence into the *New Sequence* dialog and common features (promoters, resistance markers, ori, tags…) are detected via the [pLannotate](https://github.com/mmcguffi/pLannotate) feature database and can be annotated with one click
 - **ORF search** — scan open reading frames on both strands, all six frames, and display them inline
 - Compound (multi-segment) features, custom colors, strand toggling, enriched GenBank I/O that preserves colors and primers
 
@@ -72,13 +72,22 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
   <img src="screenshots/alignment.png" alt="Sequence alignment view" width="700" />
 </p>
 
+### RNA Secondary Structure
+
+- **MFE folding** — minimum-free-energy prediction with the Turner 2004 nearest-neighbor model, powered by [RibossFold](https://github.com/mirditalab/RibossFold) running as WebAssembly
+- **Interactive layout** — classic force-directed structure view from [forna](https://github.com/ViennaRNA/forna) (ViennaRNA), with pan/zoom and draggable nucleotides
+
+<p align="center">
+  <img src="screenshots/rna-fold.png" alt="RNA secondary structure prediction" width="700" />
+</p>
+
 ### And More
 
 - **SVG plasmid map** with multi-line wrapped sequence display
 - **Plugin system** — extensible architecture for adding custom tools
 - **Multi-project tabs** — switch between plasmids in the sidebar
 - **Full undo/redo** — sequence edits and feature changes
-- **GenBank / SnapGene I/O** — read/write .gb/.gbk, read .dna (SnapGene)
+- **GenBank / SnapGene I/O** — read/write .gb/.gbk, read .dna ([SnapGene](https://www.snapgene.com))
 
 ## Quick Start
 

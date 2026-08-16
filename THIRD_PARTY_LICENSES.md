@@ -41,6 +41,16 @@ This project uses npm packages, each under its own license. Key runtime dependen
 
 See `package.json` and `package-lock.json` for the full list and their respective licenses.
 
+### RibossFold (ribossfold-wasm)
+- **Source**: The Riboseek Development Team (https://github.com/mirditalab/RibossFold)
+- **License**: MIT
+- **Usage**: RNA minimum-free-energy secondary structure prediction (Turner 2004 model), compiled to WebAssembly; loaded lazily by the RNA Folding plugin (`src/plugins/rnaFold/`)
+
+### fornac
+- **Source**: ViennaRNA forna by Peter Kerpedjiev et al. (https://github.com/ViennaRNA/forna)
+- **License**: Apache-2.0
+- **Usage**: Force-directed RNA secondary structure visualization in the RNA Folding plugin; bundles d3 v3 (BSD-3-Clause)
+
 ## Rust / Cargo Dependencies
 
 This project uses Rust crates, each under its own license. Key dependencies include:
