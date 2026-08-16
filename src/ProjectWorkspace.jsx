@@ -1409,30 +1409,35 @@ export default function ProjectWorkspace({
 
       {isDna && <EnzymeDatabaseDialog open={enzymeDbOpen} onOpenChange={setEnzymeDbOpen} />}
 
-      {isDna &&
-        plugins
-          .filter((plugin) => !disabledPlugins.includes(plugin.id))
-          .map((plugin) => {
-            const DialogComp = plugin.dialog;
-            if (!DialogComp) return null;
-            return (
-              <DialogComp
-                key={plugin.id}
-                open={!!pluginDialogs[plugin.dialogKey]}
-                onOpenChange={(open) =>
-                  setPluginDialogs((prev) => ({
-                    ...prev,
-                    [plugin.dialogKey]: open,
-                  }))
-                }
-                alignments={alignments}
-                onAddAlignment={handleAddAlignment}
-                onRemoveAlignment={handleRemoveAlignment}
-                features={features}
-                onProjectChanged={refreshProject}
-              />
-            );
-          })}
+      {plugins
+        .filter(
+          (plugin) =>
+            !disabledPlugins.includes(plugin.id) &&
+            (isDna || !plugin.dnaOnly) &&
+            (moleculeType === 'rna' || !plugin.rnaOnly),
+        )
+        .map((plugin) => {
+          const DialogComp = plugin.dialog;
+          if (!DialogComp) return null;
+          return (
+            <DialogComp
+              key={plugin.id}
+              open={!!pluginDialogs[plugin.dialogKey]}
+              onOpenChange={(open) =>
+                setPluginDialogs((prev) => ({
+                  ...prev,
+                  [plugin.dialogKey]: open,
+                }))
+              }
+              sequence={sequence}
+              alignments={alignments}
+              onAddAlignment={handleAddAlignment}
+              onRemoveAlignment={handleRemoveAlignment}
+              features={features}
+              onProjectChanged={refreshProject}
+            />
+          );
+        })}
 
       {isDna && (
         <AddAlignmentTextDialog

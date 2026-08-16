@@ -48,6 +48,7 @@ LibreGene/
 │   │   ├── alignment/          # 序列比对（管理弹窗 + 文本新增弹窗）
 │   │   ├── orf/                # ORF 搜索（引擎在 Rust `find_orfs`，ORF 以 orf:true 虚拟 CDS 注入，仅展示不落盘）
 │   │   ├── primerDesign/       # 引物设计（引擎 `design_primer_candidates`；由 EditorNavMenu 直接接线，不走注册表）
+│   │   ├── rnaFold/            # RNA 二级结构预测（ribossfold-wasm 前端 WASM 折叠 + fornac 力图渲染，均动态 import；rnaOnly）
 │   │   └── codonOptimization/  # 密码子优化（引擎 `codon.rs`，三命令封装在 tauriApi.js）
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库
@@ -84,7 +85,7 @@ LibreGene/
 ### 前端
 
 - **React 函数组件 + hooks**，无 class 组件（ErrorBoundary 除外）
-- **分子类型模式**：`moleculeType`（`"dna" | "rna" | "protein"`，缺省 `"dna"`）决定编辑器形态。rna/protein 为单链模式：只渲染正链 + 特征层，不渲染互补链/引物/酶切/ORF/比对层，导航菜单只保留 Edit/Features/Search（protein 另隐藏 Copy Antisense/Translation 与 Reverse Complement），侧边栏隐藏 DNA 专属插件（注册表用 `dnaOnly: true` 标记）；长度单位 bp/nt/aa；protein 项目可直接保存 `.gpt`，`.rna/.prot/.dna` 只读打开、必须 Save As。
+- **分子类型模式**：`moleculeType`（`"dna" | "rna" | "protein"`，缺省 `"dna"`）决定编辑器形态。rna/protein 为单链模式：只渲染正链 + 特征层，不渲染互补链/引物/酶切/ORF/比对层，导航菜单只保留 Edit/Features/Search（protein 另隐藏 Copy Antisense/Translation 与 Reverse Complement），侧边栏隐藏 DNA 专属插件（注册表用 `dnaOnly: true` 标记；对称地 RNA 专属插件用 `rnaOnly: true`）；长度单位 bp/nt/aa；protein 项目可直接保存 `.gpt`，`.rna/.prot/.dna` 只读打开、必须 Save As。
 - 用 `useCallback` 包裹传递给子组件的函数，依赖数组必须完整；用 `useMemo` 缓存开销大的派生数据
 - 状态管理集中到 `App.jsx`，`SequenceEditor.jsx` 只管理 UI 状态（选择、光标、弹窗）
 - 所有 JSON 字段使用 camelCase（Rust 端 serde `rename_all = "camelCase"`）
@@ -198,6 +199,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **`add_alignment` 的 createdSites**：未实现（需按差异重建编辑后序列并重扫酶库，语义复杂、价值有限）；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注前端弹窗**：MCP 经 `get_project_overview` 的 auto 节查看检测结果；批量落库需前端交互或逐特征 `add_feature`
 - **新建序列项目弹窗（`create_project`）**：MCP 侧可写临时序列文件 + `open_file` 实现同等效果
+- **RNA 二级结构预测（rnaFold 插件）**：折叠在前端用 ribossfold-wasm 完成（WASM 无法走 Rust 内核），用户决定不暴露给 Agent
 - **系统文件关联打开（Open With / 双击 / 拖到 Dock）**：OS 集成；统一入 `pending_opens` 队列 + `file-opened` 事件，前端复用 `open_file`。Agent 直接用 `open_file` 即可
 
 ## 核心模型约定
