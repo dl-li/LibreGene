@@ -88,6 +88,7 @@ export default function ProjectWorkspace({
   // Primers/enzymes/ORFs/alignments are DNA-only features; rna/protein projects
   // render single-strand sequence + features only.
   const isDna = moleculeType === 'dna';
+  const isProtein = moleculeType === 'protein';
   const [showAlignments, setShowAlignments] = useState(true);
   const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
   const [alignTextOpen, setAlignTextOpen] = useState(false);
@@ -1378,7 +1379,7 @@ export default function ProjectWorkspace({
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
               onOpenPrimerOverview={() => setPrimerOverviewOpen(true)}
               onOpenDetectFeatures={
-                isTauri && isDna ? () => setDetectFeaturesOpen(true) : undefined
+                isTauri && (isDna || isProtein) ? () => setDetectFeaturesOpen(true) : undefined
               }
               onOpenMyEnzymes={() => setMyEnzymesOpen(true)}
               onOpenEnzymeDatabase={() => setEnzymeDbOpen(true)}
