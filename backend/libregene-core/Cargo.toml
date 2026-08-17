@@ -9,7 +9,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 gb-io = "0.9"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.41", features = ["serialize"] }
 csv = "1"
 chrono = { version = "0.4", features = ["serde"] }
 serde-aux = "4"
