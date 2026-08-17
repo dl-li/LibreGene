@@ -183,7 +183,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - IUPAC 序列搜索 → `search_sequence`（查询含核苷酸字母表外字符时按肽段处理：每残基展开为简并密码子模式（标准遗传密码），双链搜编码区；纯核苷酸查询仍按核苷酸搜索）
 - 甲基化系统 → 无独立工具；`get_project_overview` 的 LOCUS 行展示；环状 DNA 持久化在 GBK `KEYWORDS` 的 `methylation: ...` 标注，未注明时默认 dam/dcm/ecoki 全开；前端设置走 Tauri command `set_methylation`
 - 限制酶切位点 → `find_restriction_sites`（按名称列出识别位点 `recStart/recEnd/recSeq/识别链` 与切口 `topCutIndex/botCutIndex`；不传 `enzymes` 返回全部；未知酶名报错并给近似名——以此探测可用酶名，替代已删除的整库查询工具）
-- 自动标注 → `get_project_overview` 末尾 `DETECTED COMMON FEATURES (auto)` 节（只列非 fragment 特征，附 `(already annotated)` 标记；只读不落库；仅 DNA 项目）；引擎另接 Tauri command `annotate_features` 返回完整 JSON
+- 自动标注 → `get_project_overview` 末尾 `DETECTED COMMON FEATURES (auto)` 节（只列非 fragment 特征，附 `(already annotated)` 标记；只读不落库；DNA 与 protein 项目可用——DNA 项目为 nt 级 + CDS 蛋白级双通路（aa 级命中附 `(protein-level)` 标记），protein 项目只按氨基酸序列匹配库中 CDS 的翻译）；引擎另接 Tauri command `annotate_features` 返回完整 JSON
 - 密码子优化 → `optimize_cds`（三种互斥输入：① `project_id`+`feature_id`（仅限 DNA 项目），② `sequence` 直接传 DNA 编码序列，③ `input_path` 文件（DNA 文件或 .gpt/.prot 蛋白反向翻译）；apply=false 预览返回前后 CAI/GC/repairs/unresolved 只读不落库，sequence/input_path 模式额外返回 `optimizedSequence`；`output_path` 可选写结果文件（.gbk → DNA GenBank，.gpt → 蛋白 GenBank）；method 为 use_best_codon/match_codon_usage/harmonize_rca（后者需 original_species）；species 用 `list_species` 键名；Tauri 侧另有带扩展参数的 `preview_codon_optimization`/`apply_codon_optimization` 与 `list_codon_species`）
 
 上述 DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError。
@@ -210,5 +210,5 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - `Enzyme.cut_index / bot_cut_index` — 切口在 cutIndex-1 与 cutIndex 之间，0-based
 - 模型坐标 0-based inclusive；gb-io Range 是 0-based end-exclusive
 - `ProjectData.molecule_type` — `"dna" | "rna" | "protein"`（serde 输出 `moleculeType`），默认 `"dna"`；RNA/蛋白序列通常线性
-- **分子类型 gate**：digest 渲染、酶/引物 recompute、translate refresh 都按 molecule_type 分支——非 DNA 跳过酶切/引物/甲基化/auto-annotation（`ProjectData::is_dna()` 统一判定，空串视为 DNA）
+- **分子类型 gate**：digest 渲染、酶/引物 recompute、translate refresh 都按 molecule_type 分支——非 DNA 跳过酶切/引物/甲基化（`ProjectData::is_dna()` 统一判定，空串视为 DNA）；auto-annotation 例外：DNA 项目走 nt 级 + CDS 蛋白级双通路，protein 项目按 aa 序列匹配 CDS 翻译（`annotate_protein`），RNA 项目不支持
 - 环状序列坐标用 `% tlen` 归一化，`wrap_template_region` 负责环状拼接

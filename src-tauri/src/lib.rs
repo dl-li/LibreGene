@@ -1091,21 +1091,34 @@ async fn do_search_sequence(
 /// SnapGene feature database. Read-only: returns detected features, never
 /// modifies the project (no dirty/broadcast). Coordinates are 0-based
 /// inclusive; circular sequences may report origin-wrapping features with
-/// `start > end` and split `segments`.
+/// `start > end` and split `segments`. DNA projects match at the nucleotide
+/// level plus the protein level for CDS (codon-optimization-proof); protein
+/// projects match the amino-acid sequence against the CDS translations; RNA
+/// projects are unsupported and return an empty list.
 async fn do_annotate_features(
     pm: &Arc<RwLock<ProjectManager>>,
     project_id: &str,
 ) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
-    let (sequence, topology) = {
+    let (sequence, topology, molecule_type) = {
         let pm = pm.read().await;
         let project = pm
             .get_project_by_id(project_id)
             .ok_or_else(|| "Project not found".to_string())?;
-        (project.sequence.clone(), project.topology.clone())
+        (
+            project.sequence.clone(),
+            project.topology.clone(),
+            project.molecule_type.clone(),
+        )
     };
 
     tokio::task::spawn_blocking(move || {
-        libregene_core::annotate::annotate_sequence(&sequence, topology == "circular")
+        if molecule_type == "protein" {
+            libregene_core::annotate::annotate_protein(&sequence, topology == "circular")
+        } else if molecule_type == "rna" {
+            Vec::new()
+        } else {
+            libregene_core::annotate::annotate_sequence(&sequence, topology == "circular")
+        }
     })
     .await
     .map_err(|e| format!("task join error: {}", e))

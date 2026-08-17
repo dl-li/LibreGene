@@ -4685,6 +4685,11 @@ mod tests {
         assert!(text.contains("50 aa"), "overview: {text}");
         assert!(!text.contains("PRIMERS"), "overview: {text}");
         assert!(!text.contains("ENZYMES"), "overview: {text}");
-        assert!(!text.contains("DETECTED COMMON FEATURES"), "overview: {text}");
+        // Auto-annotation runs on protein projects (aa-level CDS matching);
+        // this synthetic 50 aa sequence matches nothing.
+        assert!(
+            text.contains("DETECTED COMMON FEATURES (auto):\n(none)"),
+            "overview: {text}"
+        );
     }
 }

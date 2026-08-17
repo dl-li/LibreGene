@@ -295,14 +295,16 @@ fn auto_feature_already_annotated(
 /// Brief auto-annotation section for whole-project overviews: one line per
 /// detected common feature. The engine builds a k-mer index once per process
 /// (first call only); the section is kept intentionally compact so no
-/// `compact_*` option affects it.
+/// `compact_*` option affects it. DNA projects match nucleotide + protein
+/// level; protein projects match the aa sequence against CDS translations.
 fn push_auto_annotation(out: &mut String, project: &ProjectData) {
     out.push_str("DETECTED COMMON FEATURES (auto):\n");
-    let detected: Vec<_> =
+    let all = if project.is_dna() {
         crate::annotate::annotate_sequence(&project.sequence, project.topology == "circular")
-            .into_iter()
-            .filter(|f| !f.fragment)
-            .collect();
+    } else {
+        crate::annotate::annotate_protein(&project.sequence, project.topology == "circular")
+    };
+    let detected: Vec<_> = all.into_iter().filter(|f| !f.fragment).collect();
     if detected.is_empty() {
         out.push_str("(none)\n");
         return;
@@ -317,6 +319,9 @@ fn push_auto_annotation(out: &mut String, project: &ProjectData) {
             f.end,
             f.identity
         ));
+        if f.match_level == "aa" {
+            out.push_str(" | (protein-level)");
+        }
         if auto_feature_already_annotated(project, f) {
             out.push_str(" | (already annotated)");
         }
@@ -547,7 +552,8 @@ pub fn project_digest(
     // Auto-annotation is a whole-project overview concern only (and the DNA
     // feature database is meaningless for single-strand molecules); region
     // views keep the digest focused on the requested window.
-    if is_dna && region.is_none() && opts.include_auto_annotation {
+    let is_protein = project.molecule_type == "protein";
+    if (is_dna || is_protein) && region.is_none() && opts.include_auto_annotation {
         push_auto_annotation(&mut out, project);
     }
 
@@ -942,13 +948,31 @@ mod tests {
         // Region views also skip the enzyme layer for non-DNA.
         let region = project_digest(&protein_project(), &DigestOptions::default(), Some((0, 39))).unwrap();
         assert!(!region.contains("ENZYMES CUTTING IN REGION"));
-        // Auto-annotation never runs on non-DNA projects.
+        // Auto-annotation runs on protein projects too, matching the aa
+        // sequence against the database's translated CDS features; the
+        // MAAA-repeat test protein matches nothing.
         let opts = DigestOptions {
             include_auto_annotation: true,
             ..DigestOptions::default()
         };
         let out = project_digest(&protein_project(), &opts, None).unwrap();
-        assert!(!out.contains("DETECTED COMMON FEATURES"));
+        assert!(out.contains("DETECTED COMMON FEATURES (auto):\n(none)"));
+    }
+
+    #[test]
+    fn overview_protein_auto_annotation_detects_cds_translation() {
+        let mut p = protein_project();
+        p.sequence = crate::annotate::db_protein_for_test("KanR_(3)").unwrap();
+        p.length = p.sequence.len() as i64;
+        let opts = DigestOptions {
+            include_auto_annotation: true,
+            ..DigestOptions::default()
+        };
+        let out = project_digest(&p, &opts, None).unwrap();
+        assert!(
+            out.contains("DETECTED COMMON FEATURES (auto):\n        KanR | CDS"),
+            "KanR protein should be detected, got:\n{out}"
+        );
     }
 
     #[test]

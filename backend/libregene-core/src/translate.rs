@@ -21,6 +21,19 @@ pub fn codon_index(b: u8) -> Option<usize> {
     }
 }
 
+/// Translate a nucleotide byte string to a 1-letter amino-acid byte string,
+/// dropping a trailing incomplete codon (`*` stop, `?` ambiguous).
+pub fn translate_nt(seq: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(seq.len() / 3);
+    for chunk in seq.chunks(3) {
+        if chunk.len() < 3 {
+            break;
+        }
+        out.push(translate_codon(chunk[0], chunk[1], chunk[2]) as u8);
+    }
+    out
+}
+
 fn translate_codon(a: u8, b: u8, c: u8) -> char {
     let (Some(i0), Some(i1), Some(i2)) = (codon_index(a), codon_index(b), codon_index(c)) else {
         return '?';

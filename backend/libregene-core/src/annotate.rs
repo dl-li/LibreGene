@@ -22,6 +22,15 @@ const SHORT_MAX: usize = 24;
 const MIN_IDENTITY: f64 = 95.0;
 /// Minimum alignment length in bp — evalue proxy (pLannotate report §6.2).
 const MIN_HIT_LENGTH: usize = 13;
+/// Seed length for the protein k-mer index over translated CDS (blastp
+/// `-word_size 3`).
+const K_AA: usize = 3;
+/// Protein translations this long or shorter (aa) use the window scan instead.
+const SHORT_MAX_AA: usize = 24;
+/// Minimum seeded protein hit length in aa.
+const MIN_AA_HIT_LENGTH: usize = 13;
+/// Minimum aa-level hit length (shortest db CDS translates to 4 aa).
+const MIN_AA_SHORT: usize = 4;
 /// Trim ratio used for overlap detection.
 const WIGGLE_RATIO: f64 = 0.15;
 /// Score bonus when `pi_permatch == 100`.
@@ -60,6 +69,8 @@ pub struct AnnotatedFeature {
     /// Database description (`blurb`).
     pub notes: String,
     pub sseqid: String,
+    /// "nt" for nucleotide-level matches, "aa" for protein-level CDS matches.
+    pub match_level: String,
 }
 
 struct DbFeature {
@@ -69,12 +80,19 @@ struct DbFeature {
     blurb: String,
     fwd: Vec<u8>,
     rc: Vec<u8>,
+    /// Translated fwd sequence; `Some` only for CDS features. Codon-optimized
+    /// CDS are caught by matching this protein instead of the nucleotides.
+    protein: Option<Vec<u8>>,
 }
 
 struct AnnotationDb {
     features: Vec<DbFeature>,
     /// 2-bit packed 12-mer → packed seed refs (strand<<48 | feature<<32 | offset).
     index: HashMap<u32, Vec<u64>>,
+    /// 5-bit packed 3-aa-mer → packed seed refs (feature<<16 | offset). Only
+    /// CDS translations are indexed; the query side supplies the strand via
+    /// its six-frame translation.
+    pindex: HashMap<u16, Vec<u32>>,
     /// Feature type (normalized) → fill color, mirroring pLannotate colors.csv.
     colors: HashMap<String, String>,
 }
@@ -133,6 +151,42 @@ fn encode_kmer(win: &[u8]) -> Option<u32> {
     Some(key)
 }
 
+/// 5-bit encoding of the 20 standard amino acids; `*`/`?`/anything else is
+/// excluded from seeds.
+fn encode_aa(b: u8) -> Option<u16> {
+    Some(match b {
+        b'A' => 0,
+        b'R' => 1,
+        b'N' => 2,
+        b'D' => 3,
+        b'C' => 4,
+        b'Q' => 5,
+        b'E' => 6,
+        b'G' => 7,
+        b'H' => 8,
+        b'I' => 9,
+        b'L' => 10,
+        b'K' => 11,
+        b'M' => 12,
+        b'F' => 13,
+        b'P' => 14,
+        b'S' => 15,
+        b'T' => 16,
+        b'W' => 17,
+        b'Y' => 18,
+        b'V' => 19,
+        _ => return None,
+    })
+}
+
+fn encode_aa_kmer(win: &[u8]) -> Option<u16> {
+    let mut key = 0u16;
+    for &b in win {
+        key = (key << 5) | encode_aa(b)?;
+    }
+    Some(key)
+}
+
 fn build_db() -> AnnotationDb {
     let mut meta: HashMap<String, (&str, &str, &str)> = HashMap::new();
     for line in FEATURES_TSV.lines() {
@@ -150,6 +204,7 @@ fn build_db() -> AnnotationDb {
             Some((n, t, b)) => (n.to_string(), t.to_string(), b.to_string()),
             None => (id.clone(), "misc_feature".to_string(), String::new()),
         };
+        let protein = (ftype == "CDS").then(|| crate::translate::translate_nt(&seq));
         features.push(DbFeature {
             rc: rev_comp(&seq),
             fwd: seq,
@@ -157,6 +212,7 @@ fn build_db() -> AnnotationDb {
             name,
             ftype,
             blurb,
+            protein,
         });
     }
 
@@ -178,6 +234,25 @@ fn build_db() -> AnnotationDb {
         }
     }
 
+    let mut pindex: HashMap<u16, Vec<u32>> = HashMap::with_capacity(200_000);
+    for (fi, f) in features.iter().enumerate() {
+        let Some(prot) = &f.protein else {
+            continue;
+        };
+        if prot.len() < K_AA {
+            continue;
+        }
+        for offset in 0..=prot.len() - K_AA {
+            let Some(key) = encode_aa_kmer(&prot[offset..offset + K_AA]) else {
+                continue;
+            };
+            pindex
+                .entry(key)
+                .or_default()
+                .push(((fi as u32) << 16) | offset as u32);
+        }
+    }
+
     let mut colors = HashMap::new();
     for line in COLORS_TSV.lines() {
         let mut it = line.split('\t');
@@ -191,6 +266,7 @@ fn build_db() -> AnnotationDb {
     AnnotationDb {
         features,
         index,
+        pindex,
         colors,
     }
 }
@@ -202,8 +278,29 @@ struct RawHit {
     strand: i8,
     qstart: i64,
     qend: i64,
+    /// Hit length in query coordinate units (nt for DNA queries, aa for
+    /// protein queries; aa-level hits on DNA are expressed in nt, 3×aa).
     length: usize,
     pident: f64,
+    /// Coverage denominator: feature length in hit coordinate units.
+    cov_denom: usize,
+    /// True when the hit comes from matching the translated CDS protein.
+    aa_level: bool,
+}
+
+impl RawHit {
+    fn nt(feat: usize, strand: i8, qstart: i64, qend: i64, length: usize, pident: f64) -> Self {
+        RawHit {
+            feat,
+            strand,
+            qstart,
+            qend,
+            length,
+            pident,
+            cov_denom: 0, // filled from the feature length in finalize()
+            aa_level: false,
+        }
+    }
 }
 
 /// Full-length near-exact window scan for short features (< 25 bp): the
@@ -226,14 +323,14 @@ fn scan_short(feat: usize, pat: &[u8], query: &[u8], strand: i8, out: &mut Vec<R
             }
         }
         if mm <= budget {
-            out.push(RawHit {
+            out.push(RawHit::nt(
                 feat,
                 strand,
-                qstart: p as i64,
-                qend: (p + m - 1) as i64,
-                length: m,
-                pident: 100.0 * (m - mm) as f64 / m as f64,
-            });
+                p as i64,
+                (p + m - 1) as i64,
+                m,
+                100.0 * (m - mm) as f64 / m as f64,
+            ));
         }
     }
 }
@@ -362,14 +459,223 @@ fn extend_run(run: &Run, query: &[u8], d: &AnnotationDb) -> Option<RawHit> {
     if len < MIN_HIT_LENGTH {
         return None;
     }
-    Some(RawHit {
+    Some(RawHit::nt(
+        run.feat as usize,
+        if run.strand == 0 { 1 } else { -1 },
+        q_lo,
+        q_hi,
+        len,
+        100.0 * (len - m) as f64 / len as f64,
+    ))
+}
+
+/// A protein-level hit in aa coordinates of one query frame (or of the whole
+/// query for protein sequences).
+struct ProtHit {
+    feat: usize,
+    astart: i64,
+    aend: i64,
+    length: usize,
+    pident: f64,
+}
+
+/// Full-length near-exact window scan for short protein translations
+/// (≤ 24 aa): slide the whole pattern and count mismatches, allowing ≤ 5%.
+fn scan_short_protein(feat: usize, pat: &[u8], query: &[u8], out: &mut Vec<ProtHit>) {
+    let m = pat.len();
+    if m > query.len() {
+        return;
+    }
+    let budget = (m as f64 * 0.05) as usize;
+    for p in 0..=query.len() - m {
+        let mut mm = 0usize;
+        for j in 0..m {
+            if query[p + j] != pat[j] {
+                mm += 1;
+                if mm > budget {
+                    break;
+                }
+            }
+        }
+        if mm <= budget {
+            out.push(ProtHit {
+                feat,
+                astart: p as i64,
+                aend: (p + m - 1) as i64,
+                length: m,
+                pident: 100.0 * (m - mm) as f64 / m as f64,
+            });
+        }
+    }
+}
+
+/// A maximal run of consecutive 3-aa seeds on one diagonal. The db side
+/// indexes only forward translations, so the query frame carries the strand.
+struct ProtRun {
+    feat: u16,
+    q_lo: i64,
+    q_hi: i64,
+    o_lo: i64,
+    o_hi: i64,
+}
+
+fn collect_prot_seeds(query: &[u8], pindex: &HashMap<u16, Vec<u32>>) -> Vec<(u16, u32, u16)> {
+    let mut out = Vec::new();
+    if query.len() < K_AA {
+        return out;
+    }
+    for p in 0..=query.len() - K_AA {
+        let Some(key) = encode_aa_kmer(&query[p..p + K_AA]) else {
+            continue;
+        };
+        if let Some(entries) = pindex.get(&key) {
+            for &e in entries {
+                out.push(((e >> 16) as u16, p as u32, (e & 0xffff) as u16));
+            }
+        }
+    }
+    out
+}
+
+fn cluster_prot_runs(mut seeds: Vec<(u16, u32, u16)>) -> Vec<ProtRun> {
+    seeds.sort_by_key(|&(fi, q, o)| (fi, o as i64 - q as i64, q));
+    let mut runs = Vec::new();
+    let mut i = 0;
+    while i < seeds.len() {
+        let fi = seeds[i].0;
+        let delta = seeds[i].2 as i64 - seeds[i].1 as i64;
+        let mut j = i + 1;
+        while j < seeds.len() && seeds[j].0 == fi && seeds[j].2 as i64 - seeds[j].1 as i64 == delta {
+            j += 1;
+        }
+        let mut start = i;
+        while start < j {
+            let mut end = start + 1;
+            while end < j && seeds[end].1 == seeds[end - 1].1 + 1 {
+                end += 1;
+            }
+            let (_, qs, os) = seeds[start];
+            let (_, qe, oe) = seeds[end - 1];
+            runs.push(ProtRun {
+                feat: fi,
+                q_lo: qs as i64,
+                q_hi: qe as i64 + K_AA as i64 - 1,
+                o_lo: os as i64,
+                o_hi: oe as i64 + K_AA as i64 - 1,
+            });
+            start = end;
+        }
+        i = j;
+    }
+    runs
+}
+
+/// Ungapped protein extension with the same ≥ 95% cumulative identity budget
+/// (`len / 20` mismatches) and match-anchored trimming as `extend_run`.
+fn extend_prot_run(run: &ProtRun, query: &[u8], d: &AnnotationDb) -> Option<ProtHit> {
+    let pat: &[u8] = d.features[run.feat as usize].protein.as_ref()?;
+    let mut q_lo = run.q_lo;
+    let mut q_hi = run.q_hi;
+    let mut o_lo = run.o_lo;
+    let mut o_hi = run.o_hi;
+    let mut m = 0usize;
+    let mut len = (q_hi - q_lo + 1) as usize;
+
+    loop {
+        if q_lo == 0 || o_lo == 0 {
+            break;
+        }
+        let miss = (query[q_lo as usize - 1] != pat[o_lo as usize - 1]) as usize;
+        if (m + miss) * 20 > len + 1 {
+            break;
+        }
+        q_lo -= 1;
+        o_lo -= 1;
+        m += miss;
+        len += 1;
+    }
+    loop {
+        if q_hi as usize + 1 >= query.len() || o_hi as usize + 1 >= pat.len() {
+            break;
+        }
+        let miss = (query[q_hi as usize + 1] != pat[o_hi as usize + 1]) as usize;
+        if (m + miss) * 20 > len + 1 {
+            break;
+        }
+        q_hi += 1;
+        o_hi += 1;
+        m += miss;
+        len += 1;
+    }
+    while q_lo <= q_hi && o_lo <= o_hi && query[q_lo as usize] != pat[o_lo as usize] {
+        q_lo += 1;
+        o_lo += 1;
+        len -= 1;
+        m -= 1;
+    }
+    while q_lo <= q_hi && o_lo <= o_hi && query[q_hi as usize] != pat[o_hi as usize] {
+        q_hi -= 1;
+        o_hi -= 1;
+        len -= 1;
+        m -= 1;
+    }
+    if len < MIN_AA_HIT_LENGTH {
+        return None;
+    }
+    Some(ProtHit {
         feat: run.feat as usize,
-        strand: if run.strand == 0 { 1 } else { -1 },
-        qstart: q_lo,
-        qend: q_hi,
+        astart: q_lo,
+        aend: q_hi,
         length: len,
         pident: 100.0 * (len - m) as f64 / len as f64,
     })
+}
+
+/// Match a protein query against the translated CDS features; hits are in aa
+/// coordinates of `query`.
+fn match_protein(query: &[u8]) -> Vec<ProtHit> {
+    let d = db();
+    let mut out = Vec::new();
+    for (fi, f) in d.features.iter().enumerate() {
+        let Some(prot) = &f.protein else {
+            continue;
+        };
+        if prot.len() >= MIN_AA_SHORT && prot.len() <= SHORT_MAX_AA {
+            scan_short_protein(fi, prot, query, &mut out);
+        }
+    }
+    for run in cluster_prot_runs(collect_prot_seeds(query, &d.pindex)) {
+        if let Some(h) = extend_prot_run(&run, query, d) {
+            out.push(h);
+        }
+    }
+    out
+}
+
+/// Convert an aa-coordinate hit in one translated frame to nt coordinates on
+/// the (possibly doubled) forward query of length `n`.
+fn prot_hit_to_nt(h: ProtHit, frame: usize, strand: i8, n: usize) -> RawHit {
+    let f = frame as i64;
+    let (qstart, qend) = if strand > 0 {
+        (3 * h.astart + f, 3 * h.aend + f + 2)
+    } else {
+        let n = n as i64;
+        (n - 1 - (3 * h.aend + f + 2), n - 1 - (3 * h.astart + f))
+    };
+    let cov_denom = db().features[h.feat]
+        .protein
+        .as_ref()
+        .map_or(0, |p| 3 * p.len());
+    RawHit {
+        feat: h.feat,
+        strand,
+        qstart,
+        qend,
+        length: 3 * h.length,
+        pident: h.pident,
+        cov_denom,
+        aa_level: true,
+    }
 }
 
 fn match_features(query: &[u8], circular: bool) -> Vec<RawHit> {
@@ -391,6 +697,23 @@ fn match_features(query: &[u8], circular: bool) -> Vec<RawHit> {
     for run in cluster_runs(seeds) {
         if let Some(h) = extend_run(&run, &doubled, d) {
             hits.push(h);
+        }
+    }
+    // Protein-level pass: translate the six frames and match the CDS
+    // translations, so codon-optimized CDS (same protein, drifted nucleotides)
+    // are still found.
+    let n = doubled.len();
+    for f in 0..3usize {
+        let prot = crate::translate::translate_nt(&doubled[f..]);
+        for h in match_protein(&prot) {
+            hits.push(prot_hit_to_nt(h, f, 1, n));
+        }
+    }
+    let rc = rev_comp(&doubled);
+    for f in 0..3usize {
+        let prot = crate::translate::translate_nt(&rc[f..]);
+        for h in match_protein(&prot) {
+            hits.push(prot_hit_to_nt(h, f, -1, n));
         }
     }
     hits
@@ -433,11 +756,13 @@ fn segments_overlap(a: &[(i64, i64)], b: &[(i64, i64)]) -> bool {
         .any(|&(a0, a1)| b.iter().any(|&(b0, b1)| a0.max(b0) <= a1.min(b1)))
 }
 
-fn is_fragment(ftype: &str, length: usize, percmatch: f64, pi_permatch: f64) -> bool {
+fn is_fragment(ftype: &str, length: usize, percmatch: f64, pi_permatch: f64, aa_level: bool) -> bool {
     if ftype != "CDS" {
         percmatch < 95.0
     } else {
-        let complete = pi_permatch == 100.0 || (length % 3 == 0 && percmatch > 95.0);
+        // aa-level hits are always in-frame (length = 3×aa on DNA queries, or
+        // plain aa units for protein queries), so the %3 check is moot there.
+        let complete = pi_permatch == 100.0 || ((aa_level || length % 3 == 0) && percmatch > 95.0);
         !complete
     }
 }
@@ -476,7 +801,11 @@ fn finalize(hits: Vec<RawHit>, qlen: usize, circular: bool) -> Vec<AnnotatedFeat
     let mut scored: Vec<ScoredHit> = hits
         .into_iter()
         .map(|hit| {
-            let slen = d.features[hit.feat].fwd.len();
+            let slen = if hit.aa_level {
+                hit.cov_denom
+            } else {
+                d.features[hit.feat].fwd.len()
+            };
             let percmatch = hit.length as f64 / slen as f64 * 100.0;
             let abs_pm = 100.0 - (100.0 - percmatch).abs();
             let pi_pm = hit.pident * abs_pm / 100.0;
@@ -528,10 +857,13 @@ fn finalize(hits: Vec<RawHit>, qlen: usize, circular: bool) -> Vec<AnnotatedFeat
 
     scored.retain(|s| {
         let f = &d.features[s.hit.feat];
+        // aa-level hits are already length-filtered in aa units by the
+        // seeded/short-scan paths (≥ 13 aa or full short pattern ≥ 4 aa).
+        let len_ok = s.hit.aa_level || s.hit.length >= MIN_HIT_LENGTH;
         !BLACKLIST.contains(&f.sseqid.as_str())
             && f.ftype != "primer_bind"
             && s.hit.pident >= MIN_IDENTITY
-            && s.hit.length >= MIN_HIT_LENGTH
+            && len_ok
             && s.pi_permatch > 3.0
     });
 
@@ -574,7 +906,7 @@ fn finalize(hits: Vec<RawHit>, qlen: usize, circular: bool) -> Vec<AnnotatedFeat
         if ftype == "origin of replication" {
             ftype = "rep_origin".to_string();
         }
-        let fragment = is_fragment(&ftype, s.hit.length, s.percmatch, s.pi_permatch);
+        let fragment = is_fragment(&ftype, s.hit.length, s.percmatch, s.pi_permatch, s.hit.aa_level);
         let name = if fragment {
             format!("{} (fragment)", f.name)
         } else {
@@ -601,6 +933,11 @@ fn finalize(hits: Vec<RawHit>, qlen: usize, circular: bool) -> Vec<AnnotatedFeat
             score: s.score,
             notes: f.blurb.clone(),
             sseqid: f.sseqid.clone(),
+            match_level: if s.hit.aa_level {
+                "aa".to_string()
+            } else {
+                "nt".to_string()
+            },
         });
     }
     out
@@ -617,6 +954,49 @@ pub fn annotate_sequence(seq: &str, circular: bool) -> Vec<AnnotatedFeature> {
     }
     let hits = match_features(&query, circular);
     finalize(hits, qlen, circular)
+}
+
+/// Annotate a bare amino-acid sequence against the translated CDS features of
+/// the embedded database (protein projects). Only CDS-type features are
+/// detectable; coordinates are 0-based inclusive aa positions, strand "+".
+pub fn annotate_protein(seq: &str, circular: bool) -> Vec<AnnotatedFeature> {
+    let query = seq.to_ascii_uppercase().into_bytes();
+    let qlen = query.len();
+    if qlen == 0 {
+        return Vec::new();
+    }
+    let doubled: Vec<u8> = if circular {
+        [&query[..], &query[..]].concat()
+    } else {
+        query
+    };
+    let d = db();
+    let hits = match_protein(&doubled)
+        .into_iter()
+        .map(|h| {
+            let cov_denom = d.features[h.feat].protein.as_ref().map_or(0, |p| p.len());
+            RawHit {
+                feat: h.feat,
+                strand: 1,
+                qstart: h.astart,
+                qend: h.aend,
+                length: h.length,
+                pident: h.pident,
+                cov_denom,
+                aa_level: true,
+            }
+        })
+        .collect();
+    finalize(hits, qlen, circular)
+}
+
+#[cfg(test)]
+pub(crate) fn db_protein_for_test(sseqid: &str) -> Option<String> {
+    db().features
+        .iter()
+        .find(|f| f.sseqid == sseqid)
+        .and_then(|f| f.protein.clone())
+        .map(|p| String::from_utf8(p).unwrap())
 }
 
 #[cfg(test)]
@@ -827,5 +1207,142 @@ mod tests {
             !feats.iter().any(|x| x.name == "lacZα"),
             "lower-scoring lacZα overlapping lacZ must be dropped"
         );
+    }
+
+    /// Reverse-translate a protein with an alternative codon per residue, so
+    /// the result encodes the same protein with drifted nucleotides.
+    fn alt_reverse_translate(prot: &[u8]) -> String {
+        fn codon(aa: u8) -> &'static [u8] {
+            match aa {
+                b'A' => b"GCA",
+                b'R' => b"CGT",
+                b'N' => b"AAT",
+                b'D' => b"GAT",
+                b'C' => b"TGT",
+                b'Q' => b"CAA",
+                b'E' => b"GAA",
+                b'G' => b"GGT",
+                b'H' => b"CAC",
+                b'I' => b"ATT",
+                b'L' => b"TTA",
+                b'K' => b"AAA",
+                b'M' => b"ATG",
+                b'F' => b"TTT",
+                b'P' => b"CCT",
+                b'S' => b"AGT",
+                b'T' => b"ACA",
+                b'W' => b"TGG",
+                b'Y' => b"TAT",
+                b'V' => b"GTT",
+                b'*' => b"TAA",
+                other => panic!("no alt codon for {:?}", other as char),
+            }
+        }
+        let mut out = String::with_capacity(prot.len() * 3);
+        for &aa in prot {
+            out.push_str(std::str::from_utf8(codon(aa)).unwrap());
+        }
+        out
+    }
+
+    #[test]
+    fn codon_optimized_cds_detected_at_protein_level() {
+        let kan = db_feature("KanR_(3)");
+        let prot = kan.protein.as_ref().expect("CDS has a translation");
+        let opt = alt_reverse_translate(prot);
+        // The re-coded sequence must exceed the nt mismatch budget, proving
+        // the nucleotide path alone cannot produce a full-length hit.
+        let mismatches = kan
+            .fwd
+            .iter()
+            .zip(opt.as_bytes())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert!(
+            mismatches * 20 > kan.fwd.len(),
+            "alt codons diverge too little: {mismatches}/{}",
+            kan.fwd.len()
+        );
+
+        let filler = "CGCATGTACGCATGACGTACGTAGCTAGCTAGCATCGATGCTAGCATGCA";
+        let start = filler.len() as i64;
+        let seq = format!("{}{}{}", filler, opt, filler);
+        let feats = annotate_sequence(&seq, false);
+        let hit = feats
+            .iter()
+            .find(|x| x.name == "KanR" && x.ftype == "CDS")
+            .expect("codon-optimized KanR");
+        assert_eq!(hit.match_level, "aa");
+        assert_eq!(hit.strand, "+");
+        assert_eq!(hit.start, start);
+        assert_eq!(hit.end, start + opt.len() as i64 - 1);
+        assert!((hit.identity - 100.0).abs() < 1e-9);
+        assert!(!hit.fragment);
+    }
+
+    #[test]
+    fn codon_optimized_cds_reverse_strand() {
+        let kan = db_feature("KanR_(3)");
+        let opt = alt_reverse_translate(kan.protein.as_ref().unwrap());
+        let opt_rc = String::from_utf8(rev_comp(opt.as_bytes())).unwrap();
+        let filler = "CGCATGTACGCATGACGTACGTAGCTAGCTAGCATCGATGCTAGCATGCA";
+        let start = filler.len() as i64;
+        let seq = format!("{}{}{}", filler, opt_rc, filler);
+        let feats = annotate_sequence(&seq, false);
+        let hit = feats
+            .iter()
+            .find(|x| x.name == "KanR" && x.ftype == "CDS")
+            .expect("codon-optimized KanR on the reverse strand");
+        assert_eq!(hit.match_level, "aa");
+        assert_eq!(hit.strand, "-");
+        assert_eq!(hit.start, start);
+        assert_eq!(hit.end, start + opt_rc.len() as i64 - 1);
+    }
+
+    #[test]
+    fn protein_query_matches_cds_translations() {
+        let kan = db_feature("KanR_(3)");
+        let prot = String::from_utf8(kan.protein.clone().unwrap()).unwrap();
+        let feats = annotate_protein(&prot, false);
+        let hit = feats
+            .iter()
+            .find(|x| x.name == "KanR" && x.ftype == "CDS")
+            .expect("KanR protein hit");
+        assert_eq!(hit.match_level, "aa");
+        assert_eq!(hit.strand, "+");
+        assert_eq!((hit.start, hit.end), (0, prot.len() as i64 - 1));
+        assert!((hit.identity - 100.0).abs() < 1e-9);
+        assert!((hit.coverage - 100.0).abs() < 1e-9);
+        assert!(!hit.fragment);
+    }
+
+    #[test]
+    fn short_protein_tag_detected() {
+        let his = db_feature("6xHis");
+        let prot = String::from_utf8(his.protein.clone().unwrap()).unwrap();
+        assert_eq!(prot.len(), 6);
+        // Protein query: exact 6 aa hit from the window scan.
+        let feats = annotate_protein(&format!("MGG{}GG", prot), false);
+        let hit = feats
+            .iter()
+            .find(|x| x.name.contains("His"))
+            .expect("6xHis in protein query");
+        assert_eq!((hit.start, hit.end), (3, 8));
+        assert!((hit.identity - 100.0).abs() < 1e-9);
+
+        // DNA query with synonymous codons: invisible to the nt short scan
+        // (budget 0 mismatches), caught at the protein level.
+        let opt = alt_reverse_translate(his.protein.as_ref().unwrap());
+        assert_ne!(opt.as_bytes(), his.fwd.as_slice());
+        let filler = "CGCATGTACGCATGACGTACGTAGCTAGCTAGCATCGATGCTAGCATGCA";
+        let start = filler.len() as i64;
+        let seq = format!("{}{}{}", filler, opt, filler);
+        let feats = annotate_sequence(&seq, false);
+        let hit = feats
+            .iter()
+            .find(|x| x.name.contains("His"))
+            .expect("6xHis with synonymous codons");
+        assert_eq!(hit.match_level, "aa");
+        assert_eq!((hit.start, hit.end), (start, start + 17));
     }
 }
