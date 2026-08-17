@@ -37,11 +37,9 @@ function loadFornac() {
           const s = document.createElement('script');
           s.src = url;
           s.onload = () => {
-            document.head
-              .querySelectorAll('style')
-              .forEach((t) => {
-                if (!existing.has(t)) t.remove();
-              });
+            document.head.querySelectorAll('style').forEach((t) => {
+              if (!existing.has(t)) t.remove();
+            });
             resolve(window.fornac);
           };
           s.onerror = () => reject(new Error('Failed to load fornac'));

@@ -73,8 +73,7 @@ function normSegments(f, len) {
   return out.sort((a, b) => a.start - b.start);
 }
 
-const featTotalLen = (f, len) =>
-  normSegments(f, len).reduce((a, s) => a + s.end - s.start + 1, 0);
+const featTotalLen = (f, len) => normSegments(f, len).reduce((a, s) => a + s.end - s.start + 1, 0);
 
 // suppress the arrowhead when the tip end is covered by a longer feature
 function tipBuried(f, features, len) {
@@ -290,7 +289,8 @@ export function CircularMap({
             {segs.map((s, i) => {
               const th0 = (s.start / length) * TWO_PI;
               const th1 = ((s.end + 1) / length) * TWO_PI;
-              const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
+              const isTip =
+                hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
               const d = isTip
                 ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
                 : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
@@ -312,7 +312,8 @@ export function CircularMap({
                 if (o0 > o1) return null;
                 const th0 = (s.start / length) * TWO_PI;
                 const th1 = ((s.end + 1) / length) * TWO_PI;
-                const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
+                const isTip =
+                  hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
                 const fd = isTip
                   ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
                   : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
@@ -545,11 +546,12 @@ export function LinearMap({
         const hasDir = f.strand === '+' || f.strand === '-';
         const tipRight = f.strand !== '-';
         const buried = hasDir && tipBuried(f, features, length);
-        const pts = !hasDir || buried
-          ? `${fx0},${lineY - h} ${fx1},${lineY - h} ${fx1},${lineY + h} ${fx0},${lineY + h}`
-          : tipRight
-            ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1 - head},${lineY - hf} ${fx1},${lineY} ${fx1 - head},${lineY + hf} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
-            : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0 + head},${lineY - hf} ${fx0},${lineY} ${fx0 + head},${lineY + hf} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
+        const pts =
+          !hasDir || buried
+            ? `${fx0},${lineY - h} ${fx1},${lineY - h} ${fx1},${lineY + h} ${fx0},${lineY + h}`
+            : tipRight
+              ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1 - head},${lineY - hf} ${fx1},${lineY} ${fx1 - head},${lineY + hf} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
+              : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0 + head},${lineY - hf} ${fx0},${lineY} ${fx0 + head},${lineY + hf} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
         return (
           <g
             key={f.id}
