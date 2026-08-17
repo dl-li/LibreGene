@@ -1088,6 +1088,28 @@ fn resolve_primer_binding_site(
         })
 }
 
+/// Bounding box for the export regionView digest. min/max over all pieces:
+/// first/last is wrong for multi-segment minus-strand features, whose pieces
+/// come back from `resolve_export_region` in descending order. On circular
+/// templates, pieces that straddle the origin ((s, len-1) + (0, e)) collapse
+/// to the wrap window (s, e) — tighter than a full-length min/max span and
+/// meaningful to `project_digest`.
+fn region_bbox(pieces: &[(i64, i64)], len: i64, circular: bool) -> (i64, i64) {
+    if circular {
+        let wrap_start = pieces.iter().filter(|p| p.1 == len - 1).map(|p| p.0).max();
+        let wrap_end = pieces.iter().filter(|p| p.0 == 0).map(|p| p.1).min();
+        if let (Some(s), Some(e)) = (wrap_start, wrap_end) {
+            if s > e {
+                return (s, e);
+            }
+        }
+    }
+    (
+        pieces.iter().map(|p| p.0).min().unwrap_or(0),
+        pieces.iter().map(|p| p.1).max().unwrap_or(0),
+    )
+}
+
 /// Resolve an export_subsequence request to the template pieces it exports:
 /// linear 0-based inclusive spans in EXPORT order, `flip` (each piece's
 /// sequence is reverse-complemented when exporting a minus-strand feature)
@@ -2940,15 +2962,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let (pieces, flip, desc) = resolve_export_region(&project, &request)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        // Bounding box for the regionView digest: the full span the feature
-        // occupies on the template, regardless of strand/piece ordering. Using
-        // pieces[0]/pieces[len-1] breaks for multi-segment minus-strand features
-        // where pieces are in descending order, producing start > end and either
-        // a dropped regionView (linear) or a wrong wrap-around window (circular).
-        let bbox = (
-            pieces.iter().map(|p| p.0).min().unwrap_or(0),
-            pieces.iter().map(|p| p.1).max().unwrap_or(0),
-        );
+        let bbox = region_bbox(&pieces, project.length, project.topology == "circular");
         let out_name = output_project_name(&request.output_path);
         let path = request.output_path.clone();
         let message_path = path.clone();
@@ -4120,6 +4134,58 @@ mod tests {
         assert!(
             !region.is_empty(),
             "regionView must not be empty for a multi-segment minus-strand feature (was dropped by bbox bug)"
+        );
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    /// Circular wrap variant: a minus-strand feature whose pieces straddle the
+    /// origin ((90, 119) + (0, 20)) must report the wrap window 90..20, not a
+    /// full-length min/max span.
+    #[tokio::test]
+    async fn export_subsequence_wrap_origin_minus_strand_regionview_span() {
+        use libregene_core::models::Segment;
+        let seq = synthetic_dna(120, 24);
+        let wrap_feat = Feature {
+            id: "wrap".to_string(),
+            name: "wrap_cds".to_string(),
+            start: 90,
+            end: 20,
+            color: "#60A5FA".to_string(),
+            ftype: "CDS".to_string(),
+            segments: vec![
+                Segment { start: 90, end: 119, color: None },
+                Segment { start: 0, end: 20, color: None },
+            ],
+            strand: "-".to_string(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        };
+        let project = ProjectData {
+            name: "wrap_minus".to_string(),
+            sequence: seq.clone(),
+            length: 120,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![wrap_feat],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-wrap-minus-{}.gbk", std::process::id()));
+        let req = ExportSubsequenceRequest {
+            feature_id: Some("wrap".to_string()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "export should succeed");
+        let region = v["regionView"].as_str().unwrap_or("");
+        assert!(
+            region.contains("REGION: 90..20"),
+            "regionView should show the wrap window 90..20, got: {}",
+            region.lines().next().unwrap_or("")
         );
         std::fs::remove_file(&out_path).ok();
     }
