@@ -1,4 +1,3 @@
-import { BookA } from 'lucide-react';
 import { findOrfs as findOrfsCommand } from '../../tauriApi';
 
 // ORF Search plugin — the sequence scan itself now runs in the backend
@@ -29,9 +28,8 @@ export default {
   // DNA-only: ORF scanning (both strands, genetic code) is meaningless for
   // rna/protein projects.
   dnaOnly: true,
-  // Sidebar entry toggles ORF visibility (handled in ProjectWorkspace, no dialog)
-  sidebarItems: [
-    { dialogKey: 'orf', label: 'Show ORFs', tooltip: 'Toggle ORF display', icon: BookA },
-  ],
+  // ORF visibility is toggled from the Features nav menu (ProjectWorkspace),
+  // not from the sidebar.
+  sidebarItems: [],
   dialog: null,
 };

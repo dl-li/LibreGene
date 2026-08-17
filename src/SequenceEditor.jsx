@@ -509,6 +509,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onToggleFeatures,
   alwaysExpandFeatures = false,
   onToggleAlwaysExpandFeatures,
+  showOrfs,
+  onToggleOrfs,
   showPrimers,
   onTogglePrimers,
   showEnzymes,
@@ -638,6 +640,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [translationSel, setTranslationSel] = useState(null); // { featureId, startCodon, endCodon }
   const [isTranslationDragging, setIsTranslationDragging] = useState(false);
   const translationDragRef = useRef(null); // { featureId, startCodon }
+  const [hoveredCodon, setHoveredCodon] = useState(null); // { featureId, codonIndex }
   const cdsFeatureDataRef = useRef({}); // mirror of cdsFeatureData for early callbacks
   const resetCursorTimer = useCallback(() => {
     if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
@@ -2710,6 +2713,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (codon === undefined) return;
       const maxCodon = cds.trans.length - 1;
       const clamped = Math.max(0, Math.min(maxCodon, codon));
+      setHoveredCodon({ featureId: drag.featureId, codonIndex: clamped });
       setTranslationSel((prev) => {
         if (!prev || prev.featureId !== drag.featureId) return prev;
         return { featureId: drag.featureId, startCodon: drag.startCodon, endCodon: clamped };
@@ -2787,7 +2791,31 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   clearTimeout(featureLeaveRef.current);
                   setHoveredFeature(f.id);
                 }}
+                onMouseMove={(e) => {
+                  if (isDraggingRef.current || translationDragRef.current) return;
+                  const cds = cdsFeatureData[f.id];
+                  if (!cds || !svgRef.current) return;
+                  const pt = svgRef.current.createSVGPoint();
+                  pt.x = e.clientX;
+                  pt.y = e.clientY;
+                  const ctm = svgRef.current.getScreenCTM();
+                  if (!ctm) return;
+                  const svgPt = pt.matrixTransform(ctm.inverse());
+                  let col = Math.floor((svgPt.x - startX) / cw);
+                  col = Math.max(v.colStart, Math.min(v.colEnd, col));
+                  const codon = cds.codonMap.get(v.row * charsPerLine + col);
+                  const next =
+                    codon === undefined || codon === null
+                      ? null
+                      : { featureId: f.id, codonIndex: codon };
+                  setHoveredCodon((prev) =>
+                    prev?.featureId === next?.featureId && prev?.codonIndex === next?.codonIndex
+                      ? prev
+                      : next,
+                  );
+                }}
                 onMouseLeave={() => {
+                  setHoveredCodon(null);
                   featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250);
                 }}
                 onContextMenu={(e) => openFeatureMenu(e, f)}
@@ -2921,6 +2949,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
                 lp.featTrackHeight;
               const y = sy + lp.featBaseOffset + rowTo;
+              const isCodonHovered =
+                hoveredCodon?.featureId === f.id && hoveredCodon?.codonIndex === t.codonIndex;
               return (
                 <text
                   key={`tr-${t.templatePos2}`}
@@ -2937,7 +2967,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   dominantBaseline="central"
                   style={{ pointerEvents: 'none' }}
                 >
-                  {t.aa}
+                  {isCodonHovered ? t.codonIndex + 1 : t.aa}
                 </text>
               );
             })}
@@ -2959,6 +2989,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     startTranslationSelection,
     alignLaneInfo,
     alwaysExpandFeatures,
+    hoveredCodon,
   ]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
@@ -4846,6 +4877,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToggleFeatures={onToggleFeatures}
           alwaysExpandFeatures={alwaysExpandFeatures}
           onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
+          showOrfs={showOrfs}
+          onToggleOrfs={onToggleOrfs}
           onCreateFeature={createFeature}
           showPrimers={showPrimers}
           onTogglePrimers={onTogglePrimers}
