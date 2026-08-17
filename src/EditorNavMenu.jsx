@@ -94,6 +94,8 @@ export default function EditorNavMenu({
   onToggleFeatures,
   alwaysExpandFeatures,
   onToggleAlwaysExpandFeatures,
+  showOrfs,
+  onToggleOrfs,
   onCreateFeature,
   onOpenDetectFeatures,
   showPrimers,
@@ -267,6 +269,11 @@ export default function EditorNavMenu({
             <DropdownMenuCheckboxItem checked={showFeatures} onCheckedChange={onToggleFeatures}>
               Show Features
             </DropdownMenuCheckboxItem>
+            {onToggleOrfs && (
+              <DropdownMenuCheckboxItem checked={showOrfs} onCheckedChange={onToggleOrfs}>
+                Show ORFs
+              </DropdownMenuCheckboxItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onCreateFeature}>
               <Plus /> Create Feature

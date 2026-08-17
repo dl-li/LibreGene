@@ -1208,10 +1208,6 @@ export default function ProjectWorkspace({
       saveAs: handleSaveAs,
       isDirty: () => isDirtyRef.current,
       openPluginDialog: (key) => {
-        if (key === 'orf') {
-          setShowOrfs((v) => !v);
-          return;
-        }
         setPluginDialogs((prev) => ({ ...prev, [key]: true }));
       },
       openMapView: () => setMapViewOpen(true),
@@ -1305,6 +1301,14 @@ export default function ProjectWorkspace({
               onToggleFeatures={onToggleFeatures}
               alwaysExpandFeatures={alwaysExpandFeatures}
               onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
+              showOrfs={
+                isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined
+              }
+              onToggleOrfs={
+                isDna && !disabledPlugins.includes('orf')
+                  ? () => setShowOrfs((v) => !v)
+                  : undefined
+              }
               showPrimers={showPrimers}
               onTogglePrimers={onTogglePrimers}
               showEnzymes={showEnzymes}
