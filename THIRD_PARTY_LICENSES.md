@@ -70,6 +70,9 @@ See `package.json` and `package-lock.json` for the full list and their respectiv
 - **License**: BSD-3-Clause
 - **Usage**: Primer annealing / binding-site search algorithm (3' anchor + greedy 5' extension) reimplemented in `backend/libregene-core/src/primer/matcher.rs` and `primer/screening.rs`
 
+### SnapGene file format
+- The `.dna`/`.rna`/`.prot` parser in `backend/libregene-core/src/file_io/dna.rs` is an independent implementation based on the public unofficial SnapGene format documentation ([Binary sequence formats](https://incenp.org/dvlpt/docs/binary-sequence-formats/binary-sequence-formats.pdf), incenp.org); see also [plascad](https://github.com/David-OConnor/plascad) for another implementation of the same format
+
 ## Rust / Cargo Dependencies
 
 This project uses Rust crates, each under its own license. Key dependencies include:

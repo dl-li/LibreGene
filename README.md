@@ -81,6 +81,26 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
   <img src="screenshots/rna-fold.png" alt="RNA secondary structure prediction" width="700" />
 </p>
 
+### MCP / LLM Agent Integration
+
+LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene first; connection details and the access token are shown in the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen).
+
+21 tools are exposed, covering the full editing workflow:
+
+- **Projects & files** — `open_file`, `save_file`, `close_project`, `activate_project`, `list_projects`, `export_subsequence`
+- **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`, `search_sequence` (IUPAC fuzzy search, peptide queries expanded to degenerate codons)
+- **Editing** — `edit_sequence` (insert/delete/replace), `add_feature`, `update_feature`
+- **Primers** — `add_primer`, `list_primers`, `check_primer_binding` (binding sites + Tm), `design_primers` (amplify / OE-PCR / mutagenesis)
+- **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `optimize_cds` (codon optimization for 9 species)
+
+#### Example Tasks
+
+Ready-to-run agent tasks live in [`examples/tasks`](examples/tasks), each with a `Prompt.txt` you can hand to your agent and a reference result:
+
+- **[Primer Design](examples/tasks/Primer%20Design)** — clone mEGFP into a BamHI/HindIII-digested BlueScribe vector: design cloning primers with restriction tails, pick colony-PCR verification primers, then design A206K mutagenesis primers
+- **[Alignment](examples/tasks/Alignment)** — given pVA-MCS and three Sanger `.ab1` reads, determine which sample successfully mutated away the BbsI site
+- **[Drosophila RNAi](examples/tasks/Drosophila%20RNAi)** — given a vector and an experimental protocol, design an RNAi plasmid targeting a gene of interest with a given antisense sequence
+
 ### And More
 
 - **SVG plasmid map** with multi-line wrapped sequence display
@@ -97,26 +117,6 @@ npx tauri dev
 ```
 
 Requires Node.js ≥ 20, Rust ≥ 1.75, and [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/).
-
-## MCP / LLM Agent Integration
-
-LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene first; connection details and the access token are shown in the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen).
-
-21 tools are exposed, covering the full editing workflow:
-
-- **Projects & files** — `open_file`, `save_file`, `close_project`, `activate_project`, `list_projects`, `export_subsequence`
-- **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`, `search_sequence` (IUPAC fuzzy search, peptide queries expanded to degenerate codons)
-- **Editing** — `edit_sequence` (insert/delete/replace), `add_feature`, `update_feature`
-- **Primers** — `add_primer`, `list_primers`, `check_primer_binding` (binding sites + Tm), `design_primers` (amplify / OE-PCR / mutagenesis)
-- **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `optimize_cds` (codon optimization for 9 species)
-
-### Example Tasks
-
-Ready-to-run agent tasks live in [`examples/tasks`](examples/tasks), each with a `Prompt.txt` you can hand to your agent and a reference result:
-
-- **[Primer Design](examples/tasks/Primer%20Design)** — clone mEGFP into a BamHI/HindIII-digested BlueScribe vector: design cloning primers with restriction tails, pick colony-PCR verification primers, then design A206K mutagenesis primers
-- **[Alignment](examples/tasks/Alignment)** — given pVA-MCS and three Sanger `.ab1` reads, determine which sample successfully mutated away the BbsI site
-- **[Drosophila RNAi](examples/tasks/Drosophila%20RNAi)** — given a vector and an experimental protocol, design an RNAi plasmid targeting a gene of interest with a given antisense sequence
 
 ## License
 

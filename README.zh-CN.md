@@ -81,6 +81,26 @@
   <img src="screenshots/rna-fold.png" alt="RNA 二级结构预测" width="700" />
 </p>
 
+### MCP / LLM Agent 集成
+
+LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。先启动 LibreGene；连接方式与访问令牌见 app 侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接）。
+
+共暴露 21 个工具，覆盖完整编辑流程：
+
+- **项目与文件** — `open_file`、`save_file`、`close_project`、`activate_project`、`list_projects`、`export_subsequence`
+- **读取** — `read_sequence`、`get_project_overview`、`get_region_view`、`search_sequence`（IUPAC 模糊搜索，肽段查询自动展开为简并密码子）
+- **编辑** — `edit_sequence`（插入/删除/替换）、`add_feature`、`update_feature`
+- **引物** — `add_primer`、`list_primers`、`check_primer_binding`（结合位点 + Tm）、`design_primers`（扩增 / OE-PCR / 诱变）
+- **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`optimize_cds`（9 个物种的密码子优化）
+
+#### 示例任务
+
+[`examples/tasks`](examples/tasks) 目录收录了可直接运行的 Agent 任务，每个都附带 `Prompt.txt`（可直接发给 Agent 的自然语言指令）和参考结果：
+
+- **[Primer Design](examples/tasks/Primer%20Design)** — 将 mEGFP 克隆进 BamHI/HindIII 消化过的 BlueScribe 载体：设计带酶切尾巴的克隆引物、挑选菌落 PCR 鉴定引物，再设计 A206K 定点诱变引物
+- **[Alignment](examples/tasks/Alignment)** — 给定 pVA-MCS 和三份 Sanger `.ab1` 测序结果，判断哪个样本成功突变掉了 BbsI 酶切位点
+- **[Drosophila RNAi](examples/tasks/Drosophila%20RNAi)** — 根据载体序列和实验 Protocol，设计靶向目标基因（GOI）的 RNAi 质粒
+
 ### 更多
 
 - **SVG 质粒图谱**，多行自适应换行显示
@@ -97,26 +117,6 @@ npx tauri dev
 ```
 
 需要 Node.js ≥ 20、Rust ≥ 1.75 以及 [Tauri v2 系统依赖](https://v2.tauri.app/start/prerequisites/)。
-
-## MCP / LLM Agent 集成
-
-LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。先启动 LibreGene；连接方式与访问令牌见 app 侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接）。
-
-共暴露 21 个工具，覆盖完整编辑流程：
-
-- **项目与文件** — `open_file`、`save_file`、`close_project`、`activate_project`、`list_projects`、`export_subsequence`
-- **读取** — `read_sequence`、`get_project_overview`、`get_region_view`、`search_sequence`（IUPAC 模糊搜索，肽段查询自动展开为简并密码子）
-- **编辑** — `edit_sequence`（插入/删除/替换）、`add_feature`、`update_feature`
-- **引物** — `add_primer`、`list_primers`、`check_primer_binding`（结合位点 + Tm）、`design_primers`（扩增 / OE-PCR / 诱变）
-- **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`optimize_cds`（9 个物种的密码子优化）
-
-### 示例任务
-
-[`examples/tasks`](examples/tasks) 目录收录了可直接运行的 Agent 任务，每个都附带 `Prompt.txt`（可直接发给 Agent 的自然语言指令）和参考结果：
-
-- **[Primer Design](examples/tasks/Primer%20Design)** — 将 mEGFP 克隆进 BamHI/HindIII 消化过的 BlueScribe 载体：设计带酶切尾巴的克隆引物、挑选菌落 PCR 鉴定引物，再设计 A206K 定点诱变引物
-- **[Alignment](examples/tasks/Alignment)** — 给定 pVA-MCS 和三份 Sanger `.ab1` 测序结果，判断哪个样本成功突变掉了 BbsI 酶切位点
-- **[Drosophila RNAi](examples/tasks/Drosophila%20RNAi)** — 根据载体序列和实验 Protocol，设计靶向目标基因（GOI）的 RNAi 质粒
 
 ## 许可证
 
