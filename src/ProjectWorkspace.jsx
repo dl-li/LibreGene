@@ -25,6 +25,8 @@ import {
   removeAlignment,
   openAlignmentFileDialog,
   listenProjectUpdates,
+  emitMapWatermark,
+  listenMapWatermark,
   isTauri,
 } from './tauriApi';
 import { plugins } from './plugins';
@@ -118,8 +120,28 @@ export default function ProjectWorkspace({
       } catch {
         // storage may be unavailable; toggle still applies in-memory
       }
+      emitMapWatermark(next);
       return next;
     });
+  }, []);
+  // storage events don't propagate between Tauri webview windows, so sync
+  // via a Tauri broadcast; keep the storage listener as a browser fallback.
+  // Both fire only in *other* documents — no feedback loop.
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== 'mapWatermark' || e.newValue == null) return;
+      try {
+        setMapWatermark(JSON.parse(e.newValue));
+      } catch {
+        // ignore malformed values
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    const listener = listenMapWatermark((v) => setMapWatermark(!!v));
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      listener.close();
+    };
   }, []);
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
   const [liveSelection, setLiveSelection] = useState(null);
