@@ -102,6 +102,25 @@ export default function ProjectWorkspace({
   const openPrimerEditorRef = useRef(null);
   const openFeatureEditorRef = useRef(null);
   const [mapViewOpen, setMapViewOpen] = useState(false);
+  // Global persistent toggle (shared across projects, survives restart)
+  const [mapWatermark, setMapWatermark] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('mapWatermark')) || false;
+    } catch {
+      return false;
+    }
+  });
+  const toggleMapWatermark = useCallback(() => {
+    setMapWatermark((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('mapWatermark', JSON.stringify(next));
+      } catch {
+        // storage may be unavailable; toggle still applies in-memory
+      }
+      return next;
+    });
+  }, []);
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
   const [liveSelection, setLiveSelection] = useState(null);
   const alignmentCacheRef = useRef({});
@@ -1319,6 +1338,8 @@ export default function ProjectWorkspace({
               alignments={alignments}
               alignmentEnabled={alignmentEnabled}
               primerDesignEnabled={primerDesignEnabled}
+              mapWatermark={mapWatermark}
+              mapName={mapName}
               showAlignments={showAlignments}
               onToggleAlignments={() => setShowAlignments((v) => !v)}
               hiddenAlignIds={hiddenAlignIds}
@@ -1369,6 +1390,8 @@ export default function ProjectWorkspace({
             onClear={handleMapClear}
             onFeatureOpen={(f) => openFeatureEditorRef.current?.(f)}
             moleculeType={moleculeType}
+            watermark={mapWatermark}
+            onToggleWatermark={toggleMapWatermark}
           />
         </>
       ) : null}

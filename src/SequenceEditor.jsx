@@ -22,6 +22,7 @@ import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm } from './tauriApi';
+import { CircularMap, LinearMap } from './MapView';
 import { buildSearchResults } from './searchUtils';
 import { showContextMenu } from './contextMenu';
 import { AlertTriangle, Copy, CopyPlus, CopyMinus, CopyX, Pencil, Tag } from 'lucide-react';
@@ -282,6 +283,55 @@ const complementStr = (s) =>
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 
 // ---------------------------------------------------------------------------
+// MapWatermark — non-interactive plasmid map rendered as a faint overlay on
+// top of the editor (toggled from the Map dialog footer). Lives outside the
+// main container because `contain: layout style` breaks position: fixed.
+// ---------------------------------------------------------------------------
+const noop = () => {};
+
+const MapWatermark = React.memo(function MapWatermark({ length, features, topology, name, sel }) {
+  if (!length) return null;
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{ width: 680, opacity: 0.1 }}>
+        {topology === 'circular' ? (
+          <CircularMap
+            length={length}
+            features={features}
+            name={name}
+            selection={sel}
+            bg="transparent"
+            onSelect={noop}
+            onClear={noop}
+            onFeatureOpen={noop}
+          />
+        ) : (
+          <LinearMap
+            length={length}
+            features={features}
+            selection={sel}
+            onSelect={noop}
+            onClear={noop}
+            onFeatureOpen={noop}
+          />
+        )}
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // SelectionLengthBadge — top-right badge showing "xx bp" for the current
 // selection (text / enzyme / primer / amplimer).  Hover shows "Copy", click
 // copies the corresponding sequence, then shows ✓ briefly.
@@ -524,6 +574,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   alignments = [],
   alignmentEnabled = true,
   primerDesignEnabled = true,
+  mapWatermark = false,
+  mapName = '',
   showAlignments = true,
   onToggleAlignments,
   hiddenAlignIds = [],
@@ -4833,6 +4885,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
         showGc={moleculeType !== 'protein'}
       />
       {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}
+      {mapWatermark && (
+        <MapWatermark
+          length={cleanSeq.length}
+          features={features}
+          topology={topology}
+          name={mapName}
+          sel={
+            selStart != null && selEnd != null
+              ? { start: Math.min(selStart, selEnd), end: Math.max(selStart, selEnd) }
+              : null
+          }
+        />
+      )}
       {designPick ? (
         <div
           style={{
