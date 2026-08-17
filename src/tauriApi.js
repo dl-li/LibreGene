@@ -16,6 +16,7 @@ const reassertTrafficLights = () => {
 
 let invoke;
 let listen;
+let emit;
 let dialog;
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
@@ -557,6 +558,32 @@ export async function takePendingOpens() {
 export function listenFileOpened(callback) {
   let closed = false;
   const ready = tauriListen('file-opened', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}
+
+/** Broadcast the map-watermark toggle so other windows sync immediately. */
+export function emitMapWatermark(value) {
+  if (!isTauri) return;
+  (async () => {
+    if (!emit) {
+      const mod = await import('@tauri-apps/api/event');
+      emit = mod.emit;
+    }
+    await emit('map-watermark-changed', value);
+  })().catch(() => {});
+}
+
+/** Listen for map-watermark toggles broadcast from other windows. */
+export function listenMapWatermark(callback) {
+  let closed = false;
+  const ready = tauriListen('map-watermark-changed', (event) => {
     if (!closed) callback(event.payload);
   });
   return {
