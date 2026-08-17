@@ -90,6 +90,7 @@ export default function ProjectWorkspace({
   const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
   const [alignTextOpen, setAlignTextOpen] = useState(false);
   const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
+  const primerDesignEnabled = isDna && !disabledPlugins.includes('primerDesign');
 
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
   const [detectFeaturesOpen, setDetectFeaturesOpen] = useState(false);
@@ -1317,6 +1318,7 @@ export default function ProjectWorkspace({
               alignmentTracks={visibleAlignments}
               alignments={alignments}
               alignmentEnabled={alignmentEnabled}
+              primerDesignEnabled={primerDesignEnabled}
               showAlignments={showAlignments}
               onToggleAlignments={() => setShowAlignments((v) => !v)}
               hiddenAlignIds={hiddenAlignIds}
@@ -1324,6 +1326,11 @@ export default function ProjectWorkspace({
               onAddAlignmentFile={handleAddAlignment}
               onAddAlignmentText={() => setAlignTextOpen(true)}
               onManageAlignments={() => setPluginDialogs((prev) => ({ ...prev, alignment: true }))}
+              onOpenRnaFold={
+                disabledPlugins.includes('rnaFold')
+                  ? undefined
+                  : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
+              }
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
               onOpenPrimerOverview={() => setPrimerOverviewOpen(true)}

@@ -55,6 +55,7 @@ import {
   X,
   ExternalLink,
   Settings,
+  Puzzle,
   Bot,
   Map as MapIcon,
   Clock,
@@ -128,6 +129,12 @@ export default function App() {
   // { type: 'main' } or { type: 'project', projectId: '...' }
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 'plugins' → open the settings dialog scrolled to the plugin section
+  const [settingsFocus, setSettingsFocus] = useState(null);
+  const openSettings = (focus = null) => {
+    setSettingsFocus(focus);
+    setSettingsOpen(true);
+  };
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
   const [newSeqOpen, setNewSeqOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
@@ -866,7 +873,7 @@ export default function App() {
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <MapIcon className="size-4" />
-                  <span>Plasmid Map</span>
+                  <span>Map</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
@@ -881,7 +888,17 @@ export default function App() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={() => openSettings('plugins')}
+                  tooltip="Manage plugins"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Puzzle className="size-4" />
+                  <span>Plugins</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => openSettings()}
                   tooltip="Settings"
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -994,6 +1011,7 @@ export default function App() {
         <SettingsPage
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
+          focusSection={settingsFocus}
           methylationSystems={methylationSystems}
           setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap}
