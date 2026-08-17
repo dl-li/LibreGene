@@ -35,7 +35,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 ### Primers
 
-- **Binding visualization** — each primer is aligned against the template with mismatches, annealing region and Tm (nearest-neighbor) shown at a glance
+- **Binding visualization** — each primer is aligned against the template with mismatches, annealing region and Tm (nearest-neighbor) shown at a glance; binding-site search follows [pydna](https://github.com/pydna-group/pydna)'s annealing algorithm
 - **Assisted design** — fragment amplification, overlap-extension PCR (OE-PCR) and site-directed mutagenesis, with candidate primers ranked by Tm / GC% and optional restriction-site tails
 
 <p align="center">
@@ -45,8 +45,8 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 ### Codon Optimization
 
-- **9 species codon usage tables** — optimize any CDS/mRNA feature for the expression host of your choice
-- **Three strategies** — use best codon, match codon usage (keeps natural synonymous diversity), or harmonize relative codon adaptation against the source species
+- **9 species codon usage tables** — optimize any CDS/mRNA feature for the expression host of your choice ([Kazusa](https://www.kazusa.or.jp/codon/) usage data)
+- **Three strategies** — use best codon, match codon usage (keeps natural synonymous diversity), or harmonize relative codon adaptation against the source species; algorithms ported from [DNA Chisel](https://github.com/Edinburgh-Genome-Foundry/DnaChisel)
 - **Preview before applying** — translation check, CAI and GC% before/after at a glance; equal-length synonymous substitution leaves feature coordinates untouched; optionally avoid creating specified restriction sites
 
 <p align="center">
@@ -55,7 +55,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 ### Restriction Enzymes
 
-- **Built-in 900+ enzyme database** with methylation-aware filtering
+- **Built-in 900+ enzyme database** (exported from [Biopython](https://biopython.org)'s `Bio.Restriction`) with methylation-aware filtering
 - **Clear categorization** — unique cutters, twice cutters, blunt ends and Type IIS enzymes are distinguished visually, and cut sites are marked on the feature scrollbar for quick navigation
 - **Custom enzyme sets** — define your own enzyme collections and switch between them
 

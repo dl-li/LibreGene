@@ -51,6 +51,25 @@ See `package.json` and `package-lock.json` for the full list and their respectiv
 - **License**: Apache-2.0
 - **Usage**: Force-directed RNA secondary structure visualization in the RNA Folding plugin; bundles d3 v3 (BSD-3-Clause)
 
+---
+
+## Algorithms & Data Adapted from Other Projects
+
+### DNA Chisel
+- **Source**: Edinburgh Genome Foundry (https://github.com/Edinburgh-Genome-Foundry/DnaChisel)
+- **License**: MIT
+- **Usage**: Codon optimization algorithms (MaximizeCAI / MatchCodonUsage / HarmonizeRca) ported to Rust in `backend/libregene-core/src/codon.rs`; codon-usage tables from Kazusa's `python_codon_tables` (CC0, https://pypi.org/project/python-codon-tables/)
+
+### Biopython
+- **Source**: Biopython Project (https://biopython.org)
+- **License**: Biopython License Agreement (MIT-style)
+- **Usage**: Restriction enzyme database exported from `Bio.Restriction` via `backend/scripts/export_enzymes.py` (data ultimately from REBASE); Tm and salt-correction formulas in `backend/libregene-core/src/primer/thermodynamics.rs` follow Biopython's `MeltingTemp` / `salt_correction` methods
+
+### pydna
+- **Source**: pydna group (https://github.com/pydna-group/pydna)
+- **License**: BSD-3-Clause
+- **Usage**: Primer annealing / binding-site search algorithm (3' anchor + greedy 5' extension) reimplemented in `backend/libregene-core/src/primer/matcher.rs` and `primer/screening.rs`
+
 ## Rust / Cargo Dependencies
 
 This project uses Rust crates, each under its own license. Key dependencies include:
