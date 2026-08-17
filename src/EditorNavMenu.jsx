@@ -25,6 +25,7 @@ import {
   Database,
   ArrowDownWideNarrow,
   ScanSearch,
+  AudioWaveform,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -117,7 +118,9 @@ export default function EditorNavMenu({
   onAddAlignmentFile,
   onAddAlignmentText,
   onManageAlignments,
+  onOpenRnaFold,
   onPrimerDesign,
+  primerDesignEnabled = true,
   onOpenPrimerOverview,
   onOpenMyPrimers,
   onAddCurrentPrimerToMyPrimers,
@@ -332,23 +335,25 @@ export default function EditorNavMenu({
                   </DropdownMenuCheckboxItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-44">
-                  <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
-                    Amplify Fragment
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
-                    OE-PCR
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={topology !== 'circular'}
-                    onSelect={() => onPrimerDesign?.('mutagenesis')}
-                  >
-                    PCR Mutagenesis
-                  </DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              {primerDesignEnabled && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-44">
+                    <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
+                      Amplify Fragment
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
+                      OE-PCR
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={topology !== 'circular'}
+                      onSelect={() => onPrimerDesign?.('mutagenesis')}
+                    >
+                      PCR Mutagenesis
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -448,6 +453,19 @@ export default function EditorNavMenu({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+
+        {/* RNA Folding: top-level button, RNA projects only (plugin can be disabled) */}
+        {moleculeType === 'rna' && onOpenRnaFold && (
+          <button
+            type="button"
+            onClick={onOpenRnaFold}
+            title="Predict RNA secondary structure"
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95"
+          >
+            <AudioWaveform className="size-4" />
+            <span>Folding</span>
+          </button>
         )}
 
         {/* Search: icon stays in flow; expanding overlay covers the other buttons */}

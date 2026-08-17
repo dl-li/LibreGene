@@ -523,6 +523,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   alignmentTracks = [],
   alignments = [],
   alignmentEnabled = true,
+  primerDesignEnabled = true,
   showAlignments = true,
   onToggleAlignments,
   hiddenAlignIds = [],
@@ -530,6 +531,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onAddAlignmentFile,
   onAddAlignmentText,
   onManageAlignments,
+  onOpenRnaFold,
   onEnzymeHoverChange,
   topology = 'linear',
   onOpenMyPrimers,
@@ -769,6 +771,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   const handlePrimerDesign = useCallback(
     (mode) => {
+      if (!primerDesignEnabled) return;
       if (DESIGN_MODES[mode]?.circularOnly && topology !== 'circular') return;
       setDesignPick({ mode, segments: [] });
       setDesignPickError(null);
@@ -784,7 +787,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setIsTranslationDragging(false);
       clearCursorTimer();
     },
-    [topology, clearCursorTimer],
+    [primerDesignEnabled, topology, clearCursorTimer],
   );
 
   const cancelDesignPick = useCallback(() => {
@@ -4899,7 +4902,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onAddAlignmentFile={onAddAlignmentFile}
           onAddAlignmentText={onAddAlignmentText}
           onManageAlignments={onManageAlignments}
+          onOpenRnaFold={onOpenRnaFold}
           onPrimerDesign={handlePrimerDesign}
+          primerDesignEnabled={primerDesignEnabled}
           onOpenMyPrimers={onOpenMyPrimers}
           onOpenPrimerOverview={onOpenPrimerOverview}
           onOpenDetectFeatures={onOpenDetectFeatures}

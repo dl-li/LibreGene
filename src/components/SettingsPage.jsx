@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Settings } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 const SECTION_TITLE =
   'text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5';
@@ -30,7 +31,20 @@ export default function SettingsPage({
   plugins = [],
   disabledPlugins = [],
   onTogglePlugin,
+  focusSection,
 }) {
+  const pluginsRef = useRef(null);
+
+  useEffect(() => {
+    if (!open || focusSection !== 'plugins') return;
+    // wait for the dialog open animation before scrolling
+    const t = setTimeout(
+      () => pluginsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+      100,
+    );
+    return () => clearTimeout(t);
+  }, [open, focusSection]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
@@ -199,22 +213,28 @@ export default function SettingsPage({
           <Separator />
 
           {/* ── 插件 ── */}
-          <div>
+          <div ref={pluginsRef}>
             <div className={SECTION_TITLE}>Plugins</div>
             <div className="space-y-2">
               {plugins.map((p) => (
-                <div key={p.id} className="flex items-center gap-2">
+                <div key={p.id} className="flex items-start gap-2">
                   <Checkbox
                     id={`st-plugin-${p.id}`}
+                    className="mt-0.5"
                     checked={!disabledPlugins.includes(p.id)}
                     onCheckedChange={() => onTogglePlugin?.(p.id)}
                   />
-                  <Label
-                    htmlFor={`st-plugin-${p.id}`}
-                    className="cursor-pointer text-sm font-normal"
-                  >
-                    {p.name}
-                  </Label>
+                  <div className="flex flex-col">
+                    <Label
+                      htmlFor={`st-plugin-${p.id}`}
+                      className="cursor-pointer text-sm font-normal"
+                    >
+                      {p.name}
+                    </Label>
+                    {p.description && (
+                      <span className="text-xs text-muted-foreground">{p.description}</span>
+                    )}
+                  </div>
                 </div>
               ))}
               {plugins.length === 0 && (

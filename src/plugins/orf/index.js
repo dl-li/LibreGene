@@ -24,6 +24,8 @@ export async function findOrfs(minAa = MIN_AA) {
 export default {
   id: 'orf',
   name: 'Show ORFs',
+  description: 'Scan both strands for start→stop open reading frames',
+  version: '1.0.0',
   dialogKey: null,
   // DNA-only: ORF scanning (both strands, genetic code) is meaningless for
   // rna/protein projects.

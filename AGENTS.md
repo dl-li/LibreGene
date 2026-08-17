@@ -44,11 +44,11 @@ LibreGene/
 │   ├── searchUtils.js          # IUPAC 模糊搜索引擎（查询含核苷酸字母表外字符时按肽段展开为简并密码子）
 │   ├── EditorNavMenu.jsx       # 底部悬浮导航菜单（编辑/特征/引物/酶切/比对/搜索）
 │   ├── *Dialog.jsx             # 各弹窗（特征/序列编辑/新建序列/引物比对等）
-│   ├── plugins/                # 插件系统：index.js 注册表 { id, name, dialogKey, sidebarItems, dialog }
+│   ├── plugins/                # 插件系统：index.js 注册表 { id, name, description, version, dialogKey, dnaOnly, rnaOnly, sidebarItems, dialog, navMenuOnly }
 │   │   ├── alignment/          # 序列比对（管理弹窗 + 文本新增弹窗）
 │   │   ├── orf/                # ORF 搜索（引擎在 Rust `find_orfs`，ORF 以 orf:true 虚拟 CDS 注入，仅展示不落盘）
-│   │   ├── primerDesign/       # 引物设计（引擎 `design_primer_candidates`；由 EditorNavMenu 直接接线，不走注册表）
-│   │   ├── rnaFold/            # RNA 二级结构预测（ribossfold-wasm 前端 WASM 折叠 + fornac 力图渲染，均动态 import；rnaOnly）
+│   │   ├── primerDesign/       # 引物设计（引擎 `design_primer_candidates`；navMenuOnly 半插件：选区交互由 SequenceEditor/EditorNavMenu 直接接线，注册表仅提供元数据与禁用开关）
+│   │   ├── rnaFold/            # RNA 二级结构预测（ribossfold-wasm 前端 WASM 折叠 + fornac 力图渲染，均动态 import；rnaOnly；navMenuOnly：入口为导航栏 Folding 按钮）
 │   │   └── codonOptimization/  # 密码子优化（引擎 `codon.rs`，三命令封装在 tauriApi.js）
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库
@@ -91,6 +91,7 @@ LibreGene/
 - 所有 JSON 字段使用 camelCase（Rust 端 serde `rename_all = "camelCase"`）
 - `EMPTY_ARRAY = []` 作为共享空数组引用；引用类型用 `useRef` 保持跨渲染引用稳定
 - 操作计数器 `operationGenRef` + `switchGenRef` 防止异步请求交叉污染
+- **插件机制（设计决策）**：插件为编译期静态注册表（`src/plugins/index.js`），刻意不做运行时动态加载/单文件分发——插件引擎在 Rust 内核，有意义的扩展总要随本体发布；外部自动化扩展走 MCP。新插件以合入主线的方式添加，须进注册表并在设置页可禁用（localStorage `disabledPlugins`，SettingsPage 勾选框）。禁用时 sidebar 项、注册表 dialog 及 nav 菜单入口都要消失；`navMenuOnly` 插件（如 primerDesign）由直接接线方自行读取禁用状态门控。
 
 #### Constants（editorConstants.js）
 
