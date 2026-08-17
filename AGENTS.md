@@ -192,7 +192,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 
 - **ROI**：`set_roi`/`clear_roi` 只有 Tauri command，属 UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
-- **质粒图视图**：纯渲染
+- **质粒图视图**：纯渲染（弹窗内交互选区除外）；Map 弹窗底部 "Show as Background" 开关可把图谱作为不可交互水印叠加到 SequenceEditor（fixed 层、opacity 0.1、pointer-events none，实时跟随选区/编辑；全局持久化在 localStorage `mapWatermark`，跨项目/重启生效，MCP 无需适配）
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 侧只有序列搜索
 - **多窗口管理**：Agent 用 `activate_project` 切换即可
 - **视图/布局设置**（layoutParams、show* 开关、酶切过滤器）：渲染层状态

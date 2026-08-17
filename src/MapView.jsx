@@ -678,6 +678,8 @@ export default function MapView({
   onClear,
   onFeatureOpen,
   moleculeType = 'dna',
+  watermark = false,
+  onToggleWatermark,
 }) {
   const [forceView, setForceView] = useState(null); // null = follow topology
   const view = forceView ?? topology;
@@ -724,27 +726,49 @@ export default function MapView({
                 ? 'Circular'
                 : 'Linear'}
           </span>
-          <button
-            role="switch"
-            aria-checked={view === 'linear'}
-            onClick={() => setForceView(view === 'circular' ? 'linear' : 'circular')}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            title={view === 'circular' ? 'Switch to linear view' : 'Switch to circular view'}
-          >
-            <span>Circular</span>
-            <span
-              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-                view === 'linear' ? 'bg-primary' : 'bg-input'
-              }`}
+          <div className="flex items-center gap-4">
+            <button
+              role="switch"
+              aria-checked={watermark}
+              onClick={() => onToggleWatermark?.()}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              title="Show the map as a watermark behind the sequence editor"
             >
               <span
-                className={`inline-block size-3 rounded-full bg-background shadow transition-transform ${
-                  view === 'linear' ? 'translate-x-3.5' : 'translate-x-0.5'
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                  watermark ? 'bg-primary' : 'bg-input'
                 }`}
-              />
-            </span>
-            <span>Linear</span>
-          </button>
+              >
+                <span
+                  className={`inline-block size-3 rounded-full bg-background shadow transition-transform ${
+                    watermark ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+              <span>Show as Background</span>
+            </button>
+            <button
+              role="switch"
+              aria-checked={view === 'linear'}
+              onClick={() => setForceView(view === 'circular' ? 'linear' : 'circular')}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              title={view === 'circular' ? 'Switch to linear view' : 'Switch to circular view'}
+            >
+              <span>Circular</span>
+              <span
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                  view === 'linear' ? 'bg-primary' : 'bg-input'
+                }`}
+              >
+                <span
+                  className={`inline-block size-3 rounded-full bg-background shadow transition-transform ${
+                    view === 'linear' ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+              <span>Linear</span>
+            </button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
