@@ -11,7 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InlineNotice } from '@/components/ui/notice';
-import { LoaderCircle, ScanSearch, AlertTriangle, Map as MapIcon, Table as TableIcon } from 'lucide-react';
+import {
+  LoaderCircle,
+  ScanSearch,
+  AlertTriangle,
+  Map as MapIcon,
+  Table as TableIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateSequenceText } from './tauriApi';
 import { CircularMap, LinearMap } from './MapView';

@@ -32,7 +32,15 @@ function PrimerArrow({ x5, x3, y, color, tailLen = 0, barbUp = true }) {
 
 function PrimerLabel({ x, y, anchor, color, children }) {
   return (
-    <text x={x} y={y} fontSize="9" fontWeight="600" fontStyle="italic" fill={color} textAnchor={anchor}>
+    <text
+      x={x}
+      y={y}
+      fontSize="9"
+      fontWeight="600"
+      fontStyle="italic"
+      fill={color}
+      textAnchor={anchor}
+    >
       {children}
     </text>
   );

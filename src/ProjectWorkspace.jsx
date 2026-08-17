@@ -1301,13 +1301,9 @@ export default function ProjectWorkspace({
               onToggleFeatures={onToggleFeatures}
               alwaysExpandFeatures={alwaysExpandFeatures}
               onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
-              showOrfs={
-                isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined
-              }
+              showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}
               onToggleOrfs={
-                isDna && !disabledPlugins.includes('orf')
-                  ? () => setShowOrfs((v) => !v)
-                  : undefined
+                isDna && !disabledPlugins.includes('orf') ? () => setShowOrfs((v) => !v) : undefined
               }
               showPrimers={showPrimers}
               onTogglePrimers={onTogglePrimers}

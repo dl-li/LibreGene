@@ -27,10 +27,7 @@ export default function RnaFoldDialog({ open, onOpenChange, sequence }) {
       .finally(() => setBusy(false));
   }, [open, sequence]);
 
-  const pairCount = useMemo(
-    () => (result ? countPairs(result.structure) : 0),
-    [result],
-  );
+  const pairCount = useMemo(() => (result ? countPairs(result.structure) : 0), [result]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
