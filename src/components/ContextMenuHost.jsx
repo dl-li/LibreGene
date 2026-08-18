@@ -1,14 +1,16 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { RotateCw } from 'lucide-react';
+import { RotateCw, TriangleAlert } from 'lucide-react';
 import { CONTEXT_MENU_EVENT } from '@/contextMenu';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 // 开发调试用：每个菜单末尾固定附带 Reload
-const RELOAD_ITEM = { icon: RotateCw, label: 'Reload', onSelect: () => window.location.reload() };
+const RELOAD_ITEM = { icon: RotateCw, label: 'Reload', danger: true, reload: true };
 
 export default function ContextMenuHost() {
   const [menu, setMenu] = useState(null); // { x, y, items }
   const [pos, setPos] = useState(null);
+  const [confirmReload, setConfirmReload] = useState(false);
   const menuRef = useRef(null);
 
   const close = useCallback(() => setMenu(null), []);
@@ -70,46 +72,79 @@ export default function ContextMenuHost() {
     });
   }, [menu]);
 
-  if (!menu) return null;
+  if (!menu && !confirmReload) return null;
 
-  const items = [...menu.items];
+  const items = menu ? [...menu.items] : [];
   if (items.length) items.push({ type: 'separator' });
-  items.push(RELOAD_ITEM);
+  if (menu) items.push(RELOAD_ITEM);
 
   return (
-    <div
-      ref={menuRef}
-      className="nav-menu-content fixed z-[100] min-w-[11rem] rounded-lg border border-border/60 bg-popover p-1 text-popover-foreground shadow-lg"
-      style={{
-        left: pos?.x ?? menu.x,
-        top: pos?.y ?? menu.y,
-        visibility: pos ? 'visible' : 'hidden',
-      }}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {items.map((item, i) =>
-        item.type === 'separator' ? (
-          <div key={i} className="-mx-1 my-1 h-px bg-border/60" />
-        ) : (
-          <button
-            key={i}
-            type="button"
-            disabled={item.disabled}
-            className={cn(
-              'flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4 [&_svg]:shrink-0',
-              item.bold && 'font-bold',
-              item.danger && 'text-destructive',
-            )}
-            onClick={() => {
-              close();
-              item.onSelect?.();
-            }}
-          >
-            {item.icon && <item.icon />}
-            <span>{item.label}</span>
-          </button>
-        ),
+    <>
+      {menu && (
+        <div
+          ref={menuRef}
+          className="nav-menu-content fixed z-[100] min-w-[11rem] rounded-lg border border-border/60 bg-popover p-1 text-popover-foreground shadow-lg"
+          style={{
+            left: pos?.x ?? menu.x,
+            top: pos?.y ?? menu.y,
+            visibility: pos ? 'visible' : 'hidden',
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {items.map((item, i) =>
+            item.type === 'separator' ? (
+              <div key={i} className="-mx-1 my-1 h-px bg-border/60" />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                disabled={item.disabled}
+                className={cn(
+                  'flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4 [&_svg]:shrink-0',
+                  item.bold && 'font-bold',
+                  item.danger && 'text-destructive',
+                )}
+                onClick={() => {
+                  close();
+                  if (item.reload) {
+                    setConfirmReload(true);
+                    return;
+                  }
+                  item.onSelect?.();
+                }}
+              >
+                {item.icon && <item.icon />}
+                <span>{item.label}</span>
+              </button>
+            ),
+          )}
+        </div>
       )}
-    </div>
+      {confirmReload && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+          <div className="mx-4 max-w-sm rounded-xl border bg-card p-5 shadow-2xl">
+            <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
+              <TriangleAlert className="size-4 text-amber-500" />
+              Reload the app?
+            </div>
+            <div className="mb-4 text-xs text-muted-foreground">
+              Unsaved changes will be lost. Make sure you have saved your work before reloading.
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmReload(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => window.location.reload()}
+              >
+                Reload
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
