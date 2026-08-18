@@ -1309,8 +1309,15 @@ fn resolve_export_region(
 /// reverse-complemented per piece when `flip`) and the features overlapping
 /// the pieces with coordinates translated to the new linear coordinate
 /// system (strand flipped when `flip`). A feature-mode export's own feature
-/// naturally lands on the full [0, len-1] span.
-fn build_export_data(project: &ProjectData, pieces: &[(i64, i64)], flip: bool) -> (String, Vec<Feature>) {
+/// naturally lands on the full [0, len-1] span. Primers come along when
+/// their primary binding site (binding_sites[0]) overlaps the pieces at all;
+/// the site is clipped/translated like a feature span and reopening the
+/// exported file recomputes exact sites anyway.
+fn build_export_data(
+    project: &ProjectData,
+    pieces: &[(i64, i64)],
+    flip: bool,
+) -> (String, Vec<Feature>, Vec<Primer>) {
     let mut sequence = String::new();
     let mut windows: Vec<(i64, i64)> = Vec::with_capacity(pieces.len());
     let mut off: i64 = 0;
@@ -1383,7 +1390,48 @@ fn build_export_data(project: &ProjectData, pieces: &[(i64, i64)], flip: bool) -
             qualifiers: f.qualifiers.clone(),
         });
     }
-    (sequence.to_ascii_uppercase(), features)
+    let mut primers: Vec<Primer> = Vec::new();
+    for p in &project.primers {
+        let Some(site) = p.binding_sites.first() else {
+            continue;
+        };
+        let ss = site.template_start;
+        let se = site.template_end - 1;
+        let mut best: Option<(i64, i64)> = None;
+        for (pi, &(ps, pe)) in pieces.iter().enumerate() {
+            let (wo, _) = windows[pi];
+            let os = ss.max(ps);
+            let oe = se.min(pe);
+            if os > oe {
+                continue;
+            }
+            let (ns, ne) = if flip {
+                (wo + (pe - oe), wo + (pe - os))
+            } else {
+                (wo + (os - ps), wo + (oe - ps))
+            };
+            let replace = match best {
+                None => true,
+                Some((bs, be)) => ne - ns > be - bs,
+            };
+            if replace {
+                best = Some((ns, ne));
+            }
+        }
+        let Some((ns, ne)) = best else {
+            continue;
+        };
+        let mut site = site.clone();
+        site.template_start = ns;
+        site.template_end = ne + 1;
+        if flip {
+            site.strand = -site.strand;
+        }
+        let mut np = p.clone();
+        np.binding_sites = vec![site];
+        primers.push(np);
+    }
+    (sequence.to_ascii_uppercase(), features, primers)
 }
 
 /// Sort spans ascending and merge overlapping/touching ones.
@@ -1786,7 +1834,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `strand` parameter sets the insertion direction: "+" (default) inserts
     /// the replacement exactly as given; "-" reverse-complements it first
     /// (e.g. when the source sequence is oriented on the opposite strand) —
-    /// DNA projects only, rejected on RNA/protein projects. Feature coordinates are shifted/clipped
+    /// DNA projects only, rejected on RNA/protein projects. When the
+    /// replacement comes from `replacement_path` and that file carries
+    /// annotations, they travel with the sequence: features are clipped to the
+    /// inserted span and rebased onto it (mirrored and strand-flipped when
+    /// strand="-"), and primers (DNA projects only) are added with binding
+    /// sites recomputed; names colliding with existing features/primers get a
+    /// " (2)" suffix. Feature coordinates are shifted/clipped
     /// for the edit (features fully inside a deleted range are removed). When
     /// `expected_old` is given it must match the current [start..end] content
     /// case-insensitively or the edit is rejected with the actual content. Uses
@@ -1797,7 +1851,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// fully inside the deleted/replaced span ({name, ftype, location} with
     /// the pre-edit 0-based "start..end"); clipped lists features whose
     /// coordinates changed other than a pure translation ({name, ftype,
-    /// before, after} as {start, end}). On protein projects the replacement is
+    /// before, after} as {start, end}). `transferredFeatures`/
+    /// `transferredPrimers` list annotation names brought in by
+    /// `replacement_path` (omitted when none). On protein projects the replacement is
     /// uppercased and must be amino-acid letters (A-Z, optional trailing '*'
     /// stop codon); lengths are reported in aa (nt for RNA, bp for DNA).
     #[tool]
@@ -1829,7 +1885,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             )));
         }
 
-        let replacement = match (request.replacement, request.replacement_path) {
+        let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path) {
             (Some(_), Some(_)) => {
                 return Ok(Json(fail_envelope(
                     &id,
@@ -1844,7 +1900,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         .to_string(),
                 )));
             }
-            (Some(s), None) => s,
+            (Some(s), None) => (s, None),
             (None, Some(path)) => {
                 crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
                     ErrorData::internal_error(format!("invalid replacement_path: {}", e), None)
@@ -1855,7 +1911,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .await
                 .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
                 match parsed {
-                    Ok(data) => data.sequence,
+                    // Annotations travel with the sequence: features/primers
+                    // from the file land on the inserted region below.
+                    Ok(data) => (
+                        data.sequence,
+                        Some((data.features, data.primers)),
+                    ),
                     Err(e) => {
                         return Ok(Json(fail_envelope(
                             &id,
@@ -1984,6 +2045,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // Shift/clip features for the edit before the sequence swap: the
         // update_sequence core never touches feature coordinates (the frontend
         // adjusts them client-side), so the MCP path must do it here.
+        let mut transferred_feature_names: Vec<String> = Vec::new();
+        let mut transferred_primer_names: Vec<String> = Vec::new();
         {
             let mut pm = self.pm.write().await;
             if let Some(p) = pm.get_project_mut_by_id(&id) {
@@ -1993,6 +2056,37 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     end,
                     replacement.len() as i64,
                 );
+                if let Some((feats, primers)) = parsed_annotations {
+                    // revcomp/uppercase preserve length, so replacement.len()
+                    // is the local coordinate space of the parsed annotations.
+                    let repl_len = replacement.len() as i64;
+                    let mut transferred = libregene_core::utils::transfer_features_for_insert(
+                        &feats, repl_len, start, reverse,
+                    );
+                    let mut taken: std::collections::HashSet<String> = p
+                        .features
+                        .iter()
+                        .map(|f| f.name.clone())
+                        .chain(p.primers.iter().map(|pr| pr.name.clone()))
+                        .collect();
+                    for f in &mut transferred {
+                        f.name = libregene_core::utils::unique_name(&f.name, &taken);
+                        taken.insert(f.name.clone());
+                    }
+                    transferred_feature_names =
+                        transferred.iter().map(|f| f.name.clone()).collect();
+                    p.features.extend(transferred);
+                    if p.is_dna() {
+                        for mut pr in primers {
+                            pr.name = libregene_core::utils::unique_name(&pr.name, &taken);
+                            taken.insert(pr.name.clone());
+                            pr.id = pr.name.clone();
+                            pr.binding_sites = Vec::new();
+                            transferred_primer_names.push(pr.name.clone());
+                            p.primers.push(pr);
+                        }
+                    }
+                }
             }
         }
 
@@ -2040,6 +2134,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "clippedFeatures": serde_json::to_value(&impact.clipped_features)
                 .unwrap_or_else(|_| serde_json::json!([])),
         });
+        if !transferred_feature_names.is_empty() {
+            v["transferredFeatures"] = serde_json::json!(transferred_feature_names);
+        }
+        if !transferred_primer_names.is_empty() {
+            v["transferredPrimers"] = serde_json::json!(transferred_primer_names);
+        }
         if let Some(rv) = old_region {
             v["regionViewBefore"] = serde_json::json!(rv);
         }
@@ -2962,8 +3062,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// edit_sequence/other tools to build a new construct — export the range
     /// instead (pasted sequences are error-prone). The file holds the region's sequence
     /// (uppercase; template strand except as noted) plus every feature
-    /// overlapping it with coordinates translated to the new linear
-    /// coordinate system; circular projects always export linear fragments.
+    /// overlapping it (partially covered features are clipped to the region)
+    /// with coordinates translated to the new linear
+    /// coordinate system, and every primer whose primary binding site
+    /// overlaps the region at all; circular projects always export linear fragments.
     ///
     /// `project_id` defaults to the active project. `output_path` is required
     /// — .gbk/.gb/.genbank for DNA/RNA projects, .gpt for protein projects
@@ -3000,8 +3102,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   (0-based inclusive) — the PCR product's top strand. A primer that
     ///   does not bind the strand its role needs is an error.
     ///
-    /// Returns {ok, message, projectId, outputPath, length, regionView?}.
-    /// `length` is the exported sequence length (bp/nt/aa); `regionView` is
+    /// Returns {ok, message, projectId, outputPath, length, primers?,
+    /// regionView?}.
+    /// `length` is the exported sequence length (bp/nt/aa); `primers` lists
+    /// the names of primers written with the file (omitted when none);
+    /// `regionView` is
     /// a compact digest of the source project over the exported region's
     /// bounding box. The exported sequence itself is NOT echoed — read it
     /// back with open_file/read_sequence on the written file.
@@ -3037,18 +3142,23 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let out_name = output_project_name(&request.output_path);
         let path = request.output_path.clone();
         let message_path = path.clone();
-        let out_project = tokio::task::spawn_blocking(move || {
-            let (sequence, features) = build_export_data(&project, &pieces, flip);
+        let (out_project, primer_names) = tokio::task::spawn_blocking(move || {
+            let (sequence, features, primers) = build_export_data(&project, &pieces, flip);
+            let primer_names: Vec<String> = primers.iter().map(|p| p.name.clone()).collect();
             let length = sequence.len() as i64;
-            ProjectData {
-                name: out_name,
-                sequence,
-                length,
-                topology: "linear".to_string(),
-                molecule_type: project.molecule_type.clone(),
-                features,
-                ..Default::default()
-            }
+            (
+                ProjectData {
+                    name: out_name,
+                    sequence,
+                    length,
+                    topology: "linear".to_string(),
+                    molecule_type: project.molecule_type.clone(),
+                    features,
+                    primers,
+                    ..Default::default()
+                },
+                primer_names,
+            )
         })
         .await
         .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
@@ -3076,6 +3186,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         );
         v["outputPath"] = serde_json::json!(message_path);
         v["length"] = serde_json::json!(length);
+        if !primer_names.is_empty() {
+            v["primers"] = serde_json::json!(primer_names);
+        }
         Ok(Json(v))
     }
 }
@@ -4486,6 +4599,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn export_subsequence_exports_overlapping_primers() {
+        // Export region [200..299]. P_in fully inside, P_part overlapping the
+        // left edge, P_out fully outside → only P_in and P_part are written.
+        let seq = synthetic_dna(400, 23);
+        let mk = |name: &str, s: usize, e: usize| Primer {
+            id: name.to_string(),
+            name: name.to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: seq[s..e].to_string(),
+            binding_sites: Vec::new(),
+        };
+        let mut project = ProjectData {
+            name: "exp_primer_test".to_string(),
+            sequence: seq.clone(),
+            length: 400,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("f", "partial", 250, 350, "+")],
+            primers: vec![mk("P_in", 220, 240), mk("P_part", 190, 210), mk("P_out", 320, 340)],
+            ..Default::default()
+        };
+        libregene_core::primer::recompute(&mut project);
+        assert!(project.primers.iter().all(|p| !p.binding_sites.is_empty()));
+
+        // Direct mapping check: P_part's site clips to the overlap [200..209]
+        // → [0..9] in export coordinates (template_end exclusive).
+        let (_, _, primers) = build_export_data(&project, &[(200, 299)], false);
+        assert_eq!(
+            primers.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+            vec!["P_in", "P_part"]
+        );
+        let part = &primers.iter().find(|p| p.name == "P_part").unwrap().binding_sites[0];
+        assert_eq!((part.template_start, part.template_end), (0, 10));
+
+        let server = handler_with_project(project).await;
+        let dir =
+            std::env::temp_dir().join(format!("libregene-mcp-export-pr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out_path = dir.join("region.gbk");
+        let out = server
+            .export_subsequence(Parameters(ExportSubsequenceRequest {
+                start: Some(200),
+                end: Some(299),
+                output_path: out_path.to_string_lossy().into_owned(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(v["primers"], serde_json::json!(["P_in", "P_part"]));
+
+        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+        let mut names: Vec<&str> = parsed.primers.iter().map(|p| p.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["P_in", "P_part"]);
+        // partially covered feature is clipped to the region: 250..299 → 50..99
+        let f = parsed.features.iter().find(|f| f.name == "partial").unwrap();
+        assert_eq!((f.start, f.end), (50, 99));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
     async fn export_subsequence_protein_writes_gpt() {
         let aa = "MVSKGEEDNMAAEF".to_string();
         let project = ProjectData {
@@ -4702,6 +4878,108 @@ mod tests {
         assert_eq!((f.start, f.end), (50, 112));
         drop(pm);
         std::fs::remove_file(&fasta).ok();
+    }
+
+    /// Write a 60 bp fragment carrying a feature (10..29, "+"), a feature
+    /// named "gene" (0..5, clashes with the target's "gene") and a primer
+    /// binding 30..49; returns (dir, path).
+    fn write_annotated_insert() -> (std::path::PathBuf, std::path::PathBuf) {
+        let src_seq = synthetic_dna(60, 99);
+        let mut src = ProjectData {
+            name: "ann_src".to_string(),
+            sequence: src_seq.clone(),
+            length: 60,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![
+                feature("f", "ins_feat", 10, 29, "-"),
+                feature("f2", "gene", 0, 5, "+"),
+            ],
+            primers: vec![Primer {
+                id: "ins_primer".to_string(),
+                name: "ins_primer".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: src_seq[30..50].to_string(),
+                binding_sites: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        libregene_core::primer::recompute(&mut src);
+        let dir =
+            std::env::temp_dir().join(format!("libregene-mcp-edit-ann-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let gbk = dir.join("insert.gbk");
+        libregene_core::file_io::gbk::write_gbk(&src, &gbk).unwrap();
+        (dir, gbk)
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_transfers_annotations_from_gbk() {
+        let (dir, gbk) = write_annotated_insert();
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 60,
+                end: 59,
+                replacement_path: Some(gbk.to_string_lossy().into_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(
+            v["transferredFeatures"],
+            serde_json::json!(["ins_feat", "gene (2)"])
+        );
+        assert_eq!(v["transferredPrimers"], serde_json::json!(["ins_primer"]));
+
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(p.sequence.len(), 260);
+        let f = p.features.iter().find(|f| f.name == "ins_feat").unwrap();
+        assert_eq!((f.start, f.end), (70, 89));
+        // name clash with the target's "gene" → renamed, rebased to 60..65
+        let renamed = p.features.iter().find(|f| f.name == "gene (2)").unwrap();
+        assert_eq!((renamed.start, renamed.end), (60, 65));
+        let pr = p.primers.iter().find(|x| x.name == "ins_primer").unwrap();
+        assert!(!pr.binding_sites.is_empty(), "primer site recomputed");
+        let bs = &pr.binding_sites[0];
+        assert_eq!((bs.template_start, bs.template_end), (90, 110));
+        drop(pm);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_transfers_annotations_reverse_complemented() {
+        let (dir, gbk) = write_annotated_insert();
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 60,
+                end: 59,
+                replacement_path: Some(gbk.to_string_lossy().into_owned()),
+                strand: Some("-".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        // local [10..29] in a 60 bp insert mirrors to [30..49] → +60 offset,
+        // and the "-" strand survives the gbk round trip and flips to "+"
+        let f = p.features.iter().find(|f| f.name == "ins_feat").unwrap();
+        assert_eq!((f.start, f.end), (90, 109));
+        assert_eq!(f.strand, "+");
+        // the primer still binds (on the opposite strand) inside the insert
+        let pr = p.primers.iter().find(|x| x.name == "ins_primer").unwrap();
+        let bs = &pr.binding_sites[0];
+        assert_eq!(bs.strand, -1);
+        assert!(bs.template_start >= 60 && bs.template_end <= 120);
+        drop(pm);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

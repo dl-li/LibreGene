@@ -173,9 +173,9 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 已适配（功能 → MCP 工具）：
 
 - 项目/文件管理 → `open_file`（打开文件成为项目并返回 `projectId`，之后用 `project_id` 引用）、`save_file`、`close_project`、`activate_project`、`list_projects`。支持 gbk/gbf/gbff、dna/rna/prot、gpt/gp/gpe/gpff、fasta 变体（`.faa` 按蛋白）、ab1、`.seq` 嗅探；`save_file` 写 `.gbk/.gb/.gpt`（protein 项目写 gbk 报错提示用 `.gpt`）
-- 子序列导出 → `export_subsequence`（把项目一部分写成新文件，`output_path` 必填；四种互斥区间：① `start`+`end`（环状可绕原点），② `feature_id`（分段按 5'→3' 拼接，负链 rev-comp），③ `enzyme1`+`enzyme2` 或 `cut1`+`cut2`，④ `fwd_primer`+`rev_primer` 扩增子；导出文件含与区间重叠的特征，坐标平移；环状项目导出片段一律线性）
+- 子序列导出 → `export_subsequence`（把项目一部分写成新文件，`output_path` 必填；四种互斥区间：① `start`+`end`（环状可绕原点），② `feature_id`（分段按 5'→3' 拼接，负链 rev-comp），③ `enzyme1`+`enzyme2` 或 `cut1`+`cut2`，④ `fwd_primer`+`rev_primer` 扩增子；导出文件含与区间重叠的特征（部分覆盖的截断到区间），坐标平移；引物按「首要结合位点（binding_sites[0]，Tm 降序最优）与导出区域有任何重叠即导出」规则随文件写出（位点坐标同特征映射规则裁剪/平移/翻链，重新打开时重算修正），响应附 `primers` 名单；环状项目导出片段一律线性）
 - 序列读取 → `read_sequence`（文本标尺 + 机器可读 `sequence` 字段）、`get_project_overview`、`get_region_view`。digest 按 molecule_type 分支，非 DNA 项目不渲染 PRIMERS/ENZYMES/甲基化等节
-- 序列编辑 → `edit_sequence`（`replacement` 字符串或 `replacement_path` 文件互斥，空串=删除；`strand: "-"` 先将替换序列反向互补再插入，仅 DNA 项目；`expected_old` 乐观校验，失败返回差异索引与 ±20 bp 上下文；按 delta 平移/裁剪特征，恒返回 `removedFeatures`/`clippedFeatures` 回显副作用；protein 项目校验字母表 A-Z + 末尾可选 `*`）
+- 序列编辑 → `edit_sequence`（`replacement` 字符串或 `replacement_path` 文件互斥，空串=删除；`strand: "-"` 先将替换序列反向互补再插入，仅 DNA 项目；`replacement_path` 文件携带的特征/引物随序列一并转移：特征裁剪到插入区间后重基到插入点（strand "-" 时镜像+翻链+分段逆序，`transfer_features_for_insert`），引物仅 DNA 项目、位点由重算补齐；名称与既有特征/引物冲突时自动加 ` (2)` 后缀（`unique_name`）；响应附 `transferredFeatures`/`transferredPrimers` 名单；`expected_old` 乐观校验，失败返回差异索引与 ±20 bp 上下文；按 delta 平移/裁剪特征，恒返回 `removedFeatures`/`clippedFeatures` 回显副作用；protein 项目校验字母表 A-Z + 末尾可选 `*`）
 - 特征 → `add_feature`（恒返回 `featureId`）、`update_feature`（`feature_id` + 可选 name/ftype/color/strand/location 至少一项；location 为 GenBank 1-based 字符串）
 - 引物 → `add_primer`（返回重算后结合位点，名称冲突报错指明与引物还是特征冲突）、`list_primers`（只读）、`check_primer_binding`（返回全部结合位点：`bindingSiteCount` + Tm 降序 `sites` 数组（strand/templateStart/templateEnd/tm/annealLen/mismatchedTail），兼容字段 `site` = 最佳位点；`annealLen` 为 3' 端实际连续匹配长度，`binds=true` 仅代表 3' 退火核心结合；顶层 `tmBasis` 说明口径。查 Tm 也用它——单独的 compute_tm 已移除）
 - 引物设计 → `design_primers`（Amplify/OE-PCR/Mutagenesis；amplify 支持 `fwd_enzyme`/`rev_enzyme` 酶切尾巴 + `protect_bases`，恒返回 `internalSites`（非空附 warning）；mutagenesis 校验差异 ≤3 bp，返回 `mutation` 自检块含 CDS 密码子/氨基酸变化（支持 join 分段 CDS）；`design_primers` 与 `check_primer_binding` 的 annealLen/Tm 口径不同：design 只算设计退火区，check 算 3' 端实际连续匹配，尾巴意外匹配模板时 check 值更高）
@@ -202,6 +202,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **`add_alignment` 的 createdSites**：未实现（需按差异重建编辑后序列并重扫酶库，语义复杂、价值有限）；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注前端弹窗**：MCP 经 `get_project_overview` 的 auto 节查看检测结果；批量落库需前端交互或逐特征 `add_feature`
 - **新建序列项目弹窗（`create_project`）**：MCP 侧可写临时序列文件 + `open_file` 实现同等效果
+- **复制粘贴标注迁移（`src/clipboardAnnotations.js`）**：复制选区/特征 (+) 链时把该子序列的特征（裁剪+重基到 0）与引物（首要结合位点有重叠即收，只存 name/type/primerSeq）打包成 meta，经 ClipboardItem 自定义 MIME `web application/x-libregene-annotations` 写入剪贴板（外部应用粘贴仍是纯文本），并写 localStorage `clipboardAnnotations` 兜底（WKWebView 自定义 MIME 不可靠；按粘贴文本与记录文本完全一致匹配）；粘贴时弹窗提示标注数量并可勾选不迁移，确认后特征随 `update_sequence` 合并落库、引物经 `addPrimers` 补入（名称冲突自动加 ` (2)` 后缀，位点重算）；antisense/translation/引物/amplimer 复制不携带标注，引物导入不进 undo 栈；纯前端交互，MCP 无需适配
 - **RNA 二级结构预测（rnaFold 插件）**：折叠在前端用 ribossfold-wasm 完成（WASM 无法走 Rust 内核），用户决定不暴露给 Agent
 - **系统文件关联打开（Open With / 双击 / 拖到 Dock）**：OS 集成；统一入 `pending_opens` 队列 + `file-opened` 事件，前端复用 `open_file`。Agent 直接用 `open_file` 即可
 

@@ -31,6 +31,8 @@ export default [
         WebSocket: 'readonly',
         localStorage: 'readonly',
         ResizeObserver: 'readonly',
+        ClipboardItem: 'readonly',
+        Blob: 'readonly',
       },
     },
     settings: {

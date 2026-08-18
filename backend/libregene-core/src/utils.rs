@@ -146,6 +146,98 @@ pub fn features_edit_impact(
     impact
 }
 
+/// Rebase features parsed from a replacement file onto the region they were
+/// inserted at: local coordinates `[0, insert_len)` become
+/// `[offset, offset + insert_len)` (0-based inclusive), clipped to the
+/// inserted span. With `reverse` (the replacement was reverse-complemented
+/// before insertion) coordinates are mirrored, strands flipped and segments
+/// reversed. Translations are dropped (recomputed downstream); ids are
+/// regenerated in the `name_start` convention to avoid collisions.
+pub fn transfer_features_for_insert(
+    features: &[crate::models::Feature],
+    insert_len: i64,
+    offset: i64,
+    reverse: bool,
+) -> Vec<crate::models::Feature> {
+    let map_span = |s: i64, e: i64| -> Option<(i64, i64)> {
+        let s = s.max(0);
+        let e = e.min(insert_len - 1);
+        if s > e {
+            return None;
+        }
+        let (s, e) = if reverse {
+            (insert_len - 1 - e, insert_len - 1 - s)
+        } else {
+            (s, e)
+        };
+        Some((s + offset, e + offset))
+    };
+    let flip_strand = |strand: &str| -> String {
+        match strand {
+            "+" => "-".to_string(),
+            "-" => "+".to_string(),
+            other => other.to_string(),
+        }
+    };
+
+    let mut out = Vec::new();
+    for f in features {
+        // (source color, mapped span) pairs, so per-segment colors survive
+        // clipping and reversal without fragile index math.
+        let mut mapped: Vec<(Option<String>, (i64, i64))> = if f.segments.is_empty() {
+            map_span(f.start, f.end)
+                .map(|span| (None, span))
+                .into_iter()
+                .collect()
+        } else {
+            f.segments
+                .iter()
+                .filter_map(|s| map_span(s.start, s.end).map(|span| (s.color.clone(), span)))
+                .collect()
+        };
+        if mapped.is_empty() {
+            continue;
+        }
+        if reverse {
+            mapped.reverse();
+        }
+        let mut nf = f.clone();
+        if f.segments.is_empty() {
+            nf.start = mapped[0].1 .0;
+            nf.end = mapped[0].1 .1;
+        } else {
+            nf.segments = mapped
+                .into_iter()
+                .map(|(color, (start, end))| crate::models::Segment { start, end, color })
+                .collect();
+            nf.start = nf.segments.iter().map(|s| s.start).min().unwrap();
+            nf.end = nf.segments.iter().map(|s| s.end).max().unwrap();
+        }
+        if reverse {
+            nf.strand = flip_strand(&f.strand);
+        }
+        nf.translation = String::new();
+        nf.id = format!("{}_{}", nf.name, nf.start);
+        out.push(nf);
+    }
+    out
+}
+
+/// Pick `desired`, or `desired (2)`, `desired (3)`, … when taken.
+pub fn unique_name(desired: &str, taken: &std::collections::HashSet<String>) -> String {
+    if !taken.contains(desired) {
+        return desired.to_string();
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("{} ({})", desired, n);
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,5 +434,56 @@ mod tests {
         let impact = features_edit_impact(&feats, 100, 99, 0);
         assert!(impact.removed_features.is_empty());
         assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn transfer_plain_offset() {
+        let feats = vec![
+            feat("gene", 10, 90, vec![]),
+            feat("outside", 500, 600, vec![]),
+        ];
+        let out = transfer_features_for_insert(&feats, 100, 1000, false);
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].start, out[0].end), (1010, 1090));
+        assert_eq!(out[0].id, "gene_1010");
+    }
+
+    #[test]
+    fn transfer_clips_to_insert_span() {
+        let feats = vec![feat("overhang", 90, 150, vec![])];
+        let out = transfer_features_for_insert(&feats, 100, 0, false);
+        assert_eq!((out[0].start, out[0].end), (90, 99));
+    }
+
+    #[test]
+    fn transfer_reverse_mirrors_and_flips() {
+        // 100 bp insert; feature [10..19] on "+" becomes [80..89] on "-".
+        let mut f = feat("gene", 10, 19, vec![]);
+        f.translation = "MKT".to_string();
+        let out = transfer_features_for_insert(&[f], 100, 1000, true);
+        assert_eq!((out[0].start, out[0].end), (1080, 1089));
+        assert_eq!(out[0].strand, "-");
+        assert!(out[0].translation.is_empty());
+    }
+
+    #[test]
+    fn transfer_reverse_reverses_segments() {
+        // seg colors must follow their segment through the reversal.
+        let mut f = feat("seg", 0, 99, vec![(0, 29), (70, 99)]);
+        f.segments[0].color = Some("#111111".to_string());
+        f.segments[1].color = Some("#222222".to_string());
+        let out = transfer_features_for_insert(&[f], 100, 0, true);
+        let spans: Vec<(i64, i64)> = out[0].segments.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(spans, vec![(0, 29), (70, 99)]);
+        assert_eq!(out[0].segments[0].color.as_deref(), Some("#222222"));
+        assert_eq!(out[0].segments[1].color.as_deref(), Some("#111111"));
+    }
+
+    #[test]
+    fn unique_name_appends_counter() {
+        let taken: std::collections::HashSet<String> =
+            ["gfp".to_string(), "gfp (2)".to_string()].into_iter().collect();
+        assert_eq!(unique_name("gfp", &taken), "gfp (3)");
+        assert_eq!(unique_name("rfp", &taken), "rfp");
     }
 }

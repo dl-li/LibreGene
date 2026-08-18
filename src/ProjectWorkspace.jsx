@@ -167,6 +167,7 @@ export default function ProjectWorkspace({
     selEnd: null,
     selectedText: '',
     initialText: '',
+    clipboardMeta: null,
   });
   const [restoreState, setRestoreState] = useState({
     version: 0,
@@ -487,6 +488,7 @@ export default function ProjectWorkspace({
       selEnd: request.selEnd ?? null,
       selectedText: request.selectedText ?? '',
       initialText: request.clipboardText ?? '',
+      clipboardMeta: request.clipboardMeta ?? null,
     });
   }, []);
 
@@ -1000,7 +1002,7 @@ export default function ProjectWorkspace({
       setEditDialog((prev) => ({ ...prev, open: false }));
 
       // Compute adjusted features BEFORE backend call (for history and optimistic update)
-      const adjustedFeatures = adjustAnnotations(
+      let adjustedFeatures = adjustAnnotations(
         features || EMPTY_ARRAY,
         editStart,
         editEnd,
@@ -1008,10 +1010,44 @@ export default function ProjectWorkspace({
         newLen,
       );
 
+      // Merge annotation features from clipboard
+      const annotations = result.annotations;
+      let mergedFeatures = adjustedFeatures;
+      if (annotations && annotations.features && annotations.features.length > 0) {
+        const insertAnchor = mode === 'insert' ? cursorIndex : selStart;
+        const existingNames = new Set(adjustedFeatures.map((f) => f.name));
+        const newFeats = annotations.features.map((af, i) => {
+          let name = af.name;
+          if (existingNames.has(name)) {
+            let n = 2;
+            while (existingNames.has(`${name} (${n})`)) n++;
+            name = `${name} (${n})`;
+          }
+          existingNames.add(name);
+          const segs = af.segments.map((s) => ({
+            start: insertAnchor + s.start,
+            end: insertAnchor + s.end,
+          }));
+          return {
+            id: `feature_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            ftype: af.ftype,
+            color: af.color,
+            strand: af.strand,
+            notes: af.notes,
+            qualifiers: af.qualifiers,
+            start: segs[0].start,
+            end: segs[segs.length - 1].end,
+            segments: segs,
+          };
+        });
+        mergedFeatures = [...adjustedFeatures, ...newFeats];
+      }
+
       // Push new state to undo history (includes adjusted features for correct undo)
       editHistoryRef.current.push({
         sequence: newSeq,
-        features: adjustedFeatures,
+        features: mergedFeatures,
         cursorIndex,
         selStart: mode === 'insert' ? null : selStart,
         selEnd: mode === 'insert' ? null : selEnd,
@@ -1019,20 +1055,48 @@ export default function ProjectWorkspace({
 
       // Optimistic UI update
       setSequence(newSeq);
-      setFeatures(adjustedFeatures);
+      setFeatures(mergedFeatures);
       setIsDirty(true);
 
       // Send to backend for recomputation (enzymes, primer binding sites)
       try {
-        const data = await updateSequence(newSeq, adjustedFeatures);
+        const data = await updateSequence(newSeq, mergedFeatures);
         if (operationGenRef.current !== gen) return;
         if (data && !data.error) {
           setSequence(data.sequence);
-          setFeatures(data.features || adjustedFeatures); // backend recomputed CDS/mRNA translations
+          setFeatures(data.features || mergedFeatures); // backend recomputed CDS/mRNA translations
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
           setAlignments(data.alignments || EMPTY_ARRAY);
           if (data.projects) onProjectsSync(data.projects);
+
+          // Import primers from clipboard annotations (DNA only)
+          if (annotations && annotations.primers && annotations.primers.length > 0 && isDna) {
+            const allNames = new Set([
+              ...(data.primers || []).map((p) => p.name),
+              ...(data.features || mergedFeatures).map((f) => f.name),
+            ]);
+            const primerImports = annotations.primers.map((ap) => {
+              let name = ap.name;
+              if (allNames.has(name)) {
+                let n = 2;
+                while (allNames.has(`${name} (${n})`)) n++;
+                name = `${name} (${n})`;
+              }
+              allNames.add(name);
+              return { name, type: ap.type, primerSeq: ap.primerSeq };
+            });
+            try {
+              const pData = await addPrimers(primerImports);
+              if (operationGenRef.current !== gen) return;
+              if (pData && pData.primers) {
+                setPrimers(pData.primers);
+                setIsDirty(true);
+              }
+            } catch (pe) {
+              console.error('import primers error:', pe);
+            }
+          }
         } else {
           console.error('update_sequence error:', data?.error || 'unknown');
           // Re-fetch to recover from optimistic update
@@ -1053,7 +1117,7 @@ export default function ProjectWorkspace({
         console.error('update_sequence exception:', e);
       }
     },
-    [sequence, editDialog, adjustAnnotations, features, onProjectsSync],
+    [sequence, editDialog, adjustAnnotations, features, onProjectsSync, isDna],
   );
 
   // --- Edit dialog cancelled ---
@@ -1512,6 +1576,7 @@ export default function ProjectWorkspace({
         onConfirm={handleEditConfirm}
         onCancel={handleEditCancel}
         moleculeType={moleculeType}
+        clipboardMeta={editDialog.clipboardMeta}
       />
     </div>
   );
