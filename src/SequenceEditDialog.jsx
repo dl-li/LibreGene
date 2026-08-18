@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { InlineNotice } from '@/components/ui/notice';
 import { Repeat } from 'lucide-react';
 
 // IUPAC 互补碱基对照表（含简并碱基）
@@ -129,6 +130,22 @@ export default function SequenceEditDialog({
   const deleteLen =
     mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0;
   const netChange = mode === 'replace' ? insertLen - deleteLen : 0;
+
+  // DNA 序列混入 U / RNA 序列混入 T 时提醒，并提供一键转换（保持大小写）
+  const wrongBase =
+    moleculeType === 'dna' ? ['U', 'T'] : moleculeType === 'rna' ? ['T', 'U'] : null;
+  const wrongCount = wrongBase
+    ? (cleaned.match(new RegExp(wrongBase[0], 'gi')) || []).length
+    : 0;
+  const convertWrongBase = () => {
+    if (!wrongBase) return;
+    const [from, to] = wrongBase;
+    setInputText(
+      inputText.replace(new RegExp(from, 'gi'), (c) =>
+        c === from.toLowerCase() ? to.toLowerCase() : to,
+      ),
+    );
+  };
 
   // 可提交条件：非删除模式需要内容不为空（输入已被过滤为纯字母）
   const canConfirm = mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0);
@@ -264,6 +281,22 @@ export default function SequenceEditDialog({
               </>
             )}
           </div>
+
+          {/* U/T 混入提醒 */}
+          {wrongCount > 0 && wrongBase && (
+            <InlineNotice tone="warning">
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  {moleculeType === 'dna'
+                    ? `DNA sequences use T, not U — found ${wrongCount} U${wrongCount !== 1 ? 's' : ''}.`
+                    : `RNA sequences use U, not T — found ${wrongCount} T${wrongCount !== 1 ? 's' : ''}.`}
+                </span>
+                <Button variant="outline" size="sm" className="shrink-0" onClick={convertWrongBase}>
+                  {wrongBase[0]} → {wrongBase[1]}
+                </Button>
+              </div>
+            </InlineNotice>
+          )}
 
           {/* Clipboard annotation info */}
           {clipboardMeta && (
