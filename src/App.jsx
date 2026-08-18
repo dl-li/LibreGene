@@ -601,6 +601,9 @@ export default function App() {
 
   // Recent group is collapsible (default collapsed); already-open files are hidden from it
   const [recentOpen, setRecentOpen] = useState(false);
+  useEffect(() => {
+    if (!sidebarHover) setRecentOpen(false);
+  }, [sidebarHover]);
   const visibleRecent = recentFiles.filter((p) => !projects.some((pr) => pr.id === p));
 
   const isProjectWindow = windowInfo?.type === 'project';
@@ -675,7 +678,7 @@ export default function App() {
       variant="sidebar"
       className="pt-10 transition-[width] duration-300 ease-out"
     >
-      <SidebarHeader className="flex flex-row items-center gap-2.5 px-3 pb-2 pt-1.5 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0">
+      <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-3 pb-2 pt-1.5">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
           <div className="relative size-5">
             <svg viewBox="0 0 24 24" className="absolute inset-0 size-5">
@@ -692,7 +695,7 @@ export default function App() {
             <LoaderCircle className="relative size-5 text-white" />
           </div>
         </div>
-        <div className="flex min-w-0 flex-col group-data-[state=collapsed]:hidden">
+        <div className="flex min-w-0 flex-col whitespace-nowrap group-data-[state=collapsed]:hidden">
           <span className="text-[13px] font-semibold leading-tight tracking-tight text-foreground">
             LibreGene
           </span>
@@ -710,11 +713,7 @@ export default function App() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => setNewSeqOpen(true)}
-                  tooltip="New File"
-                  className="border border-dashed border-sidebar-border text-muted-foreground hover:border-primary/40 hover:text-primary"
-                >
+                <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
                   <FilePlus2 className="size-4" />
                   <span>New File…</span>
                 </SidebarMenuButton>
