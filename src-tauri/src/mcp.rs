@@ -105,11 +105,16 @@ struct EditSequenceRequest {
     start: i64,
     end: i64,
     /// Replacement sequence as a plain string (empty = delete). Exactly one
-    /// of `replacement` / `replacement_path` must be given.
+    /// of `replacement` / `replacement_path` must be given. Use this ONLY for
+    /// short hand-authored edits (point mutations, short oligo-length
+    /// inserts); for anything longer or taken from an existing file or open
+    /// project, use `replacement_path` instead (export the region first with
+    /// export_subsequence if needed) — pasted long sequences are error-prone.
     replacement: Option<String>,
-    /// Read the replacement sequence from a local file instead of a string
+    /// PREFERRED input: read the replacement sequence from a local file
     /// (.gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc., same formats as
-    /// open_file) — the recommended way to hand a long insert to this tool.
+    /// open_file). A file cannot be mistyped or truncated, so use it whenever
+    /// the sequence exists on disk.
     replacement_path: Option<String>,
     expected_old: Option<String>,
 }
@@ -124,15 +129,18 @@ struct OptimizeCdsRequest {
     feature_id: Option<String>,
     /// Standalone mode: raw DNA coding sequence text (whitespace/digits
     /// ignored, ACGT only, length divisible by 3; a trailing stop codon is
-    /// fine).
+    /// fine). Use ONLY for short hand-authored sequences; for anything from a
+    /// file or an open project use `input_path` (export regions first with
+    /// export_subsequence) — pasted long sequences are error-prone.
     sequence: Option<String>,
-    /// Standalone mode: local sequence file (.gbk/.gb/.genbank/.dna/.rna/
+    /// Standalone mode (PREFERRED for real sequences): local sequence file (.gbk/.gb/.genbank/.dna/.rna/
     /// .fasta/.fa/.fna/.ab1 — DNA) or protein file (.gpt/.prot — reverse
-    /// translation).
+    /// translation). A file cannot be mistyped or truncated.
     input_path: Option<String>,
     /// Optional: write the result to a file. .gbk/.gb/.genbank → DNA GenBank
     /// with the optimized CDS annotated; .gpt → protein GenBank of the
-    /// translated sequence.
+    /// translated sequence. PREFERRED way to collect the result — use the file
+    /// (open_file afterwards) rather than copying the `optimizedSequence` text.
     output_path: Option<String>,
     /// Species key from list_species (e.g. "e_coli", "h_sapiens").
     species: String,
@@ -179,6 +187,7 @@ struct AddPrimerRequest {
     name: String,
     #[serde(rename = "type")]
     r#type: String,
+    /// Primer sequence as plain text (short, ~20-60 nt — intended input form).
     seq: String,
 }
 
@@ -186,8 +195,13 @@ struct AddPrimerRequest {
 struct AddAlignmentRequest {
     project_id: Option<String>,
     name: String,
+    /// Read sequence as a plain string — short hand-authored reads only;
+    /// prefer `path` (a file cannot be mistyped or truncated).
     #[serde(alias = "seq")]
     bases: Option<String>,
+    /// PREFERRED input: read the sequence from a file (.gbk/.gb/.genbank,
+    /// .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1). If the read is a region of an
+    /// open project, export it first with export_subsequence.
     path: Option<String>,
 }
 
@@ -246,6 +260,7 @@ struct PrimerInput {
     name: String,
     #[serde(rename = "type")]
     r#type: String,
+    /// Primer sequence as plain text (short, ~20-60 nt — intended input form).
     seq: String,
 }
 
@@ -1462,6 +1477,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `text` is the same window with a coordinate ruler (10 bp groups, 60 bp
     /// per line). Coordinates are 0-based inclusive; on circular sequences
     /// start > end wraps the origin. Windows larger than 10000 bp are rejected.
+    /// This tool is for INSPECTING bases only: if you need to hand this
+    /// sequence (or part of it) to another tool or file, use
+    /// export_subsequence to write it to a file instead of copying the text.
     #[tool]
     async fn read_sequence(
         &self,
@@ -1642,7 +1660,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Open a sequence file and load it into the project manager as a new
     /// project (project id = file path; the returned `projectId` is how every
     /// other tool refers to it — see list_projects). This is the entry point
-    /// for handing a file to the app; files are also the recommended way to
+    /// for handing a file to the app: whenever a sequence already exists as a
+    /// file on disk, bring it in through this tool rather than pasting its
+    /// text into other tools. Files are also the recommended way to
     /// move a sequence between projects (write with save_file/export_subsequence,
     /// read back with open_file). Enzyme and primer recompute run on a
     /// background thread; the UI is refreshed via broadcast. Returns
@@ -1753,8 +1773,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// as a plain string (`replacement`) or read from a local sequence file
     /// (`replacement_path` — .gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc.,
     /// the same formats open_file accepts; exactly one of the two must be
-    /// given, and a file is the recommended way to hand a long insert to this
-    /// tool). Feature coordinates are shifted/clipped
+    /// given). PREFER `replacement_path`: a file cannot be mistyped or
+    /// truncated, so whenever the insert already exists as a file — or is a
+    /// region of an open project you can export first with export_subsequence —
+    /// use the file. Use the `replacement` string only for short hand-authored
+    /// edits (point mutations, short oligo-length inserts). Feature coordinates are shifted/clipped
     /// for the edit (features fully inside a deleted range are removed). When
     /// `expected_old` is given it must match the current [start..end] content
     /// case-insensitively or the edit is rejected with the actual content. Uses
@@ -2187,7 +2210,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Add a primer ("fwd" or "rev") and recompute its binding sites against
-    /// the template. Returns {ok, message, projectId, bindingSites, regionView}
+    /// the template. Primer sequences are short (~20-60 nt), so passing `seq`
+    /// as plain text is the intended input here — no file input needed.
+    /// Returns {ok, message, projectId, bindingSites, regionView}
     /// — bindingSites: [{strand, templateStart, templateEnd, tm, annealLen}].
     /// templateStart is 0-based inclusive, templateEnd 0-based EXCLUSIVE (the
     /// bound range spans templateStart..templateEnd-1). annealLen is the number
@@ -2266,9 +2291,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// alignment (never overwrites existing ones; ids are aln-1, aln-2, ...).
     /// Provide exactly one of:
     /// - `bases`: the read sequence as a plain string (whitespace/non-ACGT
-    ///   chars are stripped). For long reads prefer `path` — a file is the
-    ///   recommended way to hand a sequence to this tool.
-    /// - `path`: read the sequence from a file. Supported file types:
+    ///   chars are stripped). Use ONLY for short hand-authored reads; pasted
+    ///   long sequences are error-prone.
+    /// - `path` (PREFERRED): read the sequence from a file. If the read lives
+    ///   in a file, or is a region of an open project (export it first with
+    ///   export_subsequence), use this — a file cannot be mistyped or
+    ///   truncated. Supported file types:
     ///   `.gbk`/`.gb`/`.genbank` (GenBank), `.dna`/`.rna`/`.prot` (SnapGene
     ///   binary), `.gpt` (protein GenBank), `.fa`/`.fasta` (FASTA / plain
     ///   text sequence), `.ab1` (ABIF chromatogram; the basecalled PBAS
@@ -2660,8 +2688,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Check whether the given primers (each {name, type: "fwd"|"rev", seq})
-    /// can bind to a project's sequence, without persisting them. Same engine
-    /// as check_primers_binding. Returns {projectId, tmBasis, results: [{id,
+    /// can bind to a project's sequence, without persisting them. Primer
+    /// sequences are short (~20-60 nt), so plain text is the intended input
+    /// here. Same engine as check_primers_binding. Returns {projectId, tmBasis, results: [{id,
     /// binds, bindingSiteCount, site, sites}]}. `bindingSiteCount` is the
     /// number of binding sites (0 when the primer does not bind); `site` is
     /// the best one ({strand, templateStart, templateEnd, tm, annealLen,
@@ -2728,10 +2757,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   (amino acids are reverse-translated there).
     /// - `sequence`: raw DNA coding sequence text. Whitespace/digits are
     ///   ignored, letters must be A/C/G/T, length must be divisible by 3 (a
-    ///   trailing stop codon is fine). No project is involved. For long
-    ///   sequences prefer `input_path` (file) — the recommended way to pass a
-    ///   large sequence to this tool.
-    /// - `input_path`: local file parsed with file_io. DNA files (.gbk/.gb/
+    ///   trailing stop codon is fine). No project is involved. Use ONLY for
+    ///   short hand-authored coding sequences — pasted long sequences are
+    ///   error-prone, so whenever the sequence exists as a file use
+    ///   `input_path`, and when it is a region of an open project export it
+    ///   first with export_subsequence.
+    /// - `input_path` (PREFERRED for real sequences): local file parsed with file_io. DNA files (.gbk/.gb/
     ///   .genbank/.dna/.rna/.fasta/.fa/.fna/.ab1): with `feature_id` the
     ///   file's CDS/mRNA feature is optimized (the written sequence carries
     ///   the full file sequence with that CDS replaced); without `feature_id`
@@ -2750,7 +2781,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `output_path` (any input mode, optional): writes the result to a file
     /// — .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated,
     /// .gpt → protein GenBank of the translated sequence; other extensions
-    /// are rejected. `apply=true` is only meaningful in project mode: in
+    /// are rejected. PREFER writing the result to a file (and open_file it
+    /// afterwards) over reading the `optimizedSequence` text — sequences move
+    /// between tools as files, not pasted text. `apply=true` is only meaningful in project mode: in
     /// sequence/input_path mode it requires `output_path` (there is no
     /// project to update).
     #[tool]
@@ -2886,10 +2919,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
     }
 
-    /// Export a subsequence of a project to a new file (GenBank) — the
-    /// recommended way to hand a sequence to another tool: export it with
-    /// this tool, then pass the output_path (instead of pasting large
-    /// sequences into tool arguments). The file holds the region's sequence
+    /// Export a subsequence of a project to a new file (GenBank) — THE
+    /// recommended way to create a sequence file from a known region of an
+    /// open project: select the region by coordinates, feature, enzyme cuts,
+    /// or primer amplicon, export it with this tool, then open_file the result
+    /// to work with it as a project. NEVER retype or paste the sequence into
+    /// edit_sequence/other tools to build a new construct — export the range
+    /// instead (pasted sequences are error-prone). The file holds the region's sequence
     /// (uppercase; template strand except as noted) plus every feature
     /// overlapping it with coordinates translated to the new linear
     /// coordinate system; circular projects always export linear fragments.
@@ -3013,7 +3049,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 // Server bootstrap + settings (start/stop/restart without app restart)
 // ---------------------------------------------------------------------------
 
-#[tool_handler(name = "LibreGene")]
+#[tool_handler(name = "LibreGene", instructions = "Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_file; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, export_subsequence (by coordinates, feature, enzymes/cuts, or primers) then open_file the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases, not for moving sequences between tools.")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";
