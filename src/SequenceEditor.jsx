@@ -26,6 +26,12 @@ import { computePrimerAlignment, computeTm } from './tauriApi';
 import { CircularMap, LinearMap } from './MapView';
 import { buildSearchResults } from './searchUtils';
 import { showContextMenu } from './contextMenu';
+import {
+  collectAnnotations,
+  writeAnnotatedClipboard,
+  readClipboardMeta,
+  parseMetaFromPasteEvent,
+} from './clipboardAnnotations';
 import { AlertTriangle, Copy, CopyPlus, CopyMinus, CopyX, Pencil, Tag } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -1937,7 +1943,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const positions = [...posSet].sort((a, b) => a - b);
           const dna = positions.map((p) => cleanSeq[p]).join('');
           const text = mode === 'antisense' ? reverseComplement(dna) : dna;
-          navigator.clipboard.writeText(text).catch(() => {});
+          if (mode === 'sense' && positions.length > 0) {
+            const rangeStart = positions[0];
+            const rangeEnd = positions[positions.length - 1];
+            const meta = collectAnnotations({ features, primers }, rangeStart, rangeEnd);
+            writeAnnotatedClipboard(text, meta);
+          } else {
+            navigator.clipboard.writeText(text).catch(() => {});
+          }
           return;
         }
       }
@@ -1950,9 +1963,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
       } else {
         text = sense;
       }
-      navigator.clipboard.writeText(text).catch(() => {});
+      if (mode === 'sense' && hasSelection) {
+        const meta = collectAnnotations({ features, primers }, selStart, selEnd);
+        writeAnnotatedClipboard(text, meta);
+      } else {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
     },
-    [hasSelection, cleanSeq, selStart, selEnd, translationSel, cdsFeatureDataRef],
+    [
+      hasSelection,
+      cleanSeq,
+      selStart,
+      selEnd,
+      translationSel,
+      cdsFeatureDataRef,
+      features,
+      primers,
+    ],
   );
 
   // --- Custom context menus (right-click) ---
@@ -2000,7 +2027,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           icon: CopyPlus,
           label: 'Copy (+) Strand',
           bold: !isRev,
-          onSelect: () => writeClipboard(sense),
+          onSelect: () => {
+            const meta = collectAnnotations({ features, primers }, fStart, fEnd);
+            writeAnnotatedClipboard(sense, meta);
+          },
         },
         {
           icon: CopyMinus,
@@ -2159,7 +2189,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // --- Paste: build insert/replace request from clipboard text ---
   const requestPaste = useCallback(
-    (clipboardText) => {
+    (clipboardText, clipboardMeta = null) => {
       if (!clipboardText || !onEditRequest) return;
       if (hasSelection) {
         onEditRequest({
@@ -2169,12 +2199,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
           selEnd,
           selectedText: cleanSeq.substring(selStart, selEnd + 1),
           clipboardText,
+          clipboardMeta,
         });
       } else if (cursorIndex !== null) {
         onEditRequest({
           type: 'insert',
           cursorIndex,
           clipboardText,
+          clipboardMeta,
         });
       }
     },
@@ -2184,7 +2216,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const pasteFromClipboard = useCallback(() => {
     navigator.clipboard
       .readText()
-      .then((t) => t && requestPaste(t))
+      .then((t) => {
+        if (!t) return;
+        const meta = readClipboardMeta(t);
+        requestPaste(t, meta);
+      })
       .catch(() => {});
   }, [requestPaste]);
 
@@ -2643,8 +2679,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const clipboardText = e.clipboardData?.getData('text') || '';
       if (!clipboardText) return;
 
+      const meta = parseMetaFromPasteEvent(e) || readClipboardMeta(clipboardText);
       e.preventDefault();
-      requestPaste(clipboardText);
+      requestPaste(clipboardText, meta);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);

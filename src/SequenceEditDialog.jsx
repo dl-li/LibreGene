@@ -8,6 +8,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Repeat } from 'lucide-react';
 
 // IUPAC 互补碱基对照表（含简并碱基）
@@ -89,18 +90,21 @@ export default function SequenceEditDialog({
   onConfirm,
   onCancel,
   moleculeType = 'dna',
+  clipboardMeta = null,
 }) {
   // Length unit: base pairs (DNA), nucleotides (ss-RNA), amino acids (protein).
   const isProtein = moleculeType === 'protein';
   const unit = moleculeType === 'dna' ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
   // 输入框中的文本
   const [inputText, setInputText] = useState('');
+  const [pasteAnnotations, setPasteAnnotations] = useState(true);
   const inputRef = useRef(null);
 
   // 每次打开弹窗时预填文本（粘贴场景用 initialText，手打时保持清空）
   useEffect(() => {
     if (open) {
       setInputText(filterLetters(initialText));
+      setPasteAnnotations(true);
     }
   }, [open, initialText]);
 
@@ -120,6 +124,7 @@ export default function SequenceEditDialog({
   }, [open, mode]);
 
   const cleaned = stripWhitespace(inputText);
+  const metaMatch = clipboardMeta && cleaned.length === clipboardMeta.length;
   const insertLen = cleaned.length;
   const deleteLen =
     mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0;
@@ -134,6 +139,9 @@ export default function SequenceEditDialog({
     const result = { type: mode };
     if (mode !== 'delete') {
       result.sequence = cleaned;
+    }
+    if (metaMatch && pasteAnnotations) {
+      result.annotations = clipboardMeta;
     }
     onConfirm(result);
   };
@@ -256,6 +264,31 @@ export default function SequenceEditDialog({
               </>
             )}
           </div>
+
+          {/* Clipboard annotation info */}
+          {clipboardMeta && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {metaMatch ? (
+                <>
+                  <Checkbox
+                    id="paste-annotations"
+                    checked={pasteAnnotations}
+                    onCheckedChange={(v) => setPasteAnnotations(!!v)}
+                  />
+                  <label htmlFor="paste-annotations" className="cursor-pointer select-none">
+                    Paste annotations:{' '}
+                    {clipboardMeta.features.length > 0 &&
+                      `${clipboardMeta.features.length} feature${clipboardMeta.features.length !== 1 ? 's' : ''}`}
+                    {clipboardMeta.features.length > 0 && clipboardMeta.primers.length > 0 && ', '}
+                    {clipboardMeta.primers.length > 0 &&
+                      `${clipboardMeta.primers.length} primer${clipboardMeta.primers.length !== 1 ? 's' : ''}`}
+                  </label>
+                </>
+              ) : (
+                <span className="italic">Annotations won't be pasted (sequence modified)</span>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
