@@ -2277,14 +2277,20 @@ async fn annotate_features(
 /// Run automatic annotation on a bare sequence (no project required), for the
 /// Empty-page "New Sequence" dialog's live feature preview. `circular` doubles
 /// the query so origin-wrapping features are found. Read-only; returns
-/// camelCase AnnotatedFeature with 0-based inclusive coordinates.
+/// camelCase AnnotatedFeature with 0-based inclusive coordinates. Protein
+/// sequences match against the translated CDS features of the database.
 #[tauri::command]
 async fn annotate_sequence(
     sequence: String,
     circular: bool,
+    molecule_type: Option<String>,
 ) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
     tokio::task::spawn_blocking(move || {
-        libregene_core::annotate::annotate_sequence(&sequence, circular)
+        if molecule_type.as_deref() == Some("protein") {
+            libregene_core::annotate::annotate_protein(&sequence, circular)
+        } else {
+            libregene_core::annotate::annotate_sequence(&sequence, circular)
+        }
     })
     .await
     .map_err(|e| format!("task join error: {}", e))
