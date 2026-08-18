@@ -116,6 +116,11 @@ struct EditSequenceRequest {
     /// open_file). A file cannot be mistyped or truncated, so use it whenever
     /// the sequence exists on disk.
     replacement_path: Option<String>,
+    /// Direction of the inserted replacement: "+" (default — insert exactly
+    /// as given) or "-" (reverse-complement the replacement before inserting,
+    /// e.g. when the source sequence is oriented on the opposite strand).
+    /// DNA projects only; rejected on RNA/protein projects.
+    strand: Option<String>,
     expected_old: Option<String>,
 }
 
@@ -1777,7 +1782,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// truncated, so whenever the insert already exists as a file — or is a
     /// region of an open project you can export first with export_subsequence —
     /// use the file. Use the `replacement` string only for short hand-authored
-    /// edits (point mutations, short oligo-length inserts). Feature coordinates are shifted/clipped
+    /// edits (point mutations, short oligo-length inserts). The optional
+    /// `strand` parameter sets the insertion direction: "+" (default) inserts
+    /// the replacement exactly as given; "-" reverse-complements it first
+    /// (e.g. when the source sequence is oriented on the opposite strand) —
+    /// DNA projects only, rejected on RNA/protein projects. Feature coordinates are shifted/clipped
     /// for the edit (features fully inside a deleted range are removed). When
     /// `expected_old` is given it must match the current [start..end] content
     /// case-insensitively or the edit is rejected with the actual content. Uses
@@ -1873,6 +1882,31 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 )));
             }
             replacement = up;
+        }
+
+        // Insertion direction: "-" reverse-complements the replacement (DNA
+        // only — revcomp is meaningless for RNA/protein sequences here).
+        let reverse = match request.strand.as_deref() {
+            None | Some("+") | Some(".") => false,
+            Some("-") => true,
+            Some(other) => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!(
+                        "Invalid strand '{}': must be \"+\" (default, insert as given) or \"-\" (reverse-complement before inserting)",
+                        other
+                    ),
+                )));
+            }
+        };
+        if reverse {
+            if !project.is_dna() {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "strand \"-\" (reverse complement) is only supported on DNA projects".to_string(),
+                )));
+            }
+            replacement = libregene_core::utils::reverse_complement(&replacement);
         }
 
         let is_insertion = end + 1 == start;
@@ -1986,12 +2020,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut v = serde_json::json!({
             "ok": true,
             "message": format!(
-                "Replaced [{}..{}] ({} {}) with {} {}; new length {} (was {})",
+                "Replaced [{}..{}] ({} {}) with {} {}{}; new length {} (was {})",
                 start, end,
                 if is_insertion { 0 } else { end - start + 1 },
                 unit,
                 repl_len,
                 unit,
+                if reverse { " (reverse-complemented)" } else { "" },
                 new_len,
                 len
             ),
@@ -4732,6 +4767,78 @@ mod tests {
         // sequence must be untouched after all these failures
         let pm = server.pm.read().await;
         assert_eq!(pm.get_project_by_id("edit_test").unwrap().sequence.len(), 200);
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_strand_minus_inserts_reverse_complement() {
+        let server = handler_with_project(edit_test_project()).await;
+
+        // pure insertion at position 60 with strand "-" → revcomp inserted
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 60,
+                end: 59,
+                replacement: Some("AAACCCGGGTTG".to_string()),
+                strand: Some("-".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert!(
+            v["message"].as_str().unwrap().contains("reverse-complemented"),
+            "{}",
+            v
+        );
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(p.sequence.len(), 212);
+        assert_eq!(&p.sequence[60..72], "CAACCCGGGTTT");
+        // feature 50..100 spans the insertion point → end shifted by 12
+        let f = p.features.iter().find(|f| f.name == "gene").unwrap();
+        assert_eq!((f.start, f.end), (50, 112));
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_strand_validation() {
+        // invalid strand value → fail envelope
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 60,
+                end: 59,
+                replacement: Some("ACGT".to_string()),
+                strand: Some("x".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("Invalid strand"),
+            "{}",
+            out.0
+        );
+
+        // strand "-" rejected on protein projects
+        let server = handler_with_project(protein_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 10,
+                end: 10,
+                replacement: Some("AA".to_string()),
+                strand: Some("-".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("only supported on DNA"),
+            "{}",
+            out.0
+        );
     }
 
     #[tokio::test]
