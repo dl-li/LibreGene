@@ -36,6 +36,24 @@ pub fn parse_file(path: &Path) -> io::Result<ProjectData> {
             format!("unsupported file extension: .{}", other),
         )),
     }
+    .map(normalize_rna_thymine)
+}
+
+/// RNA files in the wild often carry DNA-alphabet sequences (T instead of U);
+/// normalize on open so the rest of the app sees a consistent RNA alphabet.
+fn normalize_rna_thymine(mut project: ProjectData) -> ProjectData {
+    if project.molecule_type == "rna" && project.sequence.contains(['T', 't']) {
+        project.sequence = project
+            .sequence
+            .chars()
+            .map(|c| match c {
+                'T' => 'U',
+                't' => 'u',
+                c => c,
+            })
+            .collect();
+    }
+    project
 }
 
 /// `.seq` files come in several flavors — look at the first non-empty line:
@@ -165,5 +183,29 @@ mod tests {
         let bad_path = write_temp("seq", "plain text with no format marker\n");
         assert!(parse_file(&bad_path).is_err());
         std::fs::remove_file(&bad_path).ok();
+    }
+
+    #[test]
+    fn rna_thymine_is_normalized_to_uracil() {
+        let gbk_path = write_temp(
+            "gbk",
+            "LOCUS       testrna                 12 bp ss-RNA     linear   SYN 01-JAN-2000\n\
+             ORIGIN\n        1 acgtacgtacgt\n//\n",
+        );
+        let parsed = parse_file(&gbk_path).unwrap();
+        assert_eq!(parsed.molecule_type, "rna");
+        assert_eq!(parsed.sequence, "acguacguacgu");
+        std::fs::remove_file(&gbk_path).ok();
+
+        // DNA files keep their T.
+        let dna_path = write_temp(
+            "gbk",
+            "LOCUS       testdna                 12 bp DNA     linear   SYN 01-JAN-2000\n\
+             ORIGIN\n        1 acgtacgtacgt\n//\n",
+        );
+        let parsed = parse_file(&dna_path).unwrap();
+        assert_eq!(parsed.molecule_type, "dna");
+        assert_eq!(parsed.sequence, "acgtacgtacgt");
+        std::fs::remove_file(&dna_path).ok();
     }
 }
