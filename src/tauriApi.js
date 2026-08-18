@@ -108,8 +108,8 @@ export async function createProject(args = {}) {
  * New Sequence dialog's live feature preview. Returns read-only AnnotatedFeature
  * (camelCase, 0-based inclusive).
  */
-export async function annotateSequenceText(sequence, circular = false) {
-  return tauriInvoke('annotate_sequence', { sequence, circular });
+export async function annotateSequenceText(sequence, circular = false, moleculeType = 'dna') {
+  return tauriInvoke('annotate_sequence', { sequence, circular, moleculeType });
 }
 
 export async function saveFile(path) {

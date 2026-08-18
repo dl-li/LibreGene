@@ -100,10 +100,10 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
     }
   }, [open]);
 
-  // Debounced live annotation: only for DNA/RNA on a valid sequence.
+  // Debounced live annotation on a valid sequence.
   useEffect(() => {
     if (!open) return;
-    if (molType === 'protein' || !validation.valid || !effectiveSeq) {
+    if (!validation.valid || !effectiveSeq) {
       reqRef.current++;
       setItems(EMPTY_ARRAY);
       setLoading(false);
@@ -114,7 +114,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
     setLoading(true);
     setError('');
     const timer = setTimeout(() => {
-      annotateSequenceText(effectiveSeq, topology === 'circular')
+      annotateSequenceText(effectiveSeq, topology === 'circular', molType)
         .then((list) => {
           if (reqRef.current !== req) return;
           const arr = Array.isArray(list) ? list : [];
@@ -305,36 +305,30 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Detected Features
               </span>
-              {molType !== 'protein' && (
-                <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
-                  {[
-                    { value: 'map', label: 'Map', Icon: MapIcon },
-                    { value: 'table', label: 'Table', Icon: TableIcon },
-                  ].map(({ value, label, Icon }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setViewMode(value)}
-                      className={cn(
-                        'flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
-                        viewMode === value
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      <Icon className="size-3" />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+                {[
+                  { value: 'map', label: 'Map', Icon: MapIcon },
+                  { value: 'table', label: 'Table', Icon: TableIcon },
+                ].map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setViewMode(value)}
+                    className={cn(
+                      'flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                      viewMode === value
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Icon className="size-3" />
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              {molType === 'protein' ? (
-                <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                  Feature detection is not available for protein sequences.
-                </div>
-              ) : loading ? (
+              {loading ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
                   <LoaderCircle className="size-4 animate-spin" />
                   Detecting common features…
