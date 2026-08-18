@@ -196,6 +196,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 侧只有序列搜索
 - **多窗口管理**：Agent 用 `activate_project` 切换即可
 - **视图/布局设置**（layoutParams、show* 开关、酶切过滤器）：渲染层状态
+- **选区 badge 的肽链分子量**：protein 项目选区时 SelectionLengthBadge 第二行显示所选肽段分子量（kDa，平均同位素残基质量 + 水，`peptideMassKda` in editorConstants.js）；纯渲染层信息，MCP 无需适配
 - **Tm 参数与引物分析设置**：MCP 工具内用默认浓度，暂未暴露参数
 - **`add_alignment` 的 createdSites**：未实现（需按差异重建编辑后序列并重扫酶库，语义复杂、价值有限）；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注前端弹窗**：MCP 经 `get_project_overview` 的 auto 节查看检测结果；批量落库需前端交互或逐特征 `add_feature`

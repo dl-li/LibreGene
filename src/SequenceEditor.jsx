@@ -15,6 +15,7 @@ import {
   splitRange,
   enzymeActiveBlue,
   amplimerGreen,
+  peptideMassKda,
 } from './editorConstants';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
@@ -333,8 +334,8 @@ const MapWatermark = React.memo(function MapWatermark({ length, features, topolo
 
 // ---------------------------------------------------------------------------
 // SelectionLengthBadge — top-right badge showing "xx bp" for the current
-// selection (text / enzyme / primer / amplimer).  Hover shows "Copy", click
-// copies the corresponding sequence, then shows ✓ briefly.
+// selection (text / enzyme / primer / amplimer).  The second line shows GC%
+// for nucleic acids or the peptide molecular weight (kDa) for proteins.
 // ---------------------------------------------------------------------------
 function SelectionLengthBadge({
   selectionMode,
@@ -349,6 +350,7 @@ function SelectionLengthBadge({
   hasWarningBelow,
   unit = 'bp',
   showGc = true,
+  showMw = false,
 }) {
   // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
@@ -397,15 +399,25 @@ function SelectionLengthBadge({
     return null;
   }
 
-  // Compute GC content from the selected sequence
-  const gc = (seqToCopy.match(/[GC]/gi) || []).length;
-  const gcPct = seqToCopy.length > 0 ? Math.round((gc / seqToCopy.length) * 100) : 0;
+  // Second line: GC% for nucleic acids, molecular weight for peptides.
+  let line2 = null;
+  if (showGc) {
+    const gc = (seqToCopy.match(/[GC]/gi) || []).length;
+    const gcPct = seqToCopy.length > 0 ? Math.round((gc / seqToCopy.length) * 100) : 0;
+    line2 = `${gcPct}% GC`;
+  } else if (showMw) {
+    const kda = peptideMassKda(seqToCopy);
+    line2 = `${kda < 1 ? kda.toFixed(2) : kda.toFixed(1)} kDa`;
+  }
 
   // Measure the default label width so the badge has stable width
   const line1 = `${len} ${unit}`;
-  const line2 = '100% GC';
   const w1 = measureWidth(line1, `600 11px ${monoFont}`);
-  const w2 = showGc ? measureWidth(line2, `600 11px ${monoFont}`) : 0;
+  const w2 = showGc
+    ? measureWidth('100% GC', `600 11px ${monoFont}`)
+    : line2
+      ? measureWidth(line2, `600 11px ${monoFont}`)
+      : 0;
   const minBadgeWidth = Math.max(w1, w2) + 10;
 
   return (
@@ -429,7 +441,7 @@ function SelectionLengthBadge({
       }}
     >
       <div>{line1}</div>
-      {showGc && <div>{`${gcPct}% GC`}</div>}
+      {line2 && <div>{line2}</div>}
     </div>
   );
 }
@@ -4883,6 +4895,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         hasWarningBelow={combinedWarnings.length > 0}
         unit={seqUnit}
         showGc={moleculeType !== 'protein'}
+        showMw={moleculeType === 'protein'}
       />
       {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}
       {mapWatermark && (
