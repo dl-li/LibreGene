@@ -163,6 +163,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **后台待命（close-to-tray）**：关闭主窗口只是隐藏（拦截 `CloseRequested`），进程与 MCP server 继续运行；托盘菜单含 MCP 状态行、Show、Quit；macOS 点 Dock 图标经 `RunEvent::Reopen` 重开。项目窗口（`project-*`）不参与。
 - **工具**：21 个（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_file`、`save_file`、`export_subsequence`、`close_project`、`activate_project`、`edit_sequence`、`add_feature`、`update_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`optimize_cds`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`，regionView 为编辑后区域 digest 摘要。digest 中酶切列表只列单切酶、多切酶折叠计数；`get_region_view` 默认 compact（`compact: false` 得完整酶切列表），`get_project_overview` 的 UNIQUE CUTTERS 同理用 `compactCutters: false`。
 - **坐标约定（MCP 工具）**：0-based inclusive；primer `template_end` exclusive；酶切在 `pos-1` 与 `pos` 之间；环状读取支持 `start > end` 绕原点，编辑区间不允许绕原点（`end = start - 1` 为纯插入）。
+- **文件优先 I/O 策略**：server `instructions`（`#[tool_handler(..., instructions = ...)]`）与各工具/参数描述统一引导 Agent 用文件传序列（`open_file`/`replacement_path`/`path`/`input_path`/`output_path`/`export_subsequence`），纯文本参数仅留给短手写输入（引物、点突变、短插入）；`read_sequence` 只作查看。改描述时保持此口径一致。
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 McpServer 启停/换端口、406/-32001 错误体、`check_primer_binding` 全位点、`export_subsequence` 正反例；digest 渲染在 `libregene-core` 有单元测试。
 
 ### 功能 MCP 适配清单
