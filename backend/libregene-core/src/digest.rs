@@ -1,13 +1,18 @@
 //! Text digest renderers — compact, LLM-friendly project summaries for the MCP server.
 //!
-//! One coordinate convention everywhere: **0-based inclusive** (features, primer
-//! binding sites, read ranges). Primer `template_end` is exclusive; enzyme cuts
-//! happen between `pos-1` and `pos`. Circular sequences allow `start > end` to
-//! wrap the origin.
+//! The digest is a user/agent-facing layer: every RENDERED coordinate is
+//! **1-based inclusive** (GenBank convention), while all INPUTS (the project
+//! model fields and the `region`/`start`/`end` parameters) stay in the
+//! internal **0-based inclusive** convention. Conversion happens at the render
+//! points: an internal inclusive [s, e] prints as [s+1, e+1]; a primer site's
+//! 0-based-exclusive `template_end` prints as-is (the 1-based inclusive end of
+//! the site); an enzyme cut at 0-based index C (severing between bases C-1 and
+//! C) prints as `N^N+1` — between the 1-based bases N=C and N+1. Circular
+//! sequences allow `start > end` to wrap the origin.
 
 use std::collections::HashMap;
 
-use crate::models::{Enzyme, Feature, PrimerBindingSite, ProjectData};
+use crate::models::{AlignDeletion, Enzyme, Feature, PrimerBindingSite, ProjectData};
 
 /// Cap for `read_sequence` windows — protects LLM context from accidental dumps.
 pub const MAX_READ_BASES: usize = 10_000;
@@ -38,8 +43,25 @@ pub struct DigestOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Range helpers (0-based inclusive; circular wrap when start > end)
+// Range helpers (internal 0-based inclusive; circular wrap when start > end)
 // ---------------------------------------------------------------------------
+
+/// 1-based inclusive flanking bases of a cut at internal 0-based index C
+/// (severing between bases C-1 and C): (C, C+1). A cut at the origin of a
+/// circular molecule (C == 0) sits between the last and the first base.
+pub fn cut_flanks(cut: i64, len: i64, circular: bool) -> (i64, i64) {
+    if cut == 0 && circular {
+        (len, 1)
+    } else {
+        (cut, cut + 1)
+    }
+}
+
+/// Cut rendered as `N^M` — between the 1-based bases N and M.
+pub fn cut_notation(cut: i64, len: i64, circular: bool) -> String {
+    let (a, b) = cut_flanks(cut, len, circular);
+    format!("{}^{}", a, b)
+}
 
 fn pos_in_range(p: i64, s: i64, e: i64, circular: bool) -> bool {
     if s <= e {
@@ -70,8 +92,10 @@ fn validate_range(project: &ProjectData, start: i64, end: i64) -> Result<(i64, i
     let len = project.length;
     if start < 0 || end < 0 || start >= len || end >= len {
         return Err(format!(
-            "range {}..{} out of bounds for sequence of length {} (0-based inclusive)",
-            start, end, len
+            "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+            start + 1,
+            end + 1,
+            len
         ));
     }
     Ok((start, end))
@@ -141,7 +165,7 @@ fn feature_location(f: &Feature) -> String {
     };
     let inner = segments
         .iter()
-        .map(|(s, e)| format!("{}..{}", s, e))
+        .map(|(s, e)| format!("{}..{}", s + 1, e + 1))
         .collect::<Vec<_>>()
         .join(",");
     let loc = if segments.len() > 1 {
@@ -174,8 +198,8 @@ fn primer_site_line(site: &PrimerBindingSite, primer: &crate::models::Primer) ->
         site.template_start,
         format!(
             "        primer_bind     {}..{}   {}  [Tm {:.1}, {}{}]  (id: {})",
-            site.template_start,
-            site.template_end - 1,
+            site.template_start + 1,
+            site.template_end,
             primer.name,
             site.tm,
             strand,
@@ -191,11 +215,23 @@ fn alignment_in_region(a: &crate::models::Alignment, s: i64, e: i64, circular: b
         .any(|seg| seg_in_range(seg.start as i64, seg.end as i64, s, e, circular))
 }
 
+/// A deletion covers template columns `pos .. pos+length-1`; a merged deletion
+/// straddling the circular origin wraps (pos + length may exceed tlen).
+fn deletion_in_region(d: &AlignDeletion, s: i64, e: i64, circular: bool, tlen: i64) -> bool {
+    let start = d.pos as i64;
+    let end = d.pos as i64 + d.length as i64 - 1;
+    if end < tlen {
+        seg_in_range(start, end, s, e, circular)
+    } else {
+        seg_in_range(start, tlen - 1, s, e, circular) || seg_in_range(0, end - tlen, s, e, circular)
+    }
+}
+
 fn alignment_line(a: &crate::models::Alignment) -> String {
     let inner = a
         .segments
         .iter()
-        .map(|seg| format!("{}..{}", seg.start, seg.end))
+        .map(|seg| format!("{}..{}", seg.start + 1, seg.end + 1))
         .collect::<Vec<_>>()
         .join(",");
     let loc = if a.segments.len() > 1 {
@@ -222,13 +258,23 @@ fn cut_type_label(cut_type: &str) -> &str {
     }
 }
 
-fn cuts_desc(e: &Enzyme) -> String {
+fn cuts_desc(e: &Enzyme, len: i64, circular: bool) -> String {
     if e.cut_pairs.is_empty() {
-        format!("top {}^ bot {}", e.cut_index, e.bot_cut_index)
+        format!(
+            "top {} bot {}",
+            cut_notation(e.cut_index, len, circular),
+            cut_notation(e.bot_cut_index, len, circular)
+        )
     } else {
         e.cut_pairs
             .iter()
-            .map(|p| format!("top {}^ bot {}", p.top_cut_index, p.bot_cut_index))
+            .map(|p| {
+                format!(
+                    "top {} bot {}",
+                    cut_notation(p.top_cut_index, len, circular),
+                    cut_notation(p.bot_cut_index, len, circular)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -315,8 +361,8 @@ fn push_auto_annotation(out: &mut String, project: &ProjectData) {
             auto_feature_display_name(f),
             f.ftype,
             f.strand,
-            f.start,
-            f.end,
+            f.start + 1,
+            f.end + 1,
             f.identity
         ));
         if f.match_level == "aa" {
@@ -329,8 +375,9 @@ fn push_auto_annotation(out: &mut String, project: &ProjectData) {
     }
 }
 
-/// Full or region-filtered project digest. `region` is 0-based inclusive;
-/// `start > end` wraps the origin on circular sequences.
+/// Full or region-filtered project digest. `region` is internal 0-based
+/// inclusive (`start > end` wraps the origin on circular sequences); all
+/// rendered coordinates are 1-based inclusive.
 pub fn project_digest(
     project: &ProjectData,
     opts: &DigestOptions,
@@ -372,19 +419,19 @@ pub fn project_digest(
         locus.push_str(&format!("    methylation: {}", systems.join(",")));
     }
     if let Some((rs, re)) = project.roi {
-        locus.push_str(&format!("    ROI: {}..{}", rs, re));
+        locus.push_str(&format!("    ROI: {}..{}", rs + 1, re + 1));
     }
     if let Some((s, e)) = region {
-        locus.push_str(&format!("    REGION: {}..{}", s, e));
+        locus.push_str(&format!("    REGION: {}..{}", s + 1, e + 1));
     }
     out.push_str(&locus);
     out.push('\n');
     if is_dna {
         out.push_str(
-            "COORDS: 0-based inclusive (features, primers, read ranges); primer template_end exclusive; enzyme cuts between pos-1 and pos\n",
+            "COORDS: 1-based inclusive (features, primers, read ranges); enzyme cuts shown as N^N+1 = between bases N and N+1\n",
         );
     } else {
-        out.push_str("COORDS: 0-based inclusive (features, read ranges)\n");
+        out.push_str("COORDS: 1-based inclusive (features, read ranges)\n");
     }
 
     // Features
@@ -396,7 +443,7 @@ pub fn project_digest(
             region.map_or(true, |(s, e)| feature_in_region(f, s, e, circular))
         })
         .collect();
-    out.push_str("FEATURES (0-based, inclusive):\n");
+    out.push_str("FEATURES (1-based, inclusive):\n");
     match opts.max_features {
         Some(max) if features.len() > max => {
             for f in features.iter().take(max) {
@@ -435,7 +482,7 @@ pub fn project_digest(
         }
     }
     if is_dna && (!site_lines.is_empty() || !unbound.is_empty()) {
-        out.push_str("PRIMERS (0-based, inclusive):\n");
+        out.push_str("PRIMERS (1-based, inclusive):\n");
         site_lines.sort_by_key(|(start, _)| *start);
         for (_, line) in &site_lines {
             out.push_str(line);
@@ -461,11 +508,68 @@ pub fn project_digest(
         })
         .collect();
     if !alignments.is_empty() {
-        out.push_str("ALIGNMENTS (0-based, inclusive):\n");
-        for a in alignments {
+        out.push_str("ALIGNMENTS (1-based, inclusive):\n");
+        for a in &alignments {
             out.push_str(&alignment_line(a));
             out.push('\n');
         }
+    }
+
+    // Region views only: per-alignment differences inside the window, so an
+    // agent can check whether a site is mutated without eyeballing raw reads.
+    if let Some((s, e)) = region {
+        let mut section = String::new();
+        for a in &alignments {
+            let diff = crate::align::alignment_diff(a, &project.sequence);
+            let mismatches: Vec<_> = diff
+                .mismatches
+                .iter()
+                .filter(|m| pos_in_range(m.pos as i64, s, e, circular))
+                .collect();
+            let deletions: Vec<_> = diff
+                .deletions
+                .iter()
+                .filter(|d| deletion_in_region(d, s, e, circular, project.length))
+                .collect();
+            let insertions: Vec<_> = diff
+                .insertions
+                .iter()
+                .filter(|i| pos_in_range(i.pos as i64, s, e, circular))
+                .collect();
+            if section.is_empty() {
+                section.push_str("ALIGNMENT DIFFS IN REGION (1-based inclusive):\n");
+            }
+            section.push_str(&format!("        {}  (id: {}):", a.name, a.id));
+            if mismatches.is_empty() && deletions.is_empty() && insertions.is_empty() {
+                section.push_str(" no differences in window\n");
+                continue;
+            }
+            section.push('\n');
+            for m in mismatches {
+                section.push_str(&format!(
+                    "          mismatch at {}: {} > {}\n",
+                    m.pos + 1,
+                    m.template_base,
+                    m.read_base
+                ));
+            }
+            for d in deletions {
+                section.push_str(&format!(
+                    "          deletion at {}: {} bp ({})\n",
+                    d.pos + 1,
+                    d.length,
+                    d.bases
+                ));
+            }
+            for i in insertions {
+                let (a1, b1) = cut_flanks(i.pos as i64, project.length, circular);
+                section.push_str(&format!(
+                    "          insertion between {} and {}: {} ({} bp)\n",
+                    a1, b1, i.bases, i.length
+                ));
+            }
+        }
+        out.push_str(&section);
     }
 
     // Enzymes (DNA only — single-strand molecules have no restriction sites)
@@ -482,7 +586,7 @@ pub fn project_digest(
                 if opts.compact_enzymes {
                     if !unique.is_empty() || multi > 0 {
                         out.push_str(&format!(
-                            "ENZYMES (compact): {} single-cut, {} multi-cut (cut between pos-1 and pos, 0-based)\n",
+                            "ENZYMES (compact): {} single-cut, {} multi-cut (cuts shown as N^N+1, 1-based)\n",
                             unique.len(),
                             multi
                         ));
@@ -502,12 +606,12 @@ pub fn project_digest(
                     }
                 } else {
                     if !unique.is_empty() {
-                        out.push_str("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):\n");
+                        out.push_str("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for e in unique {
                             out.push_str(&format!(
                                 "        {:<10} {:<28} {:<10} {}\n",
                                 e.name,
-                                cuts_desc(e),
+                                cuts_desc(e, project.length, circular),
                                 e.rec_seq,
                                 cut_type_label(&e.cut_type)
                             ));
@@ -530,16 +634,16 @@ pub fn project_digest(
                 if !in_region.is_empty() {
                     if opts.compact_enzymes {
                         out.push_str(&format!(
-                            "ENZYMES CUTTING IN REGION (compact): {} cuts (cut between pos-1 and pos, 0-based)\n",
+                            "ENZYMES CUTTING IN REGION (compact): {} cuts (cuts shown as N^N+1, 1-based)\n",
                             in_region.len()
                         ));
                     } else {
-                        out.push_str("ENZYMES CUTTING IN REGION (cut between pos-1 and pos, 0-based):\n");
+                        out.push_str("ENZYMES CUTTING IN REGION (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for en in in_region {
                             out.push_str(&format!(
                                 "        {:<10} {}   {}\n",
                                 en.name,
-                                cuts_desc(en),
+                                cuts_desc(en, project.length, circular),
                                 cut_type_label(&en.cut_type)
                             ));
                         }
@@ -609,21 +713,32 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
     let mut out = String::new();
     let unit = unit_for(&project.molecule_type);
     out.push_str(&format!(
-        "COORDS: 0-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})\n",
-        s, e, count, unit, project.length, unit, project.topology, circular
+        "COORDS: 1-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})\n",
+        s + 1,
+        e + 1,
+        count,
+        unit,
+        project.length,
+        unit,
+        project.topology,
+        circular
     ));
-    // Ruler labels the group start positions of the first line.
-    out.push_str(&" ".repeat(7));
-    for i in 0..COLS {
-        out.push_str(&format!("{:>11}", s + (i as i64) * GROUP as i64));
+    // Ruler labels the group start positions of the first line. Small windows
+    // (a single sequence line) skip it — the per-line coordinate prefix
+    // already anchors the position and the ruler would dominate the output.
+    if count as usize > LINE_BASES {
+        out.push_str(&" ".repeat(7));
+        for i in 0..COLS {
+            out.push_str(&format!("{:>11}", s + 1 + (i as i64) * GROUP as i64));
+        }
+        out.push('\n');
     }
-    out.push('\n');
     for (idx, &base) in window.iter().enumerate() {
         if idx % LINE_BASES == 0 {
             if idx > 0 {
                 out.push('\n');
             }
-            out.push_str(&format!("{:>6} ", s + idx as i64));
+            out.push_str(&format!("{:>6} ", s + 1 + idx as i64));
         }
         out.push((base as char).to_ascii_uppercase());
         if (idx + 1) % GROUP == 0 && (idx + 1) % LINE_BASES != 0 {
@@ -916,10 +1031,10 @@ mod tests {
     fn overview_contains_header_and_coords() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
         assert!(out.starts_with(
-            "LOCUS       TestPlasmid    60 bp    circular DNA    methylation: Dam,Dcm    ROI: 5..20\n"
+            "LOCUS       TestPlasmid    60 bp    circular DNA    methylation: Dam,Dcm    ROI: 6..21\n"
         ));
-        assert!(out.contains("COORDS: 0-based inclusive"));
-        assert!(out.contains("FEATURES (0-based, inclusive):\n"));
+        assert!(out.contains("COORDS: 1-based inclusive"));
+        assert!(out.contains("FEATURES (1-based, inclusive):\n"));
     }
 
     fn protein_project() -> ProjectData {
@@ -942,8 +1057,8 @@ mod tests {
         assert!(!out.contains("PRIMERS"));
         assert!(!out.contains("ENZYMES"));
         assert!(!out.contains("UNIQUE CUTTERS"));
-        assert!(!out.contains("enzyme cuts between pos-1 and pos"));
-        assert!(out.contains("FEATURES (0-based, inclusive):\n"));
+        assert!(!out.contains("cuts shown as N^N+1"));
+        assert!(out.contains("FEATURES (1-based, inclusive):\n"));
         assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
         // Region views also skip the enzyme layer for non-DNA.
         let region = project_digest(&protein_project(), &DigestOptions::default(), Some((0, 39))).unwrap();
@@ -993,7 +1108,7 @@ mod tests {
     fn read_sequence_protein_uses_aa_units() {
         let p = protein_project();
         let out = read_sequence(&p, 0, 9).unwrap();
-        assert!(out.contains("COORDS: 0-based inclusive. Window 0..9 (10 aa) of 40 aa linear (wrap: false)"));
+        assert!(out.contains("COORDS: 1-based inclusive. Window 1..10 (10 aa) of 40 aa linear (wrap: false)"));
         assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "MAAAMAAAMA");
         // Read-limit error message uses the mapped unit too.
         let big = ProjectData {
@@ -1011,8 +1126,8 @@ mod tests {
     #[test]
     fn overview_renders_segmented_and_complement_features() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-        assert!(out.contains("complement(10..30)"));
-        assert!(out.contains("join(0..5,40..49)"));
+        assert!(out.contains("complement(11..31)"));
+        assert!(out.contains("join(1..6,41..50)"));
         assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
         assert!(out.contains("segFeat  [#F87171]  (id: f2)"));
     }
@@ -1020,17 +1135,17 @@ mod tests {
     #[test]
     fn overview_renders_primer_sites_and_unbound() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-        assert!(out.contains("primer_bind     2..11   P1  [Tm 58.3, + strand]  (id: p1)"));
-        assert!(out.contains("primer_bind     50..59   P1  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
+        assert!(out.contains("primer_bind     3..12   P1  [Tm 58.3, + strand]  (id: p1)"));
+        assert!(out.contains("primer_bind     51..60   P1  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
         assert!(out.contains("Primers without binding sites: orphan (id: p2)"));
     }
 
     #[test]
     fn overview_lists_unique_cutters_and_summarizes_multi_cutters() {
         let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-        assert!(out.contains("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):"));
+        assert!(out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
         assert!(out.contains("EcoRI"));
-        assert!(out.contains("top 10^ bot 14"));
+        assert!(out.contains("top 10^11 bot 14^15"));
         assert!(out.contains("GAATTC"));
         assert!(out.contains("5' overhang"));
         // Multi-cut enzymes (BsaI 2 sites, BbsI cut-twice, + 3 names with 3+
@@ -1073,11 +1188,11 @@ mod tests {
             Some((0, 1)),
         )
         .unwrap();
-        assert!(out.contains("REGION: 0..1"));
+        assert!(out.contains("REGION: 1..2"));
         // CDS 10..30 does not overlap 0..1
-        assert!(!out.contains("complement(10..30)"));
+        assert!(!out.contains("complement(11..31)"));
         // join(0..5, 40..49) overlaps via 0..5
-        assert!(out.contains("join(0..5,40..49)"));
+        assert!(out.contains("join(1..6,41..50)"));
         // no enzyme cuts within 0..1
         assert!(!out.contains("ENZYMES CUTTING IN REGION"));
     }
@@ -1091,10 +1206,10 @@ mod tests {
             Some((30, 5)),
         )
         .unwrap();
-        assert!(out.contains("REGION: 30..5"));
+        assert!(out.contains("REGION: 31..6"));
         // CDS 10..30 touches 30 (inclusive); join 0..5 touches origin
-        assert!(out.contains("complement(10..30)"));
-        assert!(out.contains("join(0..5,40..49)"));
+        assert!(out.contains("complement(11..31)"));
+        assert!(out.contains("join(1..6,41..50)"));
         // BsaI second site cuts at 40/44 in [30..59]
         assert!(out.contains("ENZYMES CUTTING IN REGION"));
         assert!(out.contains("BsaI"));
@@ -1114,15 +1229,48 @@ mod tests {
     #[test]
     fn read_sequence_linear_window() {
         let out = read_sequence(&synthetic_project(), 0, 19).unwrap();
-        assert!(out.contains("COORDS: 0-based inclusive. Window 0..19 (20 bp)"));
+        assert!(out.contains("COORDS: 1-based inclusive. Window 1..20 (20 bp)"));
         assert!(out.contains("ACGTACGTAC GTACGTACGT"));
+    }
+
+    #[test]
+    fn read_sequence_small_window_omits_ruler() {
+        // A ≤60 bp window fits one sequence line: the 6-column ruler is
+        // omitted, the per-line position prefix still anchors coordinates.
+        let out = read_sequence(&synthetic_project(), 0, 19).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2, "small window must skip the ruler: {:?}", out);
+        assert!(
+            lines[1].starts_with("     1 "),
+            "sequence line keeps its position prefix: {:?}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn read_sequence_ruler_threshold_boundary() {
+        let big = ProjectData {
+            name: "big".into(),
+            sequence: "ACGT".repeat(30),
+            length: 120,
+            topology: "linear".into(),
+            ..Default::default()
+        };
+        // Exactly 60 bp (one full line): still compact, no ruler.
+        let out = read_sequence(&big, 0, 59).unwrap();
+        assert_eq!(out.lines().count(), 2, "60 bp window: {:?}", out);
+        // 61 bp spills onto a second line: the ruler comes back.
+        let out = read_sequence(&big, 0, 60).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 4, "61 bp window keeps the ruler: {:?}", out);
+        assert!(lines[1].contains("11"), "ruler line present: {:?}", lines[1]);
     }
 
     #[test]
     fn read_sequence_circular_wrap() {
         // positions 55..59 = TACGT, 0..4 = ACGTA
         let out = read_sequence(&synthetic_project(), 55, 4).unwrap();
-        assert!(out.contains("Window 55..4 (10 bp) of 60 bp circular (wrap: true)"));
+        assert!(out.contains("Window 56..5 (10 bp) of 60 bp circular (wrap: true)"));
         assert!(out.contains("TACGTACGTA"));
     }
 
@@ -1192,11 +1340,11 @@ mod tests {
             seq: String::new(),
         });
         let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
-        assert!(out.contains("ALIGNMENTS (0-based, inclusive):\n"));
+        assert!(out.contains("ALIGNMENTS (1-based, inclusive):\n"));
         assert!(out.contains("read1"));
-        assert!(out.contains("50..59"));
+        assert!(out.contains("51..60"));
         assert!(out.contains("+ strand  [identity 98.6%, significant]  (id: aln-1)"));
-        assert!(out.contains("join(55..59,0..4)"));
+        assert!(out.contains("join(56..60,1..5)"));
         assert!(out.contains("- strand  [identity 100.0%, significant]  (id: aln-2)"));
 
         // Region view lists only overlapping alignments.
@@ -1210,6 +1358,103 @@ mod tests {
         assert!(region.contains("wrapped"));
     }
 
+    /// aln-1 covers 10..29 with a mismatch at 15, a 2 bp deletion at 18..19
+    /// and a 2 bp insertion before 25 (template is "ACGT"*15, so t[15]=T,
+    /// t[18..19]=GT).
+    fn project_with_diff_alignment() -> ProjectData {
+        let mut p = synthetic_project();
+        let mut chars: Vec<char> = p.sequence[10..=29].chars().collect();
+        chars[5] = 'A'; // mismatch at 15 (T > A)
+        chars[8] = '-'; // deletion at 18..19
+        chars[9] = '-';
+        p.alignments.push(crate::models::Alignment {
+            id: "aln-1".into(),
+            name: "read1".into(),
+            length: 21,
+            strand: "+".into(),
+            identity: 0.9,
+            segments: vec![crate::models::AlignSegment {
+                start: 10,
+                end: 29,
+                chars: chars.iter().collect(),
+            }],
+            insertions: vec![crate::models::AlignInsertion {
+                pos: 25,
+                bases: "GG".into(),
+            }],
+            seq: String::new(),
+        });
+        p
+    }
+
+    #[test]
+    fn region_view_lists_alignment_diffs_in_window() {
+        let p = project_with_diff_alignment();
+        let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+        assert!(out.contains("ALIGNMENT DIFFS IN REGION (1-based inclusive):\n"), "{out}");
+        assert!(out.contains("read1  (id: aln-1):\n"), "{out}");
+        assert!(out.contains("mismatch at 16: T > A"), "{out}");
+        assert!(out.contains("deletion at 19: 2 bp (GT)"), "{out}");
+        assert!(out.contains("insertion between 25 and 26: GG (2 bp)"), "{out}");
+
+        // Window overlapping the read but left of every diff.
+        let out = project_digest(&p, &DigestOptions::default(), Some((10, 12))).unwrap();
+        assert!(out.contains("read1  (id: aln-1): no differences in window\n"), "{out}");
+        assert!(!out.contains("mismatch at 16"), "{out}");
+
+        // Partial window: mismatch + overlapping deletion in, insertion out.
+        let out = project_digest(&p, &DigestOptions::default(), Some((14, 18))).unwrap();
+        assert!(out.contains("mismatch at 16: T > A"), "{out}");
+        assert!(out.contains("deletion at 19: 2 bp (GT)"), "{out}");
+        assert!(!out.contains("insertion between 25 and 26"), "{out}");
+
+        // Whole-project digests never render the section.
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(out.contains("ALIGNMENTS (1-based, inclusive):\n"), "{out}");
+        assert!(!out.contains("ALIGNMENT DIFFS IN REGION"), "{out}");
+    }
+
+    #[test]
+    fn region_view_alignment_diffs_circular_wrap() {
+        let mut p = project_with_diff_alignment();
+        // aln-2 wraps the origin (56..59 + 0..5): a 4 bp deletion straddling
+        // the origin (58,59,0,1 — merged into one entry) and a mismatch at 2.
+        p.alignments.push(crate::models::Alignment {
+            id: "aln-2".into(),
+            name: "wrapped".into(),
+            length: 10,
+            strand: "+".into(),
+            identity: 0.7,
+            segments: vec![
+                crate::models::AlignSegment {
+                    start: 56,
+                    end: 59,
+                    chars: "AC--".into(),
+                },
+                crate::models::AlignSegment {
+                    start: 0,
+                    end: 5,
+                    chars: "--ATAC".into(),
+                },
+            ],
+            insertions: Vec::new(),
+            seq: String::new(),
+        });
+
+        // Wrapping window 55..4 covers both diffs; aln-1 (10..29) stays out.
+        let out = project_digest(&p, &DigestOptions::default(), Some((55, 4))).unwrap();
+        assert!(out.contains("wrapped  (id: aln-2):\n"), "{out}");
+        assert!(out.contains("mismatch at 3: G > A"), "{out}");
+        assert!(out.contains("deletion at 59: 4 bp (GTAC)"), "{out}");
+        assert!(!out.contains("read1"), "{out}");
+
+        // Wrapping window 56..1: the straddling deletion still overlaps, the
+        // mismatch at 2 does not.
+        let out = project_digest(&p, &DigestOptions::default(), Some((56, 1))).unwrap();
+        assert!(out.contains("deletion at 59: 4 bp (GTAC)"), "{out}");
+        assert!(!out.contains("mismatch at 3"), "{out}");
+    }
+
     #[test]
     fn binding_site_helpers_agree_with_range() {
         // site covering [2..11]
@@ -1218,6 +1463,19 @@ mod tests {
         assert!(seg_in_range(50, 59, 30, 5, true));
         assert!(pos_in_range(40, 30, 5, true));
         assert!(!pos_in_range(20, 30, 5, true));
+    }
+
+    #[test]
+    fn cut_notation_is_1based_flanking_bases() {
+        // An internal cut index C severs between 0-based bases C-1 and C,
+        // i.e. between the 1-based bases C and C+1.
+        assert_eq!(cut_notation(10, 60, false), "10^11");
+        assert_eq!(cut_notation(10, 60, true), "10^11");
+        // A cut at the origin of a circular molecule sits between the last
+        // and the first base.
+        assert_eq!(cut_notation(0, 60, true), "60^1");
+        // A cut at the very end of a linear molecule.
+        assert_eq!(cut_notation(60, 60, false), "60^61");
     }
 
     #[test]
@@ -1250,7 +1508,7 @@ mod tests {
         assert!(out.contains(
             "UNIQUE CUTTERS: 1 single-cut enzymes (pass compactCutters=false for full list)"
         ));
-        assert!(!out.contains("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):"));
+        assert!(!out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
         assert!(!out.contains("EcoRI"));
         assert!(out.contains("... and 5 enzymes with >1 cut"));
         // compactCutters=false: the full per-enzyme list is back.
@@ -1259,7 +1517,7 @@ mod tests {
             ..DigestOptions::default()
         };
         let out = project_digest(&p, &opts, None).unwrap();
-        assert!(out.contains("UNIQUE CUTTERS (cut between pos-1 and pos, 0-based):"));
+        assert!(out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
         assert!(out.contains("EcoRI"));
         // compact_cutters is overview-only: region views ignore it.
         let region = project_digest(&p, &opts, Some((30, 5))).unwrap();

@@ -53,6 +53,7 @@ function siteTm(site) {
 
 function formatSite(site) {
   if (!site) return '—';
+  // model coords are 0-based; display 1-based inclusive
   const s = siteStart(site);
   const e = siteEnd(site);
   if (s == null || e == null || isNaN(s) || isNaN(e)) return '—';

@@ -431,7 +431,7 @@ export default function PrimerAlignmentDialog({
                 <span key={i} className="inline-flex items-center gap-1">
                   <span className="font-semibold">{dir}</span>
                   <span className="opacity-70 tabular-nums">
-                    {alt.start}..{alt.end}
+                    {alt.start + 1}..{alt.end}
                   </span>
                 </span>
               );

@@ -1263,6 +1263,10 @@ async fn do_check_primers_binding(
                     .binding_sites
                     .iter()
                     .map(|s| {
+                        let (aligned_template, match_mask) =
+                            libregene_core::primer::align::template_coverage(
+                                &template, &topology, &p.primer_seq, s,
+                            );
                         serde_json::json!({
                             "strand": s.strand,
                             "templateStart": s.template_start,
@@ -1272,6 +1276,8 @@ async fn do_check_primers_binding(
                                 &template, &topology, &p.primer_seq, s,
                             ),
                             "mismatchedTail": s.five_prime_tail.len(),
+                            "alignedTemplate": aligned_template,
+                            "matchMask": match_mask,
                         })
                     })
                     .collect();
@@ -1564,14 +1570,15 @@ async fn add_feature(
         None => return Ok(serde_json::json!({"error": "No project loaded"})),
     };
 
-    // If location_str is provided, parse and validate it
+    // If location_str is provided, parse and validate it (0-based inclusive,
+    // the App-wide convention, e.g. "99..199", "join(0..99,199..299)")
     let mut resolved = feature;
     if let Some(loc_str) = location_str {
         let trimmed = loc_str.trim().to_string();
         if trimmed.is_empty() {
             return Ok(serde_json::json!({"error": "Location cannot be empty".to_string()}));
         }
-        let parsed = libregene_core::file_io::gbk::parse_location_string(&trimmed)
+        let parsed = libregene_core::file_io::gbk::parse_location_string_0based(&trimmed)
             .ok_or_else(|| format!("Invalid location: {}", trimmed))?;
         let (segments, start, end, strand) = parsed;
         resolved.segments = segments;
@@ -1778,7 +1785,8 @@ async fn update_feature_location(
         &project_id,
         &feature_id,
         |f| {
-            let parsed = libregene_core::file_io::gbk::parse_location_string(&location_str)
+            // location_str is 0-based inclusive (App-wide convention).
+            let parsed = libregene_core::file_io::gbk::parse_location_string_0based(&location_str)
                 .ok_or_else(|| format!("Invalid location: {}", location_str))?;
             let (segments, start, end, strand) = parsed;
             f.segments = segments;
@@ -3240,8 +3248,16 @@ mod tests {
         assert_eq!(sites.len(), 2);
         // Every site carries the documented fields.
         for s in sites {
-            for key in ["strand", "templateStart", "templateEnd", "tm", "annealLen", "mismatchedTail"]
-            {
+            for key in [
+                "strand",
+                "templateStart",
+                "templateEnd",
+                "tm",
+                "annealLen",
+                "mismatchedTail",
+                "alignedTemplate",
+                "matchMask",
+            ] {
                 assert!(s.get(key).is_some(), "site missing field {}", key);
             }
         }
@@ -3257,5 +3273,42 @@ mod tests {
             .map(|s| s["tm"].as_f64().unwrap())
             .collect();
         assert!(tms.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    #[tokio::test]
+    async fn check_primer_binding_reports_tail_coverage() {
+        // Enzyme-tail primer: "GCG" protect+site-like tail whose 3'-most base
+        // happens to match the template next to the anneal core. The footprint
+        // stops at the first 5'-ward mismatch, but alignedTemplate/matchMask
+        // must expose the tail's per-base pairing against the template.
+        let tpl = "TGCGTACGCTAGCTA";
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.open_project(
+            "p1".to_string(),
+            ProjectData {
+                sequence: tpl.to_string(),
+                length: tpl.len() as i64,
+                topology: "linear".to_string(),
+                ..Default::default()
+            },
+        );
+        let primers = vec![Primer {
+            id: "t1".to_string(),
+            name: "t1".to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "AGCGTACGCTAGCTA".to_string(),
+            binding_sites: Vec::new(),
+        }];
+        let out = do_check_primers_binding(&pm, "p1", primers).await.unwrap();
+        let r0 = &out["results"][0];
+        let site = &r0["sites"][0];
+        // Footprint: primer[1..] "GCGTACGCTAGCTA" matches template[1..15];
+        // primer[0] 'A' faces template[0] 'T' — a mismatch the mask must show.
+        assert_eq!(site["mismatchedTail"], 1);
+        assert_eq!(site["alignedTemplate"], "TGCGTACGCTAGCTA");
+        assert_eq!(site["matchMask"], ".||||||||||||||");
+        // annealLen covers the tail bases that pair (14), beyond a nominal
+        // 13-bp design core — the documented design/check discrepancy.
+        assert_eq!(site["annealLen"], 14);
     }
 }

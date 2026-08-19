@@ -7,12 +7,23 @@
 //! live. Every mutation tool returns a uniform `{ok, message, projectId,
 //! regionView?}` envelope (plus tool-specific fields).
 //!
-//! Coordinate conventions (stated again in every tool description):
-//! - features, primer binding sites and read ranges are **0-based inclusive**
-//! - primer `template_end` is **exclusive** (render range is `start..end-1`)
-//! - enzyme cuts happen **between `pos-1` and `pos`**
-//! - circular sequences allow `start > end` to wrap the origin for reads;
-//!   edit ranges must not wrap (`end = start - 1` is a pure insertion)
+//! Coordinate conventions (stated again in every tool description). This MCP
+//! layer is agent-facing, so all coordinates in tool inputs and outputs are
+//! **1-based inclusive** (the GenBank convention); the internal model and the
+//! shared `crate::do_*` cores stay **0-based inclusive**, and this module
+//! converts at the boundary (`to1`/`from1`):
+//! - internal inclusive [s, e] ↔ interface [s+1, e+1]
+//! - a primer site's internal 0-based-EXCLUSIVE `template_end` equals the
+//!   1-based inclusive end of the site, so its value crosses the boundary
+//!   unchanged (only `template_start` shifts by one)
+//! - an enzyme cut at internal 0-based index C (severing between bases C-1
+//!   and C) is described as "between the 1-based bases C and C+1" and rendered
+//!   `C^C+1` (`cut_notation`; a cut at the origin of a circular molecule is
+//!   `len^1`)
+//! - a pure insertion into `edit_sequence` before base N is `start=N,
+//!   end=N-1`; ranges must not wrap
+//! - circular sequences allow `start > end` to wrap the origin for reads
+//!   (values are 1-based)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,7 +43,7 @@ use serde::Deserialize;
 use tokio::sync::RwLock;
 use tauri::{AppHandle, Manager, Runtime};
 
-use libregene_core::digest::{DigestOptions, project_digest, read_sequence};
+use libregene_core::digest::{DigestOptions, cut_flanks, cut_notation, project_digest, read_sequence};
 use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite, ProjectData, Segment};
 use libregene_core::project::ProjectManager;
 
@@ -56,7 +67,10 @@ struct OverviewRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct RegionRequest {
     project_id: Option<String>,
+    /// Window start, 1-based inclusive; on circular sequences start > end
+    /// wraps the origin.
     start: i64,
+    /// Window end, 1-based inclusive.
     end: i64,
     max_features: Option<usize>,
     feature_filter: Option<String>,
@@ -68,7 +82,10 @@ struct RegionRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct SequenceRequest {
     project_id: Option<String>,
+    /// Window start, 1-based inclusive; on circular sequences start > end
+    /// wraps the origin.
     start: i64,
+    /// Window end, 1-based inclusive.
     end: i64,
 }
 
@@ -102,7 +119,10 @@ struct ActivateProjectRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct EditSequenceRequest {
     project_id: Option<String>,
+    /// First base of the replaced range, 1-based inclusive. Ranges must not
+    /// wrap; a pure insertion before base N is start=N, end=N-1.
     start: i64,
+    /// Last base of the replaced range, 1-based inclusive (>= start-1).
     end: i64,
     /// Replacement sequence as a plain string (empty = delete). Exactly one
     /// of `replacement` / `replacement_path` must be given. Use this ONLY for
@@ -162,11 +182,27 @@ struct OptimizeCdsRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct FeatureSegmentSpec {
+    /// Segment start, 1-based inclusive.
+    start: i64,
+    /// Segment end, 1-based inclusive (must be >= start).
+    end: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct AddFeatureRequest {
     project_id: Option<String>,
     name: String,
     ftype: String,
-    location: String,
+    /// Feature start, 1-based inclusive. Required together with `end` unless
+    /// `segments` is given; mutually exclusive with `segments`.
+    start: Option<i64>,
+    /// Feature end, 1-based inclusive (>= start). See `start`.
+    end: Option<i64>,
+    /// Segmented feature (e.g. multi-exon CDS): [{start, end}] 1-based
+    /// inclusive, in 5'→3' order. Mutually exclusive with `start`/`end`.
+    segments: Option<Vec<FeatureSegmentSpec>>,
+    /// ".", "+" or "-" (default "+").
     strand: Option<String>,
     color: Option<String>,
     notes: Option<String>,
@@ -181,9 +217,14 @@ struct UpdateFeatureRequest {
     color: Option<String>,
     /// ".", "+" or "-"
     strand: Option<String>,
-    /// GenBank 1-based location string (e.g. "100..200", "complement(50..80)",
-    /// "join(1..100,200..300)"); stored as 0-based inclusive.
-    location: Option<String>,
+    /// New start, 1-based inclusive; must be given together with `end` and is
+    /// mutually exclusive with `segments`.
+    start: Option<i64>,
+    /// New end, 1-based inclusive (>= start). See `start`.
+    end: Option<i64>,
+    /// New segments [{start, end}] 1-based inclusive (5'→3' order); mutually
+    /// exclusive with `start`/`end`.
+    segments: Option<Vec<FeatureSegmentSpec>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -232,7 +273,10 @@ struct ListPrimersRequest {
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
 struct SegParam {
+    /// Segment start, 1-based inclusive (start > end wraps the origin on
+    /// circular sequences).
     start: i64,
+    /// Segment end, 1-based inclusive.
     end: i64,
 }
 
@@ -282,9 +326,9 @@ struct ExportSubsequenceRequest {
     /// Required: output file path (.gbk/.gb/.genbank for DNA/RNA projects,
     /// .gpt for protein projects).
     output_path: String,
-    /// Region mode: start of the export window, 0-based inclusive.
+    /// Region mode: start of the export window, 1-based inclusive.
     start: Option<i64>,
-    /// Region mode: end of the export window, 0-based inclusive (start > end
+    /// Region mode: end of the export window, 1-based inclusive (start > end
     /// wraps the origin on circular sequences).
     end: Option<i64>,
     /// Feature mode: export this feature's sequence (segments joined 5'→3',
@@ -296,10 +340,11 @@ struct ExportSubsequenceRequest {
     /// Fragment mode (enzyme names): second enzyme (may equal `enzyme1` to
     /// use that enzyme's first two sites).
     enzyme2: Option<String>,
-    /// Fragment mode (explicit cuts): first cut index, 0-based (a cut at
-    /// index C severs the DNA between C-1 and C).
+    /// Fragment mode (explicit cuts): first cut position — a cut at N severs
+    /// the DNA between the 1-based bases N and N+1 (N = len: after the last
+    /// base on linear, between the last and the first base on circular).
     cut1: Option<i64>,
-    /// Fragment mode (explicit cuts): second cut index (same convention).
+    /// Fragment mode (explicit cuts): second cut position (same convention).
     cut2: Option<i64>,
     /// Amplicon mode: fwd primer (project primer name or raw sequence).
     fwd_primer: Option<String>,
@@ -546,6 +591,155 @@ fn next_id(prefix: &str) -> String {
     format!("{}_{}_{}", prefix, millis, n)
 }
 
+// ---------------------------------------------------------------------------
+// Coordinate conversion: the MCP interface is 1-based inclusive, the internal
+// model 0-based inclusive. All boundary crossings go through these helpers.
+// ---------------------------------------------------------------------------
+
+/// Internal 0-based inclusive coordinate → MCP-visible 1-based inclusive.
+fn to1(x: i64) -> i64 {
+    x + 1
+}
+
+/// MCP-visible 1-based inclusive coordinate → internal 0-based inclusive.
+fn from1(x: i64) -> i64 {
+    x - 1
+}
+
+/// Serialize a feature for an MCP response with its coordinates bumped to
+/// 1-based inclusive (the model stores 0-based inclusive).
+fn feature_json_1based(f: &Feature) -> serde_json::Value {
+    let mut v = serde_json::to_value(f).unwrap_or_default();
+    v["start"] = serde_json::json!(to1(f.start));
+    v["end"] = serde_json::json!(to1(f.end));
+    if let Some(segs) = v.get_mut("segments").and_then(|s| s.as_array_mut()) {
+        for seg in segs.iter_mut() {
+            if let Some(s) = seg.get("start").and_then(|x| x.as_i64()) {
+                seg["start"] = serde_json::json!(s + 1);
+            }
+            if let Some(e) = seg.get("end").and_then(|x| x.as_i64()) {
+                seg["end"] = serde_json::json!(e + 1);
+            }
+        }
+    }
+    v
+}
+
+/// Convert a binding-site JSON object coming from a `crate::do_*` core
+/// (0-based `templateStart`, 0-based-EXCLUSIVE `templateEnd`) to the 1-based
+/// inclusive MCP convention: `templateStart` +1, while `templateEnd` keeps its
+/// value (a 0-based exclusive end IS the 1-based inclusive end of the site).
+fn site_json_to_1based(site: &mut serde_json::Value) {
+    if let Some(s) = site.get("templateStart").and_then(|v| v.as_i64()) {
+        site["templateStart"] = serde_json::json!(s + 1);
+    }
+}
+
+/// Per-alignment JSON for add_alignment responses, with every template
+/// coordinate converted to 1-based inclusive. An insertion at internal
+/// 0-based `pos` (extra read bases before base `pos`) is reported as the
+/// 1-based base BEFORE the break — the bases sit between `pos` and `pos + 1`
+/// (`pos = len` on circular templates means between the last and the first
+/// base).
+fn alignment_json_1based(
+    a: &libregene_core::models::Alignment,
+    template: &str,
+    tlen: i64,
+    circular: bool,
+) -> serde_json::Value {
+    let diff = libregene_core::align::alignment_diff(a, template);
+    serde_json::json!({
+        "alignmentId": a.id,
+        "name": a.name,
+        "identity": a.identity,
+        "strand": a.strand,
+        "segmentCount": a.segments.len(),
+        "alignedLength": diff.aligned_length,
+        "mismatches": diff.mismatches.len(),
+        "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
+        "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
+        "mismatchDetails": diff.mismatches.iter().map(|m| serde_json::json!({
+            "pos": m.pos + 1,
+            "templateBase": m.template_base,
+            "readBase": m.read_base,
+        })).collect::<Vec<_>>(),
+        "deletionDetails": diff.deletions.iter().map(|d| serde_json::json!({
+            "pos": d.pos + 1,
+            "length": d.length,
+            "bases": d.bases,
+        })).collect::<Vec<_>>(),
+        "insertionDetails": diff.insertions.iter().map(|i| serde_json::json!({
+            "pos": cut_flanks(i.pos as i64, tlen, circular).0,
+            "bases": i.bases,
+            "length": i.length,
+        })).collect::<Vec<_>>(),
+        "orientedSequence": a.seq,
+        "coverage": a.segments.iter().map(|s| serde_json::json!({
+            "start": s.start + 1,
+            "end": s.end + 1,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+/// `removedFeatures`/`clippedFeatures` echo for edit_sequence, 1-based
+/// inclusive (the impact model is internal 0-based).
+fn edit_impact_json(
+    impact: &libregene_core::models::FeaturesEditImpact,
+) -> (serde_json::Value, serde_json::Value) {
+    let removed: Vec<serde_json::Value> = impact
+        .removed_features
+        .iter()
+        .map(|r| {
+            let loc = match r.location.split_once("..") {
+                Some((a, b)) => match (a.parse::<i64>(), b.parse::<i64>()) {
+                    (Ok(s), Ok(e)) => format!("{}..{}", s + 1, e + 1),
+                    _ => r.location.clone(),
+                },
+                None => r.location.clone(),
+            };
+            serde_json::json!({"name": r.name, "ftype": r.ftype, "location": loc})
+        })
+        .collect();
+    let clipped: Vec<serde_json::Value> = impact
+        .clipped_features
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "ftype": c.ftype,
+                "before": {"start": to1(c.before.start), "end": to1(c.before.end)},
+                "after": {"start": to1(c.after.start), "end": to1(c.after.end)},
+            })
+        })
+        .collect();
+    (serde_json::json!(removed), serde_json::json!(clipped))
+}
+
+/// analyze_mutagenesis reports internal 0-based coordinates; bump the
+/// template span, the diff offsets and the CDS codon index to the 1-based
+/// inclusive MCP convention. `codonIndex` becomes 1-based within the CDS
+/// (then equal to `aaPosition1Based`); `aaPosition1Based`/
+/// `aaPositionExcludingMet` are amino-acid numbering (already 1-based
+/// conventions) and stay untouched.
+fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAnalysis) -> serde_json::Value {
+    let mut v = serde_json::to_value(info).unwrap_or_default();
+    v["segStart"] = serde_json::json!(to1(info.seg_start));
+    v["segEnd"] = serde_json::json!(to1(info.seg_end));
+    if let Some(diffs) = v.get_mut("diffs").and_then(|d| d.as_array_mut()) {
+        for d in diffs.iter_mut() {
+            if let Some(o) = d.get("offset").and_then(|x| x.as_i64()) {
+                d["offset"] = serde_json::json!(o + 1);
+            }
+        }
+    }
+    if let Some(cds) = v.get_mut("cds") {
+        if let Some(ci) = cds.get("codonIndex").and_then(|x| x.as_i64()) {
+            cds["codonIndex"] = serde_json::json!(ci + 1);
+        }
+    }
+    v
+}
+
 fn ok_envelope(project_id: &str, message: String, region_view: Option<String>) -> serde_json::Value {
     let mut v = serde_json::json!({
         "ok": true,
@@ -566,8 +760,8 @@ fn fail_envelope(project_id: &str, message: String) -> serde_json::Value {
     })
 }
 
-/// Stored feature coordinates rendered GenBank-style but **0-based inclusive**
-/// (e.g. "99..199", "complement(49..79)", "join(0..99,199..299)").
+/// Stored feature coordinates rendered GenBank-style in the 1-based inclusive
+/// MCP convention (e.g. "100..200", "complement(50..80)", "join(1..100,200..300)").
 fn stored_location(f: &Feature) -> String {
     let segs: Vec<(i64, i64)> = if f.segments.is_empty() {
         vec![(f.start, f.end)]
@@ -576,7 +770,7 @@ fn stored_location(f: &Feature) -> String {
     };
     let inner = segs
         .iter()
-        .map(|(s, e)| format!("{}..{}", s, e))
+        .map(|(s, e)| format!("{}..{}", s + 1, e + 1))
         .collect::<Vec<_>>()
         .join(",");
     let loc = if segs.len() > 1 { format!("join({})", inner) } else { inner };
@@ -584,6 +778,54 @@ fn stored_location(f: &Feature) -> String {
         format!("complement({})", loc)
     } else {
         loc
+    }
+}
+
+/// Resolve add_feature/update_feature span parameters (given 1-based
+/// inclusive, the MCP interface convention) into model segments and overall
+/// bounds (internal 0-based inclusive). Bounds against the project length are
+/// checked by the caller.
+fn resolve_feature_span(
+    start: Option<i64>,
+    end: Option<i64>,
+    segments: Option<Vec<FeatureSegmentSpec>>,
+) -> Result<(Vec<Segment>, i64, i64), String> {
+    if segments.is_some() && (start.is_some() || end.is_some()) {
+        return Err("segments is mutually exclusive with start/end".to_string());
+    }
+    match (start, end, segments) {
+        (Some(s), Some(e), None) => {
+            if s < 1 || e < s {
+                return Err(format!(
+                    "invalid span {}..{}: need 1 <= start <= end (1-based inclusive)",
+                    s, e
+                ));
+            }
+            Ok((vec![Segment { start: s - 1, end: e - 1, color: None }], s - 1, e - 1))
+        }
+        (None, None, Some(segs)) => {
+            if segs.is_empty() {
+                return Err("segments must not be empty".to_string());
+            }
+            let mut out = Vec::with_capacity(segs.len());
+            for seg in &segs {
+                if seg.start < 1 || seg.end < seg.start {
+                    return Err(format!(
+                        "invalid segment {}..{}: need 1 <= start <= end (1-based inclusive)",
+                        seg.start, seg.end
+                    ));
+                }
+                out.push(Segment { start: seg.start - 1, end: seg.end - 1, color: None });
+            }
+            let s = out.iter().map(|x| x.start).min().unwrap_or(0);
+            let e = out.iter().map(|x| x.end).max().unwrap_or(0);
+            Ok((out, s, e))
+        }
+        (Some(_), None, None) | (None, Some(_), None) => {
+            Err("start and end must be given together".to_string())
+        }
+        (None, None, None) => Err("give start+end or segments".to_string()),
+        _ => Err("invalid span parameters".to_string()),
     }
 }
 
@@ -670,9 +912,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(id)
     }
 
-    /// Text digest of `region` (0-based inclusive, may wrap on circular) or the
-    /// whole project when `None`. `compact` collapses the enzyme cut list into
-    /// a count line (mutation tools use it to keep regionView small).
+    /// Text digest of `region` (internal 0-based inclusive, may wrap on
+    /// circular) or the whole project when `None`. `compact` collapses the
+    /// enzyme cut list into a count line (mutation tools use it to keep
+    /// regionView small). Rendered coordinates are 1-based inclusive.
     async fn digest_region(
         &self,
         project_id: &str,
@@ -947,8 +1190,8 @@ enum FileOutcome {
 // export_subsequence: region resolution + export data building
 // ---------------------------------------------------------------------------
 
-/// Linear template pieces for a 0-based inclusive region; on circular
-/// sequences a wrap (start > end) becomes two pieces.
+/// Linear template pieces for an internal 0-based inclusive region; on
+/// circular sequences a wrap (start > end) becomes two pieces.
 fn region_pieces(project: &ProjectData, s: i64, e: i64) -> Vec<(i64, i64)> {
     if project.topology == "circular" && s > e {
         vec![(s, project.length - 1), (0, e)]
@@ -957,10 +1200,11 @@ fn region_pieces(project: &ProjectData, s: i64, e: i64) -> Vec<(i64, i64)> {
     }
 }
 
-/// The fragment between two cuts (0-based; a cut at index C severs the DNA
-/// between C-1 and C). Linear: the span between the smaller and the larger
-/// cut ([lo, hi-1]). Circular: the forward arc from cut1 to cut2, wrapping
-/// over the origin when cut1 > cut2, the whole molecule when they coincide.
+/// The fragment between two cuts (internal 0-based; a cut at index C severs
+/// the DNA between bases C-1 and C). Linear: the span between the smaller and
+/// the larger cut ([lo, hi-1]). Circular: the forward arc from cut1 to cut2,
+/// wrapping over the origin when cut1 > cut2, the whole molecule when they
+/// coincide.
 fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, i64)>, String> {
     let len = project.length;
     if project.topology == "circular" {
@@ -984,9 +1228,9 @@ fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, 
     }
 }
 
-/// The top-strand cut index (0-based) of an enzyme's `ordinal`-th recognition
-/// site (sorted by rec_start) from the already-computed engine results.
-/// Unknown enzymes error with near-match suggestions, mirroring
+/// The top-strand cut index (internal 0-based) of an enzyme's `ordinal`-th
+/// recognition site (sorted by rec_start) from the already-computed engine
+/// results. Unknown enzymes error with near-match suggestions, mirroring
 /// find_restriction_sites.
 fn enzyme_cut_index(project: &ProjectData, name: &str, ordinal: usize) -> Result<i64, String> {
     let mut hits: Vec<&Enzyme> = project
@@ -1025,10 +1269,10 @@ fn enzyme_cut_index(project: &ProjectData, name: &str, ordinal: usize) -> Result
                 }
             } else {
                 Err(format!(
-                    "Enzyme '{}' has only {} recognition site(s) on this sequence; cannot select site {} (0-based)",
+                    "Enzyme '{}' has only {} recognition site(s) on this sequence; cannot select site number {}",
                     name,
                     hits.len(),
-                    ordinal
+                    ordinal + 1
                 ))
             }
         }
@@ -1131,10 +1375,13 @@ fn region_bbox(pieces: &[(i64, i64)], len: i64, circular: bool) -> (i64, i64) {
 }
 
 /// Resolve an export_subsequence request to the template pieces it exports:
-/// linear 0-based inclusive spans in EXPORT order, `flip` (each piece's
-/// sequence is reverse-complemented when exporting a minus-strand feature)
-/// and a human-readable description of the selected region. Exactly one
-/// selector must be given; mixing selectors is rejected.
+/// linear internal 0-based inclusive spans in EXPORT order, `flip` (each
+/// piece's sequence is reverse-complemented when exporting a minus-strand
+/// feature) and a human-readable description of the selected region (1-based,
+/// like every agent-facing string). The request's region `start`/`end` are
+/// already converted to internal 0-based by the caller; `cut1`/`cut2` are
+/// still the raw 1-based flanking-base numbers and are converted here.
+/// Exactly one selector must be given; mixing selectors is rejected.
 fn resolve_export_region(
     project: &ProjectData,
     req: &ExportSubsequenceRequest,
@@ -1165,7 +1412,7 @@ fn resolve_export_region(
     if region_active {
         let (s, e) = match (req.start, req.end) {
             (Some(s), Some(e)) => (s, e),
-            _ => return Err("start and end are both required (0-based inclusive)".to_string()),
+            _ => return Err("start and end are both required (1-based inclusive)".to_string()),
         };
         if s > e && !circular {
             return Err(
@@ -1174,14 +1421,16 @@ fn resolve_export_region(
         }
         if s < 0 || e < 0 || s >= len || e >= len {
             return Err(format!(
-                "range {}..{} out of bounds for sequence of length {} (0-based inclusive)",
-                s, e, len
+                "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                s + 1,
+                e + 1,
+                len
             ));
         }
         return Ok((
             region_pieces(project, s, e),
             false,
-            format!("region {}..{}", s, e),
+            format!("region {}..{}", s + 1, e + 1),
         ));
     }
 
@@ -1214,8 +1463,11 @@ fn resolve_export_region(
         for &(s, e) in &pieces {
             if s < 0 || e >= len {
                 return Err(format!(
-                    "feature {} coordinate {}..{} out of range for sequence of length {}",
-                    f.id, s, e, len
+                    "feature {} coordinate {}..{} out of range for sequence of length {} (1-based inclusive)",
+                    f.id,
+                    s + 1,
+                    e + 1,
+                    len
                 ));
             }
         }
@@ -1241,24 +1493,38 @@ fn resolve_export_region(
                     c2,
                     format!(
                         "fragment between {} (cut {}) and {} (cut {})",
-                        e1, c1, e2, c2
+                        e1,
+                        cut_notation(c1, len, circular),
+                        e2,
+                        cut_notation(c2, len, circular)
                     ),
                 )
             }
             (None, None, Some(a), Some(b)) => {
-                let max_cut = if circular { len - 1 } else { len };
-                if a < 0 || b < 0 || a > max_cut || b > max_cut {
+                // 1-based input: a cut at N severs the DNA between the 1-based
+                // bases N and N+1. An internal cut index C severs between the
+                // 0-based bases C-1 and C, so the numeric value of N carries
+                // over unchanged; on circular, N = len is the origin cut (0).
+                if a < 1 || b < 1 || a > len || b > len {
                     return Err(format!(
-                        "cut indices {} and {} out of range (0..={} for a {} bp {})",
-                        a, b, max_cut, len, project.topology
+                        "cut positions {} and {} out of range (1..={} for a {} bp {}; a cut at N severs the DNA between 1-based bases N and N+1)",
+                        a, b, len, len, project.topology
                     ));
                 }
                 let (a, b) = if circular { (a % len, b % len) } else { (a, b) };
-                (a, b, format!("fragment between cuts {} and {}", a, b))
+                (
+                    a,
+                    b,
+                    format!(
+                        "fragment between cuts {} and {}",
+                        cut_notation(a, len, circular),
+                        cut_notation(b, len, circular)
+                    ),
+                )
             }
             _ => {
                 return Err(
-                    "fragment mode needs enzyme1+enzyme2 (names) OR cut1+cut2 (indices), not a mix"
+                    "fragment mode needs enzyme1+enzyme2 (names) OR cut1+cut2 (positions), not a mix"
                         .to_string(),
                 )
             }
@@ -1292,8 +1558,8 @@ fn resolve_export_region(
     } else {
         if f_start > r_end {
             return Err(format!(
-                "fwd primer's 5' end (position {}) is downstream of the rev primer's 5' end (position {}); the pair does not define an amplicon on a linear sequence",
-                f_start, r_end
+                "fwd primer's 5' end (1-based position {}) is downstream of the rev primer's 5' end (1-based position {}); the pair does not define an amplicon on a linear sequence",
+                f_start + 1, r_end + 1
             ));
         }
         vec![(f_start, r_end)]
@@ -1468,10 +1734,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         })))
     }
 
-    /// Compact text digest of a whole project. Coordinates are 0-based inclusive
-    /// (features, primers, read ranges); primer template_end is exclusive; enzyme
-    /// cuts happen between pos-1 and pos. feature_filter matches feature name
-    /// (case-insensitive substring) or exact ftype. Primers render as a PRIMERS
+    /// Compact text digest of a whole project. Coordinates are 1-based
+    /// inclusive (features, primers, read ranges); enzyme cuts render as
+    /// N^N+1 (between the 1-based bases N and N+1). feature_filter matches
+    /// feature name (case-insensitive substring) or exact ftype. Primers
+    /// render as a PRIMERS
     /// section (or "PRIMERS (none)" when the project has none). The UNIQUE
     /// CUTTERS list (90+ lines on real plasmids) is collapsed to a single count
     /// line by default; pass `compactCutters: false` for the full per-enzyme
@@ -1501,12 +1768,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
     }
 
-    /// Compact text digest of a region of a project. Coordinates are 0-based
+    /// Compact text digest of a region of a project. start/end are 1-based
     /// inclusive; on circular sequences start > end wraps the origin. Only
     /// features, primer binding sites and enzyme cut positions overlapping
     /// [start, end] are included. The enzyme cut list is collapsed into a
     /// single count line by default; pass `compact: false` for every cut in
-    /// the window. Returns {projectId, text}.
+    /// the window. When stored read alignments overlap the window, an
+    /// ALIGNMENT DIFFS IN REGION section lists each read's mismatches,
+    /// deletions and insertions inside the window (1-based coordinates and
+    /// bases; reads with no differences in the window are marked
+    /// "no differences in window") — use it to check whether a site is
+    /// mutated without aligning reads by eye. Returns {projectId, text}.
     #[tool]
     async fn get_region_view(
         &self,
@@ -1520,7 +1792,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             compact_cutters: false,
             include_auto_annotation: false,
         };
-        let text = project_digest(&project, &opts, Some((request.start, request.end)))
+        let text = project_digest(&project, &opts, Some((from1(request.start), from1(request.end))))
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
     }
@@ -1528,8 +1800,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Read bases of a project's sequence. Returns {projectId, sequence, text}
     /// — `sequence` is the plain uppercase base string (machine-readable);
     /// `text` is the same window with a coordinate ruler (10 bp groups, 60 bp
-    /// per line). Coordinates are 0-based inclusive; on circular sequences
-    /// start > end wraps the origin. Windows larger than 10000 bp are rejected.
+    /// per line; the ruler line is omitted for windows of 60 bp or less, where
+    /// the per-line position prefix is enough). start/end are 1-based
+    /// inclusive; on circular sequences start > end wraps the origin. Windows
+    /// larger than 10000 bp are rejected.
     /// This tool is for INSPECTING bases only: if you need to hand this
     /// sequence (or part of it) to another tool or file, use
     /// export_subsequence to write it to a file instead of copying the text.
@@ -1539,15 +1813,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<SequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
-        let text = read_sequence(&project, request.start, request.end)
+        let (s, e) = (from1(request.start), from1(request.end));
+        let text = read_sequence(&project, s, e)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let bases = libregene_core::digest::read_sequence_bases(&project, request.start, request.end)
+        let bases = libregene_core::digest::read_sequence_bases(&project, s, e)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         Ok(Json(serde_json::json!({ "projectId": id, "sequence": bases, "text": text })))
     }
 
     /// IUPAC-aware search of a project's sequence on both strands (reverse
-    /// strand skipped for palindromic queries). Hits are 0-based inclusive.
+    /// strand skipped for palindromic queries). Hits are 1-based inclusive.
     /// Returns {projectId, matches: [{start, end, strand}]}.
     /// DNA-only: rejects RNA/protein projects (single-strand, no reverse
     /// strand to search).
@@ -1560,6 +1835,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let matches = crate::do_search_sequence(&self.pm, &id, request.query)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
+        let matches: Vec<serde_json::Value> = matches
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "start": to1(m.start),
+                    "end": to1(m.end),
+                    "strand": m.strand,
+                })
+            })
+            .collect();
         Ok(Json(serde_json::json!({ "projectId": id, "matches": matches })))
     }
 
@@ -1569,14 +1854,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// are rejected with near-match suggestions — use that error to probe
     /// which enzyme names exist on this sequence (this is the replacement for
     /// the removed full-database dump: query per name instead of pulling the
-    /// whole ~196 KB catalog). Sites are the already-computed engine results
+    /// whole ~196 KB catalog). When you need a full panorama of EVERY enzyme
+    /// cut inside a region rather than per-enzyme probing, call
+    /// get_region_view with `compact: false` on that window instead — it lists
+    /// all cuts without naming enzymes one by one. Sites are the
+    /// already-computed engine results
     /// the UI shows (circular-normalized, methylation-aware), so no recompute
     /// runs.
     /// Returns {projectId, enzymes: [{name, sites: [{recStart, recEnd,
     /// recSeq, strand, cuts: [{topCutIndex, botCutIndex}], methylationBlocked,
-    /// unique}]}]}. recStart/recEnd are 0-based inclusive; a cut happens
-    /// BETWEEN cut-1 and cut (0-based); strand is "top" or "bottom"
-    /// (recognition orientation); unique = exactly one site for that enzyme.
+    /// unique}]}]}. recStart/recEnd are 1-based inclusive; topCutIndex/
+    /// botCutIndex give the 1-based base BEFORE the break: the strand is
+    /// severed between topCutIndex and topCutIndex+1 (topCutIndex = len on a
+    /// circular sequence means between the last and the first base); strand is
+    /// "top" or "bottom" (recognition orientation); unique = exactly one site
+    /// for that enzyme.
     /// DNA-only: rejects RNA/protein projects (no restriction sites).
     #[tool]
     async fn find_restriction_sites(
@@ -1647,6 +1939,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         let mut enzyme_names: Vec<&str> = by_name.keys().copied().collect();
         enzyme_names.sort();
+        let circular = project.topology == "circular";
+        let tlen = project.length;
         let enzymes_json: Vec<serde_json::Value> = enzyme_names
             .into_iter()
             .map(|n| {
@@ -1655,13 +1949,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 serde_json::json!({
                     "name": n,
                     "sites": sites.iter().map(|e| serde_json::json!({
-                        "recStart": e.rec_start,
-                        "recEnd": e.rec_end,
+                        "recStart": to1(e.rec_start),
+                        "recEnd": to1(e.rec_end),
                         "recSeq": e.rec_seq,
                         "strand": e.recognition_strand,
                         "cuts": e.cut_pairs.iter().map(|p| serde_json::json!({
-                            "topCutIndex": p.top_cut_index,
-                            "botCutIndex": p.bot_cut_index,
+                            "topCutIndex": cut_flanks(p.top_cut_index, tlen, circular).0,
+                            "botCutIndex": cut_flanks(p.bot_cut_index, tlen, circular).0,
                         })).collect::<Vec<_>>(),
                         "methylationBlocked": e.methylation_blocked,
                         "unique": e.is_unique,
@@ -1675,8 +1969,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// List the primers stored in a project (read-only; never recomputes or
     /// checks binding). Returns {projectId, primers: [{id, name, type, seq,
     /// bindingSiteCount, sites: [{strand, templateStart, templateEnd}]}]}.
-    /// templateStart is 0-based inclusive, templateEnd 0-based EXCLUSIVE
-    /// (range spans templateStart..templateEnd-1). bindingSiteCount is the
+    /// templateStart/templateEnd are 1-based inclusive (the bound range spans
+    /// templateStart..templateEnd, GenBank-style). bindingSiteCount is the
     /// number of recomputed binding sites (0 when the primer does not bind);
     /// sites are best-first (Tm descending, as the UI orders them).
     #[tool]
@@ -1697,7 +1991,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     "bindingSiteCount": p.binding_sites.len(),
                     "sites": p.binding_sites.iter().map(|s| serde_json::json!({
                         "strand": s.strand,
-                        "templateStart": s.template_start,
+                        "templateStart": to1(s.template_start),
                         "templateEnd": s.template_end,
                     })).collect::<Vec<_>>(),
                 })
@@ -1820,9 +2114,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(ok_envelope(&id, format!("Activated {}", id), region)))
     }
 
-    /// Replace sequence [start..end] (0-based inclusive) with `replacement`
-    /// (empty = delete). A pure insertion is `end = start - 1`; ranges must not
-    /// wrap (start > end+1 rejected). The replacement sequence is given either
+    /// Replace sequence [start..end] (1-based inclusive) with `replacement`
+    /// (empty = delete). A pure insertion before base N is `start=N, end=N-1`;
+    /// ranges must not wrap (start > end+1 rejected). The replacement sequence
+    /// is given either
     /// as a plain string (`replacement`) or read from a local sequence file
     /// (`replacement_path` — .gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc.,
     /// the same formats open_file accepts; exactly one of the two must be
@@ -1843,15 +2138,19 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// " (2)" suffix. Feature coordinates are shifted/clipped
     /// for the edit (features fully inside a deleted range are removed). When
     /// `expected_old` is given it must match the current [start..end] content
-    /// case-insensitively or the edit is rejected with the actual content. Uses
+    /// case-insensitively or the edit is rejected with the actual content. On
+    /// such a mismatch the failure response carries `currentContent` — the
+    /// authoritative current [start..end] bases — plus a ±20 bp `mismatch`
+    /// context block; copy `currentContent` verbatim as `expected_old` and
+    /// retry instead of hand-building a long check string. Uses
     /// the same primer+enzyme recompute path as update_sequence. Returns
     /// newLength, old/new region views, 30 bp sequence context on each side of
     /// the edit, and side-effect echo `removedFeatures`/`clippedFeatures`
     /// (both always present, empty arrays when none): removed lists features
     /// fully inside the deleted/replaced span ({name, ftype, location} with
-    /// the pre-edit 0-based "start..end"); clipped lists features whose
+    /// the pre-edit 1-based "start..end"); clipped lists features whose
     /// coordinates changed other than a pure translation ({name, ftype,
-    /// before, after} as {start, end}). `transferredFeatures`/
+    /// before, after} as 1-based {start, end}). `transferredFeatures`/
     /// `transferredPrimers` list annotation names brought in by
     /// `replacement_path` (omitted when none). On protein projects the replacement is
     /// uppercased and must be amino-acid letters (A-Z, optional trailing '*'
@@ -1863,24 +2162,26 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         let len = project.length;
-        let start = request.start;
-        let end = request.end;
+        // 1-based inclusive inputs; internal model coordinates are 0-based.
+        let (u_start, u_end) = (request.start, request.end);
+        let start = from1(u_start);
+        let end = from1(u_end);
 
-        if start > end + 1 {
+        if u_start > u_end + 1 {
             return Ok(Json(fail_envelope(
                 &id,
                 format!(
-                    "invalid range {}..{}: start > end+1; ranges must not wrap (end = start-1 is a pure insertion)",
-                    start, end
+                    "invalid range {}..{}: start > end+1; ranges must not wrap (a pure insertion before base N is start=N, end=N-1)",
+                    u_start, u_end
                 ),
             )));
         }
-        if start < 0 || start > len || end < -1 || end >= len {
+        if u_start < 1 || u_start > len + 1 || u_end < 0 || u_end > len {
             return Ok(Json(fail_envelope(
                 &id,
                 format!(
-                    "range {}..{} out of bounds for sequence of length {} (0-based inclusive)",
-                    start, end, len
+                    "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                    u_start, u_end, len
                 ),
             )));
         }
@@ -1991,17 +2292,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let mut v = fail_envelope(
                     &id,
                     format!(
-                        "expected_old mismatch at index {} (within [{}..{}], 0-based): expected context '{}' vs current context '{}'",
-                        diff_at,
-                        start,
-                        end,
+                        "expected_old mismatch at content position {} (1-based, within [{}..{}]): expected context '{}' vs current context '{}'",
+                        diff_at + 1,
+                        u_start,
+                        u_end,
                         String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
                         String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
                     ),
                 );
                 v["currentContent"] = serde_json::json!(current);
                 v["mismatch"] = serde_json::json!({
-                    "index": diff_at,
+                    "index": diff_at + 1,
                     "expectedContext": String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
                     "currentContext": String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
                     "expectedLength": exp.len(),
@@ -2111,15 +2412,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
         );
         let new_region = self.digest_region(&id, Some(new_win), true).await;
 
+        let (removed_json, clipped_json) = edit_impact_json(&impact);
+        let action = if is_insertion {
+            format!("Inserted {} {} before base {}", repl_len, unit, u_start)
+        } else {
+            format!(
+                "Replaced [{}..{}] ({} {}) with {} {}",
+                u_start,
+                u_end,
+                end - start + 1,
+                unit,
+                repl_len,
+                unit
+            )
+        };
         let mut v = serde_json::json!({
             "ok": true,
             "message": format!(
-                "Replaced [{}..{}] ({} {}) with {} {}{}; new length {} (was {})",
-                start, end,
-                if is_insertion { 0 } else { end - start + 1 },
-                unit,
-                repl_len,
-                unit,
+                "{}{}; new length {} (was {})",
+                action,
                 if reverse { " (reverse-complemented)" } else { "" },
                 new_len,
                 len
@@ -2129,10 +2440,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "newLength": new_len,
             "contextBefore": context_before,
             "contextAfter": context_after,
-            "removedFeatures": serde_json::to_value(&impact.removed_features)
-                .unwrap_or_else(|_| serde_json::json!([])),
-            "clippedFeatures": serde_json::to_value(&impact.clipped_features)
-                .unwrap_or_else(|_| serde_json::json!([])),
+            "removedFeatures": removed_json,
+            "clippedFeatures": clipped_json,
         });
         if !transferred_feature_names.is_empty() {
             v["transferredFeatures"] = serde_json::json!(transferred_feature_names);
@@ -2149,10 +2458,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    /// Add a feature. `location` is a GenBank 1-based location string
-    /// (e.g. "100..200", "complement(50..80)", "join(1..100,200..300)"); the
-    /// stored coordinates are 0-based inclusive. strand (".", "+", "-") and
-    /// color (hex, e.g. "#60A5FA") are optional and override the location.
+    /// Add a feature. Coordinates are 1-based inclusive (GenBank convention):
+    /// give `start`+`end` for a simple feature, or `segments`
+    /// ([{start, end}], 5'→3' order) for a segmented one — the two forms are
+    /// mutually exclusive. strand (".", "+", "-", default "+") and color (hex,
+    /// e.g. "#60A5FA") are optional.
     /// Returns {ok, message, projectId, featureId, regionView} around the new
     /// feature.
     #[tool]
@@ -2163,30 +2473,38 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let id = self.resolve_project_id(request.project_id).await?;
         let feature_id = next_id("feature");
         let name = request.name.clone();
-        let location = request.location.clone();
         let ftype = request.ftype.clone();
 
-        let parsed = libregene_core::file_io::gbk::parse_location_string(&location)
-            .ok_or_else(|| ErrorData::invalid_params(format!("Invalid location: {}", location), None))?;
-        let (segments, start, end, location_strand) = parsed;
-        let strand = request.strand.clone().unwrap_or(location_strand);
+        let (segments, start, end) = resolve_feature_span(
+            request.start,
+            request.end,
+            request.segments,
+        )
+        .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let strand = request.strand.clone().unwrap_or_else(|| "+".to_string());
+        if !matches!(strand.as_str(), "." | "+" | "-") {
+            return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
+        }
 
-        // Reject coordinates outside [1, project.length]. parse_location_string
-        // only checks start<=end (no upper bound), so without this a caller
-        // could write a feature with end = i64::MAX and later panic downstream
-        // code that slices the sequence by these coordinates.
+        // Reject coordinates outside [1, project.length] (1-based).
+        // resolve_feature_span only checks start<=end (no upper bound), so
+        // without this a caller could write a feature with end = i64::MAX and
+        // later panic downstream code that slices the sequence by these
+        // coordinates.
         {
             let pm = self.pm.read().await;
             let plen = pm
                 .get_project_by_id(&id)
                 .map(|p| p.length)
                 .unwrap_or(0);
-            if start < 1 || end < 1 || end > plen {
+            if end >= plen {
                 return Ok(Json(fail_envelope(
                     &id,
                     format!(
-                        "feature location {}..{} is out of range for project length {}",
-                        start, end, plen
+                        "feature span {}..{} is out of range for project length {} (1-based inclusive)",
+                        start + 1,
+                        end + 1,
+                        plen
                     ),
                 )));
             }
@@ -2223,7 +2541,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let region = self.digest_feature_region(&id, &feature_id).await;
         let mut v = ok_envelope(
             &id,
-            format!("Added {} {} at {} (0-based; input location was 1-based {})", ftype, name, stored, location),
+            format!("Added {} {} at {} (1-based inclusive)", ftype, name, stored),
             region,
         );
         v["featureId"] = serde_json::json!(feature_id);
@@ -2231,13 +2549,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Update a feature's attributes in one call. `feature_id` is required;
-    /// give at least one of name/ftype/color/strand/location or the call is
-    /// rejected. `location` is a GenBank 1-based location string (same formats
-    /// as add_feature, e.g. "100..200", "complement(50..80)",
-    /// "join(1..100,200..300)"); the stored coordinates are 0-based inclusive
-    /// and echoed back as such. strand must be ".", "+" or "-"; color is hex
-    /// (e.g. "#F87171") and also recolors existing segments. Returns
-    /// {ok, message, projectId, regionView} around the feature.
+    /// give at least one of name/ftype/color/strand/start+end/segments or the
+    /// call is rejected. Coordinates are 1-based inclusive (GenBank
+    /// convention): `start`+`end` replace the whole span, `segments`
+    /// ([{start, end}], 5'→3' order) replaces the segment breakdown — the two
+    /// forms are mutually exclusive and neither touches the strand. strand
+    /// must be ".", "+" or "-"; color is hex (e.g. "#F87171") and also
+    /// recolors existing segments. Returns {ok, message, projectId,
+    /// regionView} around the feature.
     #[tool]
     async fn update_feature(
         &self,
@@ -2251,11 +2570,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             && request.ftype.is_none()
             && request.color.is_none()
             && request.strand.is_none()
-            && request.location.is_none()
+            && request.start.is_none()
+            && request.end.is_none()
+            && request.segments.is_none()
         {
             return Ok(Json(fail_envelope(
                 &id,
-                "Nothing to update: give at least one of name/ftype/color/strand/location".to_string(),
+                "Nothing to update: give at least one of name/ftype/color/strand/start+end/segments".to_string(),
             )));
         }
         if let Some(s) = &request.strand {
@@ -2264,26 +2585,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
         let feature_id = request.feature_id.clone();
-        let location = request.location.clone();
-        // Pre-validate a new location against the project length (same reason
-        // as add_feature). parse_location_string has no upper bound on its own.
-        if let Some(loc) = &location {
+        let has_span = request.start.is_some()
+            || request.end.is_some()
+            || request.segments.is_some();
+        let new_span = if has_span {
+            let span = resolve_feature_span(request.start, request.end, request.segments)
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            // Pre-validate the new span against the project length (same reason
+            // as add_feature). resolve_feature_span has no upper bound on its own.
+            let (_, start, end) = &span;
             let pm = self.pm.read().await;
             let plen = pm.get_project_by_id(&id).map(|p| p.length).unwrap_or(0);
-            if let Some((_, start, end, _)) =
-                libregene_core::file_io::gbk::parse_location_string(loc)
-            {
-                if start < 1 || end < 1 || end > plen {
-                    return Ok(Json(fail_envelope(
-                        &id,
-                        format!(
-                            "feature location {}..{} is out of range for project length {}",
-                            start, end, plen
-                        ),
-                    )));
-                }
+            if *end >= plen {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!(
+                        "feature span {}..{} is out of range for project length {} (1-based inclusive)",
+                        start + 1,
+                        end + 1,
+                        plen
+                    ),
+                )));
             }
-        }
+            Some(span)
+        } else {
+            None
+        };
         let payload = crate::do_update_feature(
             &self.app_handle,
             &self.pm,
@@ -2292,14 +2619,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &id,
             &feature_id,
             move |f| {
-                if let Some(loc) = &location {
-                    let parsed = libregene_core::file_io::gbk::parse_location_string(loc)
-                        .ok_or_else(|| format!("Invalid location: {}", loc))?;
-                    let (segments, start, end, strand) = parsed;
+                if let Some((segments, start, end)) = new_span {
                     f.segments = segments;
                     f.start = start;
                     f.end = end;
-                    f.strand = strand;
                 }
                 if let Some(v) = request.name {
                     f.name = v;
@@ -2330,7 +2653,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
                 .map(|f| {
                     format!(
-                        "Updated feature {}: {} {} at {} (0-based), strand {}",
+                        "Updated feature {}: {} {} at {} (1-based inclusive), strand {}",
                         feature_id,
                         f.ftype,
                         f.name,
@@ -2349,8 +2672,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// as plain text is the intended input here — no file input needed.
     /// Returns {ok, message, projectId, bindingSites, regionView}
     /// — bindingSites: [{strand, templateStart, templateEnd, tm, annealLen}].
-    /// templateStart is 0-based inclusive, templateEnd 0-based EXCLUSIVE (the
-    /// bound range spans templateStart..templateEnd-1). annealLen is the number
+    /// templateStart/templateEnd are 1-based inclusive (the bound range spans
+    /// templateStart..templateEnd, GenBank-style). annealLen is the number
     /// of contiguous 3'-end bases matching the template (the anneal core; a
     /// non-pairing 5' tail is excluded).
     /// DNA-only: rejects RNA/protein projects (single-strand molecules carry
@@ -2388,7 +2711,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         .map(|s| {
                             serde_json::json!({
                                 "strand": s.strand,
-                                "templateStart": s.template_start,
+                                "templateStart": to1(s.template_start),
                                 "templateEnd": s.template_end,
                                 "tm": (s.tm * 10.0).round() / 10.0,
                                 "3PrimeMismatch": s.has_3_prime_mismatch,
@@ -2440,29 +2763,38 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Returns {ok, message, projectId, regionView, significant, identity,
     /// strand, segmentCount, alignedLength, mismatches, insertions,
-    /// deletions, mismatchDetails, deletionDetails, insertionDetails, name,
-    /// alignmentId, alignments}.
+    /// deletions, mismatchDetails, deletionDetails, insertionDetails,
+    /// orientedSequence, coverage, name, alignmentId, alignments}.
     /// - `identity`: 0–1 fraction, full precision (not rounded).
     /// - `alignedLength`: template positions covered by the alignment (sum of
     ///   segment spans, bp).
     /// - `mismatches`/`insertions`/`deletions`: total base counts (identity
     ///   alone rounds away single mismatches).
     /// - `mismatchDetails`: [{pos, templateBase, readBase}] — one entry per
-    ///   mismatched column; `pos` is the 0-based inclusive template position;
+    ///   mismatched column; `pos` is the 1-based inclusive template position;
     ///   `readBase` is oriented to the template strand (already rev-comp'd
     ///   when strand is "-").
     /// - `deletionDetails`: [{pos, length, bases}] — consecutive deleted
-    ///   template columns grouped into one entry; `pos` is the 0-based
+    ///   template columns grouped into one entry; `pos` is the 1-based
     ///   inclusive template position of the first deleted base; entries
     ///   straddling the circular origin are merged.
-    /// - `insertionDetails`: [{pos, bases, length}] — `pos` is the 0-based
-    ///   template position before which the extra read bases were inserted
-    ///   (between pos-1 and pos; on circular templates pos=0 means between
-    ///   tlen-1 and 0).
+    /// - `insertionDetails`: [{pos, bases, length}] — the extra read bases sit
+    ///   between the 1-based template bases `pos` and `pos + 1` (on circular
+    ///   templates pos = len means between the last and the first base).
+    /// - `orientedSequence`: the FULL read sequence oriented to the template
+    ///   (reverse-complemented when strand is "-"), so read bases line up
+    ///   with the template coordinates used by mismatchDetails/coverage —
+    ///   eyeball a window's read bases directly instead of reconstructing
+    ///   them from the diff lists. Returned untruncated; reads from .ab1
+    ///   files can exceed 1000 bp.
+    /// - `coverage`: [{start, end}] — 1-based inclusive template spans the
+    ///   read covers, one entry per segment; a read spanning the circular
+    ///   origin yields two entries.
     /// - `alignments`: the project's FULL alignment list (including the one
     ///   just added), each {alignmentId, name, identity, strand,
     ///   segmentCount, alignedLength, mismatches, insertions, deletions,
-    ///   mismatchDetails, deletionDetails, insertionDetails} — lets a caller
+    ///   mismatchDetails, deletionDetails, insertionDetails,
+    ///   orientedSequence, coverage} — lets a caller
     ///   inspect every stored alignment without a separate read tool. The
     ///   top-level fields above describe the newly added alignment.
     /// On failure returns {ok: false, message, projectId, significant: false};
@@ -2544,26 +2876,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
                 .map(|p| {
+                    let circular = p.topology == "circular";
                     let alignments: Vec<serde_json::Value> = p
                         .alignments
                         .iter()
-                        .map(|a| {
-                            let diff = libregene_core::align::alignment_diff(a, &p.sequence);
-                            serde_json::json!({
-                                "alignmentId": a.id,
-                                "name": a.name,
-                                "identity": a.identity,
-                                "strand": a.strand,
-                                "segmentCount": a.segments.len(),
-                                "alignedLength": diff.aligned_length,
-                                "mismatches": diff.mismatches.len(),
-                                "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
-                                "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
-                                "mismatchDetails": diff.mismatches,
-                                "deletionDetails": diff.deletions,
-                                "insertionDetails": diff.insertions,
-                            })
-                        })
+                        .map(|a| alignment_json_1based(a, &p.sequence, p.length, circular))
                         .collect();
                     let last = p.alignments.last();
                     let region = last.and_then(|a| {
@@ -2596,7 +2913,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// project. min_aa defaults to 75. When add_as_features is true the ORFs
     /// are appended as real CDS features (through the add-feature path, with
     /// recompute/broadcast) and {ok, message, projectId, regionView} is
-    /// returned; otherwise returns {projectId, orfs: [Feature]}.
+    /// returned; otherwise returns {projectId, orfs: [Feature]} with all
+    /// coordinates 1-based inclusive (start/end and segments).
     /// DNA-only: rejects RNA/protein projects (single-strand, no ORFs).
     #[tool]
     async fn find_orfs(
@@ -2609,7 +2927,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         if !request.add_as_features.unwrap_or(false) {
-            return Ok(Json(serde_json::json!({ "projectId": id, "orfs": orfs })));
+            let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
+            return Ok(Json(serde_json::json!({ "projectId": id, "orfs": orfs_json })));
         }
         if orfs.is_empty() {
             return Ok(Json(serde_json::json!({
@@ -2639,13 +2958,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Design primer candidates — same modes/parameters as the
     /// design_primer_candidates command. mode: "amplify" | "oepcr" |
-    /// "mutagenesis"; segments are {start, end} 0-based inclusive.
+    /// "mutagenesis"; segments are {start, end} 1-based inclusive.
     /// amplify: optional `fwd_enzyme`/`rev_enzyme` (enzyme names, e.g.
     /// "BamHI" — probe valid names via find_restriction_sites' unknown-name
     /// suggestions) add a 5' tail of
     /// `protect_bases` (default 3) GC protection bases + the recognition
     /// site; candidates expose tail/tailLen/annealLen and Tm covers the
-    /// anneal core only.
+    /// anneal core only. The amplify response always carries an
+    /// `orientation` note: the product's top strand IS the template top
+    /// strand of seg — Fwd primes from its 5' (left) end, Rev from its 3'
+    /// (right) end — so primer names follow the template top strand, NOT any
+    /// feature's coding strand. When seg overlaps a CDS feature the response
+    /// adds `cdsOverlaps` ([{featureId, name, strand, note}]); for a
+    /// minus-strand CDS the note spells out that Fwd sits at the CDS's 3'
+    /// end and Rev at its 5' end. Map primer names to coding direction via
+    /// that `strand` — never assume Fwd = CDS 5'.
     /// mutagenesis: `mut_seq` is the desired PLUS-strand content of `seg`
     /// after the edit; it must be the same length as `seg` and differ at
     /// <= 3 bases or the call fails with the current template sequence.
@@ -2653,24 +2980,39 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// strand context, and CDS codon/amino-acid change when `seg` lies inside
     /// a CDS — joined multi-segment CDS features are supported — mind the CDS
     /// strand: for a minus-strand CDS the coding change is the reverse
-    /// complement of the plus-strand edit). In that block `cds.codonIndex`
-    /// is 0-based within the CDS and `cds.aaPosition1Based` is the 1-based
-    /// amino-acid position (codonIndex + 1); `cds.aaPositionExcludingMet` is
-    /// aaPosition1Based minus the initiator Met (absent for the first codon).
+    /// complement of the plus-strand edit). In that block `segStart`/`segEnd`
+    /// are 1-based inclusive template coordinates and each diff's `offset` is
+    /// the 1-based position within `seg`; `cds.codonIndex`
+    /// is 1-based within the CDS (the codon that changes) and the amino-acid
+    /// position is reported in
+    /// TWO conventions: `cds.aaPosition1Based` counts the initiator Met as
+    /// residue 1 (always equal to codonIndex), while
+    /// `cds.aaPositionExcludingMet`
+    /// excludes it (absent for the first codon) — the latter matches common
+    /// literature numbering, e.g. mEGFP A206K shows up as
+    /// aaPositionExcludingMet=206 / aaPosition1Based=207. Check which
+    /// convention your task's numbering uses.
     /// Replacing every base of `seg`
-    /// adds a `warning` (likely wrong strand/location) but is not rejected.
+    /// adds a `warning` (likely wrong strand/location) but is not rejected —
+    /// EXCEPT when `seg` is exactly one or more complete codons of a CDS
+    /// (codon-aligned, length divisible by 3, CDS context computable): a
+    /// whole-codon swap (e.g. Ala→Lys, GCG→AAG) is an expected operation and
+    /// does NOT warn. The warning is kept whenever the CDS context cannot be
+    /// confirmed (seg outside any CDS, or not codon-aligned).
     /// In amplify mode the response always includes an `internalSites` array
     /// (empty when no enzyme recognition site occurs inside the amplified
-    /// segment; non-empty entries {enzyme, start, end, strand}, 0-based
+    /// segment; non-empty entries {enzyme, start, end, strand}, 1-based
     /// inclusive, plus a `warning` that digestion would cut the product).
     /// Returns {projectId, groups: [PrimerGroup], mutation?,
-    /// internalSites (amplify)}.
+    /// internalSites + orientation + cdsOverlaps? (amplify)}.
     ///
     /// Tm/annealLen here describe the DESIGNED anneal core only. If you then
     /// verify a designed primer with check_primer_binding, its annealLen/Tm
     /// can be HIGHER: check recomputes the actual contiguous 3'-end match,
     /// which can extend into tail bases that happen to match the template
-    /// (e.g. an enzyme tail sitting next to a matching downstream site).
+    /// (e.g. an enzyme tail sitting next to a matching downstream site) —
+    /// expected, not anomalous binding; check's per-site
+    /// alignedTemplate/matchMask show exactly which bases pair.
     /// DNA-only: rejects RNA/protein projects (no primer design on
     /// single-strand molecules).
     #[tool]
@@ -2680,13 +3022,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
         let seg = request.seg.map(|s| libregene_core::models::Segment {
-            start: s.start,
-            end: s.end,
+            start: from1(s.start),
+            end: from1(s.end),
             color: None,
         });
         let seg2 = request.seg2.map(|s| libregene_core::models::Segment {
-            start: s.start,
-            end: s.end,
+            start: from1(s.start),
+            end: from1(s.end),
             color: None,
         });
 
@@ -2740,8 +3082,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         for m in libregene_core::search::find_seq_matches(&amplicon, site) {
                             internal_sites.push(serde_json::json!({
                                 "enzyme": enzyme_name,
-                                "start": (s + m.start) % len,
-                                "end": (s + m.end) % len,
+                                "start": (s + m.start) % len + 1,
+                                "end": (s + m.end) % len + 1,
                                 "strand": m.strand,
                             }));
                         }
@@ -2768,7 +3110,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 request.mut_seq.as_deref().unwrap_or(""),
                 &features,
             ) {
-                Ok(info) => mutation_info = Some(serde_json::to_value(info).unwrap_or_default()),
+                Ok(info) => mutation_info = Some(mutagenesis_json_1based(&info)),
                 Err(e) => {
                     let mut v = fail_envelope(&id, e);
                     let lo = seg_ref.start.max(0) as usize;
@@ -2783,6 +3125,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
 
         let mode_is_amplify = request.mode == "amplify";
+        let seg_bounds = seg.as_ref().map(|s| (s.start, s.end));
         let groups = crate::do_design_primer_candidates(
             &self.pm,
             &id,
@@ -2818,6 +3161,62 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     "The enzyme recognition site occurs inside the amplified segment; digestion will cut the product"
                 );
             }
+            if let Some((ss, se)) = seg_bounds {
+                v["orientation"] = serde_json::json!(format!(
+                    "Product top strand = template top strand of seg {}..{}: Fwd primes from its 5' (left) end, Rev from its 3' (right) end — primer names follow the template top strand, not any feature's coding strand",
+                    ss + 1,
+                    se + 1
+                ));
+                let cds_overlaps: Vec<serde_json::Value> = {
+                    let pm = self.pm.read().await;
+                    match pm.get_project_by_id(&id) {
+                        Some(p) => {
+                            let pieces = if p.topology == "circular" && ss > se {
+                                vec![(ss, p.length - 1), (0, se)]
+                            } else {
+                                vec![(ss, se)]
+                            };
+                            p.features
+                                .iter()
+                                .filter(|f| f.ftype.eq_ignore_ascii_case("cds"))
+                                .filter(|f| {
+                                    let spans: Vec<(i64, i64)> = if f.segments.is_empty() {
+                                        vec![(f.start, f.end)]
+                                    } else {
+                                        f.segments.iter().map(|s| (s.start, s.end)).collect()
+                                    };
+                                    pieces
+                                        .iter()
+                                        .any(|&(ps, pe)| spans.iter().any(|&(s, e)| s <= pe && ps <= e))
+                                })
+                                .map(|f| {
+                                    let note = if f.strand == "-" {
+                                        format!(
+                                            "CDS '{}' is on the MINUS strand: its coding direction runs opposite to the product top strand — Fwd sits at the CDS 3' end and Rev at the CDS 5' end",
+                                            f.name
+                                        )
+                                    } else {
+                                        format!(
+                                            "CDS '{}' is on the plus strand: its coding direction matches the product top strand (Fwd at the CDS 5' side, Rev at the 3' side)",
+                                            f.name
+                                        )
+                                    };
+                                    serde_json::json!({
+                                        "featureId": f.id,
+                                        "name": f.name,
+                                        "strand": f.strand,
+                                        "note": note,
+                                    })
+                                })
+                                .collect()
+                        }
+                        None => Vec::new(),
+                    }
+                };
+                if !cds_overlaps.is_empty() {
+                    v["cdsOverlaps"] = serde_json::json!(cds_overlaps);
+                }
+            }
         }
         Ok(Json(v))
     }
@@ -2829,22 +3228,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// binds, bindingSiteCount, site, sites}]}. `bindingSiteCount` is the
     /// number of binding sites (0 when the primer does not bind); `site` is
     /// the best one ({strand, templateStart, templateEnd, tm, annealLen,
-    /// mismatchedTail} or null) and `sites` lists ALL sites best-first (Tm
+    /// mismatchedTail, alignedTemplate, matchMask} or null) and `sites`
+    /// lists ALL sites best-first (Tm
     /// descending, same field shape as `site`) — use `sites` for off-target
-    /// detection. templateStart is 0-based inclusive, templateEnd 0-based
-    /// EXCLUSIVE (range spans templateStart..templateEnd-1); cuts are not
-    /// involved. `binds: true` means the 3' anneal core matched —
+    /// detection. templateStart/templateEnd are 1-based inclusive (the bound
+    /// range spans templateStart..templateEnd, GenBank-style). `binds: true`
+    /// means the 3' anneal core matched —
     /// the primer may still carry mismatches at its 5' end. `mismatchedTail`
     /// is the number of 5'-most bases NOT part of the contiguous 3' match
     /// (0 when the whole primer anneals; >0 for mutagenesis primers and
     /// enzyme-tail primers). `annealLen` counts only the contiguous 3' match.
-    /// `tmBasis` (always present) states the Tm/annealLen basis: they reflect
-    /// the ACTUAL contiguous 3' match, so tail bases that happen to match the
-    /// template extend annealLen and raise tm beyond design_primers' values.
-    /// Unlike design_primers (which reports the DESIGNED anneal core), this
-    /// recomputes the actual contiguous 3'-end match: tail bases that happen
-    /// to match the template (e.g. an enzyme tail next to a matching
-    /// downstream site) extend annealLen and raise tm beyond design's values.
+    /// Every site also carries a full-length template coverage view:
+    /// `alignedTemplate` and `matchMask` are exactly the primer's length,
+    /// 5'→3' — `alignedTemplate` holds the template base each primer position
+    /// faces (complemented for strand -1 so it compares directly against the
+    /// primer; '-' where a 5' tail hangs off the end of a LINEAR template)
+    /// and `matchMask` marks each position '|' (match), '.' (mismatch) or
+    /// '-' (no template base). When `mismatchedTail` > 0, 5' tail bases that
+    /// happen to match the template bases adjacent to the anneal core extend
+    /// annealLen and raise Tm beyond design_primers' values — expected, not
+    /// anomalous binding; read the mask to see exactly which tail bases pair.
+    /// `tmBasis` (always present) states this Tm/annealLen basis. Unlike
+    /// design_primers (which reports the DESIGNED anneal core), this tool
+    /// recomputes the ACTUAL contiguous 3'-end match — the canonical case is
+    /// an enzyme-tail primer (e.g. GCG+GGATCC+anneal core) whose tail's 3'
+    /// side matches the template next to the binding site, so check's
+    /// annealLen/Tm come out higher than design's.
     /// DNA-only: rejects RNA/protein projects (no primer binding on
     /// single-strand molecules).
     #[tool]
@@ -2868,9 +3277,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
         let mut v = payload;
+        // The core reports internal 0-based coordinates; convert every site's
+        // templateStart/templateEnd to the 1-based inclusive MCP convention.
+        if let Some(results) = v.get_mut("results").and_then(|r| r.as_array_mut()) {
+            for result in results.iter_mut() {
+                if let Some(site) = result.get_mut("site") {
+                    if !site.is_null() {
+                        site_json_to_1based(site);
+                    }
+                }
+                if let Some(sites) = result.get_mut("sites").and_then(|s| s.as_array_mut()) {
+                    for site in sites.iter_mut() {
+                        site_json_to_1based(site);
+                    }
+                }
+            }
+        }
         v["projectId"] = serde_json::json!(id);
         v["tmBasis"] = serde_json::json!(
-            "3' continuous match; tail bases that accidentally match the template are included in annealLen/Tm"
+            "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLen/Tm (expected for tailed primers — see per-site alignedTemplate/matchMask)"
         );
         Ok(Json(v))
     }
@@ -3072,7 +3497,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (other extensions are rejected).
     ///
     /// Exactly ONE region selector (mixing selectors is rejected):
-    /// - `start` + `end`: 0-based inclusive template coordinates; on circular
+    /// - `start` + `end`: 1-based inclusive template coordinates; on circular
     ///   sequences `start > end` wraps the origin.
     /// - `feature_id`: the feature's sequence with its segments joined in
     ///   biological order (5'→3', reverse-complemented for minus-strand
@@ -3090,16 +3515,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   needed); on linear sequences the two cuts may be given in either
     ///   order.
     /// - `cut1` + `cut2` (alternative to the enzyme names): explicit cut
-    ///   indices, 0-based — a cut at index C severs the DNA between C-1 and
-    ///   C (0..=len; the fragment is [min, max-1] on linear sequences, the
-    ///   forward arc on circular ones).
+    ///   positions, 1-based — a cut at N severs the DNA between the 1-based
+    ///   bases N and N+1 (valid range 1..=len; N = len is after the last base
+    ///   on linear sequences, between the last and the first base on circular
+    ///   ones; the fragment is [min, max-1] internal-0-based on linear
+    ///   sequences, the forward arc on circular ones).
     /// - `fwd_primer` + `rev_primer`: the amplicon between the two primers'
     ///   binding sites. Each is a project primer name (stored binding sites
     ///   are used; name lookup wins) or a raw sequence (binding sites
     ///   recomputed with the primer engine, like check_primer_binding). The
     ///   fwd primer's best forward-strand site and the rev primer's best
-    ///   reverse-strand site define the amplicon [fwdStart, revEnd-1]
-    ///   (0-based inclusive) — the PCR product's top strand. A primer that
+    ///   reverse-strand site define the amplicon [fwdStart, revEnd]
+    ///   (1-based inclusive) — the PCR product's top strand. A primer that
     ///   does not bind the strand its role needs is an error.
     ///
     /// Returns {ok, message, projectId, outputPath, length, primers?,
@@ -3135,6 +3562,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "protein" => "aa",
             _ => "bp",
         };
+
+        // Region start/end arrive 1-based inclusive; convert to the internal
+        // 0-based model. cut1/cut2 stay raw — resolve_export_region validates
+        // and converts them (a cut at 1-based N = internal cut index N).
+        let mut request = request;
+        request.start = request.start.map(from1);
+        request.end = request.end.map(from1);
 
         let (pieces, flip, desc) = resolve_export_region(&project, &request)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -4167,8 +4601,9 @@ mod tests {
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-region-{}.gbk", std::process::id()));
         let req = ExportSubsequenceRequest {
-            start: Some(40),
-            end: Some(160),
+            // 1-based inclusive interface → internal 0-based [40, 160]
+            start: Some(41),
+            end: Some(161),
             output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -4210,8 +4645,9 @@ mod tests {
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-circ-{}.gbk", std::process::id()));
         let req = ExportSubsequenceRequest {
-            start: Some(90),
-            end: Some(9),
+            // 1-based wrap window 91..10 → internal 0-based 90..9
+            start: Some(91),
+            end: Some(10),
             output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -4432,8 +4868,8 @@ mod tests {
         assert_eq!(v["ok"], true, "export should succeed");
         let region = v["regionView"].as_str().unwrap_or("");
         assert!(
-            region.contains("REGION: 90..20"),
-            "regionView should show the wrap window 90..20, got: {}",
+            region.contains("REGION: 91..21"),
+            "regionView should show the 1-based wrap window 91..21, got: {}",
             region.lines().next().unwrap_or("")
         );
         std::fs::remove_file(&out_path).ok();
@@ -4640,8 +5076,9 @@ mod tests {
         let out_path = dir.join("region.gbk");
         let out = server
             .export_subsequence(Parameters(ExportSubsequenceRequest {
-                start: Some(200),
-                end: Some(299),
+                // 1-based inclusive interface → internal 0-based [200, 299]
+                start: Some(201),
+                end: Some(300),
                 output_path: out_path.to_string_lossy().into_owned(),
                 ..Default::default()
             }))
@@ -4679,8 +5116,9 @@ mod tests {
 
         let out_path = dir.join("out.gpt");
         let req = ExportSubsequenceRequest {
-            start: Some(0),
-            end: Some((aa.len() - 1) as i64),
+            // 1-based inclusive: the whole 14 aa protein
+            start: Some(1),
+            end: Some(aa.len() as i64),
             output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -4693,8 +5131,8 @@ mod tests {
 
         // protein project must not go to a .gbk path
         let req = ExportSubsequenceRequest {
-            start: Some(0),
-            end: Some(3),
+            start: Some(1),
+            end: Some(4),
             output_path: dir.join("out.gbk").to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -4855,11 +5293,12 @@ mod tests {
             .join(format!("libregene-mcp-edit-ins-{}.fasta", std::process::id()));
         std::fs::write(&fasta, format!(">insert\n{}\n", insert)).unwrap();
 
-        // pure insertion at position 60 via replacement_path
+        // pure insertion before base 61 (1-based; internal position 60) via
+        // replacement_path
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 60,
-                end: 59,
+                start: 61,
+                end: 60,
                 replacement_path: Some(fasta.to_string_lossy().into_owned()),
                 ..Default::default()
             }))
@@ -4919,8 +5358,8 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 60,
-                end: 59,
+                start: 61,
+                end: 60,
                 replacement_path: Some(gbk.to_string_lossy().into_owned()),
                 ..Default::default()
             }))
@@ -4956,8 +5395,8 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 60,
-                end: 59,
+                start: 61,
+                end: 60,
                 replacement_path: Some(gbk.to_string_lossy().into_owned()),
                 strand: Some("-".to_string()),
                 ..Default::default()
@@ -4989,8 +5428,8 @@ mod tests {
         // both replacement and replacement_path → error
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 10,
-                end: 20,
+                start: 11,
+                end: 21,
                 replacement: Some("ACGT".to_string()),
                 replacement_path: Some("x.fasta".to_string()),
                 ..Default::default()
@@ -5003,8 +5442,8 @@ mod tests {
         // neither → error
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 10,
-                end: 20,
+                start: 11,
+                end: 21,
                 ..Default::default()
             }))
             .await
@@ -5015,8 +5454,8 @@ mod tests {
         // bad extension → hard error from validate_user_path
         let res = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 10,
-                end: 20,
+                start: 11,
+                end: 21,
                 replacement_path: Some("notes.txt".to_string()),
                 ..Default::default()
             }))
@@ -5028,8 +5467,8 @@ mod tests {
             .join(format!("libregene-mcp-edit-missing-{}.fasta", std::process::id()));
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 10,
-                end: 20,
+                start: 11,
+                end: 21,
                 replacement_path: Some(missing.to_string_lossy().into_owned()),
                 ..Default::default()
             }))
@@ -5051,11 +5490,11 @@ mod tests {
     async fn edit_sequence_strand_minus_inserts_reverse_complement() {
         let server = handler_with_project(edit_test_project()).await;
 
-        // pure insertion at position 60 with strand "-" → revcomp inserted
+        // pure insertion before base 61 (1-based) with strand "-" → revcomp inserted
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 60,
-                end: 59,
+                start: 61,
+                end: 60,
                 replacement: Some("AAACCCGGGTTG".to_string()),
                 strand: Some("-".to_string()),
                 ..Default::default()
@@ -5084,8 +5523,8 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 60,
-                end: 59,
+                start: 61,
+                end: 60,
                 replacement: Some("ACGT".to_string()),
                 strand: Some("x".to_string()),
                 ..Default::default()
@@ -5103,8 +5542,8 @@ mod tests {
         let server = handler_with_project(protein_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 10,
-                end: 10,
+                start: 11,
+                end: 11,
                 replacement: Some("AA".to_string()),
                 strand: Some("-".to_string()),
                 ..Default::default()
@@ -5124,8 +5563,8 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 10,
-                end: 19,
+                start: 11,
+                end: 20,
                 replacement: Some("TT".to_string()),
                 ..Default::default()
             }))
@@ -5239,8 +5678,8 @@ mod tests {
         // lowercase replacement is normalized to uppercase and stored as-is
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 0,
-                end: 3,
+                start: 1,
+                end: 4,
                 replacement: Some("mvs*".to_string()),
                 ..Default::default()
             }))
@@ -5259,8 +5698,8 @@ mod tests {
         // non-amino-acid characters are rejected
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 5,
-                end: 8,
+                start: 6,
+                end: 9,
                 replacement: Some("MVS1".to_string()),
                 ..Default::default()
             }))
@@ -5276,8 +5715,8 @@ mod tests {
         // a '*' anywhere but the end is rejected too
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                start: 5,
-                end: 8,
+                start: 6,
+                end: 9,
                 replacement: Some("M*VS".to_string()),
                 ..Default::default()
             }))
@@ -5308,6 +5747,700 @@ mod tests {
         assert!(
             text.contains("DETECTED COMMON FEATURES (auto):\n(none)"),
             "overview: {text}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // add_feature / update_feature (1-based inclusive interface params)
+    // ------------------------------------------------------------------
+
+    fn dna_test_project() -> ProjectData {
+        ProjectData {
+            name: "feat".to_string(),
+            sequence: synthetic_dna(100, 3),
+            length: 100,
+            topology: "linear".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn add_feature_converts_1based_to_internal_0based() {
+        let server = handler_with_project(dna_test_project()).await;
+        let out = server
+            .add_feature(Parameters(AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "cds1".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(1),
+                end: Some(10),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        // The confirmation message echoes 1-based coordinates.
+        assert!(
+            out.0["message"].as_str().unwrap().contains("at 1..10"),
+            "{}",
+            out.0
+        );
+        let fid = out.0["featureId"].as_str().unwrap().to_string();
+        let pm = server.pm.read().await;
+        let f = pm
+            .get_project_by_id("feat")
+            .unwrap()
+            .features
+            .iter()
+            .find(|f| f.id == fid)
+            .unwrap()
+            .clone();
+        assert_eq!((f.start, f.end), (0, 9));
+        assert_eq!(f.strand, "+");
+        assert_eq!(f.segments.len(), 1);
+        assert_eq!((f.segments[0].start, f.segments[0].end), (0, 9));
+    }
+
+    #[tokio::test]
+    async fn add_feature_segments_and_bounds() {
+        let server = handler_with_project(dna_test_project()).await;
+        // Segmented (join) feature: 1-based interface, 0-based storage
+        let out = server
+            .add_feature(Parameters(AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "seg1".to_string(),
+                ftype: "CDS".to_string(),
+                segments: Some(vec![
+                    FeatureSegmentSpec { start: 1, end: 10 },
+                    FeatureSegmentSpec { start: 20, end: 30 },
+                ]),
+                strand: Some("-".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        {
+            let pm = server.pm.read().await;
+            let f = &pm.get_project_by_id("feat").unwrap().features[0];
+            assert_eq!((f.start, f.end), (0, 29));
+            assert_eq!(f.strand, "-");
+            assert_eq!(f.segments.len(), 2);
+            assert_eq!((f.segments[1].start, f.segments[1].end), (19, 29));
+        }
+
+        // Single point (start == end)
+        let out = server
+            .add_feature(Parameters(AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "pt".to_string(),
+                ftype: "misc_feature".to_string(),
+                start: Some(42),
+                end: Some(42),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+
+        // Out of range: 1-based end 101 is past the last valid base 100
+        let out = server
+            .add_feature(Parameters(AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "oob".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(91),
+                end: Some(101),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("out of range"),
+            "{}",
+            out.0
+        );
+
+        // Zero/negative start / reversed span / segments+start conflict / start alone
+        for req in [
+            AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "bad".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(0),
+                end: Some(5),
+                ..Default::default()
+            },
+            AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "bad".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(9),
+                end: Some(5),
+                ..Default::default()
+            },
+            AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "bad".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(1),
+                end: Some(10),
+                segments: Some(vec![FeatureSegmentSpec { start: 1, end: 10 }]),
+                ..Default::default()
+            },
+            AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "bad".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(1),
+                ..Default::default()
+            },
+            AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "bad".to_string(),
+                ftype: "CDS".to_string(),
+                ..Default::default()
+            },
+        ] {
+            assert!(
+                server.add_feature(Parameters(req)).await.is_err(),
+                "expected invalid_params error"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn update_feature_span_and_segments() {
+        let server = handler_with_project(dna_test_project()).await;
+        let out = server
+            .add_feature(Parameters(AddFeatureRequest {
+                project_id: Some("feat".to_string()),
+                name: "cds1".to_string(),
+                ftype: "CDS".to_string(),
+                start: Some(1),
+                end: Some(10),
+                strand: Some("-".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let fid = out.0["featureId"].as_str().unwrap().to_string();
+
+        // Move the span; strand must be left untouched.
+        let out = server
+            .update_feature(Parameters(UpdateFeatureRequest {
+                project_id: Some("feat".to_string()),
+                feature_id: fid.clone(),
+                start: Some(11),
+                end: Some(20),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        {
+            let pm = server.pm.read().await;
+            let f = &pm.get_project_by_id("feat").unwrap().features[0];
+            assert_eq!((f.start, f.end), (10, 19));
+            assert_eq!(f.strand, "-", "span update must not touch strand");
+        }
+
+        // Replace with segments (join)
+        let out = server
+            .update_feature(Parameters(UpdateFeatureRequest {
+                project_id: Some("feat".to_string()),
+                feature_id: fid.clone(),
+                segments: Some(vec![
+                    FeatureSegmentSpec { start: 1, end: 10 },
+                    FeatureSegmentSpec { start: 91, end: 100 },
+                ]),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        {
+            let pm = server.pm.read().await;
+            let f = &pm.get_project_by_id("feat").unwrap().features[0];
+            assert_eq!(f.segments.len(), 2);
+            assert_eq!((f.start, f.end), (0, 99));
+        }
+
+        // Nothing to update
+        let out = server
+            .update_feature(Parameters(UpdateFeatureRequest {
+                project_id: Some("feat".to_string()),
+                feature_id: fid.clone(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("Nothing to update"),
+            "{}",
+            out.0
+        );
+
+        // Out-of-range span (1-based end 101 > length 100)
+        let out = server
+            .update_feature(Parameters(UpdateFeatureRequest {
+                project_id: Some("feat".to_string()),
+                feature_id: fid.clone(),
+                start: Some(96),
+                end: Some(101),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("out of range"),
+            "{}",
+            out.0
+        );
+
+        // start without end → invalid_params
+        let req = UpdateFeatureRequest {
+            project_id: Some("feat".to_string()),
+            feature_id: fid.clone(),
+            start: Some(1),
+            ..Default::default()
+        };
+        assert!(server.update_feature(Parameters(req)).await.is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // add_alignment: orientedSequence / coverage + region-view diff section
+    // ------------------------------------------------------------------
+
+    fn alignment_test_project(topology: &str) -> ProjectData {
+        ProjectData {
+            name: "aln_test".to_string(),
+            sequence: synthetic_dna(200, 7),
+            length: 200,
+            topology: topology.to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn add_alignment_returns_oriented_sequence_and_coverage() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        // Read = template[50..150] with one base flipped at index 60 (pos 110).
+        let mut read = template[50..150].to_string();
+        let i = 60;
+        let orig = read.as_bytes()[i];
+        let flipped = if orig == b'A' { b'C' } else { b'A' };
+        read.replace_range(i..i + 1, &(flipped as char).to_string());
+
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "read1".to_string(),
+                bases: Some(read.clone()),
+                path: None,
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["strand"], "+");
+        assert_eq!(v["orientedSequence"], read, "{v}");
+        assert_eq!(
+            v["coverage"],
+            serde_json::json!([{ "start": 51, "end": 150 }]),
+            "{v}"
+        );
+        assert_eq!(
+            v["mismatchDetails"],
+            serde_json::json!([{
+                "pos": 111,
+                "templateBase": (orig as char).to_string(),
+                "readBase": (flipped as char).to_string(),
+            }]),
+            "{v}"
+        );
+        // The alignments array carries the same new fields per entry.
+        let entry = &v["alignments"][0];
+        assert_eq!(entry["orientedSequence"], read, "{entry}");
+        assert_eq!(
+            entry["coverage"],
+            serde_json::json!([{ "start": 51, "end": 150 }]),
+            "{entry}"
+        );
+
+        // Region view over the mismatch lists it in the diff section.
+        let out = server
+            .get_region_view(Parameters(RegionRequest {
+                project_id: Some("aln_test".to_string()),
+                start: 101,
+                end: 121,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let text = out.0["text"].as_str().unwrap().to_string();
+        assert!(text.contains("ALIGNMENT DIFFS IN REGION"), "{text}");
+        assert!(
+            text.contains(&format!("mismatch at 111: {} > {}", orig as char, flipped as char)),
+            "{text}"
+        );
+
+        // Window overlapping the read but not the diff.
+        let out = server
+            .get_region_view(Parameters(RegionRequest {
+                project_id: Some("aln_test".to_string()),
+                start: 51,
+                end: 61,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let text = out.0["text"].as_str().unwrap().to_string();
+        assert!(text.contains("no differences in window"), "{text}");
+        assert!(!text.contains("mismatch at 111"), "{text}");
+
+        // Window outside the read: no diff section at all.
+        let out = server
+            .get_region_view(Parameters(RegionRequest {
+                project_id: Some("aln_test".to_string()),
+                start: 1,
+                end: 41,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let text = out.0["text"].as_str().unwrap().to_string();
+        assert!(!text.contains("ALIGNMENT DIFFS IN REGION"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn add_alignment_reverse_strand_oriented_sequence_is_revcomp() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let read = libregene_core::utils::reverse_complement(&template[50..120]);
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "rev_read".to_string(),
+                bases: Some(read),
+                path: None,
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["strand"], "-", "{v}");
+        // Oriented to the template: the rev-comp of the raw read.
+        assert_eq!(v["orientedSequence"], template[50..120], "{v}");
+        assert_eq!(
+            v["coverage"],
+            serde_json::json!([{ "start": 51, "end": 120 }]),
+            "{v}"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_alignment_circular_coverage_splits_at_origin() {
+        let project = alignment_test_project("circular");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let read = format!("{}{}", &template[170..200], &template[0..25]);
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "wrap_read".to_string(),
+                bases: Some(read.clone()),
+                path: None,
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["orientedSequence"], read, "{v}");
+        assert_eq!(
+            v["coverage"],
+            serde_json::json!([{ "start": 171, "end": 200 }, { "start": 1, "end": 25 }]),
+            "{v}"
+        );
+    }
+
+    #[tokio::test]
+    async fn design_primers_amplify_reports_orientation_and_cds_strand() {
+        // Minus-strand CDS overlapping the seg: the response must spell out
+        // the product orientation and the CDS strand so Fwd/Rev are not
+        // misread as coding-direction names.
+        let project = ProjectData {
+            name: "amp_test".to_string(),
+            sequence: synthetic_dna(200, 5),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("cds1", "mEGFP", 60, 120, "-")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("amp_test".to_string()),
+                mode: "amplify".to_string(),
+                seg: Some(SegParam { start: 51, end: 151 }),
+                name: Some("Amp".to_string()),
+                target_tm: 55.0,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert!(v["groups"].as_array().is_some_and(|g| g.len() == 2), "{v}");
+        let orientation = v["orientation"].as_str().expect("orientation note");
+        assert!(orientation.contains("seg 51..151"), "{orientation}");
+        assert!(orientation.contains("template top strand"), "{orientation}");
+        let overlaps = v["cdsOverlaps"].as_array().expect("cdsOverlaps");
+        assert_eq!(overlaps.len(), 1, "{v}");
+        assert_eq!(overlaps[0]["name"], "mEGFP");
+        assert_eq!(overlaps[0]["strand"], "-");
+        assert!(
+            overlaps[0]["note"].as_str().unwrap().contains("MINUS strand"),
+            "{}",
+            overlaps[0]["note"]
+        );
+        assert!(v["internalSites"].as_array().unwrap().is_empty(), "{v}");
+    }
+
+    #[tokio::test]
+    async fn design_primers_mutagenesis_whole_codon_skips_warning() {
+        // Codon-aligned full replacement inside a CDS: no warning. The same
+        // full replacement OUTSIDE any CDS keeps the warning.
+        let mut bytes = vec![b'A'; 90];
+        bytes[60] = b'C';
+        bytes[61] = b'G';
+        bytes[62] = b'C';
+        let project = ProjectData {
+            name: "mut_test".to_string(),
+            sequence: String::from_utf8(bytes).unwrap(),
+            length: 90,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("cds1", "orf", 30, 89, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+
+        // Whole-codon swap CGC -> AAA (Arg -> Lys): expected operation.
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("mut_test".to_string()),
+                mode: "mutagenesis".to_string(),
+                seg: Some(SegParam { start: 61, end: 63 }),
+                site_name: Some("A11K".to_string()),
+                target_tm: 55.0,
+                mut_seq: Some("AAA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert!(
+            v["mutation"].get("warning").is_none(),
+            "whole-codon swap must not warn: {v}"
+        );
+        // The mutation block is 1-based: seg 61..63, codonIndex ==
+        // aaPosition1Based (aa numbering conventions are untouched).
+        assert_eq!(v["mutation"]["segStart"], 61, "{v}");
+        assert_eq!(v["mutation"]["segEnd"], 63, "{v}");
+        assert_eq!(v["mutation"]["cds"]["codonIndex"], 11, "{v}");
+        assert_eq!(v["mutation"]["cds"]["aaBefore"], "Arg", "{v}");
+        assert_eq!(v["mutation"]["cds"]["aaAfter"], "Lys", "{v}");
+        assert_eq!(v["mutation"]["cds"]["aaPosition1Based"], 11, "{v}");
+        assert_eq!(v["mutation"]["cds"]["aaPositionExcludingMet"], 10, "{v}");
+
+        // Same 3-base full replacement outside any CDS: warning kept.
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("mut_test".to_string()),
+                mode: "mutagenesis".to_string(),
+                seg: Some(SegParam { start: 11, end: 13 }),
+                site_name: Some("M1".to_string()),
+                target_tm: 55.0,
+                mut_seq: Some("CCC".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let w = v["mutation"]["warning"]
+            .as_str()
+            .expect("non-CDS full replacement must warn");
+        assert!(w.contains("PLUS-strand"), "{w}");
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_1based_bounds_and_insertion_message() {
+        let server = handler_with_project(edit_test_project()).await;
+
+        // start = 0 is invalid on the 1-based interface.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 0,
+                end: 5,
+                replacement: Some("ACGT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("1-based inclusive"),
+            "{}",
+            out.0
+        );
+
+        // Wrapping ranges are rejected (start > end+1).
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 50,
+                end: 40,
+                replacement: Some("ACGT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("start > end+1"),
+            "{}",
+            out.0
+        );
+
+        // Pure insertion before base 61 is start=61, end=60.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                start: 61,
+                end: 60,
+                replacement: Some("TT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(
+            out.0["message"]
+                .as_str()
+                .unwrap()
+                .contains("Inserted 2 bp before base 61"),
+            "{}",
+            out.0
+        );
+    }
+
+    #[tokio::test]
+    async fn check_primer_binding_reports_1based_sites() {
+        let seq = synthetic_dna(200, 31);
+        let project = ProjectData {
+            name: "chk".to_string(),
+            sequence: seq.clone(),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out = server
+            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+                project_id: Some("chk".to_string()),
+                primers: vec![PrimerInput {
+                    name: "p1".to_string(),
+                    r#type: "fwd".to_string(),
+                    seq: seq[50..70].to_string(),
+                }],
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        // Internal site [50, 70) → 1-based inclusive 51..70: templateStart
+        // shifts by one, templateEnd keeps its value.
+        assert_eq!(v["results"][0]["bindingSiteCount"], 1, "{v}");
+        assert_eq!(v["results"][0]["site"]["templateStart"], 51, "{v}");
+        assert_eq!(v["results"][0]["site"]["templateEnd"], 70, "{v}");
+        assert_eq!(v["results"][0]["sites"][0]["templateStart"], 51, "{v}");
+        assert_eq!(v["results"][0]["sites"][0]["templateEnd"], 70, "{v}");
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_reports_1based_coordinates() {
+        // EcoRI GAATTC placed at internal 0-based 40..45.
+        let mut seq = "ACGT".repeat(50);
+        seq.replace_range(40..46, "GAATTC");
+        let mut project = ProjectData {
+            name: "enz".to_string(),
+            sequence: seq,
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        let internal = project
+            .enzymes
+            .iter()
+            .find(|e| e.name == "EcoRI")
+            .expect("EcoRI site")
+            .clone();
+        let server = handler_with_project(project).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: Some("enz".to_string()),
+                enzymes: Some(vec!["EcoRI".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let site = &v["enzymes"][0]["sites"][0];
+        // recStart/recEnd shift by one; cut positions keep their value (a cut
+        // at internal index C sits between the 1-based bases C and C+1).
+        assert_eq!(site["recStart"], internal.rec_start + 1, "{v}");
+        assert_eq!(site["recEnd"], internal.rec_end + 1, "{v}");
+        assert_eq!(
+            site["cuts"][0]["topCutIndex"],
+            internal.cut_pairs[0].top_cut_index,
+            "{v}"
+        );
+        assert_eq!(
+            site["cuts"][0]["botCutIndex"],
+            internal.cut_pairs[0].bot_cut_index,
+            "{v}"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_sequence_window_is_1based() {
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: Some("edit_test".to_string()),
+                start: 1,
+                end: 10,
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let text = v["text"].as_str().unwrap();
+        assert!(text.contains("Window 1..10 (10 bp)"), "{text}");
+        let seq = synthetic_dna(200, 42);
+        assert_eq!(
+            v["sequence"].as_str().unwrap(),
+            seq[0..10].to_ascii_uppercase(),
+            "1-based 1..10 reads internal bases 0..=9"
         );
     }
 }

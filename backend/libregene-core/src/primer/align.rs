@@ -187,6 +187,63 @@ fn search_one_strand(
 // Anneal-core length
 // ---------------------------------------------------------------------------
 
+/// Full-length template coverage of a binding site: for every primer base
+/// (5'→3') the template base it faces and whether it matches. The contiguous
+/// 3' footprint is extended 5'-ward into the adjacent template, so 5' tail
+/// bases that happen to pair with the template are visible (they extend
+/// `anneal_len` and raise Tm beyond design values — expected, not anomalous
+/// binding). Tail positions hanging off the end of a LINEAR template have no
+/// template base; circular templates wrap.
+///
+/// Returns `(aligned_template, match_mask)`, both exactly `primer_seq.len()`
+/// chars, 5'→3': `aligned_template` holds the template base (`'-'` where none
+/// exists; bases are complemented for strand -1 so they compare directly
+/// against the primer); `match_mask` is `'|'` (match), `'.'` (mismatch) or
+/// `'-'` (no template base).
+pub fn template_coverage(
+    template: &str,
+    topology: &str,
+    primer_seq: &str,
+    site: &PrimerBindingSite,
+) -> (String, String) {
+    let tlen = template.len() as i64;
+    let plen = primer_seq.len() as i64;
+    let mut aligned = String::with_capacity(primer_seq.len());
+    let mut mask = String::with_capacity(primer_seq.len());
+    if tlen == 0 || plen == 0 {
+        return (aligned, mask);
+    }
+    let tpl = template.as_bytes();
+    let pri = primer_seq.as_bytes();
+    let circular = topology == "circular";
+    let footprint_start = site.five_prime_tail.len() as i64;
+    for i in 0..plen {
+        // Offset of primer position i relative to the footprint's 5' end.
+        let rel = i - footprint_start;
+        let pos = if site.strand == 1 {
+            site.template_start + rel
+        } else {
+            site.template_end - 1 - rel
+        };
+        if !circular && (pos < 0 || pos >= tlen) {
+            aligned.push('-');
+            mask.push('-');
+            continue;
+        }
+        let mut tb = tpl[pos.rem_euclid(tlen) as usize].to_ascii_uppercase();
+        if site.strand != 1 {
+            tb = crate::utils::complement_char(tb as char) as u8;
+        }
+        aligned.push(tb as char);
+        mask.push(if tb == pri[i as usize].to_ascii_uppercase() {
+            '|'
+        } else {
+            '.'
+        });
+    }
+    (aligned, mask)
+}
+
 /// Length of the anneal core at a binding site: the number of contiguous
 /// bases at the primer's **3' end** that exactly match the template. A 5'
 /// tail that does not pair is naturally excluded.
@@ -470,5 +527,63 @@ mod tests {
         let primers = recompute_all_primers(template, "linear", &primers);
         let pairs = compute_primer_pairs(template, &primers);
         assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn test_template_coverage_fwd_tail_overhang() {
+        // 13-bp core fills the whole linear template; the 5' tail "GG" hangs
+        // off the left end and gets '-' (no template base).
+        let template = "CGTACGCTAGCTA";
+        let primer = "GGCGTACGCTAGCTA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.five_prime_tail, "GG");
+        let (aligned, mask) = template_coverage(template, "linear", primer, s);
+        assert_eq!(aligned, "--CGTACGCTAGCTA");
+        assert_eq!(mask, "--|||||||||||||");
+        assert_eq!(aligned.len(), primer.len());
+    }
+
+    #[test]
+    fn test_template_coverage_fwd_tail_mismatch_visible() {
+        // The greedy footprint stops at the first 5'-ward mismatch, but the
+        // coverage still reports the tail base's pairing ('.' entry).
+        let template = "TCGTACGCTAGCTA";
+        let primer = "ACGTACGCTAGCTA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.five_prime_tail, "A");
+        let (aligned, mask) = template_coverage(template, "linear", primer, s);
+        assert_eq!(aligned, "TCGTACGCTAGCTA");
+        assert_eq!(mask, ".|||||||||||||");
+    }
+
+    #[test]
+    fn test_template_coverage_rev_strand() {
+        // Rev primer: coverage compares against the complemented template, so
+        // aligned_template reads like the primer itself. Tail bases extend
+        // rightwards on the top strand and mismatch there.
+        let template = "TAGCTAGCGTACGCC";
+        let primer = "TTCGTACGCTAGCTA";
+        let sites = compute_binding_sites(template, primer, "rev", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == -1).expect("rev site");
+        assert_eq!(s.five_prime_tail, "TT");
+        let (aligned, mask) = template_coverage(template, "linear", primer, s);
+        assert_eq!(aligned, "GGCGTACGCTAGCTA");
+        assert_eq!(mask, "..|||||||||||||");
+    }
+
+    #[test]
+    fn test_template_coverage_circular_wraps() {
+        // Circular template: tail bases wrap across the origin instead of
+        // hanging off an end (primer[0] happens to match, primer[1] not).
+        let template = "CGTACGCTAGCTA";
+        let primer = "TTCGTACGCTAGCTA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "circular", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.five_prime_tail, "TT");
+        let (aligned, mask) = template_coverage(template, "circular", primer, s);
+        assert_eq!(aligned, "TACGTACGCTAGCTA");
+        assert_eq!(mask, "|.|||||||||||||");
     }
 }

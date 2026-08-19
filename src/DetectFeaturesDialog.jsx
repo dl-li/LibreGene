@@ -11,16 +11,9 @@ import { InlineNotice } from '@/components/ui/notice';
 import { LoaderCircle, ScanSearch, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateFeatures } from './tauriApi';
+import { locationString0based, locationString1based } from './editorConstants';
 
 const EMPTY_ARRAY = [];
-
-/** GenBank 1-based location string, matching FeatureInfoDialog's display. */
-function locationString(hit) {
-  const segs = hit.segments?.length ? hit.segments : [{ start: hit.start, end: hit.end }];
-  const parts = segs.map((s) => `${s.start + 1}..${s.end + 1}`);
-  const joined = parts.length > 1 ? `join(${parts.join(', ')})` : parts[0];
-  return hit.strand === '-' ? `complement(${joined})` : joined;
-}
 
 /**
  * A detected hit is "already present" when an existing feature shares its name
@@ -125,7 +118,7 @@ export default function DetectFeaturesDialog({
         name: hit.name,
         ftype: hit.ftype,
         color: hit.color,
-        locationStr: locationString(hit),
+        locationStr: locationString0based(hit),
       };
       try {
         await onAddFeature(feature);
@@ -236,7 +229,7 @@ export default function DetectFeaturesDialog({
                       </span>
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs whitespace-nowrap">
-                      {locationString(hit)}
+                      {locationString1based(hit)}
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs tabular-nums">
                       {hit.identity != null ? `${hit.identity.toFixed(1)}%` : '—'}

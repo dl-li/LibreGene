@@ -2425,7 +2425,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         e.preventDefault();
         setFeatureInfoFeature(null); // clear edit mode
         if (hasSelection && selectionMode === 'text') {
-          // Generate 1-based GenBank location: selStart+1..selEnd+1
+          // 1-based inclusive location string (user-visible convention)
           setCreateFeatureLoc(`${selStart + 1}..${selEnd + 1}`);
         } else {
           setCreateFeatureLoc('');

@@ -68,6 +68,36 @@ export function splitRange(start, end, charsPerLine) {
   return segments;
 }
 
+/**
+ * Location strings: the UI shows GenBank-style 1-based inclusive locations to
+ * the user, while the Tauri IPC layer (`add_feature` / `update_feature_location`)
+ * parses 0-based inclusive strings. These helpers convert at the UI boundary.
+ */
+
+/** Build a location string from a feature/hit ({start, end, segments?, strand?},
+ * 0-based inclusive model coordinates). `base` is 0 or 1. */
+function locationStringFromSegments(feature, base) {
+  const segs = feature.segments?.length
+    ? feature.segments
+    : [{ start: feature.start, end: feature.end }];
+  const parts = segs.map((s) => `${s.start + base}..${s.end + base}`);
+  const joined = parts.length > 1 ? `join(${parts.join(', ')})` : parts[0];
+  return feature.strand === '-' ? `complement(${joined})` : joined;
+}
+
+/** 1-based inclusive display string (GenBank convention), for rendering only. */
+export const locationString1based = (feature) => locationStringFromSegments(feature, 1);
+
+/** 0-based inclusive string for the Tauri IPC layer (add_feature locationStr). */
+export const locationString0based = (feature) => locationStringFromSegments(feature, 0);
+
+/** Convert a user-entered 1-based location string to 0-based for Tauri IPC.
+ * Decrements every number token; join/order/complement nesting and single
+ * points need no special handling. */
+export function locationStringTo0based(str) {
+  return str.replace(/\d+/g, (m) => String(Number(m) - 1));
+}
+
 export const DEFAULT_TM_PARAMS = {
   naConc: 0.05,
   mgConc: 0.0015,
