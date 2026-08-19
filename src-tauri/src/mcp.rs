@@ -249,6 +249,10 @@ struct AddAlignmentRequest {
     /// .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1). If the read is a region of an
     /// open project, export it first with export_subsequence.
     path: Option<String>,
+    /// When true, omit the full `orientedSequence` and the post-alignment
+    /// `regionView` to reduce response size. Differences and coverage are still
+    /// returned; use read_sequence/get_region_view when you need the bases.
+    compact: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -646,9 +650,10 @@ fn alignment_json_1based(
     template: &str,
     tlen: i64,
     circular: bool,
+    compact: bool,
 ) -> serde_json::Value {
     let diff = libregene_core::align::alignment_diff(a, template);
-    serde_json::json!({
+    let mut v = serde_json::json!({
         "alignmentId": a.id,
         "name": a.name,
         "identity": a.identity,
@@ -673,12 +678,15 @@ fn alignment_json_1based(
             "bases": i.bases,
             "length": i.length,
         })).collect::<Vec<_>>(),
-        "orientedSequence": a.seq,
         "coverage": a.segments.iter().map(|s| serde_json::json!({
             "start": s.start + 1,
             "end": s.end + 1,
         })).collect::<Vec<_>>(),
-    })
+    });
+    if !compact {
+        v["orientedSequence"] = serde_json::json!(a.seq);
+    }
+    v
 }
 
 /// `removedFeatures`/`clippedFeatures` echo for edit_sequence, 1-based
@@ -2797,6 +2805,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   orientedSequence, coverage} — lets a caller
     ///   inspect every stored alignment without a separate read tool. The
     ///   top-level fields above describe the newly added alignment.
+    /// Pass `compact: true` to omit `orientedSequence` from the top-level
+    /// summary and from every entry in `alignments`, and to skip the
+    /// post-alignment `regionView`. This shrinks the response when only
+    /// coordinates and differences are needed; use `read_sequence` or
+    /// `get_region_view` when you need the actual bases.
     /// On failure returns {ok: false, message, projectId, significant: false};
     /// a message starting with "No significant alignment found" states the
     /// reason (identity below the 0.60 minimum, or aligned span below the
@@ -2808,6 +2821,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
         let name = request.name.clone();
+        let compact = request.compact.unwrap_or(false);
 
         let seq = match (request.bases, request.path) {
             (Some(_), Some(_)) => {
@@ -2880,7 +2894,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     let alignments: Vec<serde_json::Value> = p
                         .alignments
                         .iter()
-                        .map(|a| alignment_json_1based(a, &p.sequence, p.length, circular))
+                        .map(|a| alignment_json_1based(a, &p.sequence, p.length, circular, compact))
                         .collect();
                     let last = p.alignments.last();
                     let region = last.and_then(|a| {
@@ -2890,14 +2904,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })
                 .unwrap_or((None, Vec::new(), None))
         };
-        let region_view = match region {
-            Some((s, e)) => self.digest_region(&id, Some((s, e)), true).await,
-            None => self.digest_region(&id, None, true).await,
+        let region_view = if compact {
+            None
+        } else {
+            match region {
+                Some((s, e)) => self.digest_region(&id, Some((s, e)), true).await,
+                None => self.digest_region(&id, None, true).await,
+            }
         };
         let mut env = ok_envelope(&id, format!("Aligned {}", name), region_view);
         if let Some(s) = summary {
             env["significant"] = serde_json::json!(true);
             for (k, v) in s.as_object().unwrap_or(&serde_json::Map::new()) {
+                if compact && k == "orientedSequence" {
+                    continue;
+                }
                 env[k] = v.clone();
             }
         }
@@ -6045,6 +6066,7 @@ mod tests {
                 name: "read1".to_string(),
                 bases: Some(read.clone()),
                 path: None,
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -6133,6 +6155,7 @@ mod tests {
                 name: "rev_read".to_string(),
                 bases: Some(read),
                 path: None,
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -6161,6 +6184,7 @@ mod tests {
                 name: "wrap_read".to_string(),
                 bases: Some(read.clone()),
                 path: None,
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -6172,6 +6196,55 @@ mod tests {
             serde_json::json!([{ "start": 171, "end": 200 }, { "start": 1, "end": 25 }]),
             "{v}"
         );
+    }
+
+    #[tokio::test]
+    async fn add_alignment_compact_omits_oriented_sequence_and_region_view() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let read = template[50..150].to_string();
+
+        // compact=true drops orientedSequence and regionView, keeps coverage.
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "compact_read".to_string(),
+                bases: Some(read.clone()),
+                path: None,
+                compact: Some(true),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v.get("orientedSequence").is_none(), "{v}");
+        assert!(v.get("regionView").is_none(), "{v}");
+        assert_eq!(
+            v["coverage"],
+            serde_json::json!([{ "start": 51, "end": 150 }]),
+            "{v}"
+        );
+        let entry = &v["alignments"][0];
+        assert!(entry.get("orientedSequence").is_none(), "{entry}");
+        assert!(entry.get("coverage").is_some(), "{entry}");
+
+        // compact=false / omitted keeps orientedSequence and regionView.
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "full_read".to_string(),
+                bases: Some(read),
+                path: None,
+                compact: Some(false),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert!(v.get("orientedSequence").is_some(), "{v}");
+        assert!(v.get("regionView").is_some(), "{v}");
+        assert!(v["alignments"][0].get("orientedSequence").is_some(), "{v}");
     }
 
     #[tokio::test]
