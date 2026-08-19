@@ -756,14 +756,15 @@ fn segments_overlap(a: &[(i64, i64)], b: &[(i64, i64)]) -> bool {
         .any(|&(a0, a1)| b.iter().any(|&(b0, b1)| a0.max(b0) <= a1.min(b1)))
 }
 
-fn is_fragment(ftype: &str, length: usize, percmatch: f64, pi_permatch: f64, aa_level: bool) -> bool {
+/// Diverges from pLannotate, which additionally requires CDS hit lengths to
+/// be multiples of 3 — that assumes intron-less db entries and marks every
+/// imperfect genomic (segmented) CDS match as a fragment. `pident >= 95` is
+/// already guaranteed by the retain filter in finalize().
+fn is_fragment(ftype: &str, percmatch: f64, pi_permatch: f64) -> bool {
     if ftype != "CDS" {
         percmatch < 95.0
     } else {
-        // aa-level hits are always in-frame (length = 3×aa on DNA queries, or
-        // plain aa units for protein queries), so the %3 check is moot there.
-        let complete = pi_permatch == 100.0 || ((aa_level || length % 3 == 0) && percmatch > 95.0);
-        !complete
+        !(pi_permatch == 100.0 || percmatch > 95.0)
     }
 }
 
@@ -906,7 +907,7 @@ fn finalize(hits: Vec<RawHit>, qlen: usize, circular: bool) -> Vec<AnnotatedFeat
         if ftype == "origin of replication" {
             ftype = "rep_origin".to_string();
         }
-        let fragment = is_fragment(&ftype, s.hit.length, s.percmatch, s.pi_permatch, s.hit.aa_level);
+        let fragment = is_fragment(&ftype, s.percmatch, s.pi_permatch);
         let name = if fragment {
             format!("{} (fragment)", f.name)
         } else {
@@ -1030,6 +1031,18 @@ mod tests {
     }
 
     #[test]
+    fn genomic_cds_hit_not_fragment() {
+        // The vermilion case: a genomic CDS entry (with introns) matched at
+        // 96.9% coverage / 95.2% identity must count as complete.
+        assert!(!is_fragment("CDS", 96.9, 92.3));
+        assert!(is_fragment("CDS", 94.9, 94.9));
+        assert!(!is_fragment("CDS", 100.0, 100.0));
+        // Non-CDS rule unchanged: fragment below 95% coverage.
+        assert!(is_fragment("promoter", 94.9, 94.9));
+        assert!(!is_fragment("promoter", 95.0, 95.0));
+    }
+
+    #[test]
     fn puc19_circular_annotates_core_features() {
         let gbk = include_str!("../../../examples/pUC19 Annotated.gbk");
         let seq = seq_from_gbk(gbk);
@@ -1072,13 +1085,11 @@ mod tests {
         assert!((ori.start - 866).abs() <= 15, "ori start {}", ori.start);
         assert!((ori.end - 1454).abs() <= 15, "ori end {}", ori.end);
 
-        let lacz = feats
-            .iter()
-            .find(|f| f.name.contains("lacZ"))
-            .expect("lacZ feature");
-        assert!(lacz.fragment, "lacZα should be a fragment");
+        let lacz = feats.iter().find(|f| f.name == "lacZα").expect("lacZα feature");
         // the 174 bp db feature matches a 166 bp window of the 324 bp lacZα
-        // fragment at [241, 406] (inside the gbk span 145..468).
+        // fragment at [241, 406] (inside the gbk span 145..468); 95.4%
+        // coverage at 97.6% identity counts as complete.
+        assert!(!lacz.fragment, "lacZα at 95.4% coverage should be complete");
         assert!(
             (lacz.start - 241).abs() <= 10,
             "lacZα start {}",
