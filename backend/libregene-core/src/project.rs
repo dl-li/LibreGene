@@ -217,14 +217,15 @@ impl ProjectManager {
         }
     }
 
-    /// Update a feature's location by parsing a GenBank location string.
-    /// Returns None if the location string is invalid.
+    /// Update a feature's location by parsing a 0-based inclusive location
+    /// string (e.g. "99..199", "complement(49..79)", "join(0..99,199..299)").
+    /// Returns an Err if the location string is invalid.
     pub fn update_feature_location(
         &mut self,
         feature_id: &str,
         location_str: &str,
     ) -> Result<(), String> {
-        let parsed = crate::file_io::gbk::parse_location_string(location_str)
+        let parsed = crate::file_io::gbk::parse_location_string_0based(location_str)
             .ok_or_else(|| format!("Invalid location: {}", location_str))?;
         let (segments, start, end, strand) = parsed;
         if let Some(p) = self.get_project_mut() {

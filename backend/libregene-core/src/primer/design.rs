@@ -441,7 +441,10 @@ pub struct MutagenesisAnalysis {
     /// Reverse complement of the same window (seg in [brackets]).
     pub minus_context: String,
     pub cds: Option<CdsMutation>,
-    /// Set when every base of `seg` is replaced (likely wrong strand/location).
+    /// Set when every base of `seg` is replaced and the edit could NOT be
+    /// confirmed as a whole-codon swap inside a CDS (likely wrong
+    /// strand/location). A codon-aligned full replacement inside a CDS is an
+    /// expected operation and does not warn.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
 }
@@ -550,6 +553,11 @@ pub fn analyze_mutagenesis(
         format!("{}[{}]{}", &rc[..open], &rc[open..close], &rc[close..])
     };
 
+    // Set inside the CDS find_map below: true when `seg` is exactly one or
+    // more complete codons of that CDS (codon-aligned, length % 3 == 0). A
+    // full-base replacement of such a seg is an expected whole-codon swap
+    // (e.g. Ala→Lys GCG→AAG), not a suspicious strand/location slip.
+    let mut covers_whole_codons = false;
     let cds = features
         .iter()
         .filter(|f| f.ftype.eq_ignore_ascii_case("cds"))
@@ -612,6 +620,20 @@ pub fn analyze_mutagenesis(
             if (codon_index + 1) * 3 > coding.len() {
                 return None;
             }
+            // Whole-codon check: a contiguous plus-strand seg fully inside the
+            // CDS maps to consecutive coding offsets; it covers complete
+            // codons when its length is a multiple of 3 and its first coding
+            // offset sits on a codon boundary.
+            if template.len() % 3 == 0 {
+                let seg_offsets: Vec<usize> = (seg.start..=seg.end)
+                    .filter_map(|p| pos_of.iter().position(|&x| x == p))
+                    .collect();
+                if seg_offsets.len() == template.len()
+                    && seg_offsets.iter().min().is_some_and(|m| m % 3 == 0)
+                {
+                    covers_whole_codons = true;
+                }
+            }
             let codon_before =
                 String::from_utf8(coding[codon_index * 3..codon_index * 3 + 3].to_vec()).ok()?;
             let mut after = codon_before.clone().into_bytes();
@@ -635,7 +657,7 @@ pub fn analyze_mutagenesis(
             })
         });
 
-    let warning = if diffs.len() == template.len() {
+    let warning = if diffs.len() == template.len() && !covers_whole_codons {
         Some(format!(
             "all {} bases of seg {}..{} are replaced; confirm mut_seq is the PLUS-strand sequence at the right location (mind the CDS strand)",
             template.len(), seg.start, seg.end
@@ -1311,6 +1333,87 @@ mod tests {
         assert_eq!(a.diffs.len(), 3);
         let w = a.warning.expect("full replacement must warn");
         assert!(w.contains("PLUS-strand"));
+    }
+
+    #[test]
+    fn analyze_mutagenesis_whole_codon_replacement_no_warning() {
+        // CGC -> AAA inside a plus-strand CDS (Ala→... actually Arg→Lys): all
+        // three bases replaced, but the seg is exactly one codon of the CDS.
+        let mut seq = "AAAAAA".repeat(20).into_bytes();
+        seq[60] = b'C';
+        seq[61] = b'G';
+        seq[62] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = cds_feature("orf", "+", vec![(30, 89)]);
+        let seg = Segment {
+            start: 60,
+            end: 62,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "AAA", &[cds]).unwrap();
+        assert_eq!(a.diffs.len(), 3, "all three bases replaced");
+        assert!(
+            a.warning.is_none(),
+            "codon-aligned full replacement inside a CDS must not warn: {:?}",
+            a.warning
+        );
+        let cds = a.cds.unwrap();
+        assert_eq!(cds.codon_before, "CGC");
+        assert_eq!(cds.codon_after, "AAA");
+        assert_eq!(cds.aa_before, "Arg");
+        assert_eq!(cds.aa_after, "Lys");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_whole_codon_replacement_minus_strand_no_warning() {
+        // Minus-strand CDS: plus CGC -> TTT is coding GCG -> AAA (Ala→Lys).
+        let mut seq = "AAAAAA".repeat(20).into_bytes();
+        seq[60] = b'C';
+        seq[61] = b'G';
+        seq[62] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = cds_feature("mEGFP", "-", vec![(30, 89)]);
+        let seg = Segment {
+            start: 60,
+            end: 62,
+            color: None,
+        };
+        let a = analyze_mutagenesis(&seq, &seg, "TTT", &[cds]).unwrap();
+        assert_eq!(a.diffs.len(), 3);
+        assert!(
+            a.warning.is_none(),
+            "minus-strand whole-codon swap must not warn: {:?}",
+            a.warning
+        );
+        let cds = a.cds.unwrap();
+        assert_eq!(cds.codon_before, "GCG");
+        assert_eq!(cds.codon_after, "AAA");
+        assert_eq!(cds.aa_before, "Ala");
+        assert_eq!(cds.aa_after, "Lys");
+    }
+
+    #[test]
+    fn analyze_mutagenesis_misaligned_full_replacement_still_warns() {
+        // Same CDS, but the 3-bp seg is shifted by one (not codon-aligned):
+        // the full replacement stays suspicious.
+        let mut seq = "AAAAAA".repeat(20).into_bytes();
+        seq[60] = b'C';
+        seq[61] = b'G';
+        seq[62] = b'C';
+        let seq = String::from_utf8(seq).unwrap();
+        let cds = cds_feature("orf", "+", vec![(30, 89)]);
+        let seg = Segment {
+            start: 61,
+            end: 63,
+            color: None,
+        };
+        // Template "GCA" -> "TTT": all three bases replaced.
+        let a = analyze_mutagenesis(&seq, &seg, "TTT", &[cds]).unwrap();
+        assert_eq!(a.diffs.len(), 3);
+        assert!(
+            a.warning.is_some(),
+            "non-codon-aligned full replacement must keep the warning"
+        );
     }
 
     #[test]

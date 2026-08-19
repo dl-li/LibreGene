@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateSequenceText } from './tauriApi';
+import { locationString1based } from './editorConstants';
 import { CircularMap, LinearMap } from './MapView';
 
 const EMPTY_ARRAY = [];
@@ -48,14 +49,6 @@ function validateSequence(molType, seq) {
   }
   const invalidChars = [...new Set([...seq].filter((c) => !DNA_IUPAC.includes(c)))];
   return { valid: invalidChars.length === 0, sequence: seq, invalidChars };
-}
-
-/** GenBank 1-based location string, matching DetectFeaturesDialog's display. */
-function locationString(hit) {
-  const segs = hit.segments?.length ? hit.segments : [{ start: hit.start, end: hit.end }];
-  const parts = segs.map((s) => `${s.start + 1}..${s.end + 1}`);
-  const joined = parts.length > 1 ? `join(${parts.join(', ')})` : parts[0];
-  return hit.strand === '-' ? `complement(${joined})` : joined;
 }
 
 /**
@@ -416,7 +409,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
                           </span>
                         </td>
                         <td className="py-2 pr-3 font-mono text-xs whitespace-nowrap">
-                          {locationString(hit)}
+                          {locationString1based(hit)}
                         </td>
                         <td className="py-2 font-mono text-xs tabular-nums">
                           {hit.identity != null ? `${hit.identity.toFixed(1)}%` : '—'}

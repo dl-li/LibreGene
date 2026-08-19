@@ -189,7 +189,7 @@ export default function SequenceEditDialog({
               <>
                 <span>Cursor</span>
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
-                  {cursorIndex}
+                  {cursorIndex + 1}
                 </code>
               </>
             )}
@@ -197,7 +197,7 @@ export default function SequenceEditDialog({
               <>
                 <span>Selection</span>
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
-                  {selStart} – {selEnd}
+                  {selStart + 1} – {selEnd + 1}
                 </code>
                 <span className="tabular-nums">
                   ({deleteLen} {unit})

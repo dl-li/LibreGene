@@ -705,8 +705,26 @@ fn model_range_to_gb_location(f: &Feature) -> Location {
 
 /// Parse a GenBank location string (e.g. "complement(1..100)", "join(1..50,60..100)")
 /// and return (segments, overall_start, overall_end, strand).
+/// GenBank locations are 1-based inclusive; the returned coordinates are
+/// shifted to the model's 0-based inclusive convention.
+/// This is the FILE-FORMAT parser — use it only where GenBank spec semantics
+/// are required (.gbk/.gpt file parsing). App-internal APIs use
+/// [`parse_location_string_0based`].
 /// Returns None on parse failure.
 pub fn parse_location_string(s: &str) -> Option<(Vec<Segment>, i64, i64, String)> {
+    parse_location_string_impl(s, true)
+}
+
+/// Parse a 0-based inclusive location string (e.g. "99..199",
+/// "complement(49..79)", "join(0..99,199..299)") — the App-internal coordinate
+/// convention shared by the model, digests and all MCP/Tauri APIs. Same
+/// grammar as [`parse_location_string`] but without the GenBank 1-based shift.
+/// Returns None on parse failure.
+pub fn parse_location_string_0based(s: &str) -> Option<(Vec<Segment>, i64, i64, String)> {
+    parse_location_string_impl(s, false)
+}
+
+fn parse_location_string_impl(s: &str, one_based: bool) -> Option<(Vec<Segment>, i64, i64, String)> {
     let s = s.trim();
     let (inner, strand) = if let Some(rest) = s.strip_prefix("complement(") {
         rest.strip_suffix(')').map(|r| (r, "-"))
@@ -730,6 +748,7 @@ pub fn parse_location_string(s: &str) -> Option<(Vec<Segment>, i64, i64, String)
         return None;
     }
 
+    let shift = if one_based { 1 } else { 0 };
     let mut segments = Vec::new();
     for part in &parts {
         if let Some(dotdot) = part.find("..") {
@@ -737,23 +756,23 @@ pub fn parse_location_string(s: &str) -> Option<(Vec<Segment>, i64, i64, String)
             let end_str = part[dotdot + 2..].trim();
             let start: i64 = start_str.parse().ok()?;
             let end: i64 = end_str.parse().ok()?;
-            if start < 1 || end < 1 || start > end {
+            if start < shift || end < shift || start > end {
                 return None;
             }
             segments.push(Segment {
-                start: start - 1,
-                end: end - 1,
+                start: start - shift,
+                end: end - shift,
                 color: None,
             });
         } else {
             // Single position
             let pos: i64 = part.trim().parse().ok()?;
-            if pos < 1 {
+            if pos < shift {
                 return None;
             }
             segments.push(Segment {
-                start: pos - 1,
-                end: pos - 1,
+                start: pos - shift,
+                end: pos - shift,
                 color: None,
             });
         }
@@ -1066,6 +1085,77 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_location_string_1based() {
+        // GenBank file-format semantics: 1-based inclusive input → 0-based model.
+        let (segs, start, end, strand) = parse_location_string("100..200").unwrap();
+        assert_eq!((start, end, strand.as_str()), (99, 199, "+"));
+        assert_eq!(segs.len(), 1);
+        assert_eq!((segs[0].start, segs[0].end), (99, 199));
+
+        let (segs, start, end, strand) = parse_location_string("complement(50..80)").unwrap();
+        assert_eq!((start, end, strand.as_str()), (49, 79, "-"));
+        assert_eq!(segs.len(), 1);
+
+        let (segs, start, end, strand) = parse_location_string("join(1..100,200..300)").unwrap();
+        assert_eq!((start, end, strand.as_str()), (0, 299, "+"));
+        assert_eq!(segs.len(), 2);
+        assert_eq!((segs[0].start, segs[0].end), (0, 99));
+        assert_eq!((segs[1].start, segs[1].end), (199, 299));
+
+        let (segs, start, end, _) = parse_location_string("order(10..20,5..8)").unwrap();
+        assert_eq!((start, end), (4, 19));
+        assert_eq!(segs.len(), 2);
+
+        // Single position
+        let (segs, start, end, _) = parse_location_string("42").unwrap();
+        assert_eq!((start, end), (41, 41));
+        assert_eq!(segs.len(), 1);
+
+        // 1-based rejects 0 and reversed ranges
+        assert!(parse_location_string("0..10").is_none());
+        assert!(parse_location_string("0").is_none());
+        assert!(parse_location_string("200..100").is_none());
+        assert!(parse_location_string("abc").is_none());
+        assert!(parse_location_string("join()").is_none());
+    }
+
+    #[test]
+    fn test_parse_location_string_0based() {
+        // App-internal semantics: coordinates are already 0-based inclusive.
+        let (segs, start, end, strand) = parse_location_string_0based("99..199").unwrap();
+        assert_eq!((start, end, strand.as_str()), (99, 199, "+"));
+        assert_eq!((segs[0].start, segs[0].end), (99, 199));
+
+        // 0 is a valid coordinate here
+        let (segs, start, end, _) = parse_location_string_0based("0..99").unwrap();
+        assert_eq!((start, end), (0, 99));
+        assert_eq!((segs[0].start, segs[0].end), (0, 99));
+
+        let (_, start, end, strand) = parse_location_string_0based("complement(49..79)").unwrap();
+        assert_eq!((start, end, strand.as_str()), (49, 79, "-"));
+
+        let (segs, start, end, _) = parse_location_string_0based("join(0..99,199..299)").unwrap();
+        assert_eq!((start, end), (0, 299));
+        assert_eq!(segs.len(), 2);
+        assert_eq!((segs[1].start, segs[1].end), (199, 299));
+
+        let (_, start, end, _) = parse_location_string_0based("order(9..19,4..7)").unwrap();
+        assert_eq!((start, end), (4, 19));
+
+        // Single position
+        let (_, start, end, _) = parse_location_string_0based("41").unwrap();
+        assert_eq!((start, end), (41, 41));
+        let (_, start, end, _) = parse_location_string_0based("0").unwrap();
+        assert_eq!((start, end), (0, 0));
+
+        // Negative and reversed ranges are rejected
+        assert!(parse_location_string_0based("-1..10").is_none());
+        assert!(parse_location_string_0based("199..99").is_none());
+        assert!(parse_location_string_0based("abc").is_none());
+        assert!(parse_location_string_0based("join()").is_none());
+    }
 
     #[test]
     fn test_reverse_complement() {

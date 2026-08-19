@@ -9,22 +9,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
-import { monoFont } from './editorConstants';
+import { monoFont, locationString1based, locationStringTo0based } from './editorConstants';
 
 /* ---------- HTML tag stripping ---------- */
 function stripHtml(str) {
   return str.replace(/<[^>]*>/g, '');
 }
 
-/* ---------- GenBank location helpers ---------- */
-function gbLocation(feature) {
-  const segs = feature.segments?.length
-    ? feature.segments
-    : [{ start: feature.start, end: feature.end }];
-  const parts = segs.map((s) => `${s.start + 1}..${s.end + 1}`);
-  const joined = parts.length > 1 ? `join(${parts.join(', ')})` : parts[0];
-  return feature.strand === '-' ? `complement(${joined})` : joined;
-}
+/* ---------- Location helpers (UI strings are 1-based inclusive) ---------- */
 
 function unwrapComplement(loc) {
   const m = loc.match(/^complement\((.+)\)$/i);
@@ -312,7 +304,7 @@ export default function FeatureInfoDialog({
 
   const currentFtype = feature?.ftype || 'misc_feature';
 
-  const locLabel = useMemo(() => (feature ? gbLocation(feature) : ''), [feature]);
+  const locLabel = useMemo(() => (feature ? locationString1based(feature) : ''), [feature]);
 
   const qualifierLines = useMemo(() => {
     if (!feature) return [];
@@ -358,7 +350,8 @@ export default function FeatureInfoDialog({
         name: createName || 'New Feature',
         ftype: createFtype,
         color: createColor,
-        locationStr: trimmedLoc,
+        // UI input is 1-based; the Tauri layer parses 0-based strings
+        locationStr: locationStringTo0based(trimmedLoc),
       });
       onOpenChange(false);
     } catch (e) {
@@ -373,7 +366,7 @@ export default function FeatureInfoDialog({
     setEditingLoc(false);
     if (!onFeatureLocationChange) return;
     try {
-      await onFeatureLocationChange(feature.id, value);
+      await onFeatureLocationChange(feature.id, locationStringTo0based(value));
     } catch (e) {
       setLocError(String(e));
       setEditingLoc(true);
@@ -480,7 +473,8 @@ export default function FeatureInfoDialog({
                 }}
                 autoFocus
                 className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
-                placeholder="e.g. 11..456"
+                placeholder="1-based inclusive, e.g. 1..100"
+                title="1-based inclusive, e.g. 1..100, join(1..100,200..300), complement(50..80)"
               />
               {createLocError && (
                 <div className="mt-1 font-mono text-[11px] text-red-600">{createLocError}</div>
@@ -628,6 +622,7 @@ export default function FeatureInfoDialog({
                     }
                   }}
                   autoFocus
+                  placeholder="1-based inclusive"
                   className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
                 />
                 <Button
@@ -643,7 +638,7 @@ export default function FeatureInfoDialog({
               <button
                 type="button"
                 className="max-w-full truncate rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
-                title="Click to edit location"
+                title="Click to edit location (1-based inclusive)"
                 onClick={() => {
                   setEditingFtype(false);
                   setLocInput(locLabel);
