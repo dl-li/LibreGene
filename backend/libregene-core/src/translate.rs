@@ -34,7 +34,7 @@ pub fn translate_nt(seq: &[u8]) -> Vec<u8> {
     out
 }
 
-fn translate_codon(a: u8, b: u8, c: u8) -> char {
+pub fn translate_codon(a: u8, b: u8, c: u8) -> char {
     let (Some(i0), Some(i1), Some(i2)) = (codon_index(a), codon_index(b), codon_index(c)) else {
         return '?';
     };

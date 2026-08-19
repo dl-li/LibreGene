@@ -1342,35 +1342,47 @@ async fn do_design_primer_candidates(
     let mut_seq = mut_seq.unwrap_or_default();
 
     tokio::task::spawn_blocking(move || -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
-        match mode.as_str() {
+        let mut groups = match mode.as_str() {
             "amplify" => {
                 let name = name.unwrap_or_else(|| "Amplicon".to_string());
                 match (fwd_tail, rev_tail) {
-                    (None, None) => Ok(libregene_core::primer::design::build_amplify_groups(
+                    (None, None) => libregene_core::primer::design::build_amplify_groups(
                         &sequence, &seg1, &name, target_tm, &topology, &tm_params,
-                    )),
-                    (f, r) => Ok(libregene_core::primer::design::build_amplify_groups_tailed(
+                    ),
+                    (f, r) => libregene_core::primer::design::build_amplify_groups_tailed(
                         &sequence, &seg1, &name, target_tm, &topology,
                         f.as_deref().unwrap_or(""), r.as_deref().unwrap_or(""), &tm_params,
-                    )),
+                    ),
                 }
             }
             "oepcr" => {
-                let seg2 = seg2.ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
+                let seg2 = seg2.as_ref().ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
                 let name1 = name1.unwrap_or_else(|| "Fragment 1".to_string());
                 let name2 = name2.unwrap_or_else(|| "Fragment 2".to_string());
-                Ok(libregene_core::primer::design::build_oepcr_groups(
-                    &sequence, &seg1, &seg2, &name1, &name2, target_tm, overlap_len, &topology, &tm_params,
-                ))
+                libregene_core::primer::design::build_oepcr_groups(
+                    &sequence, &seg1, seg2, &name1, &name2, target_tm, overlap_len, &topology, &tm_params,
+                )
             }
             "mutagenesis" => {
                 let site_name = site_name.unwrap_or_else(|| "Mutation".to_string());
-                Ok(libregene_core::primer::design::build_mutagenesis_groups(
+                libregene_core::primer::design::build_mutagenesis_groups(
                     &sequence, &seg1, &site_name, &mut_seq, target_tm, arm_len, &tm_params,
-                ))
+                )
             }
-            other => Err(format!("Unknown primer design mode: {other}")),
-        }
+            other => return Err(format!("Unknown primer design mode: {other}")),
+        };
+        let segs: Vec<libregene_core::models::Segment> = match mode.as_str() {
+            "amplify" | "mutagenesis" => vec![seg1],
+            "oepcr" => {
+                let seg2 = seg2.ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
+                vec![seg1, seg2]
+            }
+            _ => Vec::new(),
+        };
+        libregene_core::primer::design::unify_candidate_tm(
+            &sequence, &topology, &segs, &mut groups, &tm_params,
+        );
+        Ok(groups)
     })
     .await
     .map_err(|e| format!("task join error: {}", e))?

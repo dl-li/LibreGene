@@ -324,6 +324,23 @@ struct CheckPrimerBindingRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct ConvertCoordinatesRequest {
+    project_id: Option<String>,
+    /// Full-file template coordinate (1-based inclusive). Mutually exclusive
+    /// with feature_id + feature_offset and feature_id + aa_position.
+    position: Option<i64>,
+    /// Feature ID for feature-relative or amino-acid lookups. Must be paired
+    /// with exactly one of `feature_offset` or `aa_position`.
+    feature_id: Option<String>,
+    /// 1-based offset along the feature's own 5'→3' direction. Mutually
+    /// exclusive with `position` and `aa_position`.
+    feature_offset: Option<i64>,
+    /// 1-based amino-acid position within a CDS/mRNA feature. Mutually
+    /// exclusive with `position` and `feature_offset`.
+    aa_position: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct ExportSubsequenceRequest {
     /// Project to export from (defaults to the active project).
     project_id: Option<String>,
@@ -3024,16 +3041,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (empty when no enzyme recognition site occurs inside the amplified
     /// segment; non-empty entries {enzyme, start, end, strand}, 1-based
     /// inclusive, plus a `warning` that digestion would cut the product).
-    /// Returns {projectId, groups: [PrimerGroup], mutation?,
+    /// Returns {projectId, groups: [PrimerGroup], mutation?, tmBasis,
     /// internalSites + orientation + cdsOverlaps? (amplify)}.
     ///
-    /// Tm/annealLen here describe the DESIGNED anneal core only. If you then
-    /// verify a designed primer with check_primer_binding, its annealLen/Tm
-    /// can be HIGHER: check recomputes the actual contiguous 3'-end match,
-    /// which can extend into tail bases that happen to match the template
-    /// (e.g. an enzyme tail sitting next to a matching downstream site) —
-    /// expected, not anomalous binding; check's per-site
-    /// alignedTemplate/matchMask show exactly which bases pair.
+    /// `tm`/`annealLen` in each candidate now report the ACTUAL contiguous 3'
+    /// match, identical to the value returned by `check_primer_binding` and
+    /// `add_primer`. The original designed anneal-core values are preserved in
+    /// `designedTm`/`designedAnnealLen`. Because a 5' tail can pair with the
+    /// adjacent template, the actual anneal length may exceed the designed
+    /// core length — this is expected for tailed primers; the tail bases that
+    /// pair are included in the unified Tm.
     /// DNA-only: rejects RNA/protein projects (no primer design on
     /// single-strand molecules).
     #[tool]
@@ -3171,7 +3188,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         )
         .await
         .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let mut v = serde_json::json!({ "projectId": id, "groups": groups });
+        let mut v = serde_json::json!({
+            "projectId": id,
+            "groups": groups,
+            "tmBasis": "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLen/Tm (expected for tailed primers — see check_primer_binding per-site alignedTemplate/matchMask)",
+        });
         if let Some(info) = mutation_info {
             v["mutation"] = info;
         }
@@ -3318,6 +3339,169 @@ impl<R: Runtime> LibreGeneMcp<R> {
         v["tmBasis"] = serde_json::json!(
             "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLen/Tm (expected for tailed primers — see per-site alignedTemplate/matchMask)"
         );
+        Ok(Json(v))
+    }
+
+    /// Convert coordinates between template position, feature-relative offset,
+    /// and CDS amino-acid position. Exactly one of these mutually exclusive
+    /// input forms must be provided:
+    ///
+    /// 1. `position`: a full-file 1-based inclusive template coordinate.
+    /// 2. `feature_id` + `feature_offset`: 1-based offset along the feature's
+    ///    own 5'→3' direction (reverse-complemented features count from their
+    ///    3' end on the template).
+    /// 3. `feature_id` + `aa_position`: 1-based amino-acid position within a
+    ///    CDS/mRNA feature.
+    ///
+    /// Returns {projectId, input, position, base, codonPositions?, features,
+    /// translations}. `base` is the template base at `position` (plus-strand,
+    /// uppercase; the residue letter on protein projects). `features` lists
+    /// every feature containing the resolved
+    /// position with its 1-based feature-relative offset and total length.
+    /// `translations` lists CDS/mRNA hits with codon index, amino-acid position
+    /// in two conventions (`aaPosition1Based` includes the initiator Met;
+    /// `aaPositionExcludingMet` does not, matching literature numbering such as
+    /// mEGFP A206K), the coding-strand codon, the amino acid, and which base of
+    /// the codon the position is. For amino-acid input, `codonPositions`
+    /// contains the three template positions of the requested codon in 5'→3'
+    /// biological order and the top-level `position` is the first of them.
+    ///
+    /// Works for DNA, RNA and protein projects for a/b lookups; translation
+    /// lookup (c) only returns hits when the position falls inside a CDS/mRNA
+    /// feature.
+    #[tool]
+    async fn convert_coordinates(
+        &self,
+        Parameters(request): Parameters<ConvertCoordinatesRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let id = self.resolve_project_id(request.project_id).await?;
+        let (sequence, features) = {
+            let pm = self.pm.read().await;
+            let p = pm
+                .get_project_by_id(&id)
+                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
+            (p.sequence.clone(), p.features.clone())
+        };
+        let len = sequence.len() as i64;
+
+        let position: i64;
+        let input_json: serde_json::Value;
+        let codon_positions_opt: Option<[i64; 3]>;
+
+        let has_position = request.position.is_some() as u8;
+        let has_feature_offset = request.feature_id.is_some() && request.feature_offset.is_some();
+        let has_aa_position = request.feature_id.is_some() && request.aa_position.is_some();
+        if has_position + has_feature_offset as u8 + has_aa_position as u8 != 1 {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+            )));
+        }
+
+        if let Some(pos1) = request.position {
+            if pos1 < 1 || pos1 > len {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!("position {} out of bounds (1..={})", pos1, len),
+                )));
+            }
+            position = pos1 - 1;
+            input_json = serde_json::json!({ "kind": "template", "position": pos1 });
+            codon_positions_opt = None;
+        } else if let Some(feature_id) = request.feature_id {
+            let f = features
+                .iter()
+                .find(|f| f.id == feature_id)
+                .ok_or_else(|| ErrorData::invalid_params(format!("feature '{}' not found", feature_id), None))?;
+            if let Some(offset1) = request.feature_offset {
+                match libregene_core::coords::position_from_feature_offset(f, offset1) {
+                    Ok(pos0) => {
+                        position = pos0;
+                        input_json = serde_json::json!({
+                            "kind": "featureOffset",
+                            "featureId": feature_id,
+                            "featureOffset": offset1,
+                        });
+                        codon_positions_opt = None;
+                    }
+                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                }
+            } else if let Some(aa1) = request.aa_position {
+                match libregene_core::coords::codon_from_aa(f, &sequence, aa1) {
+                    Ok((positions, codon, aa)) => {
+                        position = positions[0];
+                        input_json = serde_json::json!({
+                            "kind": "aminoAcid",
+                            "featureId": feature_id,
+                            "aaPosition": aa1,
+                            "codon": codon,
+                            "aminoAcid": aa.to_string(),
+                        });
+                        codon_positions_opt = Some(positions);
+                    }
+                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                }
+            } else {
+                // Unreachable because of the mutual-exclusion check above.
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+                )));
+            }
+        } else {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+            )));
+        }
+
+        let feature_hits = libregene_core::coords::position_to_features(position, &features);
+        let translation_hits =
+            libregene_core::coords::position_to_translations(position, &sequence, &features);
+
+        let features_json: Vec<serde_json::Value> = feature_hits
+            .iter()
+            .map(|h| {
+                serde_json::json!({
+                    "featureId": h.feature_id,
+                    "name": h.name,
+                    "ftype": h.ftype,
+                    "strand": h.strand,
+                    "featureOffset": h.offset,
+                    "featureLength": h.length,
+                })
+            })
+            .collect();
+        let translations_json: Vec<serde_json::Value> = translation_hits
+            .iter()
+            .map(|h| {
+                serde_json::json!({
+                    "featureId": h.feature_id,
+                    "name": h.name,
+                    "strand": h.strand,
+                    "codonIndex": h.codon_index,
+                    "aaPosition1Based": h.aa_position_1_based,
+                    "aaPositionExcludingMet": h.aa_position_excluding_met,
+                    "codon": h.codon,
+                    "aminoAcid": h.amino_acid.to_string(),
+                    "codonBaseIndex": h.codon_base_index,
+                })
+            })
+            .collect();
+
+        let mut v = serde_json::json!({
+            "projectId": id,
+            "input": input_json,
+            "position": position + 1,
+            "base": sequence[position as usize..position as usize + 1].to_ascii_uppercase(),
+            "features": features_json,
+            "translations": translations_json,
+        });
+        if let Some(positions) = codon_positions_opt {
+            v["codonPositions"] = serde_json::json!(
+                positions.iter().map(|p| p + 1).collect::<Vec<_>>()
+            );
+        }
         Ok(Json(v))
     }
 
@@ -6355,6 +6539,321 @@ mod tests {
             .as_str()
             .expect("non-CDS full replacement must warn");
         assert!(w.contains("PLUS-strand"), "{w}");
+    }
+
+    #[tokio::test]
+    async fn design_primers_unified_tm_matches_check_primer_binding() {
+        // Construct a template where the fwd enzyme tail's 3' side accidentally
+        // pairs with the template upstream of the anneal core. The unified
+        // annealLen/Tm must match a separate check_primer_binding call.
+        let mut seq = synthetic_dna(120, 42);
+        // BamHI site (GGATCC) is the 3'-most 6 bases of the default fwd tail
+        // GCG + GGATCC. Place it immediately 5' of the fwd anneal core.
+        seq.replace_range(30..36, "GGATCC");
+        let project = ProjectData {
+            name: "tail_test".to_string(),
+            sequence: seq.clone(),
+            length: 120,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("tail_test".to_string()),
+                mode: "amplify".to_string(),
+                seg: Some(SegParam { start: 37, end: 77 }),
+                name: Some("Amp".to_string()),
+                target_tm: 55.0,
+                fwd_enzyme: Some("BamHI".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert!(v.get("tmBasis").is_some(), "{v}");
+        let fwd_group = v["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["type"] == "fwd")
+            .cloned()
+            .expect("fwd group");
+        let default_idx = fwd_group["defaultIndex"].as_u64().map(|n| n as usize).unwrap_or(0);
+        let cand = &fwd_group["candidates"][default_idx];
+        let primer_seq = cand["seq"].as_str().unwrap().to_string();
+        let designed_len = cand["designedAnnealLen"].as_u64().unwrap() as usize;
+        let unified_len = cand["annealLen"].as_u64().unwrap() as usize;
+        assert!(
+            unified_len > designed_len,
+            "tail should extend anneal_len: designed={designed_len}, unified={unified_len}"
+        );
+
+        // Verify the same values come out of check_primer_binding.
+        let chk = server
+            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+                project_id: Some("tail_test".to_string()),
+                primers: vec![PrimerInput {
+                    name: "cand".to_string(),
+                    r#type: "fwd".to_string(),
+                    seq: primer_seq,
+                }],
+            }))
+            .await
+            .unwrap();
+        let site = &chk.0["results"][0]["site"];
+        assert_eq!(
+            site["annealLen"].as_u64().unwrap() as usize,
+            unified_len,
+            "annealLen mismatch"
+        );
+        assert!(
+            (site["tm"].as_f64().unwrap() - cand["tm"].as_f64().unwrap()).abs() < 0.05,
+            "tm mismatch: check={} design={}",
+            site["tm"],
+            cand["tm"]
+        );
+    }
+
+    #[tokio::test]
+    async fn design_primers_unified_tm_matches_check_primer_binding_rev() {
+        // Rev enzyme tail whose 3' side accidentally pairs with the template
+        // downstream of the rev anneal core. The unified Tm must match what
+        // check_primer_binding reports (the engine reverses the matched bases
+        // for rev primers before computing Tm).
+        let mut seq = synthetic_dna(120, 42);
+        // HindIII tail = protect GCG + AAGCTT. Place AAGCTT immediately 3' of
+        // the rev anneal core (which ends at seg.end = 77 0-based) so the
+        // tail's 3'-most 6 bases pair.
+        seq.replace_range(77..83, "AAGCTT");
+        let project = ProjectData {
+            name: "tail_rev_test".to_string(),
+            sequence: seq.clone(),
+            length: 120,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("tail_rev_test".to_string()),
+                mode: "amplify".to_string(),
+                seg: Some(SegParam { start: 37, end: 77 }),
+                name: Some("Amp".to_string()),
+                target_tm: 55.0,
+                rev_enzyme: Some("HindIII".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let rev_group = v["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["type"] == "rev")
+            .cloned()
+            .expect("rev group");
+        let default_idx = rev_group["defaultIndex"].as_u64().map(|n| n as usize).unwrap_or(0);
+        let cand = &rev_group["candidates"][default_idx];
+        let primer_seq = cand["seq"].as_str().unwrap().to_string();
+        let designed_len = cand["designedAnnealLen"].as_u64().unwrap() as usize;
+        let unified_len = cand["annealLen"].as_u64().unwrap() as usize;
+        assert!(
+            unified_len > designed_len,
+            "rev tail should extend anneal_len: designed={designed_len}, unified={unified_len}"
+        );
+
+        let chk = server
+            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+                project_id: Some("tail_rev_test".to_string()),
+                primers: vec![PrimerInput {
+                    name: "cand".to_string(),
+                    r#type: "rev".to_string(),
+                    seq: primer_seq,
+                }],
+            }))
+            .await
+            .unwrap();
+        let site = &chk.0["results"][0]["site"];
+        assert_eq!(
+            site["annealLen"].as_u64().unwrap() as usize,
+            unified_len,
+            "annealLen mismatch"
+        );
+        assert!(
+            (site["tm"].as_f64().unwrap() - cand["tm"].as_f64().unwrap()).abs() < 0.05,
+            "tm mismatch: check={} design={}",
+            site["tm"],
+            cand["tm"]
+        );
+    }
+
+    #[tokio::test]
+    async fn convert_coordinates_three_input_forms() {
+        // "ATGGTATAA" -> M V *; CDS on plus strand covers positions 1..9.
+        let seq = "ATGGTATAA".to_string();
+        let project = ProjectData {
+            name: "coord_test".to_string(),
+            sequence: seq.clone(),
+            length: 9,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("cds1", "orf", 0, 8, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+
+        // 1. Template position input.
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_test".to_string()),
+                position: Some(2),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["projectId"], "coord_test", "{v}");
+        assert_eq!(v["input"]["kind"], "template", "{v}");
+        assert_eq!(v["input"]["position"], 2, "{v}");
+        assert_eq!(v["position"], 2, "{v}");
+        assert_eq!(v["base"], "T", "{v}");
+        assert_eq!(v["features"][0]["featureOffset"], 2, "{v}");
+        assert_eq!(v["translations"][0]["codonIndex"], 1, "{v}");
+        assert_eq!(v["translations"][0]["codonBaseIndex"], 2, "{v}");
+
+        // 2. Feature offset input -> same position.
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_test".to_string()),
+                feature_id: Some("cds1".to_string()),
+                feature_offset: Some(2),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["input"]["kind"], "featureOffset", "{v}");
+        assert_eq!(v["position"], 2, "{v}");
+        assert_eq!(v["features"][0]["featureOffset"], 2, "{v}");
+
+        // 3. Amino-acid position input -> codon positions and translation.
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_test".to_string()),
+                feature_id: Some("cds1".to_string()),
+                aa_position: Some(2),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["input"]["kind"], "aminoAcid", "{v}");
+        assert_eq!(v["input"]["aaPosition"], 2, "{v}");
+        assert_eq!(v["position"], 4, "{v}");
+        assert_eq!(v["base"], "G", "{v}");
+        assert_eq!(v["codonPositions"], serde_json::json!([4, 5, 6]), "{v}");
+        assert_eq!(v["translations"][0]["codonIndex"], 2, "{v}");
+        assert_eq!(v["translations"][0]["aaPositionExcludingMet"], 1, "{v}");
+        assert_eq!(v["translations"][0]["codon"], "GTA", "{v}");
+        assert_eq!(v["translations"][0]["aminoAcid"], "V", "{v}");
+
+        // Mutual-exclusion error.
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_test".to_string()),
+                position: Some(2),
+                feature_id: Some("cds1".to_string()),
+                feature_offset: Some(2),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("exactly one of"),
+            "{}",
+            out.0
+        );
+
+        // Out-of-bounds error.
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_test".to_string()),
+                position: Some(100),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("out of bounds"),
+            "{}",
+            out.0
+        );
+    }
+
+    #[tokio::test]
+    async fn convert_coordinates_minus_strand_segmented_round_trip() {
+        // Same minus-strand segmented CDS used in coords.rs tests: translates to FH.
+        let seq = "ATGAAATTTAAA".to_string();
+        let mut f = feature("mEGFP", "mEGFP", 0, 5, "-");
+        f.segments = vec![
+            Segment {
+                start: 0,
+                end: 2,
+                color: None,
+            },
+            Segment {
+                start: 3,
+                end: 5,
+                color: None,
+            },
+        ];
+        let project = ProjectData {
+            name: "coord_minus_test".to_string(),
+            sequence: seq.clone(),
+            length: 12,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![f],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+
+        // aaPosition=2 (H) on the minus strand: 5'→3' codon order runs from
+        // the higher template coordinate to the lower one (positions 3,2,1 in
+        // 1-based), because the CDS's 5' end is at the right-hand segment.
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_minus_test".to_string()),
+                feature_id: Some("mEGFP".to_string()),
+                aa_position: Some(2),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["codonPositions"], serde_json::json!([3, 2, 1]), "{v}");
+        assert_eq!(v["translations"][0]["codon"], "CAT", "{v}");
+        assert_eq!(v["translations"][0]["aminoAcid"], "H", "{v}");
+
+        // Convert the first codon position (5' end, 1-based 3) back via template input.
+        let pos = v["codonPositions"][0].as_i64().unwrap();
+        let out = server
+            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
+                project_id: Some("coord_minus_test".to_string()),
+                position: Some(pos),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["translations"][0]["codonIndex"], 2, "{v}");
+        assert_eq!(v["translations"][0]["codonBaseIndex"], 1, "{v}");
     }
 
     #[tokio::test]

@@ -8,8 +8,9 @@
 
 use serde::Serialize;
 
+use super::align;
 use super::thermodynamics::{compute_tm_with_params, TmParams};
-use crate::models::Segment;
+use crate::models::{PrimerBindingSite, Segment};
 
 /// A single primer candidate (one anneal-core length variant).
 #[derive(Debug, Clone, Serialize)]
@@ -21,12 +22,21 @@ pub struct PrimerCandidate {
     pub tail: String,
     /// 5' tail length in bases.
     pub tail_len: usize,
-    /// Anneal-core length in bases.
+    /// Anneal-core length in bases (actual contiguous 3' match after unify).
     pub anneal_len: usize,
-    /// Melting temperature of the anneal core (°C), rounded to 0.1.
+    /// Melting temperature of the anneal core (°C), rounded to 0.1
+    /// (actual contiguous 3' match after unify).
     pub tm: f64,
     /// GC% of the full primer sequence, one decimal.
     pub gc: f64,
+    /// Designed anneal-core Tm (°C) before 3'-end unification; preserved for
+    /// reference and omitted when it equals `tm`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub designed_tm: Option<f64>,
+    /// Designed anneal-core length before 3'-end unification; preserved for
+    /// reference and omitted when it equals `anneal_len`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub designed_anneal_len: Option<usize>,
 }
 
 /// One designed primer (fwd/rev) with its length variants.
@@ -129,6 +139,8 @@ fn build_variants(
             tail_len: tail.len(),
             tail,
             anneal_len: anneal.len(),
+            designed_tm: None,
+            designed_anneal_len: None,
         });
     }
     let mut default_index = 0;
@@ -387,6 +399,112 @@ pub fn build_mutagenesis_groups(
     build_mutagenesis_groups_with(seq, seg, site_name, mut_seq, target_tm, arm_len, |s| {
         compute_tm_with_params(s, params)
     })
+}
+
+// ---------------------------------------------------------------------------
+// Tm unification: designed anneal core -> actual 3' continuous match
+// ---------------------------------------------------------------------------
+
+/// Recompute every candidate's `tm`/`anneal_len` to the actual contiguous 3'
+/// match reported by the binding engine, exactly like `add_primer` and
+/// `check_primer_binding`. The original designed values are preserved in
+/// `designed_tm`/`designed_anneal_len`.
+///
+/// `segs` are the target template segments (0-based inclusive) used to pick the
+/// intended binding site when a primer has multiple possible sites.
+pub fn unify_candidate_tm(
+    sequence: &str,
+    topology: &str,
+    segs: &[Segment],
+    groups: &mut [PrimerGroup],
+    params: &TmParams,
+) {
+    let tlen = sequence.len() as i64;
+    let circular = topology == "circular";
+    for group in groups.iter_mut() {
+        let expected_strand: i8 = if group.r#type == "fwd" { 1 } else { -1 };
+        for cand in group.candidates.iter_mut() {
+            cand.designed_tm = Some(cand.tm);
+            cand.designed_anneal_len = Some(cand.anneal_len);
+            let sites = align::compute_binding_sites(
+                sequence,
+                &cand.seq,
+                &group.r#type,
+                "design",
+                topology,
+                0.0,
+            );
+            let best: Option<&PrimerBindingSite> = sites
+                .iter()
+                .filter(|s| s.strand == expected_strand)
+                .max_by(|a, b| {
+                    let oa = site_segment_overlap(a, segs, tlen, circular);
+                    let ob = site_segment_overlap(b, segs, tlen, circular);
+                    oa.cmp(&ob)
+                        .then(a.tm.partial_cmp(&b.tm).unwrap_or(std::cmp::Ordering::Equal))
+                });
+            if let Some(site) = best {
+                let al = align::anneal_len(sequence, topology, &cand.seq, site);
+                if al > 0 {
+                    // The binding engine computes Tm on the primer bases as
+                    // they appear along the template: fwd uses the primer's
+                    // 5'→3' orientation directly, rev uses the reverse
+                    // (template left→right) orientation because the primer
+                    // reads 3'→5' on the template. Match that exactly so
+                    // design_primers reports the same Tm as add_primer /
+                    // check_primer_binding.
+                    let duplex: String = if expected_strand == 1 {
+                        cand.seq[cand.seq.len() - al..].to_string()
+                    } else {
+                        cand.seq[cand.seq.len() - al..].chars().rev().collect()
+                    };
+                    cand.anneal_len = al;
+                    cand.tm = round1(compute_tm_with_params(&duplex, params));
+                }
+            }
+        }
+    }
+}
+
+/// Overlap length (in template positions) between a half-open binding site
+/// `[site.template_start, site.template_end)` and any of the closed segments
+/// `[seg.start, seg.end]`.
+fn site_segment_overlap(site: &PrimerBindingSite, segs: &[Segment], tlen: i64, circular: bool) -> usize {
+    segs.iter()
+        .map(|seg| range_overlap_len(site.template_start, site.template_end, seg.start, seg.end, tlen, circular))
+        .sum()
+}
+
+/// Overlap between a half-open range A and a closed range B on a possibly
+/// circular template. Empty when `a_start == a_end`.
+fn range_overlap_len(a_start: i64, a_end: i64, b_start: i64, b_end: i64, tlen: i64, circular: bool) -> usize {
+    if a_start == a_end || b_start > b_end && !circular {
+        return 0;
+    }
+    let len_a = if a_start < a_end {
+        a_end - a_start
+    } else if circular {
+        tlen - a_start + a_end
+    } else {
+        return 0;
+    };
+    let mut pos = a_start;
+    let mut n = 0usize;
+    for _ in 0..len_a {
+        let in_b = if b_start <= b_end {
+            pos >= b_start && pos <= b_end
+        } else {
+            pos >= b_start || pos <= b_end
+        };
+        if in_b {
+            n += 1;
+        }
+        pos += 1;
+        if pos >= tlen {
+            pos = 0;
+        }
+    }
+    n
 }
 
 // ---------------------------------------------------------------------------
