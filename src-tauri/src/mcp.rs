@@ -3416,6 +3416,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
             if let Some(offset1) = request.feature_offset {
                 match libregene_core::coords::position_from_feature_offset(f, offset1) {
                     Ok(pos0) => {
+                        // Feature coordinates are file-derived and not
+                        // range-checked at parse time; reject before the
+                        // sequence indexing below panics.
+                        if pos0 < 0 || pos0 >= len {
+                            return Ok(Json(fail_envelope(
+                                &id,
+                                format!(
+                                    "feature '{}' coordinates fall outside the sequence (length {})",
+                                    f.name, len
+                                ),
+                            )));
+                        }
                         position = pos0;
                         input_json = serde_json::json!({
                             "kind": "featureOffset",
