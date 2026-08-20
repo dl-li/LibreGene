@@ -100,6 +100,12 @@ pub fn position_to_translations(pos: i64, seq: &str, features: &[Feature]) -> Ve
         .filter(|f| f.ftype.eq_ignore_ascii_case("cds") || f.ftype.eq_ignore_ascii_case("mrna"))
         .filter_map(|f| {
             let positions = positions_5to3(f);
+            // Feature coordinates come from the file and are not range-checked
+            // at parse time; skip features whose coordinates fall outside the
+            // sequence instead of indexing out of bounds.
+            if positions.iter().any(|&p| p < 0 || p >= bytes.len() as i64) {
+                return None;
+            }
             let idx = positions.iter().position(|&p| p == pos)?;
             let codon_idx = idx / 3;
             if codon_idx * 3 + 2 >= positions.len() {
@@ -173,6 +179,16 @@ pub fn codon_from_aa(
     let codon_idx = (aa1 as usize - 1) * 3;
     let codon_positions = [positions[codon_idx], positions[codon_idx + 1], positions[codon_idx + 2]];
     let bytes = seq.as_bytes();
+    // Feature coordinates are file-derived and not range-checked at parse
+    // time; reject instead of indexing out of bounds.
+    if codon_positions.iter().any(|&p| p < 0 || p >= bytes.len() as i64) {
+        return Err(format!(
+            "feature '{}' coordinates fall outside the sequence (length {}); \
+             the feature location is inconsistent with the loaded file",
+            f.name,
+            bytes.len()
+        ));
+    }
     let mut codon_bytes = [0u8; 3];
     for (i, &p) in codon_positions.iter().enumerate() {
         let mut b = bytes[p as usize].to_ascii_uppercase();
@@ -224,6 +240,33 @@ mod tests {
     fn positions_5to3_forward() {
         let f = cds("f", "+", vec![(0, 2), (5, 7)]);
         assert_eq!(positions_5to3(&f), vec![0, 1, 2, 5, 6, 7]);
+    }
+
+    /// Regression: feature coordinates come from the file and are not
+    /// range-checked at parse time. A GBK whose feature location exceeds the
+    /// ORIGIN length must not panic the coordinate lookups — it should be
+    /// skipped (translations) or rejected (codon lookup).
+    #[test]
+    fn position_to_translations_skips_out_of_range_feature() {
+        // Sequence is 10 bp; the CDS claims 50..60 — garbage but loadable.
+        let seq = "ACGTACGTAC";
+        let f = cds("evil", "+", vec![(50, 60)]);
+        let hits = position_to_translations(50, seq, &[f]);
+        assert!(hits.is_empty(), "out-of-range feature must be skipped, got {:?}", hits.len());
+    }
+
+    #[test]
+    fn codon_from_aa_rejects_out_of_range_feature() {
+        let seq = "ACGTACGTAC";
+        let f = cds("evil", "+", vec![(50, 60)]);
+        let res = codon_from_aa(&f, seq, 1);
+        assert!(res.is_err(), "out-of-range feature must return Err, not panic");
+        let msg = res.unwrap_err();
+        assert!(
+            msg.contains("outside the sequence"),
+            "error should explain the mismatch: {}",
+            msg
+        );
     }
 
     #[test]
