@@ -787,7 +787,7 @@ export default function App() {
       variant="sidebar"
       className="pt-10 transition-[width] duration-300 ease-out"
     >
-      <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-3 pb-2 pt-1.5 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0">
+      <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-2.5 pb-2 pt-1.5">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
           <div className="relative size-5">
             <svg viewBox="0 0 24 24" className="absolute inset-0 size-5">
