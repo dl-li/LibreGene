@@ -22,10 +22,6 @@ pub mod thermodynamics;
 pub mod tm;
 
 use crate::models::ProjectData;
-use crate::project::ProjectManager;
-
-/// Wire the primer engine into the project manager.
-pub fn init(_pm: &mut ProjectManager) {}
 
 /// Recompute binding sites for all primers in the project.
 pub fn recompute(project: &mut ProjectData) {

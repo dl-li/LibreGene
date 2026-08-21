@@ -568,7 +568,28 @@ async fn do_update_sequence(
 
     let project_clone = {
         let pm = pm.read().await;
-        pm.get_project_by_id(&project_id).cloned()
+        pm.get_project_by_id(&project_id).map(|p| ProjectData {
+            // enzyme::recompute below rebuilds the whole enzyme list from the
+            // embedded database, so cloning the existing Vec<Enzyme> (the
+            // single heaviest field on large plasmids) is pure waste.
+            // primers are NOT skipped: primer::recompute reads the existing
+            // primer definitions to recompute their binding sites.
+            enzymes: Vec::new(),
+            name: p.name.clone(),
+            definition: p.definition.clone(),
+            keywords: p.keywords.clone(),
+            lab_host: p.lab_host.clone(),
+            sequence: p.sequence.clone(),
+            length: p.length,
+            topology: p.topology.clone(),
+            molecule_type: p.molecule_type.clone(),
+            features: p.features.clone(),
+            primers: p.primers.clone(),
+            alignments: p.alignments.clone(),
+            methylation_systems: p.methylation_systems.clone(),
+            methylation_overlap: p.methylation_overlap,
+            roi: p.roi,
+        })
     };
 
     if let Some(mut p) = project_clone {
