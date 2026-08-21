@@ -73,16 +73,16 @@ const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
 // Application state
 // ---------------------------------------------------------------------------
 
-/// Per-agent-window metadata. Agent windows ("agent-{sanitized_id}-{ts}") are
-/// also registered in `window_projects` (so the main-window sidebar exclusion
-/// and project resolution work unchanged); this map adds the lock state.
+/// Per-agent-tab metadata. Agent tabs (projects bound by the MCP
+/// `request_agent_tab` tool) stay in the main window's sidebar; this map adds
+/// the lock state.
 #[derive(Clone)]
-pub struct AgentWindowMeta {
-    pub project_id: String,
+pub struct AgentTabMeta {
     pub locked: bool,
 }
 
-pub type AgentWindows = Arc<RwLock<HashMap<String, AgentWindowMeta>>>;
+/// Agent-bound projects, keyed by project id.
+pub type AgentTabs = Arc<RwLock<HashMap<String, AgentTabMeta>>>;
 
 pub struct AppState {
     pub pm: Arc<RwLock<ProjectManager>>,
@@ -90,9 +90,13 @@ pub struct AppState {
     /// Main window ("main") is NOT in this map — it uses the active project.
     /// Project windows ("project-{sanitized_id}") are mapped to their project.
     pub window_projects: Arc<RwLock<HashMap<String, String>>>,
-    /// MCP-agent-owned windows, keyed by window label. Lock order: never take
+    /// MCP-agent-bound projects, keyed by project id. Lock order: never take
     /// this lock while holding `pm` or `window_projects`.
-    pub agent_windows: AgentWindows,
+    pub agent_tabs: AgentTabs,
+    /// Project ids the MCP server opened via `open_file` — only these may be
+    /// bound as agent tabs (`request_agent_tab` refuses user-opened projects).
+    /// Lock order: never take this lock while holding `pm` or `window_projects`.
+    pub mcp_opened: Arc<RwLock<HashSet<String>>>,
     /// Paths handed to us by the OS (Open With / double-click / second
     /// instance) that the frontend hasn't consumed yet. The frontend drains
     /// this via `take_pending_opens` on mount so cold-start events that
@@ -177,24 +181,22 @@ fn excluded_project_ids(wp: &tokio::sync::RwLockReadGuard<HashMap<String, String
     wp.values().cloned().collect()
 }
 
-/// Lock every agent window bound to `project_id` and notify the affected
-/// windows. Called whenever an MCP tool touches the project, so a window the
-/// user unlocked snaps back to locked as soon as the agent acts again.
+/// Lock the agent tab bound to `project_id` and notify the main window.
+/// Called whenever an MCP tool touches the project, so a tab the user
+/// unlocked snaps back to locked as soon as the agent acts again.
 /// Emits only on an unlocked → locked transition.
-pub(crate) async fn lock_agent_windows_for_project<R: Runtime>(
+pub(crate) async fn lock_agent_tab_for_project<R: Runtime>(
     app_handle: &AppHandle<R>,
-    agent_windows: &AgentWindows,
+    agent_tabs: &AgentTabs,
     project_id: &str,
 ) {
-    let mut aw = agent_windows.write().await;
-    for (label, meta) in aw.iter_mut() {
-        if meta.project_id == project_id && !meta.locked {
+    let mut at = agent_tabs.write().await;
+    if let Some(meta) = at.get_mut(project_id) {
+        if !meta.locked {
             meta.locked = true;
-            let _ = app_handle.emit_to(
-                label.as_str(),
-                "agent-window-lock",
+            let _ = app_handle.emit(
+                "agent-tab-lock",
                 serde_json::json!({
-                    "label": label,
                     "projectId": project_id,
                     "locked": true,
                 }),
@@ -319,6 +321,7 @@ async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, 
         app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         source,
     )
     .await;
@@ -330,14 +333,30 @@ async fn broadcast_project_arcs<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
 ) {
+    // Snapshot the agent-tab lock state before taking the project locks
+    // (lock order: agent_tabs is never held together with pm/window_projects).
+    let tab_locks: HashMap<String, bool> = {
+        let at = agent_tabs.read().await;
+        at.iter().map(|(id, m)| (id.clone(), m.locked)).collect()
+    };
     let pm = pm.read().await;
     let wp = wp.read().await;
     let excluded = excluded_project_ids(&wp);
     let all_projects = pm.list_projects();
     let raw_active_id = pm.active_id().map(|s| s.to_string());
-    let (filtered_projects, active_id) = filter_main_window_projects(all_projects, &excluded, raw_active_id);
+    let (mut filtered_projects, active_id) =
+        filter_main_window_projects(all_projects, &excluded, raw_active_id);
+    for p in &mut filtered_projects {
+        if let Some(id) = p["id"].as_str() {
+            p["agentLocked"] = tab_locks
+                .get(id)
+                .map(|l| serde_json::json!(l))
+                .unwrap_or(serde_json::Value::Null);
+        }
+    }
     let mut payload = serde_json::json!({
         "projects": filtered_projects,
         "activeId": active_id,
@@ -712,7 +731,8 @@ async fn do_delete_project<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
-    agent_windows: &AgentWindows,
+    agent_tabs: &AgentTabs,
+    mcp_opened: &Arc<RwLock<HashSet<String>>>,
     source: Option<&str>,
     id: String,
 ) -> Result<serde_json::Value, String> {
@@ -725,25 +745,15 @@ async fn do_delete_project<R: Runtime>(
             let mut wp = wp.write().await;
             wp.retain(|_, v| v != &id);
         }
-        // Close any agent windows bound to the deleted project.
-        let agent_labels: Vec<String> = {
-            let mut aw = agent_windows.write().await;
-            let labels: Vec<String> = aw
-                .iter()
-                .filter(|(_, m)| m.project_id == id)
-                .map(|(l, _)| l.clone())
-                .collect();
-            for l in &labels {
-                aw.remove(l);
-            }
-            labels
-        };
-        for l in agent_labels {
-            if let Some(w) = app_handle.get_webview_window(&l) {
-                let _ = w.close();
-            }
+        {
+            let mut at = agent_tabs.write().await;
+            at.remove(&id);
         }
-        broadcast_project_arcs(app_handle, pm, wp, source).await;
+        {
+            let mut mo = mcp_opened.write().await;
+            mo.remove(&id);
+        }
+        broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
         Ok(serde_json::json!({"status": "ok"}))
     } else {
         Ok(serde_json::json!({"error": "project not found"}))
@@ -756,6 +766,7 @@ async fn do_add_features<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     features: Vec<Feature>,
@@ -783,7 +794,7 @@ async fn do_add_features<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     let pm = pm.read().await;
     Ok(feature_mutation_response(&pm, project_id))
@@ -793,6 +804,7 @@ async fn do_delete_feature<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     id: String,
@@ -810,7 +822,7 @@ async fn do_delete_feature<R: Runtime>(
         (feats, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     Ok(with_projects_list(
         serde_json::json!({ "features": feats }),
@@ -824,6 +836,7 @@ async fn do_update_feature<R: Runtime, F>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     feature_id: &str,
@@ -842,7 +855,7 @@ where
         }
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     let pm = pm.read().await;
     Ok(feature_mutation_response(&pm, project_id))
@@ -852,6 +865,7 @@ async fn do_add_primer<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     primer: Primer,
@@ -897,7 +911,7 @@ async fn do_add_primer<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {
@@ -918,6 +932,7 @@ async fn do_delete_primer<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     id: String,
@@ -942,7 +957,7 @@ async fn do_delete_primer<R: Runtime>(
         (primers, pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     Ok(with_projects_list(
         serde_json::json!({ "primers": primers }),
@@ -1027,6 +1042,7 @@ async fn do_add_alignment_seq<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     name: String,
@@ -1079,7 +1095,7 @@ async fn do_add_alignment_seq<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {
@@ -1100,6 +1116,7 @@ async fn do_remove_alignment<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
     alignment_id: String,
@@ -1109,7 +1126,7 @@ async fn do_remove_alignment<R: Runtime>(
         pm.remove_alignment(project_id, &alignment_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, source).await;
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {
@@ -1683,6 +1700,7 @@ async fn add_feature(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         vec![resolved],
@@ -1707,6 +1725,7 @@ async fn delete_feature(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         id,
@@ -1732,6 +1751,7 @@ async fn update_feature_ftype(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         &feature_id,
@@ -1765,6 +1785,7 @@ async fn update_feature_color(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         &feature_id,
@@ -1802,6 +1823,7 @@ async fn update_feature_name(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         &feature_id,
@@ -1840,6 +1862,7 @@ async fn update_feature_strand(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         &feature_id,
@@ -1873,6 +1896,7 @@ async fn update_feature_location(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         &feature_id,
@@ -1949,6 +1973,7 @@ async fn add_primer(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         primer,
@@ -1973,6 +1998,7 @@ async fn delete_primer(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         id,
@@ -2681,6 +2707,7 @@ async fn add_alignment_seq(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         name,
@@ -2706,6 +2733,7 @@ async fn remove_alignment(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         alignment_id,
@@ -2739,12 +2767,26 @@ async fn set_methylation(
 
 #[tauri::command]
 async fn get_projects(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    // Snapshot the agent-tab lock state before taking the project locks
+    // (lock order: agent_tabs is never held together with pm/window_projects).
+    let tab_locks: HashMap<String, bool> = {
+        let at = state.agent_tabs.read().await;
+        at.iter().map(|(id, m)| (id.clone(), m.locked)).collect()
+    };
     let pm = state.pm.read().await;
     let wp = state.window_projects.read().await;
     let excluded = excluded_project_ids(&wp);
     let all_projects = pm.list_projects();
     let raw_active = pm.active_id().map(|s| s.to_string());
-    let (projects, active_id) = filter_main_window_projects(all_projects, &excluded, raw_active);
+    let (mut projects, active_id) = filter_main_window_projects(all_projects, &excluded, raw_active);
+    for p in &mut projects {
+        if let Some(id) = p["id"].as_str() {
+            p["agentLocked"] = tab_locks
+                .get(id)
+                .map(|l| serde_json::json!(l))
+                .unwrap_or(serde_json::Value::Null);
+        }
+    }
     Ok(serde_json::json!({
         "projects": projects,
         "activeId": active_id,
@@ -2805,7 +2847,8 @@ async fn delete_project(
         &app_handle,
         &state.pm,
         &state.window_projects,
-        &state.agent_windows,
+        &state.agent_tabs,
+        &state.mcp_opened,
         Some(webview_window.label()),
         id,
     )
@@ -2816,9 +2859,9 @@ async fn delete_project(
 // Tauri commands — multi-window
 // ---------------------------------------------------------------------------
 
-/// Build a project/agent window: same chrome for both kinds, with cleanup of
-/// the `window_projects`/`agent_windows` mappings when the window is
-/// destroyed. The frontend activates the overlay titlebar and shows it.
+/// Build a project window: same chrome as the main window, with cleanup of
+/// the `window_projects` mapping when the window is destroyed. The frontend
+/// activates the overlay titlebar and shows it.
 pub(crate) fn spawn_project_window<R: Runtime>(
     app_handle: &AppHandle<R>,
     window_label: &str,
@@ -2857,11 +2900,7 @@ pub(crate) fn spawn_project_window<R: Runtime>(
                     let mut wp = state.window_projects.write().await;
                     wp.remove(&lbl);
                 }
-                {
-                    let mut aw = state.agent_windows.write().await;
-                    aw.remove(&lbl);
-                }
-                broadcast_project_arcs(&ah, &state.pm, &state.window_projects, None).await;
+                broadcast_project_arcs(&ah, &state.pm, &state.window_projects, &state.agent_tabs, None).await;
             });
         }
     });
@@ -2987,51 +3026,47 @@ async fn get_window_project_id(
     Ok(wp.get(webview_window.label()).cloned())
 }
 
-/// Return the agent-window state of the calling window: `{label, projectId,
-/// locked}` for agent windows, null for main/project windows.
+/// Return the lock state of the agent tab bound to `project_id`:
+/// `{projectId, locked}` for agent-bound projects, null otherwise.
 #[tauri::command]
-async fn get_agent_window_state(
-    webview_window: tauri::WebviewWindow,
+async fn get_agent_tab_state(
+    project_id: String,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let aw = state.agent_windows.read().await;
-    Ok(match aw.get(webview_window.label()) {
+    let at = state.agent_tabs.read().await;
+    Ok(match at.get(&project_id) {
         Some(meta) => serde_json::json!({
-            "label": webview_window.label(),
-            "projectId": meta.project_id,
+            "projectId": project_id,
             "locked": meta.locked,
         }),
         None => serde_json::Value::Null,
     })
 }
 
-/// Set the calling agent window's lock state (the unlock/lock button in the
-/// UI). The next MCP tool call on the bound project re-locks it via
-/// `lock_agent_windows_for_project`.
+/// Set an agent tab's lock state (the unlock/lock button in the UI). The next
+/// MCP tool call on the bound project re-locks it via
+/// `lock_agent_tab_for_project`.
 #[tauri::command]
-async fn set_agent_window_locked(
-    webview_window: tauri::WebviewWindow,
+async fn set_agent_tab_locked(
+    project_id: String,
     app_handle: AppHandle,
     state: State<'_, AppState>,
     locked: bool,
 ) -> Result<serde_json::Value, String> {
-    let label = webview_window.label().to_string();
-    let mut aw = state.agent_windows.write().await;
-    match aw.get_mut(&label) {
+    let mut at = state.agent_tabs.write().await;
+    match at.get_mut(&project_id) {
         Some(meta) => {
             meta.locked = locked;
-            let _ = app_handle.emit_to(
-                label.as_str(),
-                "agent-window-lock",
+            let _ = app_handle.emit(
+                "agent-tab-lock",
                 serde_json::json!({
-                    "label": label,
-                    "projectId": meta.project_id,
+                    "projectId": project_id,
                     "locked": locked,
                 }),
             );
             Ok(serde_json::json!({"status": "ok", "locked": locked}))
         }
-        None => Ok(serde_json::json!({"error": "not an agent window"})),
+        None => Ok(serde_json::json!({"error": "not an agent tab"})),
     }
 }
 
@@ -3215,7 +3250,8 @@ pub fn run() {
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
-            agent_windows: Arc::new(RwLock::new(HashMap::new())),
+            agent_tabs: Arc::new(RwLock::new(HashMap::new())),
+            mcp_opened: Arc::new(RwLock::new(HashSet::new())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -3225,7 +3261,8 @@ pub fn run() {
                 app.handle().clone(),
                 state.pm.clone(),
                 state.window_projects.clone(),
-                state.agent_windows.clone(),
+                state.agent_tabs.clone(),
+                state.mcp_opened.clone(),
             );
             app.manage(mcp.clone());
             // Start with the default config (enabled on MCP_PORT); the frontend
@@ -3282,8 +3319,8 @@ pub fn run() {
             delete_project,
             open_in_new_window,
             get_window_project_id,
-            get_agent_window_state,
-            set_agent_window_locked,
+            get_agent_tab_state,
+            set_agent_tab_locked,
             rekey_project,
             compute_tm,
             get_mcp_config,

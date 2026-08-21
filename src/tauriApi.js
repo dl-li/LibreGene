@@ -280,22 +280,22 @@ export async function getWindowProjectId() {
   return tauriInvoke('get_window_project_id');
 }
 
-// --- Agent windows (MCP-controlled, user-locked) ---
+// --- Agent tabs (MCP-controlled, user-locked) ---
 
-/** Returns {label, projectId, locked} when this window is an agent window, else null. */
-export async function getAgentWindowState() {
-  return tauriInvoke('get_agent_window_state');
+/** Returns {projectId, locked} when the project is bound as an agent tab, else null. */
+export async function getAgentTabState(projectId) {
+  return tauriInvoke('get_agent_tab_state', { projectId });
 }
 
-/** Unlock/lock this agent window (the on-screen button). */
-export async function setAgentWindowLocked(locked) {
-  return tauriInvoke('set_agent_window_locked', { locked });
+/** Unlock/lock the agent tab bound to the project (the on-screen button). */
+export async function setAgentTabLocked(projectId, locked) {
+  return tauriInvoke('set_agent_tab_locked', { projectId, locked });
 }
 
-/** Listen for lock-state changes targeted at this window. */
-export function listenAgentWindowLock(callback) {
+/** Listen for agent-tab lock-state changes (app-wide, payload {projectId, locked}). */
+export function listenAgentTabLock(callback) {
   let closed = false;
-  const ready = tauriListen('agent-window-lock', (event) => {
+  const ready = tauriListen('agent-tab-lock', (event) => {
     if (!closed) callback(event.payload);
   });
   return {
