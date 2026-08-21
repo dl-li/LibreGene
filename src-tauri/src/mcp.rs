@@ -260,6 +260,23 @@ struct AddAlignmentRequest {
     /// `regionView` to reduce response size. Differences and coverage are still
     /// returned; use read_sequence/get_region_view when you need the bases.
     compact: Option<bool>,
+    /// Focus window (1-based inclusive; start > end wraps the origin on
+    /// circular templates): `mismatchDetails`/`deletionDetails`/
+    /// `insertionDetails` are filtered to entries overlapping the window, the
+    /// full `orientedSequence` is omitted, and the `regionView` shows this
+    /// window (its ALIGNMENT VIEW section gives the window's read bases
+    /// column-by-column). Use it when you only care whether a specific site
+    /// (e.g. a restriction site) is mutated. Mutually exclusive with
+    /// `feature_id`. The total mismatches/insertions/deletions counts still
+    /// describe the WHOLE read.
+    region: Option<SegParam>,
+    /// Focus window from a project feature's bounding span (plus `flank` bp
+    /// on each side) — same effect as `region` without hand-computing
+    /// coordinates. Mutually exclusive with `region`.
+    feature_id: Option<String>,
+    /// Extra template bp on each side of the focus window (default 0;
+    /// clamped at the sequence ends).
+    flank: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -750,6 +767,60 @@ fn alignment_stats_json_1based(
     v
 }
 
+/// 1-based inclusive window membership, wrap-aware (s > e on circular
+/// templates means the window crosses the origin).
+fn in_window_1based(p: i64, s: i64, e: i64) -> bool {
+    if s <= e {
+        p >= s && p <= e
+    } else {
+        p >= s || p <= e
+    }
+}
+
+/// Filter an alignment JSON's diff-detail arrays to entries overlapping the
+/// 1-based inclusive focus window (wrap-aware). Insertions sit BETWEEN
+/// template bases `pos` and `pos + 1`, so they are kept when either flanking
+/// base is inside the window; a `pos + 1` past the last base wraps to 1 on
+/// circular templates.
+fn filter_alignment_json_focus(
+    v: &mut serde_json::Value,
+    s1: i64,
+    e1: i64,
+    tlen: i64,
+    circular: bool,
+) {
+    let obj = match v.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+    if let Some(arr) = obj.get_mut("mismatchDetails").and_then(|a| a.as_array_mut()) {
+        arr.retain(|m| {
+            m.get("pos")
+                .and_then(|p| p.as_i64())
+                .is_some_and(|p| in_window_1based(p, s1, e1))
+        });
+    }
+    if let Some(arr) = obj.get_mut("deletionDetails").and_then(|a| a.as_array_mut()) {
+        arr.retain(|d| {
+            match (
+                d.get("pos").and_then(|p| p.as_i64()),
+                d.get("length").and_then(|l| l.as_i64()),
+            ) {
+                (Some(p), Some(l)) => (p..p + l.max(1)).any(|x| in_window_1based(x, s1, e1)),
+                _ => false,
+            }
+        });
+    }
+    if let Some(arr) = obj.get_mut("insertionDetails").and_then(|a| a.as_array_mut()) {
+        arr.retain(|i| {
+            i.get("pos").and_then(|p| p.as_i64()).is_some_and(|p| {
+                let next = if circular && p == tlen { 1 } else { p + 1 };
+                in_window_1based(p, s1, e1) || in_window_1based(next, s1, e1)
+            })
+        });
+    }
+}
+
 /// Total template columns not covered by any segment, summed over the gaps
 /// between consecutive segments. 0 for single-segment reads and for
 /// origin-spanning circular reads whose segments are adjacent at the wrap.
@@ -826,7 +897,45 @@ fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAna
             cds["codonIndex"] = serde_json::json!(ci + 1);
         }
     }
+    v["orientationHint"] = serde_json::json!(orientation_hint(info));
     v
+}
+
+/// Plain-language restatement of the mutagenesis strand semantics with the
+/// ACTUAL outcome, so a coding-strand/plus-strand slip is called out instead
+/// of silently producing the wrong amino acid.
+fn orientation_hint(info: &libregene_core::primer::design::MutagenesisAnalysis) -> String {
+    let base = format!(
+        "mut_seq was applied as the PLUS-strand (top-strand) content of seg {}..{}.",
+        info.seg_start + 1,
+        info.seg_end + 1
+    );
+    match &info.cds {
+        Some(cds) if cds.strand == "-" => {
+            let aa_pos = cds
+                .aa_position_excluding_met
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| cds.aa_position_1_based.to_string());
+            format!(
+                "{} CDS '{}' is on the MINUS strand: the coding-strand effect is the reverse complement of the plus-strand edit — codonAfter '{}' = {} at aa {}. If {} is NOT the amino acid you intended, you most likely passed CODING-strand sequence as mut_seq; reverse-complement it and retry.",
+                base, cds.name, cds.codon_after, cds.aa_after, aa_pos, cds.aa_after
+            )
+        }
+        Some(cds) => {
+            let aa_pos = cds
+                .aa_position_excluding_met
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| cds.aa_position_1_based.to_string());
+            format!(
+                "{} CDS '{}' is on the PLUS strand: the coding-strand codon after the edit is '{}' = {} at aa {}, read directly from the plus-strand edit.",
+                base, cds.name, cds.codon_after, cds.aa_after, aa_pos
+            )
+        }
+        None => format!(
+            "{} seg is not inside any CDS feature, so no codon-level self-check was possible; verify strand and location via plusContext/minusContext.",
+            base
+        ),
+    }
 }
 
 fn ok_envelope(project_id: &str, message: String, region_view: Option<String>) -> serde_json::Value {
@@ -3069,6 +3178,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   summary and from every entry (including the new one), and to skip
     ///   the post-alignment `regionView`; use `read_sequence` or
     ///   `get_region_view` when you need the bases.
+    ///   FOCUS: pass `region` ({start, end} 1-based inclusive, start > end
+    ///   wraps the origin on circular templates) or `feature_id` (a project
+    ///   feature's bounding span; `flank` adds context bp on each side) to
+    ///   focus the response on a window — the diff-detail lists of the new
+    ///   alignment are filtered to the window, the full `orientedSequence`
+    ///   is omitted, and the `regionView` shows the window (its ALIGNMENT
+    ///   VIEW section renders the window's read bases column-by-column).
+    ///   This is the recommended way to check "is this site mutated?"
+    ///   without digesting a full-length read. The total
+    ///   mismatches/insertions/deletions counts still describe the WHOLE
+    ///   read, and the response echoes the applied window as `focus`.
+    ///   `compact: true` additionally suppresses the `regionView`.
     /// A `coverageNote` is added (top-level and on the new alignment's entry)
     /// when the read's coverage is multi-segment with uncovered template bp
     /// between the segments — the engine never produces such gaps for
@@ -3088,6 +3209,62 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.require_agent_tab(&id).await?;
         let name = request.name.clone();
         let compact = request.compact.unwrap_or(false);
+
+        // Resolve the optional focus window to internal 0-based inclusive
+        // coordinates ((s, e), s > e wraps the origin on circular templates).
+        let focus: Option<(i64, i64)> = {
+            if request.region.is_some() && request.feature_id.is_some() {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "region and feature_id are mutually exclusive".to_string(),
+                )));
+            }
+            let flank = request.flank.unwrap_or(0).max(0);
+            let pm = self.pm.read().await;
+            let p = pm
+                .get_project_by_id(&id)
+                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
+            let len = p.length;
+            let circular = p.topology == "circular";
+            if let Some(r) = &request.region {
+                if r.start < 1 || r.start > len || r.end < 1 || r.end > len {
+                    return Ok(Json(fail_envelope(
+                        &id,
+                        format!(
+                            "region {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                            r.start, r.end, len
+                        ),
+                    )));
+                }
+                if r.start > r.end && !circular {
+                    return Ok(Json(fail_envelope(
+                        &id,
+                        "region start > end wraps the origin and is only allowed on circular sequences".to_string(),
+                    )));
+                }
+                let s = (r.start - 1 - flank).max(0);
+                let e = (r.end - 1 + flank).min(len - 1);
+                Some((s, e))
+            } else if let Some(fid) = &request.feature_id {
+                let f = match p.features.iter().find(|f| &f.id == fid) {
+                    Some(f) => f,
+                    None => {
+                        return Ok(Json(fail_envelope(
+                            &id,
+                            format!(
+                                "feature '{}' not found in project; list feature ids with get_project_overview",
+                                fid
+                            ),
+                        )));
+                    }
+                };
+                let s = f.start.saturating_sub(flank).max(0);
+                let e = f.end.saturating_add(flank).min(len - 1);
+                Some((s, e))
+            } else {
+                None
+            }
+        };
 
         let seq = match (request.bases, request.path) {
             (Some(_), Some(_)) => {
@@ -3167,15 +3344,27 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             if compact {
                                 alignment_json_1based(a, &p.sequence, p.length, circular, true)
                             } else if idx + 1 == total {
-                                alignment_json_1based(a, &p.sequence, p.length, circular, false)
+                                let mut v = alignment_json_1based(a, &p.sequence, p.length, circular, focus.is_some());
+                                if let Some((s, e)) = focus {
+                                    filter_alignment_json_focus(
+                                        &mut v,
+                                        s + 1,
+                                        e + 1,
+                                        p.length,
+                                        circular,
+                                    );
+                                }
+                                v
                             } else {
                                 alignment_stats_json_1based(a, &p.sequence, p.length, circular)
                             }
                         })
                         .collect();
                     let last = p.alignments.last();
-                    let region = last.and_then(|a| {
-                        a.segments.first().map(|s| (s.start as i64, s.end as i64))
+                    let region = focus.or_else(|| {
+                        last.and_then(|a| {
+                            a.segments.first().map(|s| (s.start as i64, s.end as i64))
+                        })
                     });
                     let coverage_note = last.and_then(|a| {
                         let gap = uncovered_between_segments(a, p.sequence.len(), circular);
@@ -3206,6 +3395,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
         env["alignments"] = serde_json::json!(alignments);
+        if let Some((s, e)) = focus {
+            env["focus"] = serde_json::json!({
+                "start": s + 1,
+                "end": e + 1,
+                "featureId": request.feature_id,
+                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total counts still describe the whole read",
+            });
+        }
         if let Some(note) = coverage_note {
             env["coverageNote"] = serde_json::json!(note);
             if let Some(last) = env["alignments"].as_array_mut().and_then(|arr| arr.last_mut()) {
@@ -3289,11 +3486,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// mutagenesis: `mut_seq` is the desired PLUS-strand content of `seg`
     /// after the edit; it must be the same length as `seg` and differ at
     /// <= 3 bases or the call fails with the current template sequence.
+    /// STRAND WARNING (most common agent mistake): `mut_seq` is ALWAYS
+    /// PLUS-strand (template top-strand) content, even when the CDS you are
+    /// editing is on the minus strand — for a minus-strand CDS you must
+    /// reverse-complement the intended coding-strand edit yourself (e.g. a
+    /// coding-strand GCG→AAG Ala→Lys change is `mut_seq: "CTT"`, the rev-comp
+    /// of AAG). If you pass coding-strand sequence instead, the self-check
+    /// block will show the WRONG amino acid.
     /// The response includes a `mutation` self-check block (diffs, plus/minus
     /// strand context, and CDS codon/amino-acid change when `seg` lies inside
     /// a CDS — joined multi-segment CDS features are supported — mind the CDS
     /// strand: for a minus-strand CDS the coding change is the reverse
-    /// complement of the plus-strand edit). In that block `segStart`/`segEnd`
+    /// complement of the plus-strand edit) plus an `orientationHint` string
+    /// that restates the strand semantics WITH the actual outcome (CDS
+    /// strand, codonAfter, amino acid after) — ALWAYS read `aaAfter`/
+    /// `orientationHint` and confirm it is the amino acid you intended before
+    /// using the primers. In that block `segStart`/`segEnd`
     /// are 1-based inclusive template coordinates and each diff's `offset` is
     /// the 1-based position within `seg`; `cds.codonIndex`
     /// is 1-based within the CDS (the codon that changes) and the amino-acid
@@ -6708,6 +6916,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn add_alignment_focus_region_filters_diffs_and_omits_oriented_sequence() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        // Read = template[50..150] with mismatches at pos 61 (outside the
+        // focus window) and pos 111 (inside).
+        let mut read = template[50..150].to_string();
+        for i in [10usize, 60] {
+            let orig = read.as_bytes()[i];
+            let flipped = if orig == b'A' { b'C' } else { b'A' };
+            read.replace_range(i..i + 1, &(flipped as char).to_string());
+        }
+
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "focused".to_string(),
+                bases: Some(read),
+                path: None,
+                region: Some(SegParam { start: 100, end: 120 }),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        // Only the in-window mismatch is detailed; totals stay global.
+        let details = v["mismatchDetails"].as_array().unwrap();
+        assert_eq!(details.len(), 1, "{v}");
+        assert_eq!(details[0]["pos"], 111, "{v}");
+        assert_eq!(v["mismatches"], 2, "{v}");
+        // Full read omitted; focused regionView + focus echo present.
+        assert!(v.get("orientedSequence").is_none(), "{v}");
+        assert!(v.get("regionView").is_some(), "{v}");
+        assert_eq!(v["focus"]["start"], 100, "{v}");
+        assert_eq!(v["focus"]["end"], 120, "{v}");
+        // The alignments entry mirrors the filtering.
+        let entry = &v["alignments"][0];
+        assert!(entry.get("orientedSequence").is_none(), "{entry}");
+        assert_eq!(entry["mismatchDetails"].as_array().unwrap().len(), 1, "{entry}");
+    }
+
+    #[tokio::test]
+    async fn add_alignment_focus_feature_id_and_validation() {
+        let mut project = alignment_test_project("linear");
+        // 0-based 100..110 -> 1-based 101..111.
+        project.features = vec![feature("f1", "site", 100, 110, "+")];
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let mut read = template[50..150].to_string();
+        let i = 60; // mismatch at 1-based pos 111, inside the feature span
+        let orig = read.as_bytes()[i];
+        let flipped = if orig == b'A' { b'C' } else { b'A' };
+        read.replace_range(i..i + 1, &(flipped as char).to_string());
+
+        // feature_id focus with flank 5 -> window 96..116.
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "ffocus".to_string(),
+                bases: Some(read.clone()),
+                path: None,
+                feature_id: Some("f1".to_string()),
+                flank: Some(5),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["focus"]["start"], 96, "{v}");
+        assert_eq!(v["focus"]["end"], 116, "{v}");
+        assert_eq!(v["focus"]["featureId"], "f1", "{v}");
+        assert_eq!(v["mismatchDetails"].as_array().unwrap().len(), 1, "{v}");
+
+        // Unknown feature id is rejected before aligning.
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "bad".to_string(),
+                bases: Some(read.clone()),
+                path: None,
+                feature_id: Some("nope".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("not found"),
+            "{}",
+            out.0
+        );
+
+        // region + feature_id together are rejected.
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "both".to_string(),
+                bases: Some(read),
+                path: None,
+                region: Some(SegParam { start: 1, end: 10 }),
+                feature_id: Some("f1".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"]
+                .as_str()
+                .unwrap()
+                .contains("mutually exclusive"),
+            "{}",
+            out.0
+        );
+    }
+
+    #[tokio::test]
     async fn add_alignment_reverse_strand_oriented_sequence_is_revcomp() {
         let project = alignment_test_project("linear");
         let template = project.sequence.clone();
@@ -6779,6 +7108,7 @@ mod tests {
                 bases: Some(read.clone()),
                 path: None,
                 compact: Some(true),
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -6803,6 +7133,7 @@ mod tests {
                 bases: Some(read),
                 path: None,
                 compact: Some(false),
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -7027,6 +7358,86 @@ mod tests {
             .as_str()
             .expect("non-CDS full replacement must warn");
         assert!(w.contains("PLUS-strand"), "{w}");
+    }
+
+    #[tokio::test]
+    async fn design_primers_mutagenesis_orientation_hint_minus_strand() {
+        // Minus-strand CDS: mut_seq is PLUS-strand content, so the coding
+        // effect is its reverse complement; the orientationHint must state
+        // the CDS strand and the actual codon/amino-acid outcome.
+        let mut bytes = vec![b'A'; 90];
+        // Plus-strand CGC at 60..62 (0-based) -> coding (minus) GCG = Ala.
+        bytes[60] = b'C';
+        bytes[61] = b'G';
+        bytes[62] = b'C';
+        let project = ProjectData {
+            name: "mut_hint".to_string(),
+            sequence: String::from_utf8(bytes).unwrap(),
+            length: 90,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("cds1", "orf", 30, 89, "-")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+
+        // Coding GCG->AAG (Ala->Lys) on a minus-strand CDS is plus-strand
+        // mut_seq = rev-comp(AAG) = CTT.
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("mut_hint".to_string()),
+                mode: "mutagenesis".to_string(),
+                seg: Some(SegParam { start: 61, end: 63 }),
+                site_name: Some("A11K".to_string()),
+                target_tm: 55.0,
+                mut_seq: Some("CTT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["mutation"]["cds"]["aaAfter"], "Lys", "{v}");
+        let hint = v["mutation"]["orientationHint"]
+            .as_str()
+            .expect("orientationHint present");
+        assert!(hint.contains("MINUS strand"), "{hint}");
+        assert!(hint.contains("AAG") && hint.contains("Lys"), "{hint}");
+        assert!(hint.contains("reverse-complement"), "{hint}");
+
+        // Plus-strand CDS: the hint confirms the direct read-out instead.
+        let project = ProjectData {
+            name: "mut_hint2".to_string(),
+            sequence: {
+                let mut b = vec![b'A'; 90];
+                b[60] = b'C';
+                b[61] = b'G';
+                b[62] = b'C';
+                String::from_utf8(b).unwrap()
+            },
+            length: 90,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("cds1", "orf", 30, 89, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: Some("mut_hint2".to_string()),
+                mode: "mutagenesis".to_string(),
+                seg: Some(SegParam { start: 61, end: 63 }),
+                site_name: Some("A11K".to_string()),
+                target_tm: 55.0,
+                mut_seq: Some("AAA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let hint = out.0["mutation"]["orientationHint"]
+            .as_str()
+            .expect("orientationHint present");
+        assert!(hint.contains("PLUS strand"), "{hint}");
+        assert!(hint.contains("AAA") && hint.contains("Lys"), "{hint}");
     }
 
     #[tokio::test]
