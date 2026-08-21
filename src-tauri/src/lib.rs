@@ -73,12 +73,26 @@ const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
 // Application state
 // ---------------------------------------------------------------------------
 
+/// Per-agent-window metadata. Agent windows ("agent-{sanitized_id}-{ts}") are
+/// also registered in `window_projects` (so the main-window sidebar exclusion
+/// and project resolution work unchanged); this map adds the lock state.
+#[derive(Clone)]
+pub struct AgentWindowMeta {
+    pub project_id: String,
+    pub locked: bool,
+}
+
+pub type AgentWindows = Arc<RwLock<HashMap<String, AgentWindowMeta>>>;
+
 pub struct AppState {
     pub pm: Arc<RwLock<ProjectManager>>,
     /// Maps window labels to project IDs for multi-window support.
     /// Main window ("main") is NOT in this map — it uses the active project.
     /// Project windows ("project-{sanitized_id}") are mapped to their project.
     pub window_projects: Arc<RwLock<HashMap<String, String>>>,
+    /// MCP-agent-owned windows, keyed by window label. Lock order: never take
+    /// this lock while holding `pm` or `window_projects`.
+    pub agent_windows: AgentWindows,
     /// Paths handed to us by the OS (Open With / double-click / second
     /// instance) that the frontend hasn't consumed yet. The frontend drains
     /// this via `take_pending_opens` on mount so cold-start events that
@@ -161,6 +175,32 @@ async fn resolve_project_id(state: &State<'_, AppState>, window_label: &str) -> 
 /// These projects should be hidden from the main window's sidebar.
 fn excluded_project_ids(wp: &tokio::sync::RwLockReadGuard<HashMap<String, String>>) -> HashSet<String> {
     wp.values().cloned().collect()
+}
+
+/// Lock every agent window bound to `project_id` and notify the affected
+/// windows. Called whenever an MCP tool touches the project, so a window the
+/// user unlocked snaps back to locked as soon as the agent acts again.
+/// Emits only on an unlocked → locked transition.
+pub(crate) async fn lock_agent_windows_for_project<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    agent_windows: &AgentWindows,
+    project_id: &str,
+) {
+    let mut aw = agent_windows.write().await;
+    for (label, meta) in aw.iter_mut() {
+        if meta.project_id == project_id && !meta.locked {
+            meta.locked = true;
+            let _ = app_handle.emit_to(
+                label.as_str(),
+                "agent-window-lock",
+                serde_json::json!({
+                    "label": label,
+                    "projectId": project_id,
+                    "locked": true,
+                }),
+            );
+        }
+    }
 }
 
 /// Filter out projects that are open in project windows, and adjust the activeId
@@ -672,6 +712,7 @@ async fn do_delete_project<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_windows: &AgentWindows,
     source: Option<&str>,
     id: String,
 ) -> Result<serde_json::Value, String> {
@@ -683,6 +724,24 @@ async fn do_delete_project<R: Runtime>(
         {
             let mut wp = wp.write().await;
             wp.retain(|_, v| v != &id);
+        }
+        // Close any agent windows bound to the deleted project.
+        let agent_labels: Vec<String> = {
+            let mut aw = agent_windows.write().await;
+            let labels: Vec<String> = aw
+                .iter()
+                .filter(|(_, m)| m.project_id == id)
+                .map(|(l, _)| l.clone())
+                .collect();
+            for l in &labels {
+                aw.remove(l);
+            }
+            labels
+        };
+        for l in agent_labels {
+            if let Some(w) = app_handle.get_webview_window(&l) {
+                let _ = w.close();
+            }
         }
         broadcast_project_arcs(app_handle, pm, wp, source).await;
         Ok(serde_json::json!({"status": "ok"}))
@@ -2746,6 +2805,7 @@ async fn delete_project(
         &app_handle,
         &state.pm,
         &state.window_projects,
+        &state.agent_windows,
         Some(webview_window.label()),
         id,
     )
@@ -2755,6 +2815,58 @@ async fn delete_project(
 // ---------------------------------------------------------------------------
 // Tauri commands — multi-window
 // ---------------------------------------------------------------------------
+
+/// Build a project/agent window: same chrome for both kinds, with cleanup of
+/// the `window_projects`/`agent_windows` mappings when the window is
+/// destroyed. The frontend activates the overlay titlebar and shows it.
+pub(crate) fn spawn_project_window<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    window_label: &str,
+) -> Result<(), String> {
+    let builder = WebviewWindowBuilder::new(
+        app_handle,
+        window_label,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("LibreGene - Plasmid Editor")
+    .inner_size(1400.0, 900.0)
+    .min_inner_size(960.0, 540.0)
+    .decorations(true)
+    .visible(false);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
+
+    let window = builder
+        .build()
+        .map_err(|e| format!("failed to create window: {e}"))?;
+
+    // When the window is destroyed, restore the project to the main window
+    let ah = app_handle.clone();
+    let lbl = window_label.to_string();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            let ah = ah.clone();
+            let lbl = lbl.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = ah.state::<AppState>();
+                {
+                    let mut wp = state.window_projects.write().await;
+                    wp.remove(&lbl);
+                }
+                {
+                    let mut aw = state.agent_windows.write().await;
+                    aw.remove(&lbl);
+                }
+                broadcast_project_arcs(&ah, &state.pm, &state.window_projects, None).await;
+            });
+        }
+    });
+    Ok(())
+}
 
 /// Open the given project in a new OS window.
 #[tauri::command]
@@ -2787,45 +2899,7 @@ async fn open_in_new_window(
         wp.insert(window_label.clone(), project_id);
     }
 
-    // Create the new window; the frontend activates the overlay titlebar and shows it
-    let builder = WebviewWindowBuilder::new(
-        &app_handle,
-        &window_label,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("LibreGene - Plasmid Editor")
-    .inner_size(1400.0, 900.0)
-    .min_inner_size(960.0, 540.0)
-    .decorations(true)
-    .visible(false);
-
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
-
-    let window = builder
-        .build()
-        .map_err(|e| format!("failed to create window: {e}"))?;
-
-    // When the project window is destroyed, restore the project to the main window
-    let ah = app_handle.clone();
-    let lbl = window_label.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::Destroyed = event {
-            let ah = ah.clone();
-            let lbl = lbl.clone();
-            tauri::async_runtime::spawn(async move {
-                let state = ah.state::<AppState>();
-                {
-                    let mut wp = state.window_projects.write().await;
-                    wp.remove(&lbl);
-                }
-                broadcast_project(&ah, &state, None).await;
-            });
-        }
-    });
+    spawn_project_window(&app_handle, &window_label)?;
 
     // Broadcast so the main window updates its sidebar immediately
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
@@ -2911,6 +2985,54 @@ async fn get_window_project_id(
 ) -> Result<Option<String>, String> {
     let wp = state.window_projects.read().await;
     Ok(wp.get(webview_window.label()).cloned())
+}
+
+/// Return the agent-window state of the calling window: `{label, projectId,
+/// locked}` for agent windows, null for main/project windows.
+#[tauri::command]
+async fn get_agent_window_state(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let aw = state.agent_windows.read().await;
+    Ok(match aw.get(webview_window.label()) {
+        Some(meta) => serde_json::json!({
+            "label": webview_window.label(),
+            "projectId": meta.project_id,
+            "locked": meta.locked,
+        }),
+        None => serde_json::Value::Null,
+    })
+}
+
+/// Set the calling agent window's lock state (the unlock/lock button in the
+/// UI). The next MCP tool call on the bound project re-locks it via
+/// `lock_agent_windows_for_project`.
+#[tauri::command]
+async fn set_agent_window_locked(
+    webview_window: tauri::WebviewWindow,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    locked: bool,
+) -> Result<serde_json::Value, String> {
+    let label = webview_window.label().to_string();
+    let mut aw = state.agent_windows.write().await;
+    match aw.get_mut(&label) {
+        Some(meta) => {
+            meta.locked = locked;
+            let _ = app_handle.emit_to(
+                label.as_str(),
+                "agent-window-lock",
+                serde_json::json!({
+                    "label": label,
+                    "projectId": meta.project_id,
+                    "locked": locked,
+                }),
+            );
+            Ok(serde_json::json!({"status": "ok", "locked": locked}))
+        }
+        None => Ok(serde_json::json!({"error": "not an agent window"})),
+    }
 }
 
 /// Rename a project's ID (called after Save As to re-key the project).
@@ -3093,6 +3215,7 @@ pub fn run() {
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
+            agent_windows: Arc::new(RwLock::new(HashMap::new())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -3102,6 +3225,7 @@ pub fn run() {
                 app.handle().clone(),
                 state.pm.clone(),
                 state.window_projects.clone(),
+                state.agent_windows.clone(),
             );
             app.manage(mcp.clone());
             // Start with the default config (enabled on MCP_PORT); the frontend
@@ -3158,6 +3282,8 @@ pub fn run() {
             delete_project,
             open_in_new_window,
             get_window_project_id,
+            get_agent_window_state,
+            set_agent_window_locked,
             rekey_project,
             compute_tm,
             get_mcp_config,
