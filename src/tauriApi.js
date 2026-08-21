@@ -498,11 +498,11 @@ export async function openAlignmentFileDialog() {
       },
       { name: 'All Files', extensions: ['*'] },
     ],
-    multiple: false,
+    multiple: true,
   });
   reassertTrafficLights();
   if (!result) return null;
-  return Array.isArray(result) ? result[0] : result;
+  return Array.isArray(result) ? result : [result];
 }
 
 export async function saveFileDialog(defaultName = 'project.gbk', ext = 'gbk') {
@@ -564,6 +564,60 @@ export function listenFileOpened(callback) {
     close: () => {
       closed = true;
       ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}
+
+// Mirrors SEQ_EXTS in src-tauri/src/lib.rs — keep the two lists in sync.
+export const SEQ_FILE_EXTS = [
+  'gbk',
+  'gb',
+  'genbank',
+  'gbf',
+  'gbff',
+  'dna',
+  'rna',
+  'prot',
+  'gpt',
+  'gp',
+  'gpe',
+  'gpff',
+  'fasta',
+  'fa',
+  'fna',
+  'fas',
+  'ffn',
+  'fsa',
+  'faa',
+  'frn',
+  'ab1',
+  'seq',
+];
+
+export function isSequenceFilePath(path) {
+  if (!path || typeof path !== 'string') return false;
+  const base = path.replace(/\\/g, '/').split('/').pop() || '';
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return false;
+  return SEQ_FILE_EXTS.includes(base.slice(dot + 1).toLowerCase());
+}
+
+/** Listen for files dragged onto this webview window (all OSes). */
+export function listenDragDrop(callback) {
+  if (!isTauri) return { close: () => {} };
+  let closed = false;
+  const ready = import('@tauri-apps/api/webview')
+    .then((mod) =>
+      mod.getCurrentWebview().onDragDropEvent((event) => {
+        if (closed || event.payload.type !== 'drop') return;
+        callback(event.payload.paths || []);
+      }),
+    )
+    .catch(() => () => {});
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn && fn()).catch(() => {});
     },
   };
 }

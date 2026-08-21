@@ -45,7 +45,7 @@ LibreGene/
 │   ├── EditorNavMenu.jsx       # 底部悬浮导航菜单（编辑/特征/引物/酶切/比对/搜索）
 │   ├── *Dialog.jsx             # 各弹窗（特征/序列编辑/新建序列/引物比对等）
 │   ├── plugins/                # 插件系统：index.js 注册表 { id, name, description, version, dialogKey, dnaOnly, rnaOnly, sidebarItems, dialog, navMenuOnly }
-│   │   ├── alignment/          # 序列比对（管理弹窗 + 文本新增弹窗）
+│   │   ├── alignment/          # 序列比对（管理弹窗 + 文本新增弹窗；文件新增支持多选逐个添加）
 │   │   ├── orf/                # ORF 搜索（引擎在 Rust `find_orfs`，ORF 以 orf:true 虚拟 CDS 注入，仅展示不落盘）
 │   │   ├── primerDesign/       # 引物设计（引擎 `design_primer_candidates`；navMenuOnly 半插件：选区交互由 SequenceEditor/EditorNavMenu 直接接线，注册表仅提供元数据与禁用开关）
 │   │   ├── rnaFold/            # RNA 二级结构预测（ribossfold-wasm 前端 WASM 折叠 + fornac 力图渲染，均动态 import；rnaOnly；navMenuOnly：入口为导航栏 Folding 按钮）
@@ -206,6 +206,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **复制粘贴标注迁移（`src/clipboardAnnotations.js`）**：复制选区/特征 (+) 链时把该子序列的特征（裁剪+重基到 0）与引物（首要结合位点有重叠即收，只存 name/type/primerSeq）打包成 meta，经 ClipboardItem 自定义 MIME `web application/x-libregene-annotations` 写入剪贴板（外部应用粘贴仍是纯文本），并写 localStorage `clipboardAnnotations` 兜底（WKWebView 自定义 MIME 不可靠；按粘贴文本与记录文本完全一致匹配）；粘贴时弹窗提示标注数量并可勾选不迁移，确认后特征随 `update_sequence` 合并落库、引物经 `addPrimers` 补入（名称冲突自动加 ` (2)` 后缀，位点重算）；antisense/translation/引物/amplimer 复制不携带标注，引物导入不进 undo 栈；纯前端交互，MCP 无需适配
 - **RNA 二级结构预测（rnaFold 插件）**：折叠在前端用 ribossfold-wasm 完成（WASM 无法走 Rust 内核），用户决定不暴露给 Agent
 - **系统文件关联打开（Open With / 双击 / 拖到 Dock）**：OS 集成；统一入 `pending_opens` 队列 + `file-opened` 事件，前端复用 `open_file`。Agent 直接用 `open_file` 即可
+- **窗口内拖放文件**：纯前端交互（`listenDragDrop` 封装 Tauri `onDragDropEvent`——底层是 `tauri://drag-*` 事件 listen，`core:default` 已覆盖，无需额外权限）。扩展名命中 `SEQ_FILE_EXTS`（tauriApi.js，镜像后端 `SEQ_EXTS`）才响应，否则静默忽略；活动项目为 DNA 且 alignment 插件启用时弹确认框（可选添加为 alignment——经 ProjectWorkspace imperative handle 的 `addAlignmentFiles` 逐个添加，失败经 `dropResult` 弹窗逐条反馈——或作为新文件打开），其余情况直接 `openExternalPath` 开为新项目；支持多文件拖放。MCP 无需适配——Agent 用 `open_file`/`add_alignment` 即可
 
 ## 核心模型约定
 
