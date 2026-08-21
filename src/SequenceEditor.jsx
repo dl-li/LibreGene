@@ -2687,27 +2687,36 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return () => window.removeEventListener('paste', onPaste);
   }, [onEditRequest, requestPaste]);
 
-  // Visible row range for enzyme virtualization
+  // Visible row range for enzyme virtualization.
+  // Hold a stable object identity while start/end are unchanged: downstream
+  // memos (visibleEnzymes/visibleFeatures/renderedSeqBg/...) key on this
+  // object, and scrollY churns every frame — a fresh object would recompute
+  // all of them even when the visible range didn't actually move.
+  const visibleRowsRef = useRef({ start: 0, end: 0 });
   const visibleRows = useMemo(() => {
-    if (!rowY.length) return { start: 0, end: numRows - 1 };
-    const vh = viewportH || 900;
-    const top = scrollY;
-    const bot = top + vh;
     let start = 0,
       end = numRows - 1;
-    for (let r = 0; r < rowY.length; r++) {
-      if (rowY[r] + (rowBelow[r] || 0) > top) {
-        start = Math.max(0, r);
-        break;
+    if (rowY.length) {
+      const vh = viewportH || 900;
+      const top = scrollY;
+      const bot = top + vh;
+      for (let r = 0; r < rowY.length; r++) {
+        if (rowY[r] + (rowBelow[r] || 0) > top) {
+          start = Math.max(0, r);
+          break;
+        }
+      }
+      for (let r = rowY.length - 1; r >= 0; r--) {
+        if (rowY[r] - (rowAbove[r] || 0) < bot) {
+          end = Math.min(numRows - 1, r + 1);
+          break;
+        }
       }
     }
-    for (let r = rowY.length - 1; r >= 0; r--) {
-      if (rowY[r] - (rowAbove[r] || 0) < bot) {
-        end = Math.min(numRows - 1, r + 1);
-        break;
-      }
-    }
-    return { start, end };
+    const prev = visibleRowsRef.current;
+    if (prev.start === start && prev.end === end) return prev;
+    visibleRowsRef.current = { start, end };
+    return visibleRowsRef.current;
   }, [rowY, rowAbove, rowBelow, scrollY, viewportH, numRows]);
 
   // Filter enzymes to visible row range only
