@@ -16,5 +16,8 @@ backend/test_data/flySWARM.*
 # Local-only examples, kept off GitHub
 examples/others/
 
+# MCP test traces (task logs, reports, generated results) — keep off GitHub
+examples/tasks/_traces/
+
 # Local kimi-code config
 .kimi-code/
