@@ -129,7 +129,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **入口**：`src/components/McpGuideDialog.jsx`（开关 + 端口 + 令牌 + 各客户端配置片段），从侧边栏 "MCP Server" 打开
 - **后台待命**：关主窗口只是隐藏（进程与 MCP 继续跑）；托盘菜单含 MCP 状态、Show、Quit；macOS Dock 图标经 `RunEvent::Reopen` 重开。项目/Agent 窗口不参与
 - **Agent 专属窗口（强制隔离）**：Agent 修改项目前必须先调 `request_agent_window`。它在 `window_projects`+`agent_windows` 注册 `agent-*` 窗口（项目随即从主窗口侧边栏隐藏，窗口默认 locked；已绑定则复用+聚焦，返回 `reused: true`）。门控：mutation 工具（`edit_sequence`/`add_feature`/`update_feature`/`add_primer`/`add_alignment`/`save_file`/`optimize_cds(apply)`/`find_orfs(add_as_features)`）对未绑定项目报错并提示先绑定；只读工具与 `open_file`/`close_project` 不受限；`activate_project` 拒绝 Agent 项目。自动重锁：`resolve_project_id`/`resolve_project`（所有工具解析项目的唯一入口）解析后调 `lock_agent_windows_for_project`——任何工具调用都把绑定窗口重新锁定（仅 unlocked→locked 跃迁时 emit `agent-window-lock` 事件）。解锁/手动锁定走前端 `set_agent_window_locked`
-- **工具**：23 个（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_file`、`request_agent_window`、`save_file`、`export_subsequence`、`close_project`、`activate_project`、`edit_sequence`、`add_feature`、`update_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`optimize_cds`、`convert_coordinates`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`；digest 酶切列表只列单切酶、多切酶折叠计数（`get_region_view(compact:false)` / `get_project_overview(compactCutters:false)` 得完整列表）
+- **工具**：23 个（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_file`、`request_agent_window`、`save_file`、`export_subsequence`、`close_project`、`activate_project`、`edit_sequence`、`add_feature`、`update_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`optimize_cds`、`convert_coordinates`）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`；digest 酶切列表只列单切酶、多切酶折叠计数（`get_region_view(compact:false)` / `get_project_overview(compactCutters:false)` 得完整列表）。Agent/项目窗口 label 统一经 `sanitize_window_label`（非 `[A-Za-z0-9-_]` 字符全部替换为 `_`，含 `(` `)`/空格/`.` 的路径也能生成合法 label）
 - **文件优先 I/O 策略**：server `instructions` 与各工具/参数描述统一引导 Agent 用文件传序列（`open_file`/`replacement_path`/`path`/`input_path`/`output_path`/`export_subsequence`），纯文本只留给短手写输入（引物、点突变、短插入）；`read_sequence` 只作查看。改描述时保持此口径一致
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/错误体、Agent 窗口门控与自动重锁、各工具正反例、digest 渲染等；digest 渲染与坐标转换在 `libregene-core` 有单元测试
 
@@ -142,13 +142,13 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - Agent 专属窗口 → `request_agent_window`
 - 项目/文件管理 → `open_file`（支持 gbk/gbf/gbff、dna/rna/prot、gpt 变体、fasta（.faa 按蛋白）、ab1、seq 嗅探）、`save_file`（写 .gbk/.gb/.gpt）、`close_project`、`activate_project`、`list_projects`
 - 子序列导出 → `export_subsequence`（四种互斥区间：① 坐标 ② 特征 ③ 酶切或显式切口 ④ 引物扩增子；重叠特征截断+坐标平移、引物按首要位点重叠导出；环状项目导出线性）
-- 序列读取 → `read_sequence`、`get_project_overview`、`get_region_view`（digest 按 molecule_type 分支；region 有比对时附 ALIGNMENT DIFFS 节）
+- 序列读取 → `read_sequence`、`get_project_overview`、`get_region_view`（digest 按 molecule_type 分支；region 有比对时附 ALIGNMENT DIFFS 节 + ALIGNMENT VIEW 逐列视图：模板/掩码/read 三行，`|` 匹配 `.` 错配 `-` read 缺口，60 bp/行，插入与未覆盖区间以注记列出，覆盖窗口 >500 bp 省略视图；overview 另有 /translation 与 DNA 不一致 WARNING 行、多 read 相同 mismatch 的 MISMATCH CONSENSUS 提示）
 - 序列编辑 → `edit_sequence`（字符串或 `replacement_path` 互斥；strand:"-" 先 rev-comp；携带特征/引物转移，名称冲突加 ` (2)`；`expected_old` 乐观校验失败附 `currentContent`）
 - 特征 → `add_feature` / `update_feature`（结构化 1-based 参数：start+end 或 segments，互斥）
 - 引物 → `add_primer`、`list_primers`、`check_primer_binding`（全位点 Tm 降序 + `alignedTemplate`/`matchMask` 尾巴覆盖）
 - 引物设计 → `design_primers`（amplify/oepcr/mutagenesis；amplify 酶切尾巴 + `orientation`/`cdsOverlaps`/`internalSites`；mutagenesis 返回密码子/氨基酸自检块，氨基酸编号双口径）
 - ORF 搜索 → `find_orfs`（`add_as_features` 可落库）
-- 序列比对 → `add_alignment`（`bases`/`path` 双输入；返回 identity/差异明细/`orientedSequence`/`coverage`；`compact` 降响应体积）
+- 序列比对 → `add_alignment`（`bases`/`path` 双输入；默认仅**本次新增**比对回传完整明细（含 `orientedSequence`），已有比对只回统计字段（含 coverage，无差异明细与 orientedSequence）以降响应体积；`compact: true` 连新增比对的 orientedSequence 也省略并跳过 regionView；多段 coverage 段间有未覆盖模板区间时附 `coverageNote`——引擎产出的环状跨原点比对段间恒为 0 缺口，非 0 说明该模板区间未被 read 覆盖）
 - IUPAC 搜索 → `search_sequence`（肽段→简并密码子展开，双链搜编码区）
 - 甲基化 → 无独立工具；`get_project_overview` LOCUS 行展示；前端设置 `set_methylation`
 - 限制酶切位点 → `find_restriction_sites`（未知酶名报错给近似名，可探测酶库）

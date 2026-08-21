@@ -341,8 +341,10 @@ struct ConvertCoordinatesRequest {
     /// 1-based offset along the feature's own 5'→3' direction. Mutually
     /// exclusive with `position` and `aa_position`.
     feature_offset: Option<i64>,
-    /// 1-based amino-acid position within a CDS/mRNA feature. Mutually
-    /// exclusive with `position` and `feature_offset`.
+    /// 1-based amino-acid position within a CDS/mRNA feature — INCLUDING the
+    /// initiator Met (Met = 1). Literature numbering that skips the Met (e.g.
+    /// mEGFP A206K) maps to the response's `aaPositionExcludingMet`, not to
+    /// this input. Mutually exclusive with `position` and `feature_offset`.
     aa_position: Option<i64>,
 }
 
@@ -634,6 +636,21 @@ fn from1(x: i64) -> i64 {
     x - 1
 }
 
+/// Window-label sanitizer: keep only `[A-Za-z0-9-_]`; every other character
+/// (path separators, '.', spaces, parentheses, ...) becomes '_' so a file
+/// path never produces an invalid Tauri window label.
+pub(crate) fn sanitize_window_label(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// Serialize a feature for an MCP response with its coordinates bumped to
 /// 1-based inclusive (the model stores 0-based inclusive).
 fn feature_json_1based(f: &Feature) -> serde_json::Value {
@@ -711,6 +728,44 @@ fn alignment_json_1based(
         v["orientedSequence"] = serde_json::json!(a.seq);
     }
     v
+}
+
+/// Stats-only per-alignment JSON (no orientedSequence, no mismatch/deletion/
+/// insertion details) — used for every alignment EXCEPT the one just added,
+/// so multi-read responses stay small.
+fn alignment_stats_json_1based(
+    a: &libregene_core::models::Alignment,
+    template: &str,
+    tlen: i64,
+    circular: bool,
+) -> serde_json::Value {
+    let mut v = alignment_json_1based(a, template, tlen, circular, true);
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("mismatchDetails");
+        obj.remove("deletionDetails");
+        obj.remove("insertionDetails");
+    }
+    v
+}
+
+/// Total template columns not covered by any segment, summed over the gaps
+/// between consecutive segments. 0 for single-segment reads and for
+/// origin-spanning circular reads whose segments are adjacent at the wrap.
+fn uncovered_between_segments(a: &libregene_core::models::Alignment, tlen: usize, circular: bool) -> usize {
+    let mut total = 0usize;
+    for i in 0..a.segments.len().saturating_sub(1) {
+        let end = a.segments[i].end as i64;
+        let start = a.segments[i + 1].start as i64;
+        let gap = if circular {
+            (start - end - 1).rem_euclid(tlen as i64)
+        } else {
+            start - end - 1
+        };
+        if gap > 0 {
+            total += gap as usize;
+        }
+    }
+    total
 }
 
 /// `removedFeatures`/`clippedFeatures` echo for edit_sequence, 1-based
@@ -1806,7 +1861,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// listing non-fragment features auto-annotated against the embedded
     /// SnapGene database, one line each (name | type | strand | start..end |
     /// identity%) with an `(already annotated)` marker. Fragment hits are
-    /// omitted to avoid misleading partial matches. Length units and sections
+    /// omitted to avoid misleading partial matches. CDS/mRNA features whose
+    /// stored `/translation` qualifier disagrees with the current DNA
+    /// sequence get a WARNING line (first disagreeing amino-acid position).
+    /// When ≥2 stored reads share the same mismatch at the same template
+    /// position, a MISMATCH CONSENSUS line flags the positions as possibly
+    /// outdated template. Length units and sections
     /// follow the molecule type: DNA projects get bp + PRIMERS/ENZYMES/
     /// methylation/auto-annotation; RNA/protein projects use nt/aa and omit all
     /// DNA-only sections (features still render). Returns {projectId, text}.
@@ -1838,7 +1898,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// deletions and insertions inside the window (1-based coordinates and
     /// bases; reads with no differences in the window are marked
     /// "no differences in window") — use it to check whether a site is
-    /// mutated without aligning reads by eye. Returns {projectId, text}.
+    /// mutated without aligning reads by eye. An ALIGNMENT VIEW IN REGION
+    /// section then shows each overlapping read as aligned columns: three rows
+    /// per read — template bases, a match mask (`|` match, `.` mismatch, `-`
+    /// read gap, the same convention as check_primer_binding's matchMask) and
+    /// the read bases (a `-` marks a deleted template column) — with the
+    /// 1-based start coordinate on each row, so you can read a window's read
+    /// bases directly instead of unwinding circular wraps and gap offsets from
+    /// orientedSequence. Rows wrap at 60 bp; insertions and template positions
+    /// the read does not cover are listed as `+N bp` / `uncovered template`
+    /// notes below the block. Reads whose covered window exceeds 500 bp get an
+    /// omission note instead of the rows (use ALIGNMENT DIFFS or a narrower
+    /// window). Returns {projectId, text}.
     #[tool]
     async fn get_region_view(
         &self,
@@ -1884,6 +1955,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// IUPAC-aware search of a project's sequence on both strands (reverse
     /// strand skipped for palindromic queries). Hits are 1-based inclusive.
     /// Returns {projectId, matches: [{start, end, strand}]}.
+    /// Self-complementary TARGETS (e.g. an shRNA stem: arm X followed later by
+    /// its reverse complement X') legitimately produce one '+' hit at X and
+    /// one '-' hit at X' — the two arms of the stem, not a duplicated
+    /// sequence. Only exactly palindromic QUERIES (reverse complement == the
+    /// query itself, e.g. "AT" or a restriction site) skip the reverse scan.
     /// DNA-only: rejects RNA/protein projects (single-strand, no reverse
     /// strand to search).
     #[tool]
@@ -1929,6 +2005,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// circular sequence means between the last and the first base); strand is
     /// "top" or "bottom" (recognition orientation); unique = exactly one site
     /// for that enzyme.
+    ///
+    /// Half-site accounting for assembly: a cut at topCutIndex N severs the
+    /// DNA between the 1-based bases N and N+1, so the UPSTREAM fragment ends
+    /// with base N and the DOWNSTREAM fragment starts with base N+1 — each
+    /// fragment keeps the half-site that lies on its side of the break. When
+    /// you compute a ligation junction between two digests, the product is
+    /// [fragment A .. its topCutIndex] + [fragment B .. its topCutIndex+1 ..].
+    /// Example — NheI recognizes GCTAGC and cuts G^CTAGC on the top strand:
+    /// topCutIndex = recStart (the 1-based G), so the upstream fragment keeps
+    /// the "G" and the downstream fragment begins with "CTAGC"; the bottom
+    /// strand is severed between the site's 5th and 6th bases (GCTAG^C),
+    /// botCutIndex = recStart + 4. A cutter OUTSIDE the recognition site (e.g.
+    /// BbsI, GAAGAC, topCutIndex = recStart + 7) leaves the intact GAAGAC on
+    /// the upstream fragment while the 4-base 5' overhang belongs entirely to
+    /// the downstream fragment — the sticky ends never overlap the recognition
+    /// sequence, so the site survives digestion on the upstream side.
     /// DNA-only: rejects RNA/protein projects (no restriction sites).
     #[tool]
     async fn find_restriction_sites(
@@ -2237,7 +2329,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 "message": format!("Project '{}' already has agent window '{}' (re-locked and focused)", id, label),
             })));
         }
-        let safe = id.replace(['/', '\\', ':', '.', ' '], "_");
+        let safe = sanitize_window_label(&id);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -2958,17 +3050,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   read covers, one entry per segment; a read spanning the circular
     ///   origin yields two entries.
     /// - `alignments`: the project's FULL alignment list (including the one
-    ///   just added), each {alignmentId, name, identity, strand,
-    ///   segmentCount, alignedLength, mismatches, insertions, deletions,
-    ///   mismatchDetails, deletionDetails, insertionDetails,
-    ///   orientedSequence, coverage} — lets a caller
-    ///   inspect every stored alignment without a separate read tool. The
-    ///   top-level fields above describe the newly added alignment.
-    /// Pass `compact: true` to omit `orientedSequence` from the top-level
-    /// summary and from every entry in `alignments`, and to skip the
-    /// post-alignment `regionView`. This shrinks the response when only
-    /// coordinates and differences are needed; use `read_sequence` or
-    /// `get_region_view` when you need the actual bases.
+    ///   just added). Every entry carries the stats {alignmentId, name,
+    ///   identity, strand, segmentCount, alignedLength, mismatches,
+    ///   insertions, deletions, coverage}; only the newly added alignment is
+    ///   expanded with `mismatchDetails`, `deletionDetails`,
+    ///   `insertionDetails` and `orientedSequence` — previously stored reads
+    ///   stay stats-only so multi-read responses don't balloon. Pass
+    ///   `compact: true` to omit `orientedSequence` from the top-level
+    ///   summary and from every entry (including the new one), and to skip
+    ///   the post-alignment `regionView`; use `read_sequence` or
+    ///   `get_region_view` when you need the bases.
+    /// A `coverageNote` is added (top-level and on the new alignment's entry)
+    /// when the read's coverage is multi-segment with uncovered template bp
+    /// between the segments — the engine never produces such gaps for
+    /// origin-spanning reads (their segments are adjacent), so a non-zero note
+    /// means the template region between segments was not covered by this
+    /// read, not that the alignment is broken.
     /// On failure returns {ok: false, message, projectId, significant: false};
     /// a message starting with "No significant alignment found" states the
     /// reason (identity below the 0.60 minimum, or aligned span below the
@@ -3046,23 +3143,39 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        let (summary, alignments, region) = {
+        let (summary, alignments, region, coverage_note) = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
                 .map(|p| {
                     let circular = p.topology == "circular";
+                    let total = p.alignments.len();
                     let alignments: Vec<serde_json::Value> = p
                         .alignments
                         .iter()
-                        .map(|a| alignment_json_1based(a, &p.sequence, p.length, circular, compact))
+                        .enumerate()
+                        .map(|(idx, a)| {
+                            if compact {
+                                alignment_json_1based(a, &p.sequence, p.length, circular, true)
+                            } else if idx + 1 == total {
+                                alignment_json_1based(a, &p.sequence, p.length, circular, false)
+                            } else {
+                                alignment_stats_json_1based(a, &p.sequence, p.length, circular)
+                            }
+                        })
                         .collect();
                     let last = p.alignments.last();
                     let region = last.and_then(|a| {
                         a.segments.first().map(|s| (s.start as i64, s.end as i64))
                     });
-                    (alignments.last().cloned(), alignments, region)
+                    let coverage_note = last.and_then(|a| {
+                        let gap = uncovered_between_segments(a, p.sequence.len(), circular);
+                        (gap > 0).then(|| {
+                            format!("{} template bp uncovered between the read's coverage segments", gap)
+                        })
+                    });
+                    (alignments.last().cloned(), alignments, region, coverage_note)
                 })
-                .unwrap_or((None, Vec::new(), None))
+                .unwrap_or((None, Vec::new(), None, None))
         };
         let region_view = if compact {
             None
@@ -3083,6 +3196,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
         env["alignments"] = serde_json::json!(alignments);
+        if let Some(note) = coverage_note {
+            env["coverageNote"] = serde_json::json!(note);
+            if let Some(last) = env["alignments"].as_array_mut().and_then(|arr| arr.last_mut()) {
+                last["coverageNote"] = serde_json::json!(note);
+            }
+        }
         Ok(Json(env))
     }
 
@@ -3146,7 +3265,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// suggestions) add a 5' tail of
     /// `protect_bases` (default 3) GC protection bases + the recognition
     /// site; candidates expose tail/tailLen/annealLen and Tm covers the
-    /// anneal core only. The amplify response always carries an
+    /// actual contiguous 3' match (see the field table below for how
+    /// designedTm relates to it). The amplify response always carries an
     /// `orientation` note: the product's top strand IS the template top
     /// strand of seg — Fwd primes from its 5' (left) end, Rev from its 3'
     /// (right) end — so primer names follow the template top strand, NOT any
@@ -3188,13 +3308,30 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Returns {projectId, groups: [PrimerGroup], mutation?, tmBasis,
     /// internalSites + orientation + cdsOverlaps? (amplify)}.
     ///
-    /// `tm`/`annealLen` in each candidate now report the ACTUAL contiguous 3'
-    /// match, identical to the value returned by `check_primer_binding` and
-    /// `add_primer`. The original designed anneal-core values are preserved in
-    /// `designedTm`/`designedAnnealLen`. Because a 5' tail can pair with the
-    /// adjacent template, the actual anneal length may exceed the designed
-    /// core length — this is expected for tailed primers; the tail bases that
-    /// pair are included in the unified Tm.
+    /// Each PrimerGroup is {name, type: "fwd"|"rev", candidates,
+    /// defaultIndex}: `candidates` are length variants ordered by anneal-core
+    /// length ascending, and `defaultIndex` points at the RECOMMENDED
+    /// candidate — the one whose Tm is closest to `target_tm` — use
+    /// `groups[i].candidates[groups[i].defaultIndex]` instead of guessing.
+    /// Each candidate is {seq, tail, tailLen, annealLen, tm, gc,
+    /// designedAnnealLen?, designedTm?}:
+    /// - `seq`: full primer sequence 5'→3' (tail + anneal core).
+    /// - `tail`: 5' tail sequence (empty when the primer has no tail);
+    ///   `tailLen` is its length in bases.
+    /// - `annealLen`: anneal-core length in bases — the ACTUAL contiguous 3'
+    ///   match against the template after unification.
+    /// - `tm`: melting temperature (°C) of that actual contiguous 3' match,
+    ///   rounded to 0.1. Because a 5' tail can accidentally pair with the
+    ///   template adjacent to the designed site, `tm` may exceed the designed
+    ///   core Tm for tailed primers.
+    /// - `gc`: GC fraction of the FULL `seq`, one decimal.
+    /// - `designedTm`/`designedAnnealLen`: the anneal-core values BEFORE
+    ///   3'-end unification, preserved for reference and omitted when they
+    ///   equal `tm`/`annealLen`. For PCR annealing temperature of a
+    ///   5'-tailed primer, reference `designedTm` (the anneal core you
+    ///   designed); `tm` is the actual 3' contiguous match that may include
+    ///   accidental tail pairing.
+    /// `tmBasis` always restates this basis.
     /// DNA-only: rejects RNA/protein projects (no primer design on
     /// single-strand molecules).
     #[tool]
@@ -3495,7 +3632,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///    own 5'→3' direction (reverse-complemented features count from their
     ///    3' end on the template).
     /// 3. `feature_id` + `aa_position`: 1-based amino-acid position within a
-    ///    CDS/mRNA feature.
+    ///    CDS/mRNA feature, INCLUDING the initiator Met (Met = 1). Literature
+    ///    numbering that skips the Met (e.g. mEGFP A206K) corresponds to the
+    ///    response's `aaPositionExcludingMet`, so convert before calling:
+    ///    literature position + 1 (when the Met is present) is the `aa_position`
+    ///    to send.
     ///
     /// Returns {projectId, input, position, base, codonPositions?, features,
     /// translations}. `base` is the template base at `position` (plus-strand,
@@ -6627,7 +6768,114 @@ mod tests {
         let v = out.0;
         assert!(v.get("orientedSequence").is_some(), "{v}");
         assert!(v.get("regionView").is_some(), "{v}");
-        assert!(v["alignments"][0].get("orientedSequence").is_some(), "{v}");
+        // alignments[1] is the newly added read → full detail; alignments[0]
+        // is the earlier compact read → stats-only (no orientedSequence,
+        // no per-column details).
+        assert!(v["alignments"][1].get("orientedSequence").is_some(), "{v}");
+        assert!(v["alignments"][0].get("orientedSequence").is_none(), "{v}");
+        assert!(v["alignments"][0].get("mismatchDetails").is_none(), "{v}");
+        assert!(v["alignments"][0].get("coverage").is_some(), "{v}");
+    }
+
+    #[tokio::test]
+    async fn add_alignment_slims_existing_alignments_in_full_responses() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let mut read1 = template[50..150].to_string();
+        let i = 60;
+        let orig = read1.as_bytes()[i];
+        let flipped = if orig == b'A' { b'C' } else { b'A' };
+        read1.replace_range(i..i + 1, &(flipped as char).to_string());
+        server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "read1".to_string(),
+                bases: Some(read1.clone()),
+                path: None,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+
+        let read2 = template[60..130].to_string();
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: Some("aln_test".to_string()),
+                name: "read2".to_string(),
+                bases: Some(read2),
+                path: None,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["alignments"].as_array().unwrap().len(), 2, "{v}");
+        // The new read is fully expanded.
+        assert_eq!(v["alignments"][1]["name"], "read2", "{v}");
+        assert!(v["alignments"][1].get("orientedSequence").is_some(), "{v}");
+        // The previously stored read is stats-only.
+        assert_eq!(v["alignments"][0]["name"], "read1", "{v}");
+        assert!(v["alignments"][0].get("orientedSequence").is_none(), "{v}");
+        assert!(v["alignments"][0].get("mismatchDetails").is_none(), "{v}");
+        assert!(v["alignments"][0].get("deletionDetails").is_none(), "{v}");
+        assert!(v["alignments"][0].get("insertionDetails").is_none(), "{v}");
+        for key in [
+            "alignmentId",
+            "name",
+            "identity",
+            "strand",
+            "segmentCount",
+            "alignedLength",
+            "mismatches",
+            "insertions",
+            "deletions",
+            "coverage",
+        ] {
+            assert!(v["alignments"][0].get(key).is_some(), "missing {key}: {v}");
+        }
+        // No coverage gaps for a single-segment read: no coverageNote.
+        assert!(v.get("coverageNote").is_none(), "{v}");
+    }
+
+    #[test]
+    fn uncovered_between_segments_measures_gaps_only() {
+        use libregene_core::models::{AlignSegment, Alignment};
+        let aln = |segs: Vec<(usize, usize, &str)>| Alignment {
+            id: String::new(),
+            name: String::new(),
+            length: 0,
+            strand: "+".into(),
+            identity: 1.0,
+            segments: segs
+                .into_iter()
+                .map(|(s, e, c)| AlignSegment {
+                    start: s,
+                    end: e,
+                    chars: c.to_string(),
+                })
+                .collect(),
+            insertions: Vec::new(),
+            seq: String::new(),
+        };
+        // Single segment: no gap.
+        assert_eq!(uncovered_between_segments(&aln(vec![(10, 29, "x")]), 60, false), 0);
+        // Two segments with a 10 bp hole between them (linear).
+        assert_eq!(
+            uncovered_between_segments(&aln(vec![(10, 29, "x"), (40, 49, "y")]), 60, false),
+            10
+        );
+        // Origin-spanning circular read: segments are adjacent at the wrap.
+        assert_eq!(
+            uncovered_between_segments(&aln(vec![(50, 59, "x"), (0, 9, "y")]), 60, true),
+            0
+        );
+        // Circular segments with a real hole.
+        assert_eq!(
+            uncovered_between_segments(&aln(vec![(10, 29, "x"), (40, 49, "y")]), 60, true),
+            10
+        );
     }
 
     #[tokio::test]
@@ -7300,6 +7548,59 @@ mod tests {
         assert_eq!(v["reused"], true);
         assert_eq!(v["windowLabel"], "agent-test");
         assert_eq!(v["locked"], true);
+    }
+
+    #[test]
+    fn sanitize_window_label_keeps_only_alnum_dash_underscore() {
+        assert_eq!(
+            sanitize_window_label("/tmp/my project (v2).gbk"),
+            "_tmp_my_project__v2__gbk"
+        );
+        assert_eq!(sanitize_window_label("plain_path-1_2.gbk"), "plain_path-1_2_gbk");
+        assert_eq!(sanitize_window_label("ABC-def_123"), "ABC-def_123");
+    }
+
+    #[tokio::test]
+    async fn request_agent_window_sanitizes_paths_with_parens_and_spaces() {
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let id = "/tmp/my project (v2).gbk".to_string();
+        pm.write().await.load(&id, ProjectData {
+            name: id.clone(),
+            sequence: synthetic_dna(200, 9),
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        });
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let aw: crate::AgentWindows = Arc::new(RwLock::new(HashMap::new()));
+        let server = LibreGeneMcp::new(
+            app.handle().clone(),
+            pm,
+            wp.clone(),
+            aw.clone(),
+        );
+        let out = server
+            .request_agent_window(Parameters(RequestAgentWindowRequest {
+                project_id: Some(id.clone()),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        let label = v["windowLabel"].as_str().unwrap();
+        assert!(label.starts_with("agent-_tmp_my_project__v2__gbk-"), "{label}");
+        assert!(
+            label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            "window label must contain only [A-Za-z0-9-_]: {label}"
+        );
+        assert!(!label.contains(' '), "{label}");
+        // The window → project registration uses the sanitized label.
+        assert!(wp.read().await.contains_key(label), "{label}");
+        assert!(aw.read().await.contains_key(label), "{label}");
     }
 
     #[tokio::test]

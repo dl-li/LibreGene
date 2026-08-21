@@ -2886,7 +2886,7 @@ async fn open_in_new_window(
     }
 
     // Build a safe label for the new window (append timestamp for uniqueness)
-    let safe = project_id.replace(['/', '\\', ':', '.', ' '], "_");
+    let safe = crate::mcp::sanitize_window_label(&project_id);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

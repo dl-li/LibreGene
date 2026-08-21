@@ -10,13 +10,18 @@
 //! C) prints as `N^N+1` — between the 1-based bases N=C and N+1. Circular
 //! sequences allow `start > end` to wrap the origin.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::models::{AlignDeletion, Enzyme, Feature, PrimerBindingSite, ProjectData};
 use std::fmt::Write as _;
 
 /// Cap for `read_sequence` windows — protects LLM context from accidental dumps.
 pub const MAX_READ_BASES: usize = 10_000;
+
+/// Column-view line width (bp per template/read row) and per-read cap: reads
+/// whose covered window exceeds the cap get an omission note instead of rows.
+const ALIGNMENT_VIEW_LINE: usize = 60;
+const ALIGNMENT_VIEW_MAX_COLS: usize = 500;
 
 #[derive(Debug, Clone, Default)]
 pub struct DigestOptions {
@@ -251,6 +256,134 @@ fn alignment_line(a: &crate::models::Alignment) -> String {
     )
 }
 
+/// Per-read column view of a region window: template bases, a match mask (the
+/// check_primer_binding convention: `|` match, `.` mismatch, `-` read gap) and
+/// the read bases. Only template columns the read covers are rendered, in
+/// 1-based order (wrapping the origin on circular templates); insertions and
+/// uncovered template runs are listed below the block. Views wider than
+/// [`ALIGNMENT_VIEW_MAX_COLS`] are replaced by an omission note.
+fn push_alignment_view(
+    out: &mut String,
+    a: &crate::models::Alignment,
+    template: &str,
+    s: i64,
+    e: i64,
+    circular: bool,
+) {
+    let tbytes = template.as_bytes();
+    let tlen = tbytes.len() as i64;
+    let mut cols: Vec<(i64, char, char)> = Vec::new();
+    let mut uncovered: Vec<(i64, i64)> = Vec::new();
+    let mut run_start: Option<i64> = None;
+    let mut pos = s;
+    loop {
+        let read_char = a.segments.iter().find_map(|seg| {
+            if pos >= seg.start as i64 && pos <= seg.end as i64 {
+                seg.chars
+                    .as_bytes()
+                    .get((pos - seg.start as i64) as usize)
+                    .copied()
+            } else {
+                None
+            }
+        });
+        match read_char {
+            Some(rc) => {
+                if let Some(rs) = run_start.take() {
+                    uncovered.push((rs, pos - 1));
+                }
+                let tb = tbytes
+                    .get(pos as usize)
+                    .map(|b| b.to_ascii_uppercase())
+                    .unwrap_or(b'N');
+                cols.push((pos, tb as char, rc.to_ascii_uppercase() as char));
+            }
+            None => {
+                if run_start.is_none() {
+                    run_start = Some(pos);
+                }
+            }
+        }
+        if pos == e {
+            break;
+        }
+        pos = if circular { (pos + 1) % tlen } else { pos + 1 };
+    }
+    if let Some(rs) = run_start.take() {
+        uncovered.push((rs, e));
+    }
+    if cols.is_empty() {
+        return;
+    }
+    let strand = if a.strand == "-" { "-" } else { "+" };
+    let _ = writeln!(out, "        {}  (id: {}, {} strand):", a.name, a.id, strand);
+    if cols.len() > ALIGNMENT_VIEW_MAX_COLS {
+        let _ = writeln!(
+            out,
+            "            column view omitted (covered window {} bp exceeds the {} bp cap; use ALIGNMENT DIFFS or a narrower window)",
+            cols.len(),
+            ALIGNMENT_VIEW_MAX_COLS
+        );
+        return;
+    }
+    let indent = " ".repeat(12);
+    for chunk in cols.chunks(ALIGNMENT_VIEW_LINE) {
+        let first = chunk[0].0 + 1;
+        let t: String = chunk.iter().map(|(_, t, _)| *t).collect();
+        let m: String = chunk
+            .iter()
+            .map(|(_, t, r)| {
+                if *r == '-' {
+                    '-'
+                } else if *r == *t {
+                    '|'
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        let r: String = chunk.iter().map(|(_, _, r)| *r).collect();
+        let _ = writeln!(out, "{indent}{first:>6}  {t}");
+        let _ = writeln!(out, "{indent}        {m}");
+        let _ = writeln!(out, "{indent}{first:>6}  {r}");
+    }
+    for ins in &a.insertions {
+        if pos_in_range(ins.pos as i64, s, e, circular) {
+            let (a1, b1) = cut_flanks(ins.pos as i64, tlen, circular);
+            let _ = writeln!(
+                out,
+                "{indent}insertion between {} and {}: +{} bp ({})",
+                a1,
+                b1,
+                ins.bases.len(),
+                ins.bases
+            );
+        }
+    }
+    for (us, ue) in uncovered {
+        let n = if us <= ue { ue - us + 1 } else { tlen - us + ue + 1 };
+        let _ = writeln!(out, "{indent}uncovered template {}..{} ({} bp)", us + 1, ue + 1, n);
+    }
+}
+
+/// First amino-acid position (1-based) where a stored `/translation` and the
+/// DNA-derived translation disagree, with the stored and derived letters.
+/// A pure length mismatch reports the first position past the shared prefix.
+fn translation_diff_pos(stored: &str, derived: &str) -> Option<(usize, String, String)> {
+    let s: Vec<char> = stored.to_ascii_uppercase().chars().collect();
+    let d: Vec<char> = derived.to_ascii_uppercase().chars().collect();
+    let n = s.len().min(d.len());
+    for i in 0..n {
+        if s[i] != d[i] {
+            return Some((i + 1, s[i].to_string(), d[i].to_string()));
+        }
+    }
+    if s.len() != d.len() {
+        return Some((n + 1, format!("{} aa", s.len()), format!("{} aa", d.len())));
+    }
+    None
+}
+
 fn cut_type_label(cut_type: &str) -> &str {
     match cut_type {
         "5overhang" => "5' overhang",
@@ -464,6 +597,27 @@ pub fn project_digest(
         }
     }
 
+    // DNA overview only: cross-check stored /translation qualifiers of CDS/mRNA
+    // features against the current sequence (open_file keeps the file's value,
+    // so a stale qualifier after sequence edits is detectable). A mismatch
+    // reports the first disagreeing amino-acid position.
+    if is_dna && region.is_none() {
+        for f in &features {
+            if (f.ftype == "CDS" || f.ftype == "mRNA") && !f.translation.is_empty() {
+                let derived = crate::translate::translate_feature(&project.sequence, f);
+                if let Some((pos, stored, derived_aa)) =
+                    translation_diff_pos(&f.translation, &derived)
+                {
+                    let _ = writeln!(
+                        out,
+                        "WARNING: /translation of {} '{}' (id: {}) disagrees with the DNA sequence at aa {} (stored {}, derived {})",
+                        f.ftype, f.name, f.id, pos, stored, derived_aa
+                    );
+                }
+            }
+        }
+    }
+
     // Primers: one line per binding site overlapping the region (sorted by start).
     // Single-strand molecules (rna/protein) carry no primers.
     let mut site_lines: Vec<(i64, String)> = Vec::new();
@@ -513,6 +667,38 @@ pub fn project_digest(
         for a in &alignments {
             out.push_str(&alignment_line(a));
             out.push('\n');
+        }
+        // Overview only: template positions where ≥2 reads share the same
+        // mismatch — a hint that the template may be outdated.
+        if region.is_none() {
+            let mut counts: BTreeMap<(i64, String, String), usize> = BTreeMap::new();
+            for a in &alignments {
+                let diff = crate::align::alignment_diff(a, &project.sequence);
+                for m in &diff.mismatches {
+                    *counts
+                        .entry((
+                            m.pos as i64,
+                            m.template_base.to_ascii_uppercase(),
+                            m.read_base.to_ascii_uppercase(),
+                        ))
+                        .or_insert(0) += 1;
+                }
+            }
+            let consensus: Vec<((i64, String, String), usize)> = counts
+                .into_iter()
+                .filter(|(_, n)| *n >= 2)
+                .collect();
+            if !consensus.is_empty() {
+                let parts: Vec<String> = consensus
+                    .iter()
+                    .map(|((pos, tb, rb), n)| format!("{} {}>{} ({} reads)", pos + 1, tb, rb, n))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "MISMATCH CONSENSUS (positions where ≥2 reads share the same mismatch — template may be outdated): {}",
+                    parts.join(", ")
+                );
+            }
         }
     }
 
@@ -571,6 +757,23 @@ pub fn project_digest(
             }
         }
         out.push_str(&section);
+    }
+
+    // Region views only: per-read column view (template / mask / read rows) so
+    // an agent can read the actual read bases in a window without manually
+    // unwinding circular wraps and gap offsets from orientedSequence.
+    if let Some((s, e)) = region {
+        let mut view = String::new();
+        for a in &alignments {
+            push_alignment_view(&mut view, a, &project.sequence, s, e, circular);
+        }
+        if !view.is_empty() {
+            view.insert_str(
+                0,
+                "ALIGNMENT VIEW IN REGION (per-read column view; rows: template / match mask / read; mask: | match, . mismatch, - read gap; insertions and uncovered template listed below; 1-based inclusive):\n",
+            );
+            out.push_str(&view);
+        }
     }
 
     // Enzymes (DNA only — single-strand molecules have no restriction sites)
@@ -1454,6 +1657,180 @@ mod tests {
         let out = project_digest(&p, &DigestOptions::default(), Some((56, 1))).unwrap();
         assert!(out.contains("deletion at 59: 4 bp (GTAC)"), "{out}");
         assert!(!out.contains("mismatch at 3"), "{out}");
+    }
+
+    #[test]
+    fn region_view_shows_alignment_column_view() {
+        let p = project_with_diff_alignment();
+        let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+        assert!(
+            out.contains(
+                "ALIGNMENT VIEW IN REGION (per-read column view; rows: template / match mask / read; mask: | match, . mismatch, - read gap; insertions and uncovered template listed below; 1-based inclusive):\n"
+            ),
+            "{out}"
+        );
+        assert!(out.contains("        read1  (id: aln-1, + strand):\n"), "{out}");
+        // Template / mask / read rows over the covered columns 10..29
+        // (1-based 11..30); the row prefix is the 1-based start column.
+        assert!(out.contains("11  GTACGTACGTACGTACGTAC"), "{out}");
+        assert!(out.contains("|||||.||--||||||||||"), "{out}");
+        assert!(out.contains("GTACGAAC--ACGTACGTAC"), "{out}");
+        assert!(out.contains("insertion between 25 and 26: +2 bp (GG)"), "{out}");
+        // Region views only — overviews never render the section.
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(!out.contains("ALIGNMENT VIEW IN REGION"), "{out}");
+    }
+
+    #[test]
+    fn region_view_column_view_circular_wrap_and_uncovered() {
+        let mut p = project_with_diff_alignment();
+        p.alignments.push(crate::models::Alignment {
+            id: "aln-2".into(),
+            name: "wrapped".into(),
+            length: 10,
+            strand: "+".into(),
+            identity: 0.7,
+            segments: vec![
+                crate::models::AlignSegment {
+                    start: 56,
+                    end: 59,
+                    chars: "AC--".into(),
+                },
+                crate::models::AlignSegment {
+                    start: 0,
+                    end: 5,
+                    chars: "--ATAC".into(),
+                },
+            ],
+            insertions: Vec::new(),
+            seq: String::new(),
+        });
+        // Wrapping window 55..4: position 55 is uncovered, columns 56..59 and
+        // 0..4 are covered (deletions at 58,59,0,1; mismatch at 2).
+        let out = project_digest(&p, &DigestOptions::default(), Some((55, 4))).unwrap();
+        assert!(out.contains("        wrapped  (id: aln-2, + strand):\n"), "{out}");
+        assert!(out.contains("57  ACGTACGTA"), "{out}");
+        assert!(out.contains("||----.||"), "{out}");
+        assert!(out.contains("AC----ATA"), "{out}");
+        assert!(out.contains("uncovered template 56..56 (1 bp)"), "{out}");
+        assert!(!out.contains("read1"), "{out}");
+    }
+
+    #[test]
+    fn region_view_column_view_caps_wide_windows() {
+        let mut p = synthetic_project();
+        let seq = "ACGT".repeat(140); // 560 bp
+        p.sequence = seq.clone();
+        p.length = seq.len() as i64;
+        p.alignments.push(crate::models::Alignment {
+            id: "aln-1".into(),
+            name: "wide".into(),
+            length: 501,
+            strand: "+".into(),
+            identity: 1.0,
+            segments: vec![crate::models::AlignSegment {
+                start: 0,
+                end: 500,
+                chars: "ACGT".repeat(126)[..501].to_string(),
+            }],
+            insertions: Vec::new(),
+            seq: String::new(),
+        });
+        let out = project_digest(&p, &DigestOptions::default(), Some((0, 500))).unwrap();
+        assert!(
+            out.contains("column view omitted (covered window 501 bp exceeds the 500 bp cap"),
+            "{out}"
+        );
+        assert!(!out.contains("1  ACGT"), "view rows must not render for wide windows: {out}");
+    }
+
+    #[test]
+    fn overview_warns_on_translation_dna_mismatch() {
+        let mut p = synthetic_project();
+        // Plus-strand CDS 0..14 (5 codons) of "ACGT"*15 → derived "TYVRT".
+        p.features.clear();
+        p.features.push(Feature {
+            id: "f-plus".into(),
+            name: "plusCDS".into(),
+            start: 0,
+            end: 14,
+            color: "#60A5FA".into(),
+            ftype: "CDS".into(),
+            segments: Vec::new(),
+            strand: "+".into(),
+            notes: String::new(),
+            translation: "MVSKL".into(),
+            qualifiers: Vec::new(),
+        });
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(
+            out.contains("WARNING: /translation of CDS 'plusCDS' (id: f-plus) disagrees with the DNA sequence at aa 1 (stored M, derived T)"),
+            "{out}"
+        );
+
+        // A stored translation that matches the DNA emits no warning.
+        p.features[0].translation = "TYVRT".into();
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(!out.contains("WARNING:"), "{out}");
+
+        // Minus-strand CDS: derived = reverse-complement translation "RTYVR";
+        // a mismatch at the last residue is reported at its own position.
+        p.features[0].strand = "-".into();
+        p.features[0].translation = "RTYVS".into();
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(
+            out.contains("disagrees with the DNA sequence at aa 5 (stored S, derived R)"),
+            "{out}"
+        );
+        p.features[0].translation = "RTYVR".into();
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(!out.contains("WARNING:"), "{out}");
+
+        // Region views skip the check.
+        let out = project_digest(&p, &DigestOptions::default(), Some((0, 14))).unwrap();
+        assert!(!out.contains("WARNING:"), "{out}");
+    }
+
+    #[test]
+    fn overview_notes_consensus_mismatches() {
+        let mut p = synthetic_project();
+        let mut chars: Vec<char> = p.sequence[10..=29].chars().collect();
+        chars[5] = 'A'; // mismatch at 15 (T > A)
+        let mut chars2 = chars.clone();
+        chars2[5] = 'A';
+        chars2[10] = 'C'; // mismatch at 20 (A > C) — appears in one read only
+        let mut chars3: Vec<char> = p.sequence[10..=29].chars().collect();
+        chars3[12] = 'T'; // mismatch at 22 (G > T) — appears in one read only
+        for (id, name, c) in [
+            ("aln-1", "read1", &chars),
+            ("aln-2", "read2", &chars2),
+            ("aln-3", "read3", &chars3),
+        ] {
+            p.alignments.push(crate::models::Alignment {
+                id: id.into(),
+                name: name.into(),
+                length: 20,
+                strand: "+".into(),
+                identity: 0.9,
+                segments: vec![crate::models::AlignSegment {
+                    start: 10,
+                    end: 29,
+                    chars: c.iter().collect(),
+                }],
+                insertions: Vec::new(),
+                seq: String::new(),
+            });
+        }
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(
+            out.contains("MISMATCH CONSENSUS (positions where ≥2 reads share the same mismatch — template may be outdated): 16 T>A (2 reads)"),
+            "{out}"
+        );
+        assert!(!out.contains("21 A>C"), "{out}");
+        assert!(!out.contains("23 G>T"), "{out}");
+        // Region views never render the consensus section.
+        let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+        assert!(!out.contains("MISMATCH CONSENSUS"), "{out}");
     }
 
     #[test]
