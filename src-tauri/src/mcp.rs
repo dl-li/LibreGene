@@ -25,7 +25,7 @@
 //! - circular sequences allow `start > end` to wrap the origin for reads
 //!   (values are 1-based)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,7 +41,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use tokio::sync::RwLock;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use libregene_core::digest::{DigestOptions, cut_flanks, cut_notation, project_digest, read_sequence};
 use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite, ProjectData, Segment};
@@ -117,8 +117,9 @@ struct ActivateProjectRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct RequestAgentWindowRequest {
-    /// Project to bind the agent window to; defaults to the active project.
+struct RequestAgentTabRequest {
+    /// Project to bind as an agent tab; defaults to the active project. Only
+    /// projects opened via MCP `open_file` can be bound.
     project_id: Option<String>,
 }
 
@@ -607,7 +608,8 @@ pub struct LibreGeneMcp<R: Runtime> {
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
-    agent_windows: crate::AgentWindows,
+    agent_tabs: crate::AgentTabs,
+    mcp_opened: Arc<RwLock<HashSet<String>>>,
 }
 
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -943,14 +945,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         app_handle: AppHandle<R>,
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
-        agent_windows: crate::AgentWindows,
+        agent_tabs: crate::AgentTabs,
+        mcp_opened: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
-        Self { app_handle, pm, wp, agent_windows }
+        Self { app_handle, pm, wp, agent_tabs, mcp_opened }
     }
 
     /// Explicit project id or the active project. Resolving a project also
-    /// re-locks any agent window bound to it — the user may unlock the window,
-    /// but the next tool call on the project locks it again.
+    /// re-locks any agent tab bound to it — the user may unlock the tab, but
+    /// the next tool call on the project locks it again.
     async fn resolve_project_id(&self, project_id: Option<String>) -> Result<String, ErrorData> {
         let id = {
             let pm = self.pm.read().await;
@@ -961,7 +964,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })?,
             }
         };
-        crate::lock_agent_windows_for_project(&self.app_handle, &self.agent_windows, &id).await;
+        crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &id).await;
         Ok(id)
     }
 
@@ -980,21 +983,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
             })?;
             (id, project)
         };
-        crate::lock_agent_windows_for_project(&self.app_handle, &self.agent_windows, &id).await;
+        crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &id).await;
         Ok((id, project))
     }
 
-    /// Mutating tools may only operate on projects bound to an agent window,
-    /// so the user keeps an untouched main window. Read-only tools are
-    /// unrestricted; `request_agent_window` performs the binding.
-    async fn require_agent_window(&self, project_id: &str) -> Result<(), ErrorData> {
-        let aw = self.agent_windows.read().await;
-        if aw.values().any(|m| m.project_id == project_id) {
+    /// Mutating tools may only operate on projects bound as MCP agent tabs,
+    /// so the user's own projects stay untouched. Read-only tools are
+    /// unrestricted; `request_agent_tab` performs the binding.
+    async fn require_agent_tab(&self, project_id: &str) -> Result<(), ErrorData> {
+        let at = self.agent_tabs.read().await;
+        if at.contains_key(project_id) {
             return Ok(());
         }
         Err(ErrorData::invalid_params(
             format!(
-                "Project '{}' is not bound to an agent window. Call request_agent_window first: it moves the project into a dedicated window that is locked against user input while you work. Mutating tools refuse to operate on projects shown in the user's own windows.",
+                "Project '{}' is not bound as an MCP agent tab. Call request_agent_tab first: only projects the agent opened via MCP open_file can be bound — if this project was opened by the user, copy the file (e.g. bash `cp`) to a new path, open_file the copy, then request_agent_tab on the copy. Mutating tools refuse to operate on projects the user opened.",
                 project_id
             ),
             None,
@@ -2180,9 +2183,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
+        // Remember that the MCP server opened this project — only projects in
+        // this set may later be bound as agent tabs (request_agent_tab refuses
+        // projects the user opened).
+        {
+            let mut mo = self.mcp_opened.write().await;
+            mo.insert(id.clone());
+        }
         // The open_file command does not broadcast (frontend applies the
         // response) — the MCP server must notify the UI itself.
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         let summary = self.project_summary(&id).await.unwrap_or_else(|| format!("Opened {}", id));
         let region = self.digest_region(&id, None, true).await;
         Ok(Json(ok_envelope(&id, summary, region)))
@@ -2200,7 +2210,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<SaveFileRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         let path = request.path.clone();
         let payload = crate::do_save_file(&self.pm, id.clone(), request.path)
             .await
@@ -2209,7 +2219,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(Json(fail_envelope(&id, err)));
         }
         let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         let region = self.digest_region(&id, None, true).await;
         let mut env = ok_envelope(&id, format!("Saved {}", path), region);
         if let Some(b) = bytes_written {
@@ -2232,7 +2242,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.app_handle,
             &self.pm,
             &self.wp,
-            &self.agent_windows,
+            &self.agent_tabs,
+            &self.mcp_opened,
             None,
             request.project_id,
         )
@@ -2258,11 +2269,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = request.project_id.clone();
         {
-            let aw = self.agent_windows.read().await;
-            if aw.values().any(|m| m.project_id == id) {
+            let at = self.agent_tabs.read().await;
+            if at.contains_key(&id) {
                 return Err(ErrorData::invalid_params(
                     format!(
-                        "Project '{}' lives in a dedicated agent window and is hidden from the main window; it cannot be activated there. Use request_agent_window to focus its agent window instead.",
+                        "Project '{}' is bound as an MCP agent tab and stays active in the main window; it cannot be activated here. Skip this step — the tab is already visible in the main window and updates as you work.",
                         id
                     ),
                     None,
@@ -2275,27 +2286,31 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         let region = self.digest_region(&id, None, true).await;
         Ok(Json(ok_envelope(&id, format!("Activated {}", id), region)))
     }
 
-    /// Bind a project to a dedicated agent window: the project disappears
-    /// from the user's main window and opens in a new window that is LOCKED
-    /// against user keyboard/mouse input (bot watermark, not-allowed cursor;
-    /// the user can temporarily unlock it via an on-screen button, but any
-    /// further MCP tool call on the project re-locks it). Mutating tools
+    /// Bind a project as an MCP agent tab: the project STAYS in the main
+    /// window's sidebar (marked with a bot badge) and is LOCKED against user
+    /// keyboard/pointer input while the agent works (a floating panel shows
+    /// the lock; the user can temporarily unlock it via an on-screen button,
+    /// but any further MCP tool call on the project re-locks it). Only
+    /// projects the agent itself opened via MCP `open_file` can be bound —
+    /// projects the user opened (or that are open in a separate project
+    /// window) are REFUSED: copy the file with bash `cp` to a new path,
+    /// `open_file` the copy, then bind the copy. Mutating tools
     /// (edit_sequence, add_feature, update_feature, add_primer, add_alignment,
     /// save_file, optimize_cds/apply, find_orfs/add_as_features) REFUSE to run
-    /// on projects that are not bound to an agent window, so call this right
+    /// on projects that are not bound as an agent tab, so call this right
     /// after open_file, before any modification. Multiple agents each get
-    /// their own window and work in parallel without interfering. Calling
-    /// again for a project that already has an agent window reuses, re-locks
-    /// and focuses it. Returns {ok, projectId, windowLabel, locked, reused?}.
+    /// their own binding and work in parallel without interfering. Calling
+    /// again for a project that is already bound re-locks the existing tab.
+    /// Returns {ok, projectId, locked, reused?}.
     #[tool]
-    async fn request_agent_window(
+    async fn request_agent_tab(
         &self,
-        Parameters(request): Parameters<RequestAgentWindowRequest>,
+        Parameters(request): Parameters<RequestAgentTabRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
         {
@@ -2307,65 +2322,57 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 ));
             }
         }
-        // Reuse the existing agent window for this project when there is one.
-        let existing = {
-            let aw = self.agent_windows.read().await;
-            aw.iter()
-                .find(|(_, m)| m.project_id == id)
-                .map(|(l, _)| l.clone())
-        };
-        if let Some(label) = existing {
-            crate::lock_agent_windows_for_project(&self.app_handle, &self.agent_windows, &id).await;
-            if let Some(w) = self.app_handle.get_webview_window(&label) {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
+        // Reuse the existing agent tab for this project when there is one.
+        let reused = {
+            let mut at = self.agent_tabs.write().await;
+            if let Some(meta) = at.get_mut(&id) {
+                meta.locked = true;
+                true
+            } else {
+                false
             }
+        };
+        if reused {
+            let _ = self.app_handle.emit(
+                "agent-tab-lock",
+                serde_json::json!({ "projectId": id, "locked": true }),
+            );
             return Ok(Json(serde_json::json!({
                 "ok": true,
                 "projectId": id,
-                "windowLabel": label,
                 "locked": true,
                 "reused": true,
-                "message": format!("Project '{}' already has agent window '{}' (re-locked and focused)", id, label),
+                "message": format!("Project '{}' is already bound as an MCP agent tab (re-locked)", id),
             })));
         }
-        let safe = sanitize_window_label(&id);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let label = format!("agent-{safe}-{ts}");
+        // Only projects the agent itself opened via MCP open_file may be
+        // bound — the user's own projects stay under user control.
         {
-            let mut wp = self.wp.write().await;
-            wp.insert(label.clone(), id.clone());
+            let mo = self.mcp_opened.read().await;
+            if !mo.contains(&id) {
+                return Err(ErrorData::invalid_params(
+                    format!(
+                        "Project '{}' was not opened via MCP open_file (it was opened by the user, or in a separate window). To work on a copy, copy the file with bash `cp` to a new path, call open_file on the copy, then request_agent_tab on the copy's project id.",
+                        id
+                    ),
+                    None,
+                ));
+            }
         }
         {
-            let mut aw = self.agent_windows.write().await;
-            aw.insert(
-                label.clone(),
-                crate::AgentWindowMeta { project_id: id.clone(), locked: true },
-            );
+            let mut at = self.agent_tabs.write().await;
+            at.insert(id.clone(), crate::AgentTabMeta { locked: true });
         }
-        if let Err(e) = crate::spawn_project_window(&self.app_handle, &label) {
-            // Roll back the registrations when the OS window fails to build.
-            let mut wp = self.wp.write().await;
-            wp.remove(&label);
-            drop(wp);
-            let mut aw = self.agent_windows.write().await;
-            aw.remove(&label);
-            return Err(ErrorData::internal_error(
-                format!("failed to create agent window: {e}"),
-                None,
-            ));
-        }
-        // The project is now excluded from the main window's sidebar.
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+        let _ = self.app_handle.emit(
+            "agent-tab-lock",
+            serde_json::json!({ "projectId": id, "locked": true }),
+        );
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         Ok(Json(serde_json::json!({
             "ok": true,
             "projectId": id,
-            "windowLabel": label,
             "locked": true,
-            "message": format!("Opened agent window '{}' for project '{}' — locked against user input; it re-locks automatically on every tool call", label, id),
+            "message": format!("Bound project '{}' as an MCP agent tab — it stays in the main window but is locked against user input; it re-locks automatically on every tool call", id),
         })))
     }
 
@@ -2416,7 +2423,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<EditSequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         let len = project.length;
         // 1-based inclusive inputs; internal model coordinates are 0-based.
         let (u_start, u_end) = (request.start, request.end);
@@ -2654,7 +2661,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(Json(fail_envelope(&id, err)));
         }
         // update_sequence core does not broadcast — notify the UI ourselves.
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
 
         let repl_len = replacement.len() as i64;
         let unit = match project.molecule_type.as_str() {
@@ -2727,7 +2734,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<AddFeatureRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         let feature_id = next_id("feature");
         let name = request.name.clone();
         let ftype = request.ftype.clone();
@@ -2786,6 +2793,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.app_handle,
             &self.pm,
             &self.wp,
+            &self.agent_tabs,
             None,
             &id,
             vec![feature],
@@ -2820,7 +2828,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<UpdateFeatureRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         if !self.feature_exists(&id, &request.feature_id).await {
             return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
         }
@@ -2873,6 +2881,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.app_handle,
             &self.pm,
             &self.wp,
+            &self.agent_tabs,
             None,
             &id,
             &feature_id,
@@ -2942,7 +2951,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<AddPrimerRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         let primer_id = next_id("primer");
         let name = request.name.clone();
         let primer = Primer {
@@ -2952,7 +2961,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             primer_seq: request.seq,
             binding_sites: Vec::new(),
         };
-        let payload = crate::do_add_primer(&self.app_handle, &self.pm, &self.wp, None, &id, primer)
+        let payload = crate::do_add_primer(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None, &id, primer)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
@@ -3076,7 +3085,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<AddAlignmentRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         let name = request.name.clone();
         let compact = request.compact.unwrap_or(false);
 
@@ -3122,6 +3131,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.app_handle,
             &self.pm,
             &self.wp,
+            &self.agent_tabs,
             None,
             &id,
             request.name,
@@ -3230,7 +3240,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
             return Ok(Json(serde_json::json!({ "projectId": id, "orfs": orfs_json })));
         }
-        self.require_agent_window(&id).await?;
+        self.require_agent_tab(&id).await?;
         if orfs.is_empty() {
             return Ok(Json(serde_json::json!({
                 "ok": true,
@@ -3244,6 +3254,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.app_handle,
             &self.pm,
             &self.wp,
+            &self.agent_tabs,
             None,
             &id,
             orfs,
@@ -3887,7 +3898,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             OptimizeInput::Project { project_id, feature_id } => {
                 let id = self.resolve_project_id(project_id).await?;
                 if apply {
-                    self.require_agent_window(&id).await?;
+                    self.require_agent_tab(&id).await?;
                 }
                 let project = {
                     let pm = self.pm.read().await;
@@ -3942,7 +3953,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     if let Some(err) = Self::payload_error(&payload) {
                         return Ok(Json(fail_envelope(&id, err)));
                     }
-                    crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+                    crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
                     if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
                         v["regionView"] = serde_json::json!(rv);
                     }
@@ -4136,7 +4147,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 // Server bootstrap + settings (start/stop/restart without app restart)
 // ---------------------------------------------------------------------------
 
-#[tool_handler(name = "LibreGene", instructions = "Agent windows: before modifying any project, call request_agent_window to move it into a dedicated window that locks out user input while you work (mutating tools refuse unbound projects; every tool call re-locks the window). Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_file; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, export_subsequence (by coordinates, feature, enzymes/cuts, or primers) then open_file the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases, not for moving sequences between tools.")]
+#[tool_handler(name = "LibreGene", instructions = "Agent tabs: before modifying any project, call request_agent_tab to bind it as an agent tab in the main window (only projects you opened via MCP open_file can be bound — if a project was opened by the user, copy the file with bash `cp` to a new path and open_file the copy). Mutating tools refuse unbound projects; every tool call re-locks the tab. Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_file; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, export_subsequence (by coordinates, feature, enzymes/cuts, or primers) then open_file the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases, not for moving sequences between tools.")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";
@@ -4190,7 +4201,8 @@ pub struct McpServer<R: Runtime> {
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
-    agent_windows: crate::AgentWindows,
+    agent_tabs: crate::AgentTabs,
+    mcp_opened: Arc<RwLock<HashSet<String>>>,
     config: Arc<StdMutex<McpConfig>>,
     task: Arc<StdMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// Bearer token required on every MCP request so that other local
@@ -4207,7 +4219,8 @@ impl<R: Runtime> Clone for McpServer<R> {
             app_handle: self.app_handle.clone(),
             pm: self.pm.clone(),
             wp: self.wp.clone(),
-            agent_windows: self.agent_windows.clone(),
+            agent_tabs: self.agent_tabs.clone(),
+            mcp_opened: self.mcp_opened.clone(),
             config: self.config.clone(),
             task: self.task.clone(),
             auth_token: self.auth_token.clone(),
@@ -4220,14 +4233,16 @@ impl<R: Runtime> McpServer<R> {
         app_handle: AppHandle<R>,
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
-        agent_windows: crate::AgentWindows,
+        agent_tabs: crate::AgentTabs,
+        mcp_opened: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         let auth_token = load_or_create_token(&app_handle);
         Self {
             app_handle,
             pm,
             wp,
-            agent_windows,
+            agent_tabs,
+            mcp_opened,
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
             auth_token: Arc::new(StdMutex::new(auth_token)),
@@ -4283,11 +4298,12 @@ impl<R: Runtime> McpServer<R> {
             let app = self.app_handle.clone();
             let pm = self.pm.clone();
             let wp = self.wp.clone();
-            let agent_windows = self.agent_windows.clone();
+            let agent_tabs = self.agent_tabs.clone();
+            let mcp_opened = self.mcp_opened.clone();
             let port = cfg.port;
             let token = self.auth_token.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app, pm, wp, agent_windows, port, token).await {
+                if let Err(e) = serve_mcp(app, pm, wp, agent_tabs, mcp_opened, port, token).await {
                     log::error!("MCP server error on port {}: {}", port, e);
                 }
             });
@@ -4454,7 +4470,8 @@ async fn serve_mcp<R: Runtime>(
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
-    agent_windows: crate::AgentWindows,
+    agent_tabs: crate::AgentTabs,
+    mcp_opened: Arc<RwLock<HashSet<String>>>,
     port: u16,
     auth_token: Arc<StdMutex<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -4487,7 +4504,8 @@ async fn serve_mcp<R: Runtime>(
                 app_handle.clone(),
                 pm.clone(),
                 wp.clone(),
-                agent_windows.clone(),
+                agent_tabs.clone(),
+                mcp_opened.clone(),
             ))
         },
         Arc::new(session_manager),
@@ -4702,6 +4720,7 @@ mod tests {
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashSet::new())),
         )
     }
 
@@ -4910,6 +4929,7 @@ mod tests {
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashSet::new())),
         )
     }
 
@@ -5091,8 +5111,8 @@ mod tests {
     }
 
     /// Handler whose project manager holds one project (id = name, active).
-    /// The project is bound to a (fake) agent window so mutating tools pass
-    /// the agent-window gate.
+    /// The project is bound as an MCP agent tab (and recorded as MCP-opened)
+    /// so mutating tools pass the agent-tab gate.
     async fn handler_with_project(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
         let app = mock_builder()
             .build(mock_context(noop_assets()))
@@ -5100,21 +5120,21 @@ mod tests {
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
         let id = project.name.clone();
         pm.write().await.load(&id, project);
-        let agent_windows: crate::AgentWindows = Arc::new(RwLock::new(HashMap::new()));
-        agent_windows.write().await.insert(
-            "agent-test".to_string(),
-            crate::AgentWindowMeta { project_id: id.clone(), locked: true },
-        );
+        let agent_tabs: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        agent_tabs.write().await.insert(id.clone(), crate::AgentTabMeta { locked: true });
+        let mcp_opened: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
+        mcp_opened.write().await.insert(id.clone());
         LibreGeneMcp::new(
             app.handle().clone(),
             pm,
             Arc::new(RwLock::new(HashMap::new())),
-            agent_windows,
+            agent_tabs,
+            mcp_opened,
         )
     }
 
-    /// Same as handler_with_project but WITHOUT an agent window — for testing
-    /// that mutating tools refuse projects not bound to an agent window.
+    /// Same as handler_with_project but WITHOUT an agent tab — for testing
+    /// that mutating tools refuse projects not bound as an agent tab.
     async fn handler_with_unbound_project(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
         let app = mock_builder()
             .build(mock_context(noop_assets()))
@@ -5127,6 +5147,27 @@ mod tests {
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashSet::new())),
+        )
+    }
+
+    /// Handler whose project was opened via MCP `open_file` (in `mcp_opened`)
+    /// but is NOT yet bound as an agent tab.
+    async fn handler_with_mcp_opened(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let id = project.name.clone();
+        pm.write().await.load(&id, project);
+        let mcp_opened: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
+        mcp_opened.write().await.insert(id);
+        LibreGeneMcp::new(
+            app.handle().clone(),
+            pm,
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+            mcp_opened,
         )
     }
 
@@ -7464,7 +7505,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mutating_tools_require_agent_window() {
+    async fn mutating_tools_require_agent_tab() {
         let server = handler_with_unbound_project(edit_test_project()).await;
         let err = server
             .edit_sequence(Parameters(EditSequenceRequest {
@@ -7476,8 +7517,9 @@ mod tests {
             }))
             .await
             .err()
-            .expect("expected agent-window gate error");
-        assert!(err.message.contains("request_agent_window"), "{err}");
+            .expect("expected agent-tab gate error");
+        assert!(err.message.contains("request_agent_tab"), "{err}");
+        assert!(err.message.contains("open_file"), "{err}");
         let err = server
             .add_feature(Parameters(AddFeatureRequest {
                 project_id: Some("edit_test".to_string()),
@@ -7487,9 +7529,9 @@ mod tests {
             }))
             .await
             .err()
-            .expect("expected agent-window gate error");
-        assert!(err.message.contains("request_agent_window"), "{err}");
-        // Read-only tools stay usable without an agent window.
+            .expect("expected agent-tab gate error");
+        assert!(err.message.contains("request_agent_tab"), "{err}");
+        // Read-only tools stay usable without an agent tab.
         server
             .read_sequence(Parameters(SequenceRequest {
                 project_id: Some("edit_test".to_string()),
@@ -7501,7 +7543,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tool_call_relocks_unlocked_agent_window() {
+    async fn tool_call_relocks_unlocked_agent_tab() {
         let app = mock_builder()
             .build(mock_context(noop_assets()))
             .expect("mock app builds");
@@ -7509,19 +7551,17 @@ mod tests {
         let project = edit_test_project();
         let id = project.name.clone();
         pm.write().await.load(&id, project);
-        let agent_windows: crate::AgentWindows = Arc::new(RwLock::new(HashMap::new()));
-        // The user has unlocked the window.
-        agent_windows.write().await.insert(
-            "agent-test".to_string(),
-            crate::AgentWindowMeta { project_id: id.clone(), locked: false },
-        );
+        let agent_tabs: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        // The user has unlocked the tab.
+        agent_tabs.write().await.insert(id.clone(), crate::AgentTabMeta { locked: false });
         let server = LibreGeneMcp::new(
             app.handle().clone(),
             pm,
             Arc::new(RwLock::new(HashMap::new())),
-            agent_windows.clone(),
+            agent_tabs.clone(),
+            Arc::new(RwLock::new(HashSet::new())),
         );
-        // Any tool call that resolves the project re-locks the window.
+        // Any tool call that resolves the project re-locks the tab.
         server
             .read_sequence(Parameters(SequenceRequest {
                 project_id: Some(id.clone()),
@@ -7530,15 +7570,15 @@ mod tests {
             }))
             .await
             .unwrap();
-        assert!(agent_windows.read().await["agent-test"].locked);
+        assert!(agent_tabs.read().await[&id].locked);
     }
 
     #[tokio::test]
-    async fn request_agent_window_reuses_existing_window() {
-        // handler_with_project pre-binds the fake agent window "agent-test".
+    async fn request_agent_tab_reuses_existing_tab() {
+        // handler_with_project pre-binds the project as an agent tab.
         let server = handler_with_project(edit_test_project()).await;
         let out = server
-            .request_agent_window(Parameters(RequestAgentWindowRequest {
+            .request_agent_tab(Parameters(RequestAgentTabRequest {
                 project_id: Some("edit_test".to_string()),
             }))
             .await
@@ -7546,8 +7586,62 @@ mod tests {
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["reused"], true);
-        assert_eq!(v["windowLabel"], "agent-test");
         assert_eq!(v["locked"], true);
+    }
+
+    #[tokio::test]
+    async fn request_agent_tab_rejects_user_opened_project() {
+        // The project is in the manager but NOT in mcp_opened (the user
+        // opened it) and not bound — binding must be refused with a hint to
+        // copy the file.
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let project = edit_test_project();
+        let id = project.name.clone();
+        pm.write().await.load(&id, project);
+        let server = LibreGeneMcp::new(
+            app.handle().clone(),
+            pm,
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashSet::new())),
+        );
+        let err = server
+            .request_agent_tab(Parameters(RequestAgentTabRequest {
+                project_id: Some(id.clone()),
+            }))
+            .await
+            .err()
+            .expect("expected refusal for a user-opened project");
+        assert!(err.message.contains("cp"), "{err}");
+        assert!(err.message.contains("open_file"), "{err}");
+        assert!(err.message.contains("request_agent_tab"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn request_agent_tab_binds_after_mcp_open_file() {
+        // The project was opened via MCP open_file (in mcp_opened) but not
+        // yet bound — request_agent_tab must succeed.
+        let server = handler_with_mcp_opened(edit_test_project()).await;
+        let out = server
+            .request_agent_tab(Parameters(RequestAgentTabRequest {
+                project_id: Some("edit_test".to_string()),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["locked"], true);
+        // A second call reuses the existing binding.
+        let out = server
+            .request_agent_tab(Parameters(RequestAgentTabRequest {
+                project_id: Some("edit_test".to_string()),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["reused"], true);
     }
 
     #[test]
@@ -7561,7 +7655,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_agent_window_sanitizes_paths_with_parens_and_spaces() {
+    async fn request_agent_tab_binds_project_id_with_parens_and_spaces() {
+        // Agent tabs are keyed by the raw project id (no window label is
+        // created), so paths with parens/spaces bind without sanitization and
+        // never touch window_projects.
         let app = mock_builder()
             .build(mock_context(noop_assets()))
             .expect("mock app builds");
@@ -7576,31 +7673,28 @@ mod tests {
             ..Default::default()
         });
         let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
-        let aw: crate::AgentWindows = Arc::new(RwLock::new(HashMap::new()));
+        let at: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        let mcp_opened: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
+        mcp_opened.write().await.insert(id.clone());
         let server = LibreGeneMcp::new(
             app.handle().clone(),
             pm,
             wp.clone(),
-            aw.clone(),
+            at.clone(),
+            mcp_opened,
         );
         let out = server
-            .request_agent_window(Parameters(RequestAgentWindowRequest {
+            .request_agent_tab(Parameters(RequestAgentTabRequest {
                 project_id: Some(id.clone()),
             }))
             .await
             .unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "{v}");
-        let label = v["windowLabel"].as_str().unwrap();
-        assert!(label.starts_with("agent-_tmp_my_project__v2__gbk-"), "{label}");
-        assert!(
-            label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
-            "window label must contain only [A-Za-z0-9-_]: {label}"
-        );
-        assert!(!label.contains(' '), "{label}");
-        // The window → project registration uses the sanitized label.
-        assert!(wp.read().await.contains_key(label), "{label}");
-        assert!(aw.read().await.contains_key(label), "{label}");
+        assert_eq!(v["projectId"], id);
+        // Bound by raw project id, no window label registered anywhere.
+        assert!(at.read().await.contains_key(&id));
+        assert!(wp.read().await.is_empty(), "no window must be created: {wp:?}");
     }
 
     #[tokio::test]
@@ -7612,7 +7706,7 @@ mod tests {
             }))
             .await
             .err()
-            .expect("expected agent-window activation error");
-        assert!(err.message.contains("agent window"), "{err}");
+            .expect("expected agent-tab activation error");
+        assert!(err.message.contains("agent tab"), "{err}");
     }
 }

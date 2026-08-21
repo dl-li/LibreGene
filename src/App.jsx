@@ -10,9 +10,8 @@ import {
   getProjects,
   activateProject,
   getWindowProjectId,
-  getAgentWindowState,
-  setAgentWindowLocked,
-  listenAgentWindowLock,
+  setAgentTabLocked,
+  listenAgentTabLock,
   openInNewWindow,
   deleteProject,
   setWindowTitle,
@@ -131,11 +130,11 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
 
-  // Multi-window: tracks whether this window is "main", a "project" window or
-  // an MCP "agent" window (carries the agent lock state)
+  // Multi-window: tracks whether this window is "main" or a "project" window
   const [windowInfo, setWindowInfo] = useState(null);
-  // { type: 'main' } | { type: 'project', projectId } |
-  // { type: 'agent', projectId, label, locked }
+  // { type: 'main' } | { type: 'project', projectId }
+  // Agent tabs live in the main window; their lock state lives in agentTabs.
+  const [agentTabs, setAgentTabs] = useState({}); // { [projectId]: locked }
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 'plugins' → open the settings dialog scrolled to the plugin section
@@ -251,6 +250,26 @@ export default function App() {
     sidebarLeaveRef.current = setTimeout(() => setSidebarHover(false), 250);
   }, []);
 
+  // Merge the agentLocked field of a projects payload into the agentTabs map,
+  // pruning entries for projects that are no longer in the list.
+  const mergeAgentTabs = useCallback((projs) => {
+    const next = {};
+    for (const p of projs) {
+      if (p.agentLocked != null) next[p.id] = !!p.agentLocked;
+    }
+    setAgentTabs((prev) => {
+      if (Object.keys(prev).length === 0 && Object.keys(next).length === 0) return prev;
+      let changed = false;
+      for (const id of Object.keys(next)) {
+        if (prev[id] !== next[id]) changed = true;
+      }
+      for (const id of Object.keys(prev)) {
+        if (!(id in next)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
   // Sync project list from backend
   const refreshProjects = useCallback(async () => {
     try {
@@ -258,11 +277,12 @@ export default function App() {
       if (data && !data.error) {
         setProjects(data.projects || []);
         setActiveId(data.activeId || null);
+        mergeAgentTabs(data.projects || []);
       }
     } catch {
       // backend unreachable; keep current project list
     }
-  }, []);
+  }, [mergeAgentTabs]);
 
   // Apply the persisted MCP config once on startup so the server reflects the
   // saved enable/port (the Rust side already started with the default config).
@@ -283,20 +303,9 @@ export default function App() {
       setWindowInfo({ type: 'main' });
       return;
     }
-    getAgentWindowState()
-      .then((aw) => {
-        if (aw) {
-          setWindowInfo({
-            type: 'agent',
-            projectId: aw.projectId,
-            label: aw.label,
-            locked: aw.locked !== false,
-          });
-          return null;
-        }
-        return getWindowProjectId().then((pid) => {
-          setWindowInfo(pid ? { type: 'project', projectId: pid } : { type: 'main' });
-        });
+    getWindowProjectId()
+      .then((pid) => {
+        setWindowInfo(pid ? { type: 'project', projectId: pid } : { type: 'main' });
       })
       .catch(() => setWindowInfo({ type: 'main' }));
   }, []);
@@ -322,6 +331,7 @@ export default function App() {
         if (cancelled) return;
         if (msg.projects) {
           setProjects(msg.projects);
+          mergeAgentTabs(msg.projects);
         }
         if (msg.activeId !== undefined) {
           setActiveId(msg.activeId);
@@ -333,7 +343,7 @@ export default function App() {
       cancelled = true;
       if (listener) listener.close();
     };
-  }, [windowInfo, refreshProjects]);
+  }, [windowInfo, refreshProjects, mergeAgentTabs]);
 
   // --- beforeunload: warn on close with unsaved changes in any workspace ---
   const anyDirty = Object.values(dirtyById).some(Boolean);
@@ -352,8 +362,7 @@ export default function App() {
   const activeTitle = activeId
     ? activeId.split('/').pop().split('\\').pop()
     : windowInfo && windowInfo.type !== 'main'
-      ? windowInfo.projectId.split('/').pop().split('\\').pop() +
-        (windowInfo.type === 'agent' ? ' — Agent' : '')
+      ? windowInfo.projectId.split('/').pop().split('\\').pop()
       : 'LibreGene';
   const titleId = windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : activeId;
   const activeDirty = titleId ? dirtyById[titleId] === true : false;
@@ -633,28 +642,30 @@ export default function App() {
   }, [sidebarHover]);
   const visibleRecent = recentFiles.filter((p) => !projects.some((pr) => pr.id === p));
 
-  // Agent windows render like project windows (single workspace, no sidebar)
-  const isAgentWindow = windowInfo?.type === 'agent';
-  const isProjectWindow = windowInfo?.type === 'project' || isAgentWindow;
-  const agentLocked = isAgentWindow && windowInfo.locked !== false;
+  // Agent tabs live in the main window; project windows render a single
+  // workspace with no sidebar.
+  const isProjectWindow = windowInfo?.type === 'project';
+  // The active project is an agent tab, bound and locked by the MCP agent.
+  const activeAgentLocked = !!activeId && agentTabs[activeId] === true;
+  const activeAgentUnlocked = !!activeId && agentTabs[activeId] === false;
 
-  // Agent window lock state is pushed from the backend (auto-relock on every
-  // MCP tool call targeting the bound project).
+  // Agent-tab lock state is pushed from the backend (auto-relock on every MCP
+  // tool call targeting the bound project).
   useEffect(() => {
-    if (!isAgentWindow || !windowInfo?.label) return undefined;
-    const listener = listenAgentWindowLock((payload) => {
-      if (payload?.label === windowInfo.label) {
-        setWindowInfo((w) => (w ? { ...w, locked: !!payload.locked } : w));
+    if (windowInfo?.type !== 'main') return undefined;
+    const listener = listenAgentTabLock((payload) => {
+      if (payload?.projectId) {
+        setAgentTabs((prev) => ({ ...prev, [payload.projectId]: !!payload.locked }));
       }
     });
     return () => listener.close();
-  }, [isAgentWindow, windowInfo?.label]);
+  }, [windowInfo?.type]);
 
-  // While locked, swallow all keyboard input at the capture phase so the
-  // editor/sidebar shortcuts never see it (pointer input is covered by the
-  // lock overlay).
+  // While the active project is a locked agent tab, swallow all keyboard
+  // input at the capture phase so the editor/sidebar shortcuts never see it
+  // (pointer input is covered by the workspace pointer-events-none).
   useEffect(() => {
-    if (!agentLocked) return undefined;
+    if (!activeAgentLocked) return undefined;
     const block = (e) => {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -665,10 +676,10 @@ export default function App() {
       window.removeEventListener('keydown', block, true);
       window.removeEventListener('keyup', block, true);
     };
-  }, [agentLocked]);
+  }, [activeAgentLocked]);
 
-  const handleSetAgentLocked = useCallback((locked) => {
-    setAgentWindowLocked(locked).catch(() => {});
+  const handleSetAgentLocked = useCallback((projectId, locked) => {
+    setAgentTabLocked(projectId, locked).catch(() => {});
   }, []);
 
   const hasProject = isProjectWindow || projects.length > 0;
@@ -693,7 +704,7 @@ export default function App() {
   // projects. Invalid extensions are ignored silently.
   const handleDroppedPaths = useCallback(
     (paths) => {
-      if (agentLocked) return;
+      if (activeAgentLocked) return;
       const valid = (paths || []).filter(isSequenceFilePath);
       if (valid.length === 0) return;
       const handle = sidebarTargetId ? handlesRef.current[sidebarTargetId] : null;
@@ -703,7 +714,7 @@ export default function App() {
         valid.forEach((p) => openExternalPath(p));
       }
     },
-    [sidebarTargetId, openExternalPath, agentLocked],
+    [sidebarTargetId, openExternalPath, activeAgentLocked],
   );
 
   useEffect(() => {
@@ -889,8 +900,9 @@ export default function App() {
                 {projects.map((p) => {
                   const isActiveProject = p.id === activeId;
                   const isProjectDirty = dirtyById[p.id] === true;
+                  const isAgentTab = p.agentLocked != null;
                   const name = fileName(p);
-                  const Icon = getFileIcon(name);
+                  const Icon = isAgentTab ? Bot : getFileIcon(name);
                   return (
                     <SidebarMenuItem key={p.id}>
                       {isActiveProject && (
@@ -904,8 +916,15 @@ export default function App() {
                           !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
                         }`}
                       >
-                        <Icon className="size-4 shrink-0" />
+                        <Icon
+                          className={`size-4 shrink-0 ${isAgentTab ? 'text-amber-500' : ''}`}
+                        />
                         <span className="truncate">{name}</span>
+                        {isAgentTab && (
+                          <span className="ml-1 shrink-0 rounded-full bg-amber-500/15 px-1.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600">
+                            Bot
+                          </span>
+                        )}
                       </SidebarMenuButton>
                       {isProjectDirty && (
                         <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
@@ -1023,55 +1042,40 @@ export default function App() {
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
           <TitleBar title={activeTitle} dirty={activeDirty} />
-          {/* Agent windows always carry a bot watermark for visual distinction */}
-          {isAgentWindow && (
-            <div
-              aria-hidden
-              className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
-            >
-              <Bot
-                className="size-[420px] text-foreground"
-                strokeWidth={0.8}
-                style={{ opacity: 0.07 }}
-              />
-            </div>
-          )}
-          {/* Locked agent window: intercept all pointer input below the
-              titlebar; only the unlock button stays clickable */}
-          {isAgentWindow && agentLocked && (
-            <div
-              className="fixed inset-x-0 bottom-0 top-10 z-[200] flex flex-col items-center justify-center gap-3 bg-background/70 backdrop-blur-[2px]"
-              style={{ cursor: 'not-allowed' }}
-              onContextMenu={(e) => e.preventDefault()}
-            >
-              <Bot className="size-10 text-muted-foreground" />
-              <div className="text-sm font-medium text-foreground/80">
-                This window is controlled by an MCP agent
+          {/* Locked agent tab: a floating panel on the right (no full-screen
+              overlay — the user can still watch the agent work); the workspace
+              is inert via pointer-events-none + keyboard capture. */}
+          {activeAgentLocked && (
+            <div className="fixed right-4 top-1/2 z-[200] flex -translate-y-1/2 flex-col items-center gap-2 rounded-lg border border-amber-500/40 bg-background/95 px-4 py-3 shadow-lg">
+              <Bot className="size-6 text-amber-500" />
+              <div className="text-xs font-medium text-foreground/80">
+                Controlled by an MCP agent
               </div>
-              <div className="text-xs text-muted-foreground">
-                User input is locked while the agent is working
+              <div className="max-w-[170px] text-center text-[11px] leading-relaxed text-muted-foreground">
+                The active project is locked while the agent works. Switch to
+                another tab in the sidebar to keep editing.
               </div>
               <Button
                 variant="outline"
-                className="mt-2 gap-2"
-                style={{ cursor: 'pointer' }}
-                onClick={() => handleSetAgentLocked(false)}
+                size="sm"
+                className="mt-1 gap-1.5"
+                onClick={() => handleSetAgentLocked(activeId, false)}
               >
-                <LockOpen className="size-4" />
-                Unlock for user
+                <LockOpen className="size-3.5" />
+                Unlock
               </Button>
             </div>
           )}
-          {/* Unlocked agent window: floating badge with a manual re-lock */}
-          {isAgentWindow && !agentLocked && (
+          {/* Unlocked agent tab: floating badge with a manual re-lock */}
+          {activeAgentUnlocked && (
             <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-md border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              <Bot className="size-3.5" />
-              <span>Agent window — unlocked</span>
+              <Bot className="size-3.5 text-amber-500" />
+              <span>Agent tab — unlocked</span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 gap-1 px-2 text-xs"
-                onClick={() => handleSetAgentLocked(true)}
+                onClick={() => handleSetAgentLocked(activeId, true)}
               >
                 <Lock className="size-3" />
                 Lock
@@ -1088,7 +1092,9 @@ export default function App() {
               {sidebarContent}
             </div>
           )}
-          <div className="relative flex flex-1 min-h-0">
+          <div
+            className={`relative flex flex-1 min-h-0 ${activeAgentLocked ? 'pointer-events-none' : ''}`}
+          >
             {isProjectWindow ? (
               <ProjectWorkspace
                 key={keyFor(windowInfo.projectId)}
