@@ -44,7 +44,7 @@ impl ProjectManager {
             self.evict_one();
             self.ordered_ids.push(id.to_string());
         }
-        self.projects.insert(id.to_string(), project.clone());
+        self.projects.insert(id.to_string(), project);
         self.active = Some(id.to_string());
     }
 
@@ -156,105 +156,6 @@ impl ProjectManager {
             self.active = self.ordered_ids.first().cloned();
         }
         existed
-    }
-
-    pub fn set_roi(&mut self, start: i64, end: i64) {
-        if let Some(p) = self.get_project_mut() {
-            p.roi = Some((start, end));
-        }
-    }
-
-    pub fn clear_roi(&mut self) {
-        if let Some(p) = self.get_project_mut() {
-            p.roi = None;
-        }
-    }
-
-    pub fn update_sequence(&mut self, seq: String) {
-        if let Some(p) = self.get_project_mut() {
-            p.sequence = seq;
-            p.length = p.sequence.len() as i64;
-            if let Some(ref active) = self.active {
-                self.dirty_projects.insert(active.clone());
-            }
-        }
-    }
-
-    pub fn update_features(&mut self, features: Vec<crate::models::Feature>) {
-        if let Some(p) = self.get_project_mut() {
-            p.features = features;
-            if let Some(ref active) = self.active {
-                self.dirty_projects.insert(active.clone());
-            }
-        }
-    }
-
-    /// Update the `ftype` field of a single feature identified by `feature_id`.
-    pub fn update_feature_ftype(&mut self, feature_id: &str, new_ftype: &str) {
-        if let Some(p) = self.get_project_mut() {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.ftype = new_ftype.to_string();
-            }
-            if let Some(ref active) = self.active {
-                self.dirty_projects.insert(active.clone());
-            }
-        }
-    }
-
-    /// Update the `color` field of a single feature identified by `feature_id`.
-    /// Segment-level colors are overwritten too so the whole feature recolors.
-    pub fn update_feature_color(&mut self, feature_id: &str, new_color: &str) {
-        if let Some(p) = self.get_project_mut() {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.color = new_color.to_string();
-                for seg in f.segments.iter_mut() {
-                    seg.color = Some(new_color.to_string());
-                }
-            }
-            if let Some(ref active) = self.active {
-                self.dirty_projects.insert(active.clone());
-            }
-        }
-    }
-
-    /// Update a feature's location by parsing a 0-based inclusive location
-    /// string (e.g. "99..199", "complement(49..79)", "join(0..99,199..299)").
-    /// Returns an Err if the location string is invalid.
-    pub fn update_feature_location(
-        &mut self,
-        feature_id: &str,
-        location_str: &str,
-    ) -> Result<(), String> {
-        let parsed = crate::file_io::gbk::parse_location_string_0based(location_str)
-            .ok_or_else(|| format!("Invalid location: {}", location_str))?;
-        let (segments, start, end, strand) = parsed;
-        if let Some(p) = self.get_project_mut() {
-            if let Some(f) = p.features.iter_mut().find(|f| f.id == feature_id) {
-                f.segments = segments;
-                f.start = start;
-                f.end = end;
-                f.strand = strand;
-            }
-            if let Some(ref active) = self.active {
-                self.dirty_projects.insert(active.clone());
-            }
-        }
-        Ok(())
-    }
-
-    pub fn update_primers(&mut self, primers: Vec<crate::models::Primer>) {
-        if let Some(p) = self.get_project_mut() {
-            p.primers = primers;
-            if let Some(ref active) = self.active {
-                self.dirty_projects.insert(active.clone());
-            }
-        }
-    }
-
-    pub fn set_methylation_systems(&mut self, systems: Vec<String>) {
-        if let Some(p) = self.get_project_mut() {
-            p.methylation_systems = systems;
-        }
     }
 
     /// Align `seq` against project `id`'s sequence and store the result.

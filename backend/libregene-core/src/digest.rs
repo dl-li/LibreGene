@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 
 use crate::models::{AlignDeletion, Enzyme, Feature, PrimerBindingSite, ProjectData};
+use std::fmt::Write as _;
 
 /// Cap for `read_sequence` windows — protects LLM context from accidental dumps.
 pub const MAX_READ_BASES: usize = 10_000;
@@ -356,7 +357,7 @@ fn push_auto_annotation(out: &mut String, project: &ProjectData) {
         return;
     }
     for f in &detected {
-        out.push_str(&format!(
+        let _ = write!(out, 
             "        {} | {} | {} | {}..{} | {:.1}%",
             auto_feature_display_name(f),
             f.ftype,
@@ -364,7 +365,7 @@ fn push_auto_annotation(out: &mut String, project: &ProjectData) {
             f.start + 1,
             f.end + 1,
             f.identity
-        ));
+        );
         if f.match_level == "aa" {
             out.push_str(" | (protein-level)");
         }
@@ -416,13 +417,13 @@ pub fn project_digest(
                 }
             })
             .collect();
-        locus.push_str(&format!("    methylation: {}", systems.join(",")));
+        let _ = write!(locus, "    methylation: {}", systems.join(","));
     }
     if let Some((rs, re)) = project.roi {
-        locus.push_str(&format!("    ROI: {}..{}", rs + 1, re + 1));
+        let _ = write!(locus, "    ROI: {}..{}", rs + 1, re + 1);
     }
     if let Some((s, e)) = region {
-        locus.push_str(&format!("    REGION: {}..{}", s + 1, e + 1));
+        let _ = write!(locus, "    REGION: {}..{}", s + 1, e + 1);
     }
     out.push_str(&locus);
     out.push('\n');
@@ -450,10 +451,10 @@ pub fn project_digest(
                 out.push_str(&feature_line(f));
                 out.push('\n');
             }
-            out.push_str(&format!(
+            let _ = write!(out, 
                 "        ... and {} more features (narrow with feature_filter)\n",
                 features.len() - max
-            ));
+            );
         }
         _ => {
             for f in &features {
@@ -489,10 +490,10 @@ pub fn project_digest(
             out.push('\n');
         }
         if !unbound.is_empty() {
-            out.push_str(&format!(
+            let _ = write!(out, 
                 "Primers without binding sites: {}\n",
                 unbound.join(", ")
-            ));
+            );
         }
     } else if is_dna && region.is_none() {
         out.push_str("PRIMERS (none)\n");
@@ -539,34 +540,34 @@ pub fn project_digest(
             if section.is_empty() {
                 section.push_str("ALIGNMENT DIFFS IN REGION (1-based inclusive):\n");
             }
-            section.push_str(&format!("        {}  (id: {}):", a.name, a.id));
+            let _ = write!(section, "        {}  (id: {}):", a.name, a.id);
             if mismatches.is_empty() && deletions.is_empty() && insertions.is_empty() {
                 section.push_str(" no differences in window\n");
                 continue;
             }
             section.push('\n');
             for m in mismatches {
-                section.push_str(&format!(
+                let _ = write!(section, 
                     "          mismatch at {}: {} > {}\n",
                     m.pos + 1,
                     m.template_base,
                     m.read_base
-                ));
+                );
             }
             for d in deletions {
-                section.push_str(&format!(
+                let _ = write!(section, 
                     "          deletion at {}: {} bp ({})\n",
                     d.pos + 1,
                     d.length,
                     d.bases
-                ));
+                );
             }
             for i in insertions {
                 let (a1, b1) = cut_flanks(i.pos as i64, project.length, circular);
-                section.push_str(&format!(
+                let _ = write!(section, 
                     "          insertion between {} and {}: {} ({} bp)\n",
                     a1, b1, i.bases, i.length
-                ));
+                );
             }
         }
         out.push_str(&section);
@@ -585,43 +586,43 @@ pub fn project_digest(
                 let multi = multi_names.len() + others;
                 if opts.compact_enzymes {
                     if !unique.is_empty() || multi > 0 {
-                        out.push_str(&format!(
+                        let _ = write!(out, 
                             "ENZYMES (compact): {} single-cut, {} multi-cut (cuts shown as N^N+1, 1-based)\n",
                             unique.len(),
                             multi
-                        ));
+                        );
                     }
                 } else if opts.compact_cutters {
                     if !unique.is_empty() {
-                        out.push_str(&format!(
+                        let _ = write!(out, 
                             "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)\n",
                             unique.len()
-                        ));
+                        );
                     }
                     if multi > 0 {
-                        out.push_str(&format!(
+                        let _ = write!(out, 
                             "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
                             multi
-                        ));
+                        );
                     }
                 } else {
                     if !unique.is_empty() {
                         out.push_str("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for e in unique {
-                            out.push_str(&format!(
+                            let _ = write!(out, 
                                 "        {:<10} {:<28} {:<10} {}\n",
                                 e.name,
                                 cuts_desc(e, project.length, circular),
                                 e.rec_seq,
                                 cut_type_label(&e.cut_type)
-                            ));
+                            );
                         }
                     }
                     if multi > 0 {
-                        out.push_str(&format!(
+                        let _ = write!(out, 
                             "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
                             multi
-                        ));
+                        );
                     }
                 }
             }
@@ -633,19 +634,19 @@ pub fn project_digest(
                     .collect();
                 if !in_region.is_empty() {
                     if opts.compact_enzymes {
-                        out.push_str(&format!(
+                        let _ = write!(out, 
                             "ENZYMES CUTTING IN REGION (compact): {} cuts (cuts shown as N^N+1, 1-based)\n",
                             in_region.len()
-                        ));
+                        );
                     } else {
                         out.push_str("ENZYMES CUTTING IN REGION (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for en in in_region {
-                            out.push_str(&format!(
+                            let _ = write!(out, 
                                 "        {:<10} {}   {}\n",
                                 en.name,
                                 cuts_desc(en, project.length, circular),
                                 cut_type_label(&en.cut_type)
-                            ));
+                            );
                         }
                     }
                 }
@@ -712,7 +713,7 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
 
     let mut out = String::new();
     let unit = unit_for(&project.molecule_type);
-    out.push_str(&format!(
+    let _ = write!(out, 
         "COORDS: 1-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})\n",
         s + 1,
         e + 1,
@@ -722,14 +723,14 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
         unit,
         project.topology,
         circular
-    ));
+    );
     // Ruler labels the group start positions of the first line. Small windows
     // (a single sequence line) skip it — the per-line coordinate prefix
     // already anchors the position and the ruler would dominate the output.
     if count as usize > LINE_BASES {
         out.push_str(&" ".repeat(7));
         for i in 0..COLS {
-            out.push_str(&format!("{:>11}", s + 1 + (i as i64) * GROUP as i64));
+            let _ = write!(out, "{:>11}", s + 1 + (i as i64) * GROUP as i64);
         }
         out.push('\n');
     }
@@ -738,7 +739,7 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
             if idx > 0 {
                 out.push('\n');
             }
-            out.push_str(&format!("{:>6} ", s + 1 + idx as i64));
+            let _ = write!(out, "{:>6} ", s + 1 + idx as i64);
         }
         out.push((base as char).to_ascii_uppercase());
         if (idx + 1) % GROUP == 0 && (idx + 1) % LINE_BASES != 0 {

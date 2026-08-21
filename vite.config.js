@@ -26,7 +26,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+          // Exact package dirs — a bare 'react' prefix would also capture
+          // react-remove-scroll / react-style-singleton (Radix transitive
+          // deps), invalidating the vendor chunk on Radix updates.
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
             return 'vendor';
           }
         },
