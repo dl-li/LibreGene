@@ -839,19 +839,48 @@ export default function ProjectWorkspace({
     [sequence, features, primers, onProjectsSync],
   );
 
+  const addAlignmentFiles = useCallback(
+    async (paths) => {
+      const gen = operationGenRef.current;
+      const failed = [];
+      let added = 0;
+      let lastData = null;
+      for (const path of paths) {
+        try {
+          const data = await addAlignment(path);
+          if (operationGenRef.current !== gen) return null;
+          if (data && data.error) {
+            failed.push({ path, error: data.error });
+          } else if (data) {
+            added += 1;
+            lastData = data;
+          }
+        } catch (e) {
+          failed.push({ path, error: String(e?.message || e) });
+        }
+      }
+      if (lastData) {
+        if (lastData.alignments) setAlignments(lastData.alignments);
+        if (lastData.projects) onProjectsSync(lastData.projects);
+        setIsDirty(true);
+      }
+      return { added, failed };
+    },
+    [onProjectsSync],
+  );
+
   const handleAddAlignment = useCallback(async () => {
-    const gen = operationGenRef.current;
-    const path = await openAlignmentFileDialog();
-    if (!path) return;
-    const data = await addAlignment(path);
-    if (operationGenRef.current !== gen) return;
-    if (data && data.error) throw new Error(data.error);
-    if (data) {
-      if (data.alignments) setAlignments(data.alignments);
-      if (data.projects) onProjectsSync(data.projects);
-      setIsDirty(true);
+    const paths = await openAlignmentFileDialog();
+    if (!paths || paths.length === 0) return;
+    const result = await addAlignmentFiles(paths);
+    if (result && result.failed.length > 0) {
+      const lines = result.failed.map((f) => {
+        const name = f.path.replace(/\\/g, '/').split('/').pop();
+        return `${name}: ${f.error}`;
+      });
+      throw new Error(lines.join('\n'));
     }
-  }, [onProjectsSync]);
+  }, [addAlignmentFiles]);
 
   const handleAddAlignmentText = useCallback(
     async (name, seq) => {
@@ -1308,7 +1337,8 @@ export default function ProjectWorkspace({
     }
   }, []);
 
-  // Expose imperative handle for App (sidebar buttons, close-with-save flow)
+  // Expose imperative handle for App (sidebar buttons, close-with-save flow,
+  // drag-drop alignment routing)
   useEffect(() => {
     registerHandle(projectId, {
       save: handleSave,
@@ -1319,9 +1349,20 @@ export default function ProjectWorkspace({
       },
       openMapView: () => setMapViewOpen(true),
       openPrimerOverview: () => setPrimerOverviewOpen(true),
+      moleculeType,
+      alignmentEnabled,
+      addAlignmentFiles,
     });
     return () => registerHandle(projectId, null);
-  }, [projectId, registerHandle, handleSave, handleSaveAs]);
+  }, [
+    projectId,
+    registerHandle,
+    handleSave,
+    handleSaveAs,
+    moleculeType,
+    alignmentEnabled,
+    addAlignmentFiles,
+  ]);
 
   // --- Keyboard shortcuts for the visible workspace: Ctrl+Z/Y/S/Shift+S ---
   useEffect(() => {
