@@ -15,7 +15,7 @@ const SCOPED_CSS = `
 .forna-view line.pseudoknot { stroke: red; }
 .forna-view path.node { display: none; }
 .forna-view text { pointer-events: none; }
-.forna-view text.node-label { font-size: 10.5px; font-weight: bold; font-family: 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgb(100,100,100); transform: translateY(1.3px); }
+.forna-view text.node-label { font-size: 10.5px; font-weight: bold; font-family: 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgb(100,100,100); dominant-baseline: central; transform: translateY(-2.5px); }
 .forna-view .transparent { fill: transparent; stroke-width: 0; stroke-opacity: 0; opacity: 0; visibility: hidden; }
 `;
 
