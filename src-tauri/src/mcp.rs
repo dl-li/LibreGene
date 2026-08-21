@@ -117,6 +117,12 @@ struct ActivateProjectRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct RequestAgentWindowRequest {
+    /// Project to bind the agent window to; defaults to the active project.
+    project_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct EditSequenceRequest {
     project_id: Option<String>,
     /// First base of the replaced range, 1-based inclusive. Ranges must not
@@ -599,6 +605,7 @@ pub struct LibreGeneMcp<R: Runtime> {
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
+    agent_windows: crate::AgentWindows,
 }
 
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -881,34 +888,62 @@ impl<R: Runtime> LibreGeneMcp<R> {
         app_handle: AppHandle<R>,
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
+        agent_windows: crate::AgentWindows,
     ) -> Self {
-        Self { app_handle, pm, wp }
+        Self { app_handle, pm, wp, agent_windows }
     }
 
-    /// Explicit project id or the active project.
+    /// Explicit project id or the active project. Resolving a project also
+    /// re-locks any agent window bound to it — the user may unlock the window,
+    /// but the next tool call on the project locks it again.
     async fn resolve_project_id(&self, project_id: Option<String>) -> Result<String, ErrorData> {
-        let pm = self.pm.read().await;
-        match project_id {
-            Some(id) => Ok(id),
-            None => pm.active_id().map(|s| s.to_string()).ok_or_else(|| {
-                ErrorData::invalid_params("No project loaded — open a file or pass project_id", None)
-            }),
-        }
+        let id = {
+            let pm = self.pm.read().await;
+            match project_id {
+                Some(id) => id,
+                None => pm.active_id().map(|s| s.to_string()).ok_or_else(|| {
+                    ErrorData::invalid_params("No project loaded — open a file or pass project_id", None)
+                })?,
+            }
+        };
+        crate::lock_agent_windows_for_project(&self.app_handle, &self.agent_windows, &id).await;
+        Ok(id)
     }
 
     /// Resolve the project id and clone its data out of the lock.
     async fn resolve_project(&self, project_id: Option<String>) -> Result<(String, ProjectData), ErrorData> {
-        let pm = self.pm.read().await;
-        let id = match project_id {
-            Some(id) => id,
-            None => pm.active_id().map(|s| s.to_string()).ok_or_else(|| {
-                ErrorData::invalid_params("No project loaded — open a file or pass project_id", None)
-            })?,
+        let (id, project) = {
+            let pm = self.pm.read().await;
+            let id = match project_id {
+                Some(id) => id,
+                None => pm.active_id().map(|s| s.to_string()).ok_or_else(|| {
+                    ErrorData::invalid_params("No project loaded — open a file or pass project_id", None)
+                })?,
+            };
+            let project = pm.get_project_by_id(&id).cloned().ok_or_else(|| {
+                ErrorData::invalid_params(format!("Project not found: {}", id), None)
+            })?;
+            (id, project)
         };
-        let project = pm.get_project_by_id(&id).cloned().ok_or_else(|| {
-            ErrorData::invalid_params(format!("Project not found: {}", id), None)
-        })?;
+        crate::lock_agent_windows_for_project(&self.app_handle, &self.agent_windows, &id).await;
         Ok((id, project))
+    }
+
+    /// Mutating tools may only operate on projects bound to an agent window,
+    /// so the user keeps an untouched main window. Read-only tools are
+    /// unrestricted; `request_agent_window` performs the binding.
+    async fn require_agent_window(&self, project_id: &str) -> Result<(), ErrorData> {
+        let aw = self.agent_windows.read().await;
+        if aw.values().any(|m| m.project_id == project_id) {
+            return Ok(());
+        }
+        Err(ErrorData::invalid_params(
+            format!(
+                "Project '{}' is not bound to an agent window. Call request_agent_window first: it moves the project into a dedicated window that is locked against user input while you work. Mutating tools refuse to operate on projects shown in the user's own windows.",
+                project_id
+            ),
+            None,
+        ))
     }
 
     async fn project_summary(&self, project_id: &str) -> Option<String> {
@@ -2073,6 +2108,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<SaveFileRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
+        self.require_agent_window(&id).await?;
         let path = request.path.clone();
         let payload = crate::do_save_file(&self.pm, id.clone(), request.path)
             .await
@@ -2104,6 +2140,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.app_handle,
             &self.pm,
             &self.wp,
+            &self.agent_windows,
             None,
             request.project_id,
         )
@@ -2128,6 +2165,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<ActivateProjectRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = request.project_id.clone();
+        {
+            let aw = self.agent_windows.read().await;
+            if aw.values().any(|m| m.project_id == id) {
+                return Err(ErrorData::invalid_params(
+                    format!(
+                        "Project '{}' lives in a dedicated agent window and is hidden from the main window; it cannot be activated there. Use request_agent_window to focus its agent window instead.",
+                        id
+                    ),
+                    None,
+                ));
+            }
+        }
         let payload = crate::do_activate_project(&self.pm, request.project_id)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
@@ -2137,6 +2186,95 @@ impl<R: Runtime> LibreGeneMcp<R> {
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
         let region = self.digest_region(&id, None, true).await;
         Ok(Json(ok_envelope(&id, format!("Activated {}", id), region)))
+    }
+
+    /// Bind a project to a dedicated agent window: the project disappears
+    /// from the user's main window and opens in a new window that is LOCKED
+    /// against user keyboard/mouse input (bot watermark, not-allowed cursor;
+    /// the user can temporarily unlock it via an on-screen button, but any
+    /// further MCP tool call on the project re-locks it). Mutating tools
+    /// (edit_sequence, add_feature, update_feature, add_primer, add_alignment,
+    /// save_file, optimize_cds/apply, find_orfs/add_as_features) REFUSE to run
+    /// on projects that are not bound to an agent window, so call this right
+    /// after open_file, before any modification. Multiple agents each get
+    /// their own window and work in parallel without interfering. Calling
+    /// again for a project that already has an agent window reuses, re-locks
+    /// and focuses it. Returns {ok, projectId, windowLabel, locked, reused?}.
+    #[tool]
+    async fn request_agent_window(
+        &self,
+        Parameters(request): Parameters<RequestAgentWindowRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let id = self.resolve_project_id(request.project_id).await?;
+        {
+            let pm = self.pm.read().await;
+            if pm.get_project_by_id(&id).is_none() {
+                return Err(ErrorData::invalid_params(
+                    format!("Project not found: {}", id),
+                    None,
+                ));
+            }
+        }
+        // Reuse the existing agent window for this project when there is one.
+        let existing = {
+            let aw = self.agent_windows.read().await;
+            aw.iter()
+                .find(|(_, m)| m.project_id == id)
+                .map(|(l, _)| l.clone())
+        };
+        if let Some(label) = existing {
+            crate::lock_agent_windows_for_project(&self.app_handle, &self.agent_windows, &id).await;
+            if let Some(w) = self.app_handle.get_webview_window(&label) {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            return Ok(Json(serde_json::json!({
+                "ok": true,
+                "projectId": id,
+                "windowLabel": label,
+                "locked": true,
+                "reused": true,
+                "message": format!("Project '{}' already has agent window '{}' (re-locked and focused)", id, label),
+            })));
+        }
+        let safe = id.replace(['/', '\\', ':', '.', ' '], "_");
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let label = format!("agent-{safe}-{ts}");
+        {
+            let mut wp = self.wp.write().await;
+            wp.insert(label.clone(), id.clone());
+        }
+        {
+            let mut aw = self.agent_windows.write().await;
+            aw.insert(
+                label.clone(),
+                crate::AgentWindowMeta { project_id: id.clone(), locked: true },
+            );
+        }
+        if let Err(e) = crate::spawn_project_window(&self.app_handle, &label) {
+            // Roll back the registrations when the OS window fails to build.
+            let mut wp = self.wp.write().await;
+            wp.remove(&label);
+            drop(wp);
+            let mut aw = self.agent_windows.write().await;
+            aw.remove(&label);
+            return Err(ErrorData::internal_error(
+                format!("failed to create agent window: {e}"),
+                None,
+            ));
+        }
+        // The project is now excluded from the main window's sidebar.
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, None).await;
+        Ok(Json(serde_json::json!({
+            "ok": true,
+            "projectId": id,
+            "windowLabel": label,
+            "locked": true,
+            "message": format!("Opened agent window '{}' for project '{}' — locked against user input; it re-locks automatically on every tool call", label, id),
+        })))
     }
 
     /// Replace sequence [start..end] (1-based inclusive) with `replacement`
@@ -2186,6 +2324,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<EditSequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
+        self.require_agent_window(&id).await?;
         let len = project.length;
         // 1-based inclusive inputs; internal model coordinates are 0-based.
         let (u_start, u_end) = (request.start, request.end);
@@ -2496,6 +2635,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<AddFeatureRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
+        self.require_agent_window(&id).await?;
         let feature_id = next_id("feature");
         let name = request.name.clone();
         let ftype = request.ftype.clone();
@@ -2588,6 +2728,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<UpdateFeatureRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id).await?;
+        self.require_agent_window(&id).await?;
         if !self.feature_exists(&id, &request.feature_id).await {
             return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
         }
@@ -2709,6 +2850,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<AddPrimerRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
+        self.require_agent_window(&id).await?;
         let primer_id = next_id("primer");
         let name = request.name.clone();
         let primer = Primer {
@@ -2837,6 +2979,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<AddAlignmentRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
+        self.require_agent_window(&id).await?;
         let name = request.name.clone();
         let compact = request.compact.unwrap_or(false);
 
@@ -2968,6 +3111,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
             return Ok(Json(serde_json::json!({ "projectId": id, "orfs": orfs_json })));
         }
+        self.require_agent_window(&id).await?;
         if orfs.is_empty() {
             return Ok(Json(serde_json::json!({
                 "ok": true,
@@ -3601,6 +3745,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         match mode {
             OptimizeInput::Project { project_id, feature_id } => {
                 let id = self.resolve_project_id(project_id).await?;
+                if apply {
+                    self.require_agent_window(&id).await?;
+                }
                 let project = {
                     let pm = self.pm.read().await;
                     pm.get_project_by_id(&id).cloned().ok_or_else(|| {
@@ -3848,7 +3995,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 // Server bootstrap + settings (start/stop/restart without app restart)
 // ---------------------------------------------------------------------------
 
-#[tool_handler(name = "LibreGene", instructions = "Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_file; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, export_subsequence (by coordinates, feature, enzymes/cuts, or primers) then open_file the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases, not for moving sequences between tools.")]
+#[tool_handler(name = "LibreGene", instructions = "Agent windows: before modifying any project, call request_agent_window to move it into a dedicated window that locks out user input while you work (mutating tools refuse unbound projects; every tool call re-locks the window). Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_file; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, export_subsequence (by coordinates, feature, enzymes/cuts, or primers) then open_file the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases, not for moving sequences between tools.")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";
@@ -3902,6 +4049,7 @@ pub struct McpServer<R: Runtime> {
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
+    agent_windows: crate::AgentWindows,
     config: Arc<StdMutex<McpConfig>>,
     task: Arc<StdMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// Bearer token required on every MCP request so that other local
@@ -3918,6 +4066,7 @@ impl<R: Runtime> Clone for McpServer<R> {
             app_handle: self.app_handle.clone(),
             pm: self.pm.clone(),
             wp: self.wp.clone(),
+            agent_windows: self.agent_windows.clone(),
             config: self.config.clone(),
             task: self.task.clone(),
             auth_token: self.auth_token.clone(),
@@ -3930,12 +4079,14 @@ impl<R: Runtime> McpServer<R> {
         app_handle: AppHandle<R>,
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
+        agent_windows: crate::AgentWindows,
     ) -> Self {
         let auth_token = load_or_create_token(&app_handle);
         Self {
             app_handle,
             pm,
             wp,
+            agent_windows,
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
             auth_token: Arc::new(StdMutex::new(auth_token)),
@@ -3991,10 +4142,11 @@ impl<R: Runtime> McpServer<R> {
             let app = self.app_handle.clone();
             let pm = self.pm.clone();
             let wp = self.wp.clone();
+            let agent_windows = self.agent_windows.clone();
             let port = cfg.port;
             let token = self.auth_token.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app, pm, wp, port, token).await {
+                if let Err(e) = serve_mcp(app, pm, wp, agent_windows, port, token).await {
                     log::error!("MCP server error on port {}: {}", port, e);
                 }
             });
@@ -4161,6 +4313,7 @@ async fn serve_mcp<R: Runtime>(
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
+    agent_windows: crate::AgentWindows,
     port: u16,
     auth_token: Arc<StdMutex<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -4188,7 +4341,14 @@ async fn serve_mcp<R: Runtime>(
     server_config.sse_keep_alive = Some(Duration::from_secs(3));
 
     let service = StreamableHttpService::new(
-        move || Ok(LibreGeneMcp::new(app_handle.clone(), pm.clone(), wp.clone())),
+        move || {
+            Ok(LibreGeneMcp::new(
+                app_handle.clone(),
+                pm.clone(),
+                wp.clone(),
+                agent_windows.clone(),
+            ))
+        },
         Arc::new(session_manager),
         server_config,
     );
@@ -4400,6 +4560,7 @@ mod tests {
             app.handle().clone(),
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
         )
     }
 
@@ -4607,6 +4768,7 @@ mod tests {
             app.handle().clone(),
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
         )
     }
 
@@ -4788,7 +4950,31 @@ mod tests {
     }
 
     /// Handler whose project manager holds one project (id = name, active).
+    /// The project is bound to a (fake) agent window so mutating tools pass
+    /// the agent-window gate.
     async fn handler_with_project(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let id = project.name.clone();
+        pm.write().await.load(&id, project);
+        let agent_windows: crate::AgentWindows = Arc::new(RwLock::new(HashMap::new()));
+        agent_windows.write().await.insert(
+            "agent-test".to_string(),
+            crate::AgentWindowMeta { project_id: id.clone(), locked: true },
+        );
+        LibreGeneMcp::new(
+            app.handle().clone(),
+            pm,
+            Arc::new(RwLock::new(HashMap::new())),
+            agent_windows,
+        )
+    }
+
+    /// Same as handler_with_project but WITHOUT an agent window — for testing
+    /// that mutating tools refuse projects not bound to an agent window.
+    async fn handler_with_unbound_project(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
         let app = mock_builder()
             .build(mock_context(noop_assets()))
             .expect("mock app builds");
@@ -4798,6 +4984,7 @@ mod tests {
         LibreGeneMcp::new(
             app.handle().clone(),
             pm,
+            Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
         )
     }
@@ -7026,5 +7213,105 @@ mod tests {
             seq[0..10].to_ascii_uppercase(),
             "1-based 1..10 reads internal bases 0..=9"
         );
+    }
+
+    #[tokio::test]
+    async fn mutating_tools_require_agent_window() {
+        let server = handler_with_unbound_project(edit_test_project()).await;
+        let err = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: Some("edit_test".to_string()),
+                start: 1,
+                end: 2,
+                replacement: Some("AA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .err()
+            .expect("expected agent-window gate error");
+        assert!(err.message.contains("request_agent_window"), "{err}");
+        let err = server
+            .add_feature(Parameters(AddFeatureRequest {
+                project_id: Some("edit_test".to_string()),
+                name: "x".to_string(),
+                ftype: "misc_feature".to_string(),
+                ..Default::default()
+            }))
+            .await
+            .err()
+            .expect("expected agent-window gate error");
+        assert!(err.message.contains("request_agent_window"), "{err}");
+        // Read-only tools stay usable without an agent window.
+        server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: Some("edit_test".to_string()),
+                start: 1,
+                end: 10,
+            }))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn tool_call_relocks_unlocked_agent_window() {
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let project = edit_test_project();
+        let id = project.name.clone();
+        pm.write().await.load(&id, project);
+        let agent_windows: crate::AgentWindows = Arc::new(RwLock::new(HashMap::new()));
+        // The user has unlocked the window.
+        agent_windows.write().await.insert(
+            "agent-test".to_string(),
+            crate::AgentWindowMeta { project_id: id.clone(), locked: false },
+        );
+        let server = LibreGeneMcp::new(
+            app.handle().clone(),
+            pm,
+            Arc::new(RwLock::new(HashMap::new())),
+            agent_windows.clone(),
+        );
+        // Any tool call that resolves the project re-locks the window.
+        server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: Some(id.clone()),
+                start: 1,
+                end: 10,
+            }))
+            .await
+            .unwrap();
+        assert!(agent_windows.read().await["agent-test"].locked);
+    }
+
+    #[tokio::test]
+    async fn request_agent_window_reuses_existing_window() {
+        // handler_with_project pre-binds the fake agent window "agent-test".
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .request_agent_window(Parameters(RequestAgentWindowRequest {
+                project_id: Some("edit_test".to_string()),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["reused"], true);
+        assert_eq!(v["windowLabel"], "agent-test");
+        assert_eq!(v["locked"], true);
+    }
+
+    #[tokio::test]
+    async fn activate_project_rejects_agent_owned_project() {
+        let server = handler_with_project(edit_test_project()).await;
+        let err = server
+            .activate_project(Parameters(ActivateProjectRequest {
+                project_id: "edit_test".to_string(),
+            }))
+            .await
+            .err()
+            .expect("expected agent-window activation error");
+        assert!(err.message.contains("agent window"), "{err}");
     }
 }

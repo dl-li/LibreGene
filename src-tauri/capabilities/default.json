@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window and project windows",
-  "windows": ["main", "project-*"],
+  "description": "Capability for the main window, project windows and agent windows",
+  "windows": ["main", "project-*", "agent-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-title",

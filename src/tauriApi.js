@@ -280,6 +280,32 @@ export async function getWindowProjectId() {
   return tauriInvoke('get_window_project_id');
 }
 
+// --- Agent windows (MCP-controlled, user-locked) ---
+
+/** Returns {label, projectId, locked} when this window is an agent window, else null. */
+export async function getAgentWindowState() {
+  return tauriInvoke('get_agent_window_state');
+}
+
+/** Unlock/lock this agent window (the on-screen button). */
+export async function setAgentWindowLocked(locked) {
+  return tauriInvoke('set_agent_window_locked', { locked });
+}
+
+/** Listen for lock-state changes targeted at this window. */
+export function listenAgentWindowLock(callback) {
+  let closed = false;
+  const ready = tauriListen('agent-window-lock', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}
+
 export async function rekeyProject(oldId, newId) {
   return tauriInvoke('rekey_project', { oldId, newId });
 }
