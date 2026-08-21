@@ -32,7 +32,17 @@ import {
   readClipboardMeta,
   parseMetaFromPasteEvent,
 } from './clipboardAnnotations';
-import { AlertTriangle, Copy, CopyPlus, CopyMinus, CopyX, Pencil, Tag } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bot,
+  Copy,
+  CopyPlus,
+  CopyMinus,
+  CopyX,
+  LockOpen,
+  Pencil,
+  Tag,
+} from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Standard genetic code table
@@ -615,6 +625,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onToggleAutoAddPrimers,
   myEnzymes = [],
   moleculeType = 'dna',
+  // Agent-tab lock: the nav menu is replaced by a teal-outlined control pill
+  // (same look as the primer-design pick bar), which also blocks nav-level
+  // misoperation while the MCP agent works.
+  agentLocked = false,
+  onUnlockAgent,
 }) {
   const isDna = moleculeType === 'dna';
   // Length unit for the sequence: base pairs (DNA), nucleotides (ss-RNA),
@@ -4978,6 +4993,34 @@ const SequenceEditor = React.memo(function SequenceEditor({
               className="rounded-full bg-muted/60 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      ) : agentLocked ? (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 40,
+          }}
+        >
+          <div className="nav-bar-enter flex items-center gap-3 rounded-full border-2 border-teal-700 bg-background/80 px-4 py-2 shadow-[0_10px_40px_rgba(15,118,110,0.5)] ring-4 ring-teal-700/15 backdrop-blur-md">
+            <Bot className="size-4 shrink-0 text-teal-700" />
+            <span className="text-sm font-semibold text-teal-800">Controlled by an MCP agent</span>
+            <span className="text-xs text-muted-foreground">
+              Viewing and selecting work as usual; editing is disabled
+            </span>
+            <button
+              type="button"
+              onClick={onUnlockAgent}
+              className="rounded-full bg-muted/60 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <span className="flex items-center gap-1.5">
+                <LockOpen className="size-3.5" />
+                Unlock
+              </span>
             </button>
           </div>
         </div>

@@ -7,6 +7,22 @@
 // Detect if running inside Tauri
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+// --- Agent-tab edit lock -----------------------------------------------------
+// While the active project is bound to an MCP agent tab and locked, commands
+// that would dirty the project are refused before reaching the backend
+// (ProjectWorkspace also guards its own handlers ahead of optimistic UI
+// updates; this is the catch-all for direct callers such as dialogs).
+// Read-only commands, scrolling and selection are never affected.
+let agentEditLocked = false;
+export function setAgentEditLock(locked) {
+  agentEditLocked = !!locked;
+}
+const AGENT_LOCK_MSG =
+  'This project is controlled by an MCP agent. Unlock it from the top banner to edit.';
+function assertEditable() {
+  if (agentEditLocked) throw new Error(AGENT_LOCK_MSG);
+}
+
 // Native operations (window title change, open/save panels) reset AppKit's
 // traffic-light layout on macOS without emitting a window event the
 // decoration plugin listens to; re-assert the tuned inset afterwards.
@@ -125,6 +141,7 @@ export async function writeTextFile(path, contents) {
 // ---------------------------------------------------------------------------
 
 export async function updateSequence(sequence, features) {
+  assertEditable();
   return tauriInvoke('update_sequence', { sequence, features: features || null });
 }
 
@@ -133,10 +150,12 @@ export async function updateSequence(sequence, features) {
 // ---------------------------------------------------------------------------
 
 export async function setROI(start, end) {
+  assertEditable();
   return tauriInvoke('set_roi', { start, end });
 }
 
 export async function clearROI() {
+  assertEditable();
   return tauriInvoke('clear_roi');
 }
 
@@ -149,30 +168,37 @@ export async function getFeatures() {
 }
 
 export async function addFeature(feature, locationStr) {
+  assertEditable();
   return tauriInvoke('add_feature', { feature, locationStr: locationStr || null });
 }
 
 export async function deleteFeature(id) {
+  assertEditable();
   return tauriInvoke('delete_feature', { id });
 }
 
 export async function updateFeatureFtype(featureId, newFtype) {
+  assertEditable();
   return tauriInvoke('update_feature_ftype', { featureId, newFtype });
 }
 
 export async function updateFeatureColor(featureId, newColor) {
+  assertEditable();
   return tauriInvoke('update_feature_color', { featureId, newColor });
 }
 
 export async function updateFeatureLocation(featureId, locationStr) {
+  assertEditable();
   return tauriInvoke('update_feature_location', { featureId, locationStr });
 }
 
 export async function updateFeatureName(featureId, newName) {
+  assertEditable();
   return tauriInvoke('update_feature_name', { featureId, newName });
 }
 
 export async function updateFeatureStrand(featureId, strand) {
+  assertEditable();
   return tauriInvoke('update_feature_strand', { featureId, strand });
 }
 
@@ -185,14 +211,17 @@ export async function getPrimers() {
 }
 
 export async function addPrimer(primer) {
+  assertEditable();
   return tauriInvoke('add_primer', { primer });
 }
 
 export async function deletePrimer(id) {
+  assertEditable();
   return tauriInvoke('delete_primer', { id });
 }
 
 export async function addPrimers(primers) {
+  assertEditable();
   return tauriInvoke('add_primers', { primers });
 }
 
@@ -225,14 +254,17 @@ export async function computePrimerAlignment(
 // ---------------------------------------------------------------------------
 
 export async function addAlignment(path) {
+  assertEditable();
   return tauriInvoke('add_alignment', { path });
 }
 
 export async function addAlignmentSeq(name, seq) {
+  assertEditable();
   return tauriInvoke('add_alignment_seq', { name, seq });
 }
 
 export async function removeAlignment(alignmentId) {
+  assertEditable();
   return tauriInvoke('remove_alignment', { alignmentId });
 }
 
@@ -241,6 +273,7 @@ export async function removeAlignment(alignmentId) {
 // ---------------------------------------------------------------------------
 
 export async function setMethylation(systems, overlap = 2) {
+  assertEditable();
   return tauriInvoke('set_methylation', { systems, overlap });
 }
 
@@ -438,6 +471,7 @@ export async function previewCodonOptimization(args = {}) {
 
 /** Apply a codon optimization (same args as preview); returns summary + { ok, message }. */
 export async function applyCodonOptimization(args = {}) {
+  assertEditable();
   return tauriInvoke('apply_codon_optimization', {
     featureId: args.featureId,
     species: args.species,

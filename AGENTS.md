@@ -139,16 +139,16 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 
 已适配（功能 → 工具）：
 
-- Agent 标签页（绑定后留在主窗口侧边栏、琥珀色 Bot 标识；锁定时不遮挡工作区，右侧悬浮面板 + Unlock，解锁后右下徽标 + Lock，下次 MCP 调用自动重锁）→ `request_agent_tab`（仅限 MCP `open_file` 打开的项目；用户打开的项目拒绝并指引 bash `cp` 复制副本）
+- Agent 标签页（绑定后留在主窗口侧边栏（侧边栏条目无特殊样式）；锁定时工作区保持可交互（滚动/选择/复制可用），仅脏状态操作被禁——ProjectWorkspace 各 mutation handler 守卫 + tauriApi 命令层守卫 `setAgentEditLock`；底部导航栏整体替换为 Teal 描边控制条（同引物设计取段的样式：Bot 图标 + 提示 + Unlock），顺带占住导航栏防误操作；解锁后右下徽标 + Lock，下次 MCP 调用自动重锁；Agent 强调色统一 Teal）→ `request_agent_tab`（仅限 MCP `open_file` 打开的项目；用户打开的项目拒绝并指引 bash `cp` 复制副本）
 - 项目/文件管理 → `open_file`（支持 gbk/gbf/gbff、dna/rna/prot、gpt 变体、fasta（.faa 按蛋白）、ab1、seq 嗅探）、`save_file`（写 .gbk/.gb/.gpt）、`close_project`、`activate_project`、`list_projects`
 - 子序列导出 → `export_subsequence`（四种互斥区间：① 坐标 ② 特征 ③ 酶切或显式切口 ④ 引物扩增子；重叠特征截断+坐标平移、引物按首要位点重叠导出；环状项目导出线性）
 - 序列读取 → `read_sequence`、`get_project_overview`、`get_region_view`（digest 按 molecule_type 分支；region 有比对时附 ALIGNMENT DIFFS 节 + ALIGNMENT VIEW 逐列视图：模板/掩码/read 三行，`|` 匹配 `.` 错配 `-` read 缺口，60 bp/行，插入与未覆盖区间以注记列出，覆盖窗口 >500 bp 省略视图；overview 另有 /translation 与 DNA 不一致 WARNING 行、多 read 相同 mismatch 的 MISMATCH CONSENSUS 提示）
 - 序列编辑 → `edit_sequence`（字符串或 `replacement_path` 互斥；strand:"-" 先 rev-comp；携带特征/引物转移，名称冲突加 ` (2)`；`expected_old` 乐观校验失败附 `currentContent`）
 - 特征 → `add_feature` / `update_feature`（结构化 1-based 参数：start+end 或 segments，互斥）
 - 引物 → `add_primer`、`list_primers`、`check_primer_binding`（全位点 Tm 降序 + `alignedTemplate`/`matchMask` 尾巴覆盖）
-- 引物设计 → `design_primers`（amplify/oepcr/mutagenesis；amplify 酶切尾巴 + `orientation`/`cdsOverlaps`/`internalSites`；mutagenesis 返回密码子/氨基酸自检块，氨基酸编号双口径）
+- 引物设计 → `design_primers`（amplify/oepcr/mutagenesis；amplify 酶切尾巴 + `orientation`/`cdsOverlaps`/`internalSites`；mutagenesis 返回密码子/氨基酸自检块（氨基酸编号双口径）+ `orientationHint`——用实际结果复述链方向语义，负链 CDS 时明确提示 mut_seq 须为正链内容、方向搞反时的修正方法）
 - ORF 搜索 → `find_orfs`（`add_as_features` 可落库）
-- 序列比对 → `add_alignment`（`bases`/`path` 双输入；默认仅**本次新增**比对回传完整明细（含 `orientedSequence`），已有比对只回统计字段（含 coverage，无差异明细与 orientedSequence）以降响应体积；`compact: true` 连新增比对的 orientedSequence 也省略并跳过 regionView；多段 coverage 段间有未覆盖模板区间时附 `coverageNote`——引擎产出的环状跨原点比对段间恒为 0 缺口，非 0 说明该模板区间未被 read 覆盖）
+- 序列比对 → `add_alignment`（`bases`/`path` 双输入；默认仅**本次新增**比对回传完整明细（含 `orientedSequence`），已有比对只回统计字段（含 coverage，无差异明细与 orientedSequence）以降响应体积；`compact: true` 连新增比对的 orientedSequence 也省略并跳过 regionView；**聚焦参数** `region`（{start,end} 1-based，环状可 wrap）/ `feature_id`（取特征包围盒，`flank` 加两侧上下文，二者互斥）把新增比对的差异明细过滤到窗口、省略 orientedSequence、regionView 聚焦该窗口（ALIGNMENT VIEW 逐列给出窗口内 read 碱基），响应附 `focus` 回显，总数仍描述整条 read；多段 coverage 段间有未覆盖模板区间时附 `coverageNote`——引擎产出的环状跨原点比对段间恒为 0 缺口，非 0 说明该模板区间未被 read 覆盖）
 - IUPAC 搜索 → `search_sequence`（肽段→简并密码子展开，双链搜编码区）
 - 甲基化 → 无独立工具；`get_project_overview` LOCUS 行展示；前端设置 `set_methylation`
 - 限制酶切位点 → `find_restriction_sites`（未知酶名报错给近似名，可探测酶库）
@@ -164,7 +164,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
 - **质粒图视图 / Map 水印**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
-- **Agent 标签的解锁按钮/悬浮面板/侧边栏 Bot 标识**：纯前端（`App.jsx`）；锁定状态后端持有，MCP 不暴露
+- **Agent 标签的解锁按钮/导航栏控制条**：纯前端（`App.jsx` / `SequenceEditor.jsx`）；锁定状态后端持有，MCP 不暴露
 - **选区 badge 的肽链分子量**：纯渲染层信息
 - **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态
 - **`add_alignment` 的 createdSites**：未实现；修序列后查位点走 `edit_sequence` + `find_restriction_sites`

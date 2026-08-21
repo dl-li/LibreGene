@@ -11,6 +11,7 @@ import {
   activateProject,
   getWindowProjectId,
   setAgentTabLocked,
+  setAgentEditLock,
   listenAgentTabLock,
   openInNewWindow,
   deleteProject,
@@ -62,7 +63,6 @@ import {
   Puzzle,
   Bot,
   Lock,
-  LockOpen,
   Map as MapIcon,
   Clock,
 } from 'lucide-react';
@@ -661,21 +661,13 @@ export default function App() {
     return () => listener.close();
   }, [windowInfo?.type]);
 
-  // While the active project is a locked agent tab, swallow all keyboard
-  // input at the capture phase so the editor/sidebar shortcuts never see it
-  // (pointer input is covered by the workspace pointer-events-none).
+  // While the active project is a locked agent tab, the workspace stays
+  // interactive (scroll/select/copy all work) and dirty-producing operations
+  // are refused instead: ProjectWorkspace guards its own mutation handlers
+  // before any optimistic update, and tauriApi rejects dirty-producing
+  // commands for direct callers (dialogs).
   useEffect(() => {
-    if (!activeAgentLocked) return undefined;
-    const block = (e) => {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    };
-    window.addEventListener('keydown', block, true);
-    window.addEventListener('keyup', block, true);
-    return () => {
-      window.removeEventListener('keydown', block, true);
-      window.removeEventListener('keyup', block, true);
-    };
+    setAgentEditLock(activeAgentLocked);
   }, [activeAgentLocked]);
 
   const handleSetAgentLocked = useCallback((projectId, locked) => {
@@ -795,7 +787,7 @@ export default function App() {
       variant="sidebar"
       className="pt-10 transition-[width] duration-300 ease-out"
     >
-      <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-3 pb-2 pt-1.5">
+      <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-3 pb-2 pt-1.5 group-data-[state=collapsed]:justify-center group-data-[state=collapsed]:px-0">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
           <div className="relative size-5">
             <svg viewBox="0 0 24 24" className="absolute inset-0 size-5">
@@ -900,9 +892,8 @@ export default function App() {
                 {projects.map((p) => {
                   const isActiveProject = p.id === activeId;
                   const isProjectDirty = dirtyById[p.id] === true;
-                  const isAgentTab = p.agentLocked != null;
                   const name = fileName(p);
-                  const Icon = isAgentTab ? Bot : getFileIcon(name);
+                  const Icon = getFileIcon(name);
                   return (
                     <SidebarMenuItem key={p.id}>
                       {isActiveProject && (
@@ -916,15 +907,8 @@ export default function App() {
                           !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
                         }`}
                       >
-                        <Icon
-                          className={`size-4 shrink-0 ${isAgentTab ? 'text-amber-500' : ''}`}
-                        />
+                        <Icon className="size-4 shrink-0" />
                         <span className="truncate">{name}</span>
-                        {isAgentTab && (
-                          <span className="ml-1 shrink-0 rounded-full bg-amber-500/15 px-1.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600">
-                            Bot
-                          </span>
-                        )}
                       </SidebarMenuButton>
                       {isProjectDirty && (
                         <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
@@ -1042,34 +1026,16 @@ export default function App() {
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
           <TitleBar title={activeTitle} dirty={activeDirty} />
-          {/* Locked agent tab: a floating panel on the right (no full-screen
-              overlay — the user can still watch the agent work); the workspace
-              is inert via pointer-events-none + keyboard capture. */}
-          {activeAgentLocked && (
-            <div className="fixed right-4 top-1/2 z-[200] flex -translate-y-1/2 flex-col items-center gap-2 rounded-lg border border-amber-500/40 bg-background/95 px-4 py-3 shadow-lg">
-              <Bot className="size-6 text-amber-500" />
-              <div className="text-xs font-medium text-foreground/80">
-                Controlled by an MCP agent
-              </div>
-              <div className="max-w-[170px] text-center text-[11px] leading-relaxed text-muted-foreground">
-                The active project is locked while the agent works. Switch to
-                another tab in the sidebar to keep editing.
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-1 gap-1.5"
-                onClick={() => handleSetAgentLocked(activeId, false)}
-              >
-                <LockOpen className="size-3.5" />
-                Unlock
-              </Button>
-            </div>
-          )}
+          {/* Locked agent tab: the bottom nav menu is replaced by a
+              teal-outlined control pill (SequenceEditor), which also blocks
+              nav-level misoperation. The workspace itself stays interactive —
+              scrolling, selecting and copying work; only dirty-producing
+              edits are refused (ProjectWorkspace handler guard + tauriApi
+              command guard). */}
           {/* Unlocked agent tab: floating badge with a manual re-lock */}
           {activeAgentUnlocked && (
             <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-md border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              <Bot className="size-3.5 text-amber-500" />
+              <Bot className="size-3.5 text-teal-500" />
               <span>Agent tab — unlocked</span>
               <Button
                 variant="ghost"
@@ -1092,9 +1058,7 @@ export default function App() {
               {sidebarContent}
             </div>
           )}
-          <div
-            className={`relative flex flex-1 min-h-0 ${activeAgentLocked ? 'pointer-events-none' : ''}`}
-          >
+          <div className="relative flex flex-1 min-h-0">
             {isProjectWindow ? (
               <ProjectWorkspace
                 key={keyFor(windowInfo.projectId)}
@@ -1113,6 +1077,7 @@ export default function App() {
                   initialData={initialDataRef.current[p.id]}
                   topology={p.topology || 'circular'}
                   moleculeType={p.moleculeType || 'dna'}
+                  agentLocked={agentTabs[p.id] === true}
                   {...workspaceProps}
                 />
               ))

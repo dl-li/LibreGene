@@ -25,6 +25,7 @@ import {
   removeAlignment,
   openAlignmentFileDialog,
   listenProjectUpdates,
+  setAgentTabLocked,
   emitMapWatermark,
   listenMapWatermark,
   isTauri,
@@ -78,6 +79,9 @@ export default function ProjectWorkspace({
   onMyEnzymesChange,
   autoAddPrimers = false,
   onToggleAutoAddPrimers,
+  // True while this project is bound to an MCP agent tab and locked: only
+  // dirty-producing edits are refused; viewing/scrolling/selection stay live.
+  agentLocked = false,
 }) {
   const [sequence, setSequence] = useState(initialData?.sequence ?? null);
   const [features, setFeatures] = useState(initialData?.features || EMPTY_ARRAY);
@@ -89,6 +93,12 @@ export default function ProjectWorkspace({
   // render single-strand sequence + features only.
   const isDna = moleculeType === 'dna';
   const isProtein = moleculeType === 'protein';
+  // Ref mirror so the guard below never disturbs useCallback dep arrays.
+  const agentLockedRef = useRef(agentLocked);
+  agentLockedRef.current = agentLocked;
+  const handleUnlockAgent = useCallback(() => {
+    setAgentTabLocked(projectId, false).catch(() => {});
+  }, [projectId]);
   const [showAlignments, setShowAlignments] = useState(true);
   const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
   const [alignTextOpen, setAlignTextOpen] = useState(false);
@@ -303,6 +313,7 @@ export default function ProjectWorkspace({
   useEffect(() => {
     // Methylation/Dam/Dcm only applies to DNA; skip for rna/protein projects.
     if (hidden || !isDna) return;
+    if (agentLockedRef.current) return;
     if (syncedMethKeyRef.current === methKey) return;
     if (backendStatus !== 'online' || !sequence) return;
     let cancelled = false;
@@ -480,6 +491,7 @@ export default function ProjectWorkspace({
 
   // --- Edit request from SequenceEditor: open the confirmation dialog ---
   const handleEditRequest = useCallback((request) => {
+    if (agentLockedRef.current) return;
     setEditDialog({
       open: true,
       mode: request.type,
@@ -494,6 +506,7 @@ export default function ProjectWorkspace({
 
   const handleFeatureFtypeChange = useCallback(
     async (featureId, newFtype) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         editHistoryRef.current.push({
@@ -519,6 +532,7 @@ export default function ProjectWorkspace({
 
   const handleFeatureColorChange = useCallback(
     async (featureId, newColor) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         editHistoryRef.current.push({
@@ -544,6 +558,7 @@ export default function ProjectWorkspace({
 
   const handleFeatureNameChange = useCallback(
     async (featureId, newName) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         editHistoryRef.current.push({
@@ -569,6 +584,7 @@ export default function ProjectWorkspace({
 
   const handlePrimerChange = useCallback(
     async (primerData) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         // Push current state to undo history before mutating
@@ -662,6 +678,7 @@ export default function ProjectWorkspace({
 
   const handleAddMyPrimerToFile = useCallback(
     async (entry) => {
+      if (agentLockedRef.current) return;
       if (!entry) return;
       const gen = operationGenRef.current;
       try {
@@ -683,6 +700,7 @@ export default function ProjectWorkspace({
   );
 
   const handleAddAllBindingPrimers = useCallback(async () => {
+    if (agentLockedRef.current) return;
     const bindingIds = new Set(
       (myPrimerBinding.results || []).filter((r) => r.binds).map((r) => r.id),
     );
@@ -717,6 +735,7 @@ export default function ProjectWorkspace({
 
   const handleFeatureAdd = useCallback(
     async (featureData) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       const { locationStr, ...feature } = featureData;
       // errors propagate so the dialog can display them
@@ -742,6 +761,7 @@ export default function ProjectWorkspace({
 
   const handleFeatureStrandChange = useCallback(
     async (featureId, strand) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         editHistoryRef.current.push({
@@ -767,6 +787,7 @@ export default function ProjectWorkspace({
 
   const handleFeatureLocationChange = useCallback(
     async (featureId, locationStr) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       // errors propagate so the dialog can display them
       editHistoryRef.current.push({
@@ -789,6 +810,7 @@ export default function ProjectWorkspace({
 
   const handleDeleteFeature = useCallback(
     async (featureId) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         editHistoryRef.current.push({
@@ -814,6 +836,7 @@ export default function ProjectWorkspace({
 
   const handleDeletePrimer = useCallback(
     async (primerId) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         editHistoryRef.current.push({
@@ -870,6 +893,7 @@ export default function ProjectWorkspace({
   );
 
   const handleAddAlignment = useCallback(async () => {
+    if (agentLockedRef.current) return;
     const paths = await openAlignmentFileDialog();
     if (!paths || paths.length === 0) return;
     const result = await addAlignmentFiles(paths);
@@ -884,6 +908,7 @@ export default function ProjectWorkspace({
 
   const handleAddAlignmentText = useCallback(
     async (name, seq) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       const data = await addAlignmentSeq(name, seq);
       if (operationGenRef.current !== gen) return;
@@ -913,6 +938,7 @@ export default function ProjectWorkspace({
 
   const handleRemoveAlignment = useCallback(
     async (alignmentId) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       try {
         const data = await removeAlignment(alignmentId);
@@ -984,6 +1010,7 @@ export default function ProjectWorkspace({
   // --- Edit dialog confirmed (insert/delete/replace) ---
   const handleEditConfirm = useCallback(
     async (result) => {
+      if (agentLockedRef.current) return;
       const gen = operationGenRef.current;
       const { mode, cursorIndex, selStart, selEnd } = editDialog;
       let newSeq;
@@ -1156,6 +1183,7 @@ export default function ProjectWorkspace({
 
   // --- Undo ---
   const handleUndo = useCallback(async () => {
+    if (agentLockedRef.current) return;
     const gen = operationGenRef.current;
     const snapshot = editHistoryRef.current.undo();
     if (!snapshot) return;
@@ -1203,6 +1231,7 @@ export default function ProjectWorkspace({
 
   // --- Redo ---
   const handleRedo = useCallback(async () => {
+    if (agentLockedRef.current) return;
     const gen = operationGenRef.current;
     const snapshot = editHistoryRef.current.redo();
     if (!snapshot) return;
@@ -1495,6 +1524,8 @@ export default function ProjectWorkspace({
               myEnzymes={myEnzymes}
               topology={topology}
               moleculeType={moleculeType}
+              agentLocked={agentLocked}
+              onUnlockAgent={handleUnlockAgent}
             />
           </main>
           {!hidden && (
