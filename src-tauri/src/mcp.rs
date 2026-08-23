@@ -25,7 +25,7 @@
 //! - circular sequences allow `start > end` to wrap the origin for reads
 //!   (values are 1-based)
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -56,7 +56,8 @@ pub const MCP_PORT: u16 = 8766;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct OverviewRequest {
-    project_id: Option<String>,
+    /// Required: the project to inspect (see list_projects).
+    project_id: String,
     max_features: Option<usize>,
     feature_filter: Option<String>,
     /// Collapse the UNIQUE CUTTERS list into a single count line (default true;
@@ -66,7 +67,8 @@ struct OverviewRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct RegionRequest {
-    project_id: Option<String>,
+    /// Required: the project to inspect (see list_projects).
+    project_id: String,
     /// Window start, 1-based inclusive; on circular sequences start > end
     /// wraps the origin.
     start: i64,
@@ -81,51 +83,79 @@ struct RegionRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct SequenceRequest {
-    project_id: Option<String>,
-    /// Window start, 1-based inclusive; on circular sequences start > end
-    /// wraps the origin.
-    start: i64,
-    /// Window end, 1-based inclusive.
-    end: i64,
+    /// Required: the project to read from (see list_projects).
+    project_id: String,
+    /// Window mode: window start, 1-based inclusive; on circular sequences
+    /// start > end wraps the origin. Mutually exclusive with the coordinate
+    /// modes below; requires `end`.
+    start: Option<i64>,
+    /// Window mode: window end, 1-based inclusive. See `start`.
+    end: Option<i64>,
+    /// Coordinate mode: full-file template coordinate (1-based inclusive).
+    /// Mutually exclusive with feature_id + feature_offset and feature_id +
+    /// aa_position.
+    position: Option<i64>,
+    /// Coordinate mode: feature ID for feature-relative or amino-acid
+    /// lookups. Must be paired with exactly one of `feature_offset` or
+    /// `aa_position`.
+    feature_id: Option<String>,
+    /// Coordinate mode: 1-based offset along the feature's own 5'→3'
+    /// direction. Mutually exclusive with `position` and `aa_position`.
+    feature_offset: Option<i64>,
+    /// Coordinate mode: 1-based amino-acid position within a CDS/mRNA feature
+    /// — INCLUDING the initiator Met (Met = 1). Literature numbering that
+    /// skips the Met (e.g. mEGFP A206K) maps to the response's
+    /// `aaPositionExcludingMet`, not to this input. Mutually exclusive with
+    /// `position` and `feature_offset`.
+    aa_position: Option<i64>,
+    /// Coordinate mode: bases of context on each side of the resolved
+    /// position for the returned window sequence (default 30; clamped at the
+    /// sequence ends).
+    flank: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct SearchRequest {
     query: String,
-    project_id: Option<String>,
+    /// Required: the project to search (see list_projects).
+    project_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct OpenFileRequest {
+struct OpenProjectRequest {
+    /// Sequence file to open (.gbk/.gb/.genbank, .dna/.rna/.prot, .gpt,
+    /// .fa/.fasta, .ab1, ...). The project id IS this path.
     path: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct SaveFileRequest {
-    project_id: Option<String>,
+    /// Required: the project to save (see list_projects).
+    project_id: String,
+    /// Output file path (.gbk/.gb for DNA/RNA projects, .gpt for protein
+    /// projects).
     path: String,
+    /// Optional: export only a region of the project instead of the whole
+    /// molecule (exactly one selector inside — see RegionSpec fields). The
+    /// exported file is always linear and the project is NOT marked clean.
+    region: Option<RegionSpec>,
+    /// Required (true) when `path` already exists and is NOT the project's
+    /// own source path (saving over the project's own file needs no flag).
+    overwrite: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct CloseProjectRequest {
+    /// Required: the project to close (must be bound as your agent tab).
     project_id: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct ActivateProjectRequest {
-    project_id: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct RequestAgentTabRequest {
-    /// Project to bind as an agent tab; defaults to the active project. Only
-    /// projects opened via MCP `open_file` can be bound.
-    project_id: Option<String>,
+    /// Required (true) to close a project with unsaved changes.
+    force: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct EditSequenceRequest {
-    project_id: Option<String>,
+    /// Required: the project to edit (must be bound as your agent tab).
+    project_id: String,
     /// First base of the replaced range, 1-based inclusive. Ranges must not
     /// wrap; a pure insertion before base N is start=N, end=N-1.
     start: i64,
@@ -136,11 +166,11 @@ struct EditSequenceRequest {
     /// short hand-authored edits (point mutations, short oligo-length
     /// inserts); for anything longer or taken from an existing file or open
     /// project, use `replacement_path` instead (export the region first with
-    /// export_subsequence if needed) — pasted long sequences are error-prone.
+    /// save_file's `region` if needed) — pasted long sequences are error-prone.
     replacement: Option<String>,
     /// PREFERRED input: read the replacement sequence from a local file
     /// (.gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc., same formats as
-    /// open_file). A file cannot be mistyped or truncated, so use it whenever
+    /// open_project). A file cannot be mistyped or truncated, so use it whenever
     /// the sequence exists on disk.
     replacement_path: Option<String>,
     /// Direction of the inserted replacement: "+" (default — insert exactly
@@ -153,7 +183,8 @@ struct EditSequenceRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct OptimizeCdsRequest {
-    /// Project mode: optimize a CDS/mRNA feature inside an open project.
+    /// Project mode (required there): optimize a CDS/mRNA feature inside an
+    /// open project. Must be absent in `sequence`/`input_path` modes.
     project_id: Option<String>,
     /// Feature id (project mode: required; input_path mode: optional — pick
     /// the file's CDS/mRNA feature with this id, otherwise the whole file
@@ -163,7 +194,7 @@ struct OptimizeCdsRequest {
     /// ignored, ACGT only, length divisible by 3; a trailing stop codon is
     /// fine). Use ONLY for short hand-authored sequences; for anything from a
     /// file or an open project use `input_path` (export regions first with
-    /// export_subsequence) — pasted long sequences are error-prone.
+    /// save_file's `region`) — pasted long sequences are error-prone.
     sequence: Option<String>,
     /// Standalone mode (PREFERRED for real sequences): local sequence file (.gbk/.gb/.genbank/.dna/.rna/
     /// .fasta/.fa/.fna/.ab1 — DNA) or protein file (.gpt/.prot — reverse
@@ -172,7 +203,7 @@ struct OptimizeCdsRequest {
     /// Optional: write the result to a file. .gbk/.gb/.genbank → DNA GenBank
     /// with the optimized CDS annotated; .gpt → protein GenBank of the
     /// translated sequence. PREFERRED way to collect the result — use the file
-    /// (open_file afterwards) rather than copying the `optimizedSequence` text.
+    /// (open_project afterwards) rather than copying the `optimizedSequence` text.
     output_path: Option<String>,
     /// Species key from list_species (e.g. "e_coli", "h_sapiens").
     species: String,
@@ -197,46 +228,40 @@ struct FeatureSegmentSpec {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct AddFeatureRequest {
-    project_id: Option<String>,
-    name: String,
-    ftype: String,
-    /// Feature start, 1-based inclusive. Required together with `end` unless
-    /// `segments` is given; mutually exclusive with `segments`.
+struct SetFeatureRequest {
+    /// Required: the project to modify (must be bound as your agent tab).
+    project_id: String,
+    /// Omitted = CREATE a feature (name/ftype and start+end or segments are
+    /// required). Given = UPDATE that feature (at least one other field
+    /// required).
+    feature_id: Option<String>,
+    /// Create: required. Update: new name.
+    name: Option<String>,
+    /// Create: required (e.g. "CDS", "misc_feature"). Update: new ftype.
+    ftype: Option<String>,
+    /// Create: feature start, 1-based inclusive — required together with
+    /// `end` unless `segments` is given; mutually exclusive with `segments`.
+    /// Update: new start (same rules); replaces the whole span.
     start: Option<i64>,
     /// Feature end, 1-based inclusive (>= start). See `start`.
     end: Option<i64>,
     /// Segmented feature (e.g. multi-exon CDS): [{start, end}] 1-based
     /// inclusive, in 5'→3' order. Mutually exclusive with `start`/`end`.
     segments: Option<Vec<FeatureSegmentSpec>>,
-    /// ".", "+" or "-" (default "+").
+    /// ".", "+" or "-" (create default "+"; neither form touches the strand
+    /// unless given).
     strand: Option<String>,
+    /// Hex color, e.g. "#60A5FA" (create default "#60A5FA"; on update also
+    /// recolors existing segments).
     color: Option<String>,
+    /// Create-only initial notes.
     notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct UpdateFeatureRequest {
-    project_id: Option<String>,
-    feature_id: String,
-    name: Option<String>,
-    ftype: Option<String>,
-    color: Option<String>,
-    /// ".", "+" or "-"
-    strand: Option<String>,
-    /// New start, 1-based inclusive; must be given together with `end` and is
-    /// mutually exclusive with `segments`.
-    start: Option<i64>,
-    /// New end, 1-based inclusive (>= start). See `start`.
-    end: Option<i64>,
-    /// New segments [{start, end}] 1-based inclusive (5'→3' order); mutually
-    /// exclusive with `start`/`end`.
-    segments: Option<Vec<FeatureSegmentSpec>>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct AddPrimerRequest {
-    project_id: Option<String>,
+    /// Required: the project to modify (must be bound as your agent tab).
+    project_id: String,
     name: String,
     #[serde(rename = "type")]
     r#type: String,
@@ -246,7 +271,8 @@ struct AddPrimerRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct AddAlignmentRequest {
-    project_id: Option<String>,
+    /// Required: the project to modify (must be bound as your agent tab).
+    project_id: String,
     name: String,
     /// Read sequence as a plain string — short hand-authored reads only;
     /// prefer `path` (a file cannot be mistyped or truncated).
@@ -254,7 +280,7 @@ struct AddAlignmentRequest {
     bases: Option<String>,
     /// PREFERRED input: read the sequence from a file (.gbk/.gb/.genbank,
     /// .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1). If the read is a region of an
-    /// open project, export it first with export_subsequence.
+    /// open project, export it first with save_file's `region`.
     path: Option<String>,
     /// When true, omit the full `orientedSequence` and the post-alignment
     /// `regionView` to reduce response size. Differences and coverage are still
@@ -281,14 +307,16 @@ struct AddAlignmentRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct FindOrfsRequest {
-    project_id: Option<String>,
+    /// Required: the project to scan (see list_projects).
+    project_id: String,
     min_aa: Option<usize>,
     add_as_features: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct FindRestrictionSitesRequest {
-    project_id: Option<String>,
+    /// Required: the project to scan (see list_projects).
+    project_id: String,
     /// Enzyme names to report (case-insensitive); empty/omitted = all enzymes
     /// that have a recognition site on this sequence.
     enzymes: Option<Vec<String>>,
@@ -296,7 +324,8 @@ struct FindRestrictionSitesRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct ListPrimersRequest {
-    project_id: Option<String>,
+    /// Required: the project to inspect (see list_projects).
+    project_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
@@ -310,7 +339,8 @@ struct SegParam {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct DesignPrimersRequest {
-    project_id: Option<String>,
+    /// Required: the project to design against (see list_projects).
+    project_id: String,
     mode: String,
     seg: Option<SegParam>,
     seg2: Option<SegParam>,
@@ -343,36 +373,16 @@ struct PrimerInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 struct CheckPrimerBindingRequest {
-    project_id: Option<String>,
+    /// Required: the project to check against (see list_projects).
+    project_id: String,
     primers: Vec<PrimerInput>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct ConvertCoordinatesRequest {
-    project_id: Option<String>,
-    /// Full-file template coordinate (1-based inclusive). Mutually exclusive
-    /// with feature_id + feature_offset and feature_id + aa_position.
-    position: Option<i64>,
-    /// Feature ID for feature-relative or amino-acid lookups. Must be paired
-    /// with exactly one of `feature_offset` or `aa_position`.
-    feature_id: Option<String>,
-    /// 1-based offset along the feature's own 5'→3' direction. Mutually
-    /// exclusive with `position` and `aa_position`.
-    feature_offset: Option<i64>,
-    /// 1-based amino-acid position within a CDS/mRNA feature — INCLUDING the
-    /// initiator Met (Met = 1). Literature numbering that skips the Met (e.g.
-    /// mEGFP A206K) maps to the response's `aaPositionExcludingMet`, not to
-    /// this input. Mutually exclusive with `position` and `feature_offset`.
-    aa_position: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct ExportSubsequenceRequest {
-    /// Project to export from (defaults to the active project).
-    project_id: Option<String>,
-    /// Required: output file path (.gbk/.gb/.genbank for DNA/RNA projects,
-    /// .gpt for protein projects).
-    output_path: String,
+/// Optional region selector of `save_file` (subsequence export). Exactly one
+/// of the four modes must be given inside: start+end / feature_id /
+/// enzyme1+enzyme2 or cut1+cut2 / fwd_primer+rev_primer.
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
+struct RegionSpec {
     /// Region mode: start of the export window, 1-based inclusive.
     start: Option<i64>,
     /// Region mode: end of the export window, 1-based inclusive (start > end
@@ -407,7 +417,7 @@ struct ExportSubsequenceRequest {
 enum OptimizeInput {
     /// Open-project mode: `feature_id` names the CDS/mRNA feature to optimize.
     Project {
-        project_id: Option<String>,
+        project_id: String,
         feature_id: String,
     },
     /// Raw DNA coding sequence text.
@@ -460,12 +470,16 @@ fn resolve_optimize_input(
             })
         }
         (None, None) => {
+            let project_id = project_id.ok_or_else(|| {
+                "`project_id` is required in project mode (or pass `sequence` or `input_path` for standalone input)"
+                    .to_string()
+            })?;
             let feature_id = feature_id.ok_or_else(|| {
                 "`feature_id` is required in project mode (or pass `sequence` or `input_path` for standalone input)"
                     .to_string()
             })?;
             Ok(OptimizeInput::Project {
-                project_id: project_id.map(str::to_string),
+                project_id: project_id.to_string(),
                 feature_id: feature_id.to_string(),
             })
         }
@@ -626,7 +640,6 @@ pub struct LibreGeneMcp<R: Runtime> {
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
-    mcp_opened: Arc<RwLock<HashSet<String>>>,
 }
 
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -979,10 +992,10 @@ fn stored_location(f: &Feature) -> String {
     }
 }
 
-/// Resolve add_feature/update_feature span parameters (given 1-based
-/// inclusive, the MCP interface convention) into model segments and overall
-/// bounds (internal 0-based inclusive). Bounds against the project length are
-/// checked by the caller.
+/// Resolve set_feature span parameters (given 1-based inclusive, the MCP
+/// interface convention) into model segments and overall bounds (internal
+/// 0-based inclusive). Bounds against the project length are checked by the
+/// caller (`span_within_bounds`).
 fn resolve_feature_span(
     start: Option<i64>,
     end: Option<i64>,
@@ -1055,50 +1068,33 @@ impl<R: Runtime> LibreGeneMcp<R> {
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
-        mcp_opened: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
-        Self { app_handle, pm, wp, agent_tabs, mcp_opened }
+        Self { app_handle, pm, wp, agent_tabs }
     }
 
-    /// Explicit project id or the active project. Resolving a project also
-    /// re-locks any agent tab bound to it — the user may unlock the tab, but
-    /// the next tool call on the project locks it again.
-    async fn resolve_project_id(&self, project_id: Option<String>) -> Result<String, ErrorData> {
-        let id = {
-            let pm = self.pm.read().await;
-            match project_id {
-                Some(id) => id,
-                None => pm.active_id().map(|s| s.to_string()).ok_or_else(|| {
-                    ErrorData::invalid_params("No project loaded — open a file or pass project_id", None)
-                })?,
-            }
-        };
-        crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &id).await;
-        Ok(id)
+    /// Resolving a project also re-locks any agent tab bound to it — the user
+    /// may unlock the tab, but the next tool call on the project locks it
+    /// again.
+    async fn resolve_project_id(&self, project_id: String) -> Result<String, ErrorData> {
+        crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &project_id).await;
+        Ok(project_id)
     }
 
-    /// Resolve the project id and clone its data out of the lock.
-    async fn resolve_project(&self, project_id: Option<String>) -> Result<(String, ProjectData), ErrorData> {
-        let (id, project) = {
+    /// Clone the project's data out of the lock (and re-lock its agent tab).
+    async fn resolve_project(&self, project_id: String) -> Result<(String, ProjectData), ErrorData> {
+        let project = {
             let pm = self.pm.read().await;
-            let id = match project_id {
-                Some(id) => id,
-                None => pm.active_id().map(|s| s.to_string()).ok_or_else(|| {
-                    ErrorData::invalid_params("No project loaded — open a file or pass project_id", None)
-                })?,
-            };
-            let project = pm.get_project_by_id(&id).cloned().ok_or_else(|| {
-                ErrorData::invalid_params(format!("Project not found: {}", id), None)
-            })?;
-            (id, project)
+            pm.get_project_by_id(&project_id).cloned().ok_or_else(|| {
+                ErrorData::invalid_params(format!("Project not found: {}", project_id), None)
+            })?
         };
-        crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &id).await;
-        Ok((id, project))
+        crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &project_id).await;
+        Ok((project_id, project))
     }
 
     /// Mutating tools may only operate on projects bound as MCP agent tabs,
     /// so the user's own projects stay untouched. Read-only tools are
-    /// unrestricted; `request_agent_tab` performs the binding.
+    /// unrestricted; `open_project` performs the binding.
     async fn require_agent_tab(&self, project_id: &str) -> Result<(), ErrorData> {
         let at = self.agent_tabs.read().await;
         if at.contains_key(project_id) {
@@ -1106,7 +1102,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         Err(ErrorData::invalid_params(
             format!(
-                "Project '{}' is not bound as an MCP agent tab. Call request_agent_tab first: only projects the agent opened via MCP open_file can be bound — if this project was opened by the user, copy the file (e.g. bash `cp`) to a new path, open_file the copy, then request_agent_tab on the copy. Mutating tools refuse to operate on projects the user opened.",
+                "Project '{}' is not bound as an MCP agent tab (it was opened by the user, not via MCP open_project). Mutating tools refuse to operate on projects the user opened — copy the file (e.g. bash `cp`) to a new path and open_project the copy.",
                 project_id
             ),
             None,
@@ -1124,8 +1120,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Some(format!("{}: {} {} {}", p.name, p.length, unit, p.topology))
     }
 
-    /// Resolve the project id and reject non-DNA projects for DNA-only tools.
-    async fn require_dna_project(&self, project_id: Option<String>) -> Result<String, ErrorData> {
+    /// Resolve the project and reject non-DNA projects for DNA-only tools.
+    async fn require_dna_project(&self, project_id: String) -> Result<String, ErrorData> {
         let (id, project) = self.resolve_project(project_id).await?;
         if !project.is_dna() {
             return Err(ErrorData::invalid_params(
@@ -1181,6 +1177,30 @@ impl<R: Runtime> LibreGeneMcp<R> {
         pm.get_project_by_id(project_id)
             .map(|p| p.features.iter().any(|f| f.id == feature_id))
             .unwrap_or(false)
+    }
+
+    /// Reject feature spans outside [1, project.length] (1-based).
+    /// resolve_feature_span only checks start<=end (no upper bound), so
+    /// without this a caller could write a feature with end = i64::MAX and
+    /// later panic downstream code that slices the sequence by these
+    /// coordinates. `start`/`end` are internal 0-based inclusive.
+    async fn span_within_bounds(
+        &self,
+        project_id: &str,
+        start: i64,
+        end: i64,
+    ) -> Result<(), String> {
+        let pm = self.pm.read().await;
+        let plen = pm.get_project_by_id(project_id).map(|p| p.length).unwrap_or(0);
+        if end >= plen {
+            return Err(format!(
+                "feature span {}..{} is out of range for project length {} (1-based inclusive)",
+                start + 1,
+                end + 1,
+                plen
+            ));
+        }
+        Ok(())
     }
 
     /// A `{"error": ...}` payload from a shared core means a tool-level failure.
@@ -1414,7 +1434,7 @@ enum FileOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// export_subsequence: region resolution + export data building
+// save_file region mode: region resolution + export data building
 // ---------------------------------------------------------------------------
 
 /// Linear template pieces for an internal 0-based inclusive region; on
@@ -1601,17 +1621,17 @@ fn region_bbox(pieces: &[(i64, i64)], len: i64, circular: bool) -> (i64, i64) {
     )
 }
 
-/// Resolve an export_subsequence request to the template pieces it exports:
+/// Resolve a save_file `region` selector to the template pieces it exports:
 /// linear internal 0-based inclusive spans in EXPORT order, `flip` (each
 /// piece's sequence is reverse-complemented when exporting a minus-strand
 /// feature) and a human-readable description of the selected region (1-based,
-/// like every agent-facing string). The request's region `start`/`end` are
+/// like every agent-facing string). The selector's region `start`/`end` are
 /// already converted to internal 0-based by the caller; `cut1`/`cut2` are
 /// still the raw 1-based flanking-base numbers and are converted here.
 /// Exactly one selector must be given; mixing selectors is rejected.
 fn resolve_export_region(
     project: &ProjectData,
-    req: &ExportSubsequenceRequest,
+    req: &RegionSpec,
 ) -> Result<(Vec<(i64, i64)>, bool, String), String> {
     let region_active = req.start.is_some() || req.end.is_some();
     let feature_active = req.feature_id.is_some();
@@ -1943,13 +1963,53 @@ fn merge_sorted_segments(mut segs: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
     out
 }
 
+/// Feature/translation hits containing internal 0-based `position`,
+/// serialized for read_sequence: every containing feature with its 1-based
+/// feature-relative offset, plus CDS/mRNA codon/amino-acid details. Used for
+/// the window mode's startContext/endContext and the coordinate modes' hit
+/// details.
+fn position_context_json(
+    position: i64,
+    sequence: &str,
+    features: &[Feature],
+) -> serde_json::Value {
+    let feature_hits = libregene_core::coords::position_to_features(position, features);
+    let translation_hits =
+        libregene_core::coords::position_to_translations(position, sequence, features);
+    serde_json::json!({
+        "position": position + 1,
+        "features": feature_hits.iter().map(|h| serde_json::json!({
+            "featureId": h.feature_id,
+            "name": h.name,
+            "ftype": h.ftype,
+            "strand": h.strand,
+            "featureOffset": h.offset,
+            "featureLength": h.length,
+        })).collect::<Vec<_>>(),
+        "translations": translation_hits.iter().map(|h| serde_json::json!({
+            "featureId": h.feature_id,
+            "name": h.name,
+            "strand": h.strand,
+            "codonIndex": h.codon_index,
+            "aaPosition1Based": h.aa_position_1_based,
+            "aaPositionExcludingMet": h.aa_position_excluding_met,
+            "codon": h.codon,
+            "aminoAcid": h.amino_acid.to_string(),
+            "codonBaseIndex": h.codon_base_index,
+        })).collect::<Vec<_>>(),
+    })
+}
+
 #[tool_router]
 impl<R: Runtime> LibreGeneMcp<R> {
     /// List all open projects — the files currently loaded into memory.
-    /// A "project" is an open file: `open_file` loads a file as a project and
-    /// returns its `projectId`; every other tool addresses that project by
-    /// `project_id`. Returns {"projects": [{id, name, length, topology,
-    /// dirty}], "activeId": id-or-null}.
+    /// A "project" is an open file: `open_project` loads a file as a project
+    /// (bound as your agent tab) and returns its `projectId`; every other
+    /// tool addresses a project by its required `project_id`. Returns
+    /// {"projects": [{id, name, length, topology, dirty}], "activeId":
+    /// id-or-null}. `activeId` is the project the USER is currently viewing —
+    /// informational only; it does not influence tool routing, and when
+    /// several agents work in parallel you should avoid touching it.
     #[tool]
     async fn list_projects(&self) -> Result<Json<serde_json::Value>, ErrorData> {
         let pm = self.pm.read().await;
@@ -2040,28 +2100,202 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
     }
 
-    /// Read bases of a project's sequence. Returns {projectId, sequence, text}
-    /// — `sequence` is the plain uppercase base string (machine-readable);
-    /// `text` is the same window with a coordinate ruler (10 bp groups, 60 bp
-    /// per line; the ruler line is omitted for windows of 60 bp or less, where
-    /// the per-line position prefix is enough). start/end are 1-based
-    /// inclusive; on circular sequences start > end wraps the origin. Windows
-    /// larger than 10000 bp are rejected.
+    /// Read bases of a project's sequence, or resolve a coordinate. Exactly
+    /// one input form:
+    ///
+    /// WINDOW MODE — `start` + `end` (both required, 1-based inclusive; on
+    /// circular sequences start > end wraps the origin; windows larger than
+    /// 10000 bp are rejected). Returns {projectId, sequence, text,
+    /// startContext, endContext} — `sequence` is the plain uppercase base
+    /// string (machine-readable); `text` is the same window with a coordinate
+    /// ruler (10 bp groups, 60 bp per line; the ruler line is omitted for
+    /// windows of 60 bp or less, where the per-line position prefix is
+    /// enough). `startContext`/`endContext` annotate the window's first/last
+    /// base: each is {position, features, translations} listing every feature
+    /// containing that position (with its 1-based feature-relative offset)
+    /// and, inside a CDS/mRNA, the codon index, amino-acid position (two
+    /// conventions) and amino acid.
+    ///
+    /// COORDINATE MODE — exactly one of:
+    /// 1. `position`: a full-file 1-based inclusive template coordinate.
+    /// 2. `feature_id` + `feature_offset`: 1-based offset along the feature's
+    ///    own 5'→3' direction (reverse-complemented features count from their
+    ///    3' end on the template).
+    /// 3. `feature_id` + `aa_position`: 1-based amino-acid position within a
+    ///    CDS/mRNA feature, INCLUDING the initiator Met (Met = 1). Literature
+    ///    numbering that skips the Met (e.g. mEGFP A206K) corresponds to the
+    ///    response's `aaPositionExcludingMet`, so convert before calling:
+    ///    literature position + 1 (when the Met is present) is the
+    ///    `aa_position` to send.
+    /// Returns {projectId, input, position, base, codonPositions?, features,
+    /// translations, sequence, text}: `position` echoes the resolved absolute
+    /// coordinate (1-based) and `base` the template base there (plus-strand,
+    /// uppercase; the residue letter on protein projects); `features`/
+    /// `translations` are the full hit details for that position (same shape
+    /// as the window mode's contexts); for amino-acid input `codonPositions`
+    /// holds the three template positions of the requested codon in 5'→3'
+    /// biological order (and `position` is the first of them); `sequence`/
+    /// `text` give the `flank`-bp window around the position (default 30,
+    /// clamped at the sequence ends). Translation hits only appear when the
+    /// position falls inside a CDS/mRNA feature.
+    ///
     /// This tool is for INSPECTING bases only: if you need to hand this
-    /// sequence (or part of it) to another tool or file, use
-    /// export_subsequence to write it to a file instead of copying the text.
+    /// sequence (or part of it) to another tool or file, write it to a file
+    /// with save_file's `region` instead of copying the text.
     #[tool]
     async fn read_sequence(
         &self,
         Parameters(request): Parameters<SequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
-        let (s, e) = (from1(request.start), from1(request.end));
-        let text = read_sequence(&project, s, e)
+        let window_active = request.start.is_some() || request.end.is_some();
+        let coord_active = request.position.is_some()
+            || request.feature_id.is_some()
+            || request.feature_offset.is_some()
+            || request.aa_position.is_some();
+        if window_active == coord_active {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Provide exactly one input form: `start` + `end` (window read); `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+            )));
+        }
+
+        if window_active {
+            let (s, e) = match (request.start, request.end) {
+                (Some(s), Some(e)) => (from1(s), from1(e)),
+                _ => {
+                    return Ok(Json(fail_envelope(
+                        &id,
+                        "start and end are both required (1-based inclusive)".to_string(),
+                    )))
+                }
+            };
+            let text = read_sequence(&project, s, e)
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            let bases = libregene_core::digest::read_sequence_bases(&project, s, e)
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            return Ok(Json(serde_json::json!({
+                "projectId": id,
+                "sequence": bases,
+                "text": text,
+                "startContext": position_context_json(s, &project.sequence, &project.features),
+                "endContext": position_context_json(e, &project.sequence, &project.features),
+            })));
+        }
+
+        // Coordinate mode: resolve the input form to an absolute 0-based
+        // template position, then report hit details + a flank window.
+        let sequence = &project.sequence;
+        let features = &project.features;
+        let len = sequence.len() as i64;
+
+        let position: i64;
+        let input_json: serde_json::Value;
+        let codon_positions_opt: Option<[i64; 3]>;
+
+        let has_position = request.position.is_some() as u8;
+        let has_feature_offset = request.feature_id.is_some() && request.feature_offset.is_some();
+        let has_aa_position = request.feature_id.is_some() && request.aa_position.is_some();
+        if has_position + has_feature_offset as u8 + has_aa_position as u8 != 1 {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+            )));
+        }
+
+        if let Some(pos1) = request.position {
+            if pos1 < 1 || pos1 > len {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!("position {} out of bounds (1..={})", pos1, len),
+                )));
+            }
+            position = pos1 - 1;
+            input_json = serde_json::json!({ "kind": "template", "position": pos1 });
+            codon_positions_opt = None;
+        } else if let Some(feature_id) = &request.feature_id {
+            let f = features
+                .iter()
+                .find(|f| &f.id == feature_id)
+                .ok_or_else(|| ErrorData::invalid_params(format!("feature '{}' not found", feature_id), None))?;
+            if let Some(offset1) = request.feature_offset {
+                match libregene_core::coords::position_from_feature_offset(f, offset1) {
+                    Ok(pos0) => {
+                        // Feature coordinates are file-derived and not
+                        // range-checked at parse time; reject before the
+                        // sequence indexing below panics.
+                        if pos0 < 0 || pos0 >= len {
+                            return Ok(Json(fail_envelope(
+                                &id,
+                                format!(
+                                    "feature '{}' coordinates fall outside the sequence (length {})",
+                                    f.name, len
+                                ),
+                            )));
+                        }
+                        position = pos0;
+                        input_json = serde_json::json!({
+                            "kind": "featureOffset",
+                            "featureId": feature_id,
+                            "featureOffset": offset1,
+                        });
+                        codon_positions_opt = None;
+                    }
+                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                }
+            } else if let Some(aa1) = request.aa_position {
+                match libregene_core::coords::codon_from_aa(f, sequence, aa1) {
+                    Ok((positions, codon, aa)) => {
+                        position = positions[0];
+                        input_json = serde_json::json!({
+                            "kind": "aminoAcid",
+                            "featureId": feature_id,
+                            "aaPosition": aa1,
+                            "codon": codon,
+                            "aminoAcid": aa.to_string(),
+                        });
+                        codon_positions_opt = Some(positions);
+                    }
+                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                }
+            } else {
+                // Unreachable because of the mutual-exclusion check above.
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+                )));
+            }
+        } else {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+            )));
+        }
+
+        let flank = request.flank.unwrap_or(30).max(0);
+        let ws = (position - flank).max(0);
+        let we = (position + flank).min(len - 1);
+        let ctx = position_context_json(position, sequence, features);
+        let text = read_sequence(&project, ws, we)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let bases = libregene_core::digest::read_sequence_bases(&project, s, e)
+        let bases = libregene_core::digest::read_sequence_bases(&project, ws, we)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        Ok(Json(serde_json::json!({ "projectId": id, "sequence": bases, "text": text })))
+        let mut v = serde_json::json!({
+            "projectId": id,
+            "input": input_json,
+            "position": position + 1,
+            "base": sequence[position as usize..position as usize + 1].to_ascii_uppercase(),
+            "features": ctx["features"],
+            "translations": ctx["translations"],
+            "sequence": bases,
+            "text": text,
+        });
+        if let Some(positions) = codon_positions_opt {
+            v["codonPositions"] = serde_json::json!(
+                positions.iter().map(|p| p + 1).collect::<Vec<_>>()
+            );
+        }
+        Ok(Json(v))
     }
 
     /// IUPAC-aware search of a project's sequence on both strands (reverse
@@ -2268,37 +2502,89 @@ impl<R: Runtime> LibreGeneMcp<R> {
     // Mutations
     // -----------------------------------------------------------------------
 
-    /// Open a sequence file and load it into the project manager as a new
-    /// project (project id = file path; the returned `projectId` is how every
-    /// other tool refers to it — see list_projects). This is the entry point
-    /// for handing a file to the app: whenever a sequence already exists as a
-    /// file on disk, bring it in through this tool rather than pasting its
-    /// text into other tools. Files are also the recommended way to
-    /// move a sequence between projects (write with save_file/export_subsequence,
-    /// read back with open_file). Enzyme and primer recompute run on a
-    /// background thread; the UI is refreshed via broadcast. Returns
-    /// {ok, message, projectId, regionView} where regionView is the compact
-    /// overview digest of the opened project (enzyme cutters collapsed to a
-    /// count line).
+    /// Open a sequence file, load it as a new project AND bind it as your
+    /// agent tab in one step (project id = file path; the returned
+    /// `projectId` is how every other tool refers to it — see list_projects).
+    /// Binding means: the project stays in the main window's sidebar (marked
+    /// with a bot badge) and is LOCKED against user keyboard/pointer input
+    /// while you work (the user can temporarily unlock it via an on-screen
+    /// button, but any further MCP tool call on the project re-locks it).
+    /// This is the entry point for handing a file to the app: whenever a
+    /// sequence already exists as a file on disk, bring it in through this
+    /// tool rather than pasting its text into other tools. Files are also the
+    /// recommended way to move a sequence between projects (write with
+    /// save_file, read back with open_project). Enzyme and primer recompute
+    /// run on a background thread; the UI is refreshed via broadcast.
+    /// If the path is already loaded: a project already bound to you is
+    /// re-locked and returns {ok, projectId, locked, reused: true}; a project
+    /// the USER opened is REFUSED — copy the file with bash `cp` to a new
+    /// path and open_project the copy. Mutating tools (edit_sequence,
+    /// set_feature, add_primer, add_alignment, save_file, optimize_cds/apply,
+    /// find_orfs/add_as_features) REFUSE to run on projects not bound as an
+    /// agent tab. Multiple agents each open their own copy and work in
+    /// parallel without interfering.
+    /// Returns {ok, message, projectId, regionView} where regionView is the
+    /// compact overview digest of the opened project (enzyme cutters
+    /// collapsed to a count line).
     #[tool]
-    async fn open_file(
+    async fn open_project(
         &self,
-        Parameters(request): Parameters<OpenFileRequest>,
+        Parameters(request): Parameters<OpenProjectRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = request.path.clone();
+        let already_loaded = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id).is_some()
+        };
+        if already_loaded {
+            // Reuse the existing agent tab for this project when there is one.
+            let reused = {
+                let mut at = self.agent_tabs.write().await;
+                if let Some(meta) = at.get_mut(&id) {
+                    meta.locked = true;
+                    true
+                } else {
+                    false
+                }
+            };
+            if reused {
+                let _ = self.app_handle.emit(
+                    "agent-tab-lock",
+                    serde_json::json!({ "projectId": id, "locked": true }),
+                );
+                return Ok(Json(serde_json::json!({
+                    "ok": true,
+                    "projectId": id,
+                    "locked": true,
+                    "reused": true,
+                    "message": format!("Project '{}' is already open and bound as your agent tab (re-locked)", id),
+                })));
+            }
+            // Loaded but not bound → the user opened it; their projects stay
+            // under user control.
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "Project '{}' is already open and was NOT opened via MCP open_project (it was opened by the user, or in a separate window). To work on a copy, copy the file with bash `cp` to a new path and open_project the copy.",
+                    id
+                ),
+                None,
+            ));
+        }
         let payload = crate::do_open_file(&self.pm, request.path)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        // Remember that the MCP server opened this project — only projects in
-        // this set may later be bound as agent tabs (request_agent_tab refuses
-        // projects the user opened).
+        // Bind the freshly opened project as this agent's tab (locked).
         {
-            let mut mo = self.mcp_opened.write().await;
-            mo.insert(id.clone());
+            let mut at = self.agent_tabs.write().await;
+            at.insert(id.clone(), crate::AgentTabMeta { locked: true });
         }
+        let _ = self.app_handle.emit(
+            "agent-tab-lock",
+            serde_json::json!({ "projectId": id, "locked": true }),
+        );
         // The open_file command does not broadcast (frontend applies the
         // response) — the MCP server must notify the UI itself.
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
@@ -2307,52 +2593,230 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(ok_envelope(&id, summary, region)))
     }
 
-    /// Save a project (addressed by `project_id`, defaults to the active one)
-    /// to a GenBank file on disk — the reverse of open_file: the file holds
-    /// the project's current sequence + features. Uses the same serializer and
-    /// mark-clean logic as the save_file command. Returns the uniform envelope
-    /// with the overview digest plus `bytesWritten` (file size in bytes, for
-    /// write verification).
+    /// Save a project (addressed by the required `project_id`) to a file on
+    /// disk — the reverse of open_project.
+    ///
+    /// WITHOUT `region`: the whole project (current sequence + features) is
+    /// written through the same serializer and mark-clean logic as the
+    /// save_file command (.gbk/.gb for DNA/RNA projects, .gpt for protein
+    /// projects; topology preserved). Returns the uniform envelope with the
+    /// overview digest plus `bytesWritten` (file size in bytes, for write
+    /// verification).
+    ///
+    /// WITH `region`: exports only that subsequence — THE recommended way to
+    /// create a sequence file from a known region of an open project (then
+    /// open_project the result to work with it as a project). NEVER retype or
+    /// paste the sequence into edit_sequence/other tools to build a new
+    /// construct — pasted sequences are error-prone. The file holds the
+    /// region's sequence (uppercase; template strand except as noted) plus
+    /// every feature overlapping it (partially covered features are clipped
+    /// to the region) with coordinates translated to the new linear
+    /// coordinate system, and every primer whose primary binding site
+    /// overlaps the region at all; circular projects always export linear
+    /// fragments and the project is NOT marked clean. Exactly ONE selector
+    /// inside `region` (mixing selectors is rejected):
+    /// - `start` + `end`: 1-based inclusive template coordinates; on circular
+    ///   sequences `start > end` wraps the origin.
+    /// - `feature_id`: the feature's sequence with its segments joined in
+    ///   biological order (5'→3', reverse-complemented for minus-strand
+    ///   features). The exported feature spans the whole exported sequence;
+    ///   other features overlapping its segments are carried along
+    ///   (coordinates translated, strand flipped to match the rev-comp'd
+    ///   orientation).
+    /// - `enzyme1` + `enzyme2`: the fragment between the two enzymes' cut
+    ///   sites (names — unknown names are rejected with near-match
+    ///   suggestions, the same probe find_restriction_sites uses). Each
+    ///   enzyme contributes the top-strand cut of its first recognition site
+    ///   on the sequence; passing the same name twice uses that enzyme's
+    ///   first two sites. On circular sequences the fragment is the forward
+    ///   arc from enzyme1's cut to enzyme2's cut (wrapping the origin when
+    ///   needed); on linear sequences the two cuts may be given in either
+    ///   order.
+    /// - `cut1` + `cut2` (alternative to the enzyme names): explicit cut
+    ///   positions, 1-based — a cut at N severs the DNA between the 1-based
+    ///   bases N and N+1 (valid range 1..=len; N = len is after the last base
+    ///   on linear sequences, between the last and the first base on circular
+    ///   ones; the fragment is [min, max-1] internal-0-based on linear
+    ///   sequences, the forward arc on circular ones).
+    /// - `fwd_primer` + `rev_primer`: the amplicon between the two primers'
+    ///   binding sites. Each is a project primer name (stored binding sites
+    ///   are used; name lookup wins) or a raw sequence (binding sites
+    ///   recomputed with the primer engine, like check_primer_binding). The
+    ///   fwd primer's best forward-strand site and the rev primer's best
+    ///   reverse-strand site define the amplicon [fwdStart, revEnd]
+    ///   (1-based inclusive) — the PCR product's top strand. A primer that
+    ///   does not bind the strand its role needs is an error.
+    ///
+    /// Overwrite rule: when `path` already exists and is NOT the project's
+    /// own source path, `overwrite: true` is required — otherwise the call
+    /// fails with a hint to choose a different path or overwrite explicitly.
+    /// Saving over the project's own file (scratch-copy iteration) needs no
+    /// flag.
+    ///
+    /// Region mode returns {ok, message, projectId, outputPath, length,
+    /// primers?, regionView?}: `length` is the exported sequence length
+    /// (bp/nt/aa); `primers` lists the names of primers written with the file
+    /// (omitted when none); `regionView` is a compact digest of the source
+    /// project over the exported region's bounding box. The exported sequence
+    /// itself is NOT echoed — read it back with open_project/read_sequence on
+    /// the written file.
     #[tool]
     async fn save_file(
         &self,
         Parameters(request): Parameters<SaveFileRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let (id, project) = self.resolve_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
         let path = request.path.clone();
-        let payload = crate::do_save_file(&self.pm, id.clone(), request.path)
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
+        // Overwrite rule: a pre-existing target that is not the project's own
+        // source file needs an explicit overwrite flag.
+        if path != id
+            && !request.overwrite.unwrap_or(false)
+            && std::path::Path::new(&path).exists()
+        {
+            return Ok(Json(fail_envelope(
+                &id,
+                format!(
+                    "{} already exists — pass overwrite: true to replace it, or choose a different path",
+                    path
+                ),
+            )));
         }
-        let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
-        let region = self.digest_region(&id, None, true).await;
-        let mut env = ok_envelope(&id, format!("Saved {}", path), region);
-        if let Some(b) = bytes_written {
-            env["bytesWritten"] = serde_json::json!(b);
+
+        let Some(spec) = request.region else {
+            // Whole-project save.
+            let payload = crate::do_save_file(&self.pm, id.clone(), path.clone())
+                .await
+                .map_err(|e| ErrorData::internal_error(e, None))?;
+            if let Some(err) = Self::payload_error(&payload) {
+                return Ok(Json(fail_envelope(&id, err)));
+            }
+            let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
+            crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
+            let region = self.digest_region(&id, None, true).await;
+            let mut env = ok_envelope(&id, format!("Saved {}", path), region);
+            if let Some(b) = bytes_written {
+                env["bytesWritten"] = serde_json::json!(b);
+            }
+            return Ok(Json(env));
+        };
+
+        // Region mode: subsequence export.
+        let ext = crate::validate_user_path(&path, crate::CODON_OUTPUT_EXTS)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let is_protein = project.molecule_type == "protein";
+        let wants_gpt = ext == "gpt";
+        if wants_gpt != is_protein {
+            return Ok(Json(fail_envelope(
+                &id,
+                format!(
+                    "molecule type '{}' exports as {} (DNA/RNA → .gbk/.gb/.genbank, protein → .gpt)",
+                    project.molecule_type,
+                    if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
+                ),
+            )));
         }
-        Ok(Json(env))
+        let unit = match project.molecule_type.as_str() {
+            "rna" => "nt",
+            "protein" => "aa",
+            _ => "bp",
+        };
+
+        // Region start/end arrive 1-based inclusive; convert to the internal
+        // 0-based model. cut1/cut2 stay raw — resolve_export_region validates
+        // and converts them (a cut at 1-based N = internal cut index N).
+        let mut spec = spec;
+        spec.start = spec.start.map(from1);
+        spec.end = spec.end.map(from1);
+
+        let (pieces, flip, desc) = resolve_export_region(&project, &spec)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let bbox = region_bbox(&pieces, project.length, project.topology == "circular");
+        let out_name = output_project_name(&path);
+        let message_path = path.clone();
+        let (out_project, primer_names) = tokio::task::spawn_blocking(move || {
+            let (sequence, features, primers) = build_export_data(&project, &pieces, flip);
+            let primer_names: Vec<String> = primers.iter().map(|p| p.name.clone()).collect();
+            let length = sequence.len() as i64;
+            (
+                ProjectData {
+                    name: out_name,
+                    sequence,
+                    length,
+                    topology: "linear".to_string(),
+                    molecule_type: project.molecule_type.clone(),
+                    features,
+                    primers,
+                    ..Default::default()
+                },
+                primer_names,
+            )
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+        let length = out_project.length;
+
+        let write_path = message_path.clone();
+        let written = tokio::task::spawn_blocking(move || {
+            let res = if wants_gpt {
+                libregene_core::file_io::gpt::write_gpt(&out_project, std::path::Path::new(&write_path))
+            } else {
+                libregene_core::file_io::gbk::write_gbk(&out_project, std::path::Path::new(&write_path))
+            };
+            res.map_err(|e| format!("failed to write {}: {}", write_path, e))
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+        if let Err(e) = written {
+            return Err(ErrorData::invalid_params(e, None));
+        }
+
+        let region = self.digest_region(&id, Some(bbox), true).await;
+        let mut v = ok_envelope(
+            &id,
+            format!("Exported {} ({} {}) to {}", desc, length, unit, message_path),
+            region,
+        );
+        v["outputPath"] = serde_json::json!(message_path);
+        v["length"] = serde_json::json!(length);
+        if !primer_names.is_empty() {
+            v["primers"] = serde_json::json!(primer_names);
+        }
+        Ok(Json(v))
     }
 
-    /// Close (unload) a project from memory without saving. Projects are
-    /// addressed by `project_id` (see list_projects); closing is NOT a file
-    /// operation — the file on disk is untouched. Mirrors delete_project; the
-    /// UI updates via broadcast. Returns {ok, message, projectId}.
+    /// Close (unload) one of YOUR agent-tab projects from memory without
+    /// saving. Only projects bound via open_project can be closed — the
+    /// user's own projects are refused. Closing is NOT a file operation: the
+    /// file on disk is untouched. A project with unsaved changes is refused
+    /// unless `force: true` (save first with save_file, or force to discard).
+    /// Mirrors delete_project; the UI updates via broadcast. Returns {ok,
+    /// message, projectId}.
     #[tool]
     async fn close_project(
         &self,
         Parameters(request): Parameters<CloseProjectRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = request.project_id.clone();
+        self.require_agent_tab(&id).await?;
+        let dirty = {
+            let pm = self.pm.read().await;
+            if pm.get_project_by_id(&id).is_none() {
+                return Err(ErrorData::invalid_params(format!("Project not found: {}", id), None));
+            }
+            pm.is_dirty(&id)
+        };
+        if dirty && !request.force.unwrap_or(false) {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Project has unsaved changes — save_file first, or pass force: true to discard them".to_string(),
+            )));
+        }
         let payload = crate::do_delete_project(
             &self.app_handle,
             &self.pm,
             &self.wp,
             &self.agent_tabs,
-            &self.mcp_opened,
             None,
             request.project_id,
         )
@@ -2368,134 +2832,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
         })))
     }
 
-    /// Make a project (addressed by `project_id`) the active one — the one
-    /// tools use when they omit `project_id`. Mirrors activate_project.
-    /// Returns {ok, message, projectId, regionView}.
-    #[tool]
-    async fn activate_project(
-        &self,
-        Parameters(request): Parameters<ActivateProjectRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = request.project_id.clone();
-        {
-            let at = self.agent_tabs.read().await;
-            if at.contains_key(&id) {
-                return Err(ErrorData::invalid_params(
-                    format!(
-                        "Project '{}' is bound as an MCP agent tab and stays active in the main window; it cannot be activated here. Skip this step — the tab is already visible in the main window and updates as you work.",
-                        id
-                    ),
-                    None,
-                ));
-            }
-        }
-        let payload = crate::do_activate_project(&self.pm, request.project_id)
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
-        let region = self.digest_region(&id, None, true).await;
-        Ok(Json(ok_envelope(&id, format!("Activated {}", id), region)))
-    }
-
-    /// Bind a project as an MCP agent tab: the project STAYS in the main
-    /// window's sidebar (marked with a bot badge) and is LOCKED against user
-    /// keyboard/pointer input while the agent works (a floating panel shows
-    /// the lock; the user can temporarily unlock it via an on-screen button,
-    /// but any further MCP tool call on the project re-locks it). Only
-    /// projects the agent itself opened via MCP `open_file` can be bound —
-    /// projects the user opened (or that are open in a separate project
-    /// window) are REFUSED: copy the file with bash `cp` to a new path,
-    /// `open_file` the copy, then bind the copy. Mutating tools
-    /// (edit_sequence, add_feature, update_feature, add_primer, add_alignment,
-    /// save_file, optimize_cds/apply, find_orfs/add_as_features) REFUSE to run
-    /// on projects that are not bound as an agent tab, so call this right
-    /// after open_file, before any modification. Multiple agents each get
-    /// their own binding and work in parallel without interfering. Calling
-    /// again for a project that is already bound re-locks the existing tab.
-    /// Returns {ok, projectId, locked, reused?}.
-    #[tool]
-    async fn request_agent_tab(
-        &self,
-        Parameters(request): Parameters<RequestAgentTabRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        {
-            let pm = self.pm.read().await;
-            if pm.get_project_by_id(&id).is_none() {
-                return Err(ErrorData::invalid_params(
-                    format!("Project not found: {}", id),
-                    None,
-                ));
-            }
-        }
-        // Reuse the existing agent tab for this project when there is one.
-        let reused = {
-            let mut at = self.agent_tabs.write().await;
-            if let Some(meta) = at.get_mut(&id) {
-                meta.locked = true;
-                true
-            } else {
-                false
-            }
-        };
-        if reused {
-            let _ = self.app_handle.emit(
-                "agent-tab-lock",
-                serde_json::json!({ "projectId": id, "locked": true }),
-            );
-            return Ok(Json(serde_json::json!({
-                "ok": true,
-                "projectId": id,
-                "locked": true,
-                "reused": true,
-                "message": format!("Project '{}' is already bound as an MCP agent tab (re-locked)", id),
-            })));
-        }
-        // Only projects the agent itself opened via MCP open_file may be
-        // bound — the user's own projects stay under user control.
-        {
-            let mo = self.mcp_opened.read().await;
-            if !mo.contains(&id) {
-                return Err(ErrorData::invalid_params(
-                    format!(
-                        "Project '{}' was not opened via MCP open_file (it was opened by the user, or in a separate window). To work on a copy, copy the file with bash `cp` to a new path, call open_file on the copy, then request_agent_tab on the copy's project id.",
-                        id
-                    ),
-                    None,
-                ));
-            }
-        }
-        {
-            let mut at = self.agent_tabs.write().await;
-            at.insert(id.clone(), crate::AgentTabMeta { locked: true });
-        }
-        let _ = self.app_handle.emit(
-            "agent-tab-lock",
-            serde_json::json!({ "projectId": id, "locked": true }),
-        );
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
-        Ok(Json(serde_json::json!({
-            "ok": true,
-            "projectId": id,
-            "locked": true,
-            "message": format!("Bound project '{}' as an MCP agent tab — it stays in the main window but is locked against user input; it re-locks automatically on every tool call", id),
-        })))
-    }
-
     /// Replace sequence [start..end] (1-based inclusive) with `replacement`
     /// (empty = delete). A pure insertion before base N is `start=N, end=N-1`;
     /// ranges must not wrap (start > end+1 rejected). The replacement sequence
     /// is given either
     /// as a plain string (`replacement`) or read from a local sequence file
     /// (`replacement_path` — .gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 etc.,
-    /// the same formats open_file accepts; exactly one of the two must be
+    /// the same formats open_project accepts; exactly one of the two must be
     /// given). PREFER `replacement_path`: a file cannot be mistyped or
     /// truncated, so whenever the insert already exists as a file — or is a
-    /// region of an open project you can export first with export_subsequence —
-    /// use the file. Use the `replacement` string only for short hand-authored
+    /// region of an open project you can export first with save_file's
+    /// `region` — use the file. Use the `replacement` string only for short
+    /// hand-authored
     /// edits (point mutations, short oligo-length inserts). The optional
     /// `strand` parameter sets the insertion direction: "+" (default) inserts
     /// the replacement exactly as given; "-" reverse-complements it first
@@ -2830,24 +3178,143 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    /// Add a feature. Coordinates are 1-based inclusive (GenBank convention):
-    /// give `start`+`end` for a simple feature, or `segments`
-    /// ([{start, end}], 5'→3' order) for a segmented one — the two forms are
-    /// mutually exclusive. strand (".", "+", "-", default "+") and color (hex,
-    /// e.g. "#60A5FA") are optional.
+    /// Create or update a feature in one tool.
+    ///
+    /// `feature_id` OMITTED = create: `name` and `ftype` are required, plus a
+    /// span — `start`+`end` (1-based inclusive, GenBank convention) for a
+    /// simple feature or `segments` ([{start, end}], 5'→3' order) for a
+    /// segmented one; the two forms are mutually exclusive. strand (".", "+",
+    /// "-", default "+") and color (hex, default "#60A5FA") are optional.
     /// Returns {ok, message, projectId, featureId, regionView} around the new
     /// feature.
+    ///
+    /// `feature_id` GIVEN = update that feature's attributes in one call:
+    /// give at least one of name/ftype/color/strand/start+end/segments or the
+    /// call is rejected. `start`+`end` replace the whole span, `segments`
+    /// replaces the segment breakdown — the two forms are mutually exclusive
+    /// and neither touches the strand. strand must be ".", "+" or "-"; color
+    /// is hex and also recolors existing segments. Returns {ok, message,
+    /// projectId, regionView} around the feature.
     #[tool]
-    async fn add_feature(
+    async fn set_feature(
         &self,
-        Parameters(request): Parameters<AddFeatureRequest>,
+        Parameters(request): Parameters<SetFeatureRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
+        let id = self.resolve_project_id(request.project_id.clone()).await?;
         self.require_agent_tab(&id).await?;
-        let feature_id = next_id("feature");
-        let name = request.name.clone();
-        let ftype = request.ftype.clone();
 
+        if let Some(feature_id) = request.feature_id.clone() {
+            // ---- update mode ----
+            if !self.feature_exists(&id, &feature_id).await {
+                return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", feature_id))));
+            }
+            if request.name.is_none()
+                && request.ftype.is_none()
+                && request.color.is_none()
+                && request.strand.is_none()
+                && request.start.is_none()
+                && request.end.is_none()
+                && request.segments.is_none()
+            {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "Nothing to update: give at least one of name/ftype/color/strand/start+end/segments".to_string(),
+                )));
+            }
+            if let Some(s) = &request.strand {
+                if !matches!(s.as_str(), "." | "+" | "-") {
+                    return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
+                }
+            }
+            let has_span = request.start.is_some()
+                || request.end.is_some()
+                || request.segments.is_some();
+            let new_span = if has_span {
+                let span = resolve_feature_span(request.start, request.end, request.segments)
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
+                if let Err(e) = self.span_within_bounds(&id, span.1, span.2).await {
+                    return Ok(Json(fail_envelope(&id, e)));
+                }
+                Some(span)
+            } else {
+                None
+            };
+            let payload = crate::do_update_feature(
+                &self.app_handle,
+                &self.pm,
+                &self.wp,
+                &self.agent_tabs,
+                None,
+                &id,
+                &feature_id,
+                move |f| {
+                    if let Some((segments, start, end)) = new_span {
+                        f.segments = segments;
+                        f.start = start;
+                        f.end = end;
+                    }
+                    if let Some(v) = request.name {
+                        f.name = v;
+                    }
+                    if let Some(v) = request.ftype {
+                        f.ftype = v;
+                    }
+                    if let Some(v) = &request.color {
+                        f.color = v.clone();
+                        for seg in f.segments.iter_mut() {
+                            seg.color = Some(v.clone());
+                        }
+                    }
+                    if let Some(v) = request.strand {
+                        f.strand = v;
+                    }
+                    Ok(())
+                },
+            )
+            .await
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+            if let Some(err) = Self::payload_error(&payload) {
+                return Ok(Json(fail_envelope(&id, err)));
+            }
+            let message = {
+                let pm = self.pm.read().await;
+                pm.get_project_by_id(&id)
+                    .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
+                    .map(|f| {
+                        format!(
+                            "Updated feature {}: {} {} at {} (1-based inclusive), strand {}",
+                            feature_id,
+                            f.ftype,
+                            f.name,
+                            stored_location(f),
+                            f.strand
+                        )
+                    })
+                    .unwrap_or_else(|| format!("Updated feature {}", feature_id))
+            };
+            let region = self.digest_feature_region(&id, &feature_id).await;
+            return Ok(Json(ok_envelope(&id, message, region)));
+        }
+
+        // ---- create mode ----
+        let name = match request.name.clone() {
+            Some(n) if !n.is_empty() => n,
+            _ => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "name is required when creating a feature (omit feature_id = create; pass feature_id to update)".to_string(),
+                )))
+            }
+        };
+        let ftype = match request.ftype.clone() {
+            Some(t) if !t.is_empty() => t,
+            _ => {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "ftype is required when creating a feature (omit feature_id = create; pass feature_id to update)".to_string(),
+                )))
+            }
+        };
         let (segments, start, end) = resolve_feature_span(
             request.start,
             request.end,
@@ -2858,38 +3325,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if !matches!(strand.as_str(), "." | "+" | "-") {
             return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
         }
-
-        // Reject coordinates outside [1, project.length] (1-based).
-        // resolve_feature_span only checks start<=end (no upper bound), so
-        // without this a caller could write a feature with end = i64::MAX and
-        // later panic downstream code that slices the sequence by these
-        // coordinates.
-        {
-            let pm = self.pm.read().await;
-            let plen = pm
-                .get_project_by_id(&id)
-                .map(|p| p.length)
-                .unwrap_or(0);
-            if end >= plen {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!(
-                        "feature span {}..{} is out of range for project length {} (1-based inclusive)",
-                        start + 1,
-                        end + 1,
-                        plen
-                    ),
-                )));
-            }
+        if let Err(e) = self.span_within_bounds(&id, start, end).await {
+            return Ok(Json(fail_envelope(&id, e)));
         }
 
+        let feature_id = next_id("feature");
         let feature = Feature {
             id: feature_id.clone(),
-            name: request.name,
+            name: name.clone(),
             start,
             end,
             color: request.color.unwrap_or_else(|| "#60A5FA".to_string()),
-            ftype: request.ftype,
+            ftype: ftype.clone(),
             segments,
             strand,
             notes: request.notes.unwrap_or_default(),
@@ -2920,127 +3367,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         );
         v["featureId"] = serde_json::json!(feature_id);
         Ok(Json(v))
-    }
-
-    /// Update a feature's attributes in one call. `feature_id` is required;
-    /// give at least one of name/ftype/color/strand/start+end/segments or the
-    /// call is rejected. Coordinates are 1-based inclusive (GenBank
-    /// convention): `start`+`end` replace the whole span, `segments`
-    /// ([{start, end}], 5'→3' order) replaces the segment breakdown — the two
-    /// forms are mutually exclusive and neither touches the strand. strand
-    /// must be ".", "+" or "-"; color is hex (e.g. "#F87171") and also
-    /// recolors existing segments. Returns {ok, message, projectId,
-    /// regionView} around the feature.
-    #[tool]
-    async fn update_feature(
-        &self,
-        Parameters(request): Parameters<UpdateFeatureRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        self.require_agent_tab(&id).await?;
-        if !self.feature_exists(&id, &request.feature_id).await {
-            return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", request.feature_id))));
-        }
-        if request.name.is_none()
-            && request.ftype.is_none()
-            && request.color.is_none()
-            && request.strand.is_none()
-            && request.start.is_none()
-            && request.end.is_none()
-            && request.segments.is_none()
-        {
-            return Ok(Json(fail_envelope(
-                &id,
-                "Nothing to update: give at least one of name/ftype/color/strand/start+end/segments".to_string(),
-            )));
-        }
-        if let Some(s) = &request.strand {
-            if !matches!(s.as_str(), "." | "+" | "-") {
-                return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
-            }
-        }
-        let feature_id = request.feature_id.clone();
-        let has_span = request.start.is_some()
-            || request.end.is_some()
-            || request.segments.is_some();
-        let new_span = if has_span {
-            let span = resolve_feature_span(request.start, request.end, request.segments)
-                .map_err(|e| ErrorData::invalid_params(e, None))?;
-            // Pre-validate the new span against the project length (same reason
-            // as add_feature). resolve_feature_span has no upper bound on its own.
-            let (_, start, end) = &span;
-            let pm = self.pm.read().await;
-            let plen = pm.get_project_by_id(&id).map(|p| p.length).unwrap_or(0);
-            if *end >= plen {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!(
-                        "feature span {}..{} is out of range for project length {} (1-based inclusive)",
-                        start + 1,
-                        end + 1,
-                        plen
-                    ),
-                )));
-            }
-            Some(span)
-        } else {
-            None
-        };
-        let payload = crate::do_update_feature(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            &self.agent_tabs,
-            None,
-            &id,
-            &feature_id,
-            move |f| {
-                if let Some((segments, start, end)) = new_span {
-                    f.segments = segments;
-                    f.start = start;
-                    f.end = end;
-                }
-                if let Some(v) = request.name {
-                    f.name = v;
-                }
-                if let Some(v) = request.ftype {
-                    f.ftype = v;
-                }
-                if let Some(v) = &request.color {
-                    f.color = v.clone();
-                    for seg in f.segments.iter_mut() {
-                        seg.color = Some(v.clone());
-                    }
-                }
-                if let Some(v) = request.strand {
-                    f.strand = v;
-                }
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| ErrorData::invalid_params(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
-        let message = {
-            let pm = self.pm.read().await;
-            pm.get_project_by_id(&id)
-                .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
-                .map(|f| {
-                    format!(
-                        "Updated feature {}: {} {} at {} (1-based inclusive), strand {}",
-                        feature_id,
-                        f.ftype,
-                        f.name,
-                        stored_location(f),
-                        f.strand
-                    )
-                })
-                .unwrap_or_else(|| format!("Updated feature {}", feature_id))
-        };
-        let region = self.digest_feature_region(&id, &feature_id).await;
-        Ok(Json(ok_envelope(&id, message, region)))
     }
 
     /// Add a primer ("fwd" or "rev") and recompute its binding sites against
@@ -3130,7 +3456,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   long sequences are error-prone.
     /// - `path` (PREFERRED): read the sequence from a file. If the read lives
     ///   in a file, or is a region of an open project (export it first with
-    ///   export_subsequence), use this — a file cannot be mistyped or
+    ///   save_file's `region`), use this — a file cannot be mistyped or
     ///   truncated. Supported file types:
     ///   `.gbk`/`.gb`/`.genbank` (GenBank), `.dna`/`.rna`/`.prot` (SnapGene
     ///   binary), `.gpt` (protein GenBank), `.fa`/`.fasta` (FASTA / plain
@@ -3842,185 +4168,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    /// Convert coordinates between template position, feature-relative offset,
-    /// and CDS amino-acid position. Exactly one of these mutually exclusive
-    /// input forms must be provided:
-    ///
-    /// 1. `position`: a full-file 1-based inclusive template coordinate.
-    /// 2. `feature_id` + `feature_offset`: 1-based offset along the feature's
-    ///    own 5'→3' direction (reverse-complemented features count from their
-    ///    3' end on the template).
-    /// 3. `feature_id` + `aa_position`: 1-based amino-acid position within a
-    ///    CDS/mRNA feature, INCLUDING the initiator Met (Met = 1). Literature
-    ///    numbering that skips the Met (e.g. mEGFP A206K) corresponds to the
-    ///    response's `aaPositionExcludingMet`, so convert before calling:
-    ///    literature position + 1 (when the Met is present) is the `aa_position`
-    ///    to send.
-    ///
-    /// Returns {projectId, input, position, base, codonPositions?, features,
-    /// translations}. `base` is the template base at `position` (plus-strand,
-    /// uppercase; the residue letter on protein projects). `features` lists
-    /// every feature containing the resolved
-    /// position with its 1-based feature-relative offset and total length.
-    /// `translations` lists CDS/mRNA hits with codon index, amino-acid position
-    /// in two conventions (`aaPosition1Based` includes the initiator Met;
-    /// `aaPositionExcludingMet` does not, matching literature numbering such as
-    /// mEGFP A206K), the coding-strand codon, the amino acid, and which base of
-    /// the codon the position is. For amino-acid input, `codonPositions`
-    /// contains the three template positions of the requested codon in 5'→3'
-    /// biological order and the top-level `position` is the first of them.
-    ///
-    /// Works for DNA, RNA and protein projects for a/b lookups; translation
-    /// lookup (c) only returns hits when the position falls inside a CDS/mRNA
-    /// feature.
-    #[tool]
-    async fn convert_coordinates(
-        &self,
-        Parameters(request): Parameters<ConvertCoordinatesRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.resolve_project_id(request.project_id).await?;
-        let (sequence, features) = {
-            let pm = self.pm.read().await;
-            let p = pm
-                .get_project_by_id(&id)
-                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
-            (p.sequence.clone(), p.features.clone())
-        };
-        let len = sequence.len() as i64;
-
-        let position: i64;
-        let input_json: serde_json::Value;
-        let codon_positions_opt: Option<[i64; 3]>;
-
-        let has_position = request.position.is_some() as u8;
-        let has_feature_offset = request.feature_id.is_some() && request.feature_offset.is_some();
-        let has_aa_position = request.feature_id.is_some() && request.aa_position.is_some();
-        if has_position + has_feature_offset as u8 + has_aa_position as u8 != 1 {
-            return Ok(Json(fail_envelope(
-                &id,
-                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-            )));
-        }
-
-        if let Some(pos1) = request.position {
-            if pos1 < 1 || pos1 > len {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!("position {} out of bounds (1..={})", pos1, len),
-                )));
-            }
-            position = pos1 - 1;
-            input_json = serde_json::json!({ "kind": "template", "position": pos1 });
-            codon_positions_opt = None;
-        } else if let Some(feature_id) = request.feature_id {
-            let f = features
-                .iter()
-                .find(|f| f.id == feature_id)
-                .ok_or_else(|| ErrorData::invalid_params(format!("feature '{}' not found", feature_id), None))?;
-            if let Some(offset1) = request.feature_offset {
-                match libregene_core::coords::position_from_feature_offset(f, offset1) {
-                    Ok(pos0) => {
-                        // Feature coordinates are file-derived and not
-                        // range-checked at parse time; reject before the
-                        // sequence indexing below panics.
-                        if pos0 < 0 || pos0 >= len {
-                            return Ok(Json(fail_envelope(
-                                &id,
-                                format!(
-                                    "feature '{}' coordinates fall outside the sequence (length {})",
-                                    f.name, len
-                                ),
-                            )));
-                        }
-                        position = pos0;
-                        input_json = serde_json::json!({
-                            "kind": "featureOffset",
-                            "featureId": feature_id,
-                            "featureOffset": offset1,
-                        });
-                        codon_positions_opt = None;
-                    }
-                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
-                }
-            } else if let Some(aa1) = request.aa_position {
-                match libregene_core::coords::codon_from_aa(f, &sequence, aa1) {
-                    Ok((positions, codon, aa)) => {
-                        position = positions[0];
-                        input_json = serde_json::json!({
-                            "kind": "aminoAcid",
-                            "featureId": feature_id,
-                            "aaPosition": aa1,
-                            "codon": codon,
-                            "aminoAcid": aa.to_string(),
-                        });
-                        codon_positions_opt = Some(positions);
-                    }
-                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
-                }
-            } else {
-                // Unreachable because of the mutual-exclusion check above.
-                return Ok(Json(fail_envelope(
-                    &id,
-                    "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-                )));
-            }
-        } else {
-            return Ok(Json(fail_envelope(
-                &id,
-                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-            )));
-        }
-
-        let feature_hits = libregene_core::coords::position_to_features(position, &features);
-        let translation_hits =
-            libregene_core::coords::position_to_translations(position, &sequence, &features);
-
-        let features_json: Vec<serde_json::Value> = feature_hits
-            .iter()
-            .map(|h| {
-                serde_json::json!({
-                    "featureId": h.feature_id,
-                    "name": h.name,
-                    "ftype": h.ftype,
-                    "strand": h.strand,
-                    "featureOffset": h.offset,
-                    "featureLength": h.length,
-                })
-            })
-            .collect();
-        let translations_json: Vec<serde_json::Value> = translation_hits
-            .iter()
-            .map(|h| {
-                serde_json::json!({
-                    "featureId": h.feature_id,
-                    "name": h.name,
-                    "strand": h.strand,
-                    "codonIndex": h.codon_index,
-                    "aaPosition1Based": h.aa_position_1_based,
-                    "aaPositionExcludingMet": h.aa_position_excluding_met,
-                    "codon": h.codon,
-                    "aminoAcid": h.amino_acid.to_string(),
-                    "codonBaseIndex": h.codon_base_index,
-                })
-            })
-            .collect();
-
-        let mut v = serde_json::json!({
-            "projectId": id,
-            "input": input_json,
-            "position": position + 1,
-            "base": sequence[position as usize..position as usize + 1].to_ascii_uppercase(),
-            "features": features_json,
-            "translations": translations_json,
-        });
-        if let Some(positions) = codon_positions_opt {
-            v["codonPositions"] = serde_json::json!(
-                positions.iter().map(|p| p + 1).collect::<Vec<_>>()
-            );
-        }
-        Ok(Json(v))
-    }
-
     /// Optimize a coding sequence's codons (DNA Chisel ports: use_best_codon /
     /// match_codon_usage / harmonize_rca) — project, raw sequence, or file
     /// input. `species` is a key from list_species (e.g. "e_coli",
@@ -4029,7 +4176,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Exactly one input mode:
     /// - `project_id` + `feature_id`: optimize the CDS/mRNA feature inside an
-    ///   open project (`project_id` omitted = active project). `apply=false`
+    ///   open project (both required). `apply=false`
     ///   (default) is a read-only preview; `apply=true` replaces the feature's
     ///   coding bases in the template (equal-length synonymous substitution,
     ///   coordinates unchanged) through the same recompute+broadcast path as
@@ -4042,7 +4189,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   short hand-authored coding sequences — pasted long sequences are
     ///   error-prone, so whenever the sequence exists as a file use
     ///   `input_path`, and when it is a region of an open project export it
-    ///   first with export_subsequence.
+    ///   first with save_file's `region`.
     /// - `input_path` (PREFERRED for real sequences): local file parsed with file_io. DNA files (.gbk/.gb/
     ///   .genbank/.dna/.rna/.fasta/.fa/.fna/.ab1): with `feature_id` the
     ///   file's CDS/mRNA feature is optimized (the written sequence carries
@@ -4062,7 +4209,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `output_path` (any input mode, optional): writes the result to a file
     /// — .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated,
     /// .gpt → protein GenBank of the translated sequence; other extensions
-    /// are rejected. PREFER writing the result to a file (and open_file it
+    /// are rejected. PREFER writing the result to a file (and open_project it
     /// afterwards) over reading the `optimizedSequence` text — sequences move
     /// between tools as files, not pasted text. `apply=true` is only meaningful in project mode: in
     /// sequence/input_path mode it requires `output_path` (there is no
@@ -4202,160 +4349,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
     }
-
-    /// Export a subsequence of a project to a new file (GenBank) — THE
-    /// recommended way to create a sequence file from a known region of an
-    /// open project: select the region by coordinates, feature, enzyme cuts,
-    /// or primer amplicon, export it with this tool, then open_file the result
-    /// to work with it as a project. NEVER retype or paste the sequence into
-    /// edit_sequence/other tools to build a new construct — export the range
-    /// instead (pasted sequences are error-prone). The file holds the region's sequence
-    /// (uppercase; template strand except as noted) plus every feature
-    /// overlapping it (partially covered features are clipped to the region)
-    /// with coordinates translated to the new linear
-    /// coordinate system, and every primer whose primary binding site
-    /// overlaps the region at all; circular projects always export linear fragments.
-    ///
-    /// `project_id` defaults to the active project. `output_path` is required
-    /// — .gbk/.gb/.genbank for DNA/RNA projects, .gpt for protein projects
-    /// (other extensions are rejected).
-    ///
-    /// Exactly ONE region selector (mixing selectors is rejected):
-    /// - `start` + `end`: 1-based inclusive template coordinates; on circular
-    ///   sequences `start > end` wraps the origin.
-    /// - `feature_id`: the feature's sequence with its segments joined in
-    ///   biological order (5'→3', reverse-complemented for minus-strand
-    ///   features). The exported feature spans the whole exported sequence;
-    ///   other features overlapping its segments are carried along
-    ///   (coordinates translated, strand flipped to match the rev-comp'd
-    ///   orientation).
-    /// - `enzyme1` + `enzyme2`: the fragment between the two enzymes' cut
-    ///   sites (names — unknown names are rejected with near-match
-    ///   suggestions, the same probe find_restriction_sites uses). Each
-    ///   enzyme contributes the top-strand cut of its first recognition site
-    ///   on the sequence; passing the same name twice uses that enzyme's
-    ///   first two sites. On circular sequences the fragment is the forward
-    ///   arc from enzyme1's cut to enzyme2's cut (wrapping the origin when
-    ///   needed); on linear sequences the two cuts may be given in either
-    ///   order.
-    /// - `cut1` + `cut2` (alternative to the enzyme names): explicit cut
-    ///   positions, 1-based — a cut at N severs the DNA between the 1-based
-    ///   bases N and N+1 (valid range 1..=len; N = len is after the last base
-    ///   on linear sequences, between the last and the first base on circular
-    ///   ones; the fragment is [min, max-1] internal-0-based on linear
-    ///   sequences, the forward arc on circular ones).
-    /// - `fwd_primer` + `rev_primer`: the amplicon between the two primers'
-    ///   binding sites. Each is a project primer name (stored binding sites
-    ///   are used; name lookup wins) or a raw sequence (binding sites
-    ///   recomputed with the primer engine, like check_primer_binding). The
-    ///   fwd primer's best forward-strand site and the rev primer's best
-    ///   reverse-strand site define the amplicon [fwdStart, revEnd]
-    ///   (1-based inclusive) — the PCR product's top strand. A primer that
-    ///   does not bind the strand its role needs is an error.
-    ///
-    /// Returns {ok, message, projectId, outputPath, length, primers?,
-    /// regionView?}.
-    /// `length` is the exported sequence length (bp/nt/aa); `primers` lists
-    /// the names of primers written with the file (omitted when none);
-    /// `regionView` is
-    /// a compact digest of the source project over the exported region's
-    /// bounding box. The exported sequence itself is NOT echoed — read it
-    /// back with open_file/read_sequence on the written file.
-    #[tool]
-    async fn export_subsequence(
-        &self,
-        Parameters(request): Parameters<ExportSubsequenceRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let (id, project) = self.resolve_project(request.project_id.clone()).await?;
-        let ext = crate::validate_user_path(&request.output_path, crate::CODON_OUTPUT_EXTS)
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let is_protein = project.molecule_type == "protein";
-        let wants_gpt = ext == "gpt";
-        if wants_gpt != is_protein {
-            return Ok(Json(fail_envelope(
-                &id,
-                format!(
-                    "molecule type '{}' exports as {} (DNA/RNA → .gbk/.gb/.genbank, protein → .gpt)",
-                    project.molecule_type,
-                    if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
-                ),
-            )));
-        }
-        let unit = match project.molecule_type.as_str() {
-            "rna" => "nt",
-            "protein" => "aa",
-            _ => "bp",
-        };
-
-        // Region start/end arrive 1-based inclusive; convert to the internal
-        // 0-based model. cut1/cut2 stay raw — resolve_export_region validates
-        // and converts them (a cut at 1-based N = internal cut index N).
-        let mut request = request;
-        request.start = request.start.map(from1);
-        request.end = request.end.map(from1);
-
-        let (pieces, flip, desc) = resolve_export_region(&project, &request)
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let bbox = region_bbox(&pieces, project.length, project.topology == "circular");
-        let out_name = output_project_name(&request.output_path);
-        let path = request.output_path.clone();
-        let message_path = path.clone();
-        let (out_project, primer_names) = tokio::task::spawn_blocking(move || {
-            let (sequence, features, primers) = build_export_data(&project, &pieces, flip);
-            let primer_names: Vec<String> = primers.iter().map(|p| p.name.clone()).collect();
-            let length = sequence.len() as i64;
-            (
-                ProjectData {
-                    name: out_name,
-                    sequence,
-                    length,
-                    topology: "linear".to_string(),
-                    molecule_type: project.molecule_type.clone(),
-                    features,
-                    primers,
-                    ..Default::default()
-                },
-                primer_names,
-            )
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
-        let length = out_project.length;
-
-        let written = tokio::task::spawn_blocking(move || {
-            let res = if wants_gpt {
-                libregene_core::file_io::gpt::write_gpt(&out_project, std::path::Path::new(&path))
-            } else {
-                libregene_core::file_io::gbk::write_gbk(&out_project, std::path::Path::new(&path))
-            };
-            res.map_err(|e| format!("failed to write {}: {}", path, e))
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
-        if let Err(e) = written {
-            return Err(ErrorData::invalid_params(e, None));
-        }
-
-        let region = self.digest_region(&id, Some(bbox), true).await;
-        let mut v = ok_envelope(
-            &id,
-            format!("Exported {} ({} {}) to {}", desc, length, unit, message_path),
-            region,
-        );
-        v["outputPath"] = serde_json::json!(message_path);
-        v["length"] = serde_json::json!(length);
-        if !primer_names.is_empty() {
-            v["primers"] = serde_json::json!(primer_names);
-        }
-        Ok(Json(v))
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Server bootstrap + settings (start/stop/restart without app restart)
 // ---------------------------------------------------------------------------
 
-#[tool_handler(name = "LibreGene", instructions = "Agent tabs: before modifying any project, call request_agent_tab to bind it as an agent tab in the main window (only projects you opened via MCP open_file can be bound — if a project was opened by the user, copy the file with bash `cp` to a new path and open_file the copy). Mutating tools refuse unbound projects; every tool call re-locks the tab. Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_file; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, export_subsequence (by coordinates, feature, enzymes/cuts, or primers) then open_file the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases, not for moving sequences between tools.")]
+#[tool_handler(name = "LibreGene", instructions = "Agent tabs: open_project opens a sequence file AND binds it as your agent tab in the main window in one step (locked against user input; every tool call re-locks it). A path that is already open but not bound belongs to the user — copy the file with bash `cp` to a new path and open_project the copy. Mutating tools refuse projects not bound as an agent tab. Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_project; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, save_file with `region` (by coordinates, feature, enzymes/cuts, or primers) then open_project the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases (and resolving coordinates), not for moving sequences between tools. Every tool takes a required project_id; list_projects' activeId is the project the user is viewing (informational only) — avoid it when several agents work in parallel.")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";
@@ -4410,7 +4410,6 @@ pub struct McpServer<R: Runtime> {
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
-    mcp_opened: Arc<RwLock<HashSet<String>>>,
     config: Arc<StdMutex<McpConfig>>,
     task: Arc<StdMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// Bearer token required on every MCP request so that other local
@@ -4428,7 +4427,6 @@ impl<R: Runtime> Clone for McpServer<R> {
             pm: self.pm.clone(),
             wp: self.wp.clone(),
             agent_tabs: self.agent_tabs.clone(),
-            mcp_opened: self.mcp_opened.clone(),
             config: self.config.clone(),
             task: self.task.clone(),
             auth_token: self.auth_token.clone(),
@@ -4442,7 +4440,6 @@ impl<R: Runtime> McpServer<R> {
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
-        mcp_opened: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         let auth_token = load_or_create_token(&app_handle);
         Self {
@@ -4450,7 +4447,6 @@ impl<R: Runtime> McpServer<R> {
             pm,
             wp,
             agent_tabs,
-            mcp_opened,
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
             auth_token: Arc::new(StdMutex::new(auth_token)),
@@ -4507,11 +4503,10 @@ impl<R: Runtime> McpServer<R> {
             let pm = self.pm.clone();
             let wp = self.wp.clone();
             let agent_tabs = self.agent_tabs.clone();
-            let mcp_opened = self.mcp_opened.clone();
             let port = cfg.port;
             let token = self.auth_token.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app, pm, wp, agent_tabs, mcp_opened, port, token).await {
+                if let Err(e) = serve_mcp(app, pm, wp, agent_tabs, port, token).await {
                     log::error!("MCP server error on port {}: {}", port, e);
                 }
             });
@@ -4679,7 +4674,6 @@ async fn serve_mcp<R: Runtime>(
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
-    mcp_opened: Arc<RwLock<HashSet<String>>>,
     port: u16,
     auth_token: Arc<StdMutex<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -4713,7 +4707,6 @@ async fn serve_mcp<R: Runtime>(
                 pm.clone(),
                 wp.clone(),
                 agent_tabs.clone(),
-                mcp_opened.clone(),
             ))
         },
         Arc::new(session_manager),
@@ -4928,7 +4921,6 @@ mod tests {
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(HashSet::new())),
         )
     }
 
@@ -5069,11 +5061,13 @@ mod tests {
 
     #[test]
     fn resolve_optimize_input_requires_exactly_one_mode() {
-        // project mode: no sequence/input_path → feature_id required
+        // project mode: no sequence/input_path → project_id + feature_id required
         assert!(matches!(
-            resolve_optimize_input(None, Some("f1"), None, None),
-            Ok(OptimizeInput::Project { feature_id, .. }) if feature_id == "f1"
+            resolve_optimize_input(Some("p1"), Some("f1"), None, None),
+            Ok(OptimizeInput::Project { project_id, feature_id }) if project_id == "p1" && feature_id == "f1"
         ));
+        assert!(resolve_optimize_input(None, Some("f1"), None, None).is_err());
+        assert!(resolve_optimize_input(Some("p1"), None, None, None).is_err());
         assert!(resolve_optimize_input(None, None, None, None).is_err());
         // sequence mode
         assert!(matches!(
@@ -5137,7 +5131,6 @@ mod tests {
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(HashSet::new())),
         )
     }
 
@@ -5183,6 +5176,7 @@ mod tests {
 
         // project mode without feature_id → clear error
         let req = OptimizeCdsRequest {
+            project_id: Some("p1".to_string()),
             species: "e_coli".to_string(),
             ..Default::default()
         };
@@ -5191,6 +5185,17 @@ mod tests {
             Ok(_) => panic!("expected missing-feature_id error"),
         };
         assert!(err.message.contains("feature_id"), "{}", err.message);
+
+        // no input at all → clear error
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            ..Default::default()
+        };
+        let err = match server.optimize_cds(Parameters(req)).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected missing-project_id error"),
+        };
+        assert!(err.message.contains("project_id"), "{}", err.message);
     }
 
     #[tokio::test]
@@ -5287,7 +5292,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // export_subsequence
+    // save_file region mode (subsequence export)
     // ------------------------------------------------------------------
 
     /// Deterministic pseudo-random ACGT sequence (unique long substrings).
@@ -5319,8 +5324,8 @@ mod tests {
     }
 
     /// Handler whose project manager holds one project (id = name, active).
-    /// The project is bound as an MCP agent tab (and recorded as MCP-opened)
-    /// so mutating tools pass the agent-tab gate.
+    /// The project is bound as an MCP agent tab so mutating tools pass the
+    /// agent-tab gate.
     async fn handler_with_project(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
         let app = mock_builder()
             .build(mock_context(noop_assets()))
@@ -5330,14 +5335,11 @@ mod tests {
         pm.write().await.load(&id, project);
         let agent_tabs: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         agent_tabs.write().await.insert(id.clone(), crate::AgentTabMeta { locked: true });
-        let mcp_opened: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
-        mcp_opened.write().await.insert(id.clone());
         LibreGeneMcp::new(
             app.handle().clone(),
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             agent_tabs,
-            mcp_opened,
         )
     }
 
@@ -5355,32 +5357,11 @@ mod tests {
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(HashSet::new())),
-        )
-    }
-
-    /// Handler whose project was opened via MCP `open_file` (in `mcp_opened`)
-    /// but is NOT yet bound as an agent tab.
-    async fn handler_with_mcp_opened(project: ProjectData) -> LibreGeneMcp<MockRuntime> {
-        let app = mock_builder()
-            .build(mock_context(noop_assets()))
-            .expect("mock app builds");
-        let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        let id = project.name.clone();
-        pm.write().await.load(&id, project);
-        let mcp_opened: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
-        mcp_opened.write().await.insert(id);
-        LibreGeneMcp::new(
-            app.handle().clone(),
-            pm,
-            Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(HashMap::new())),
-            mcp_opened,
         )
     }
 
     #[tokio::test]
-    async fn export_subsequence_region_writes_gbk_with_translated_features() {
+    async fn save_file_region_writes_gbk_with_translated_features() {
         let seq = synthetic_dna(200, 7);
         let project = ProjectData {
             name: "region_test".to_string(),
@@ -5394,14 +5375,18 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-region-{}.gbk", std::process::id()));
-        let req = ExportSubsequenceRequest {
-            // 1-based inclusive interface → internal 0-based [40, 160]
-            start: Some(41),
-            end: Some(161),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "region_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                // 1-based inclusive interface → internal 0-based [40, 160]
+                start: Some(41),
+                end: Some(161),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 121);
@@ -5418,7 +5403,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_region_wraps_on_circular() {
+    async fn save_file_region_wraps_on_circular() {
         let seq = synthetic_dna(100, 11);
         // Cross-origin feature 95..99 + 0..5 (stored as two segments).
         let mut f = feature("f1", "ori", 95, 5, "+");
@@ -5438,14 +5423,18 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-circ-{}.gbk", std::process::id()));
-        let req = ExportSubsequenceRequest {
-            // 1-based wrap window 91..10 → internal 0-based 90..9
-            start: Some(91),
-            end: Some(10),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "circ_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                // 1-based wrap window 91..10 → internal 0-based 90..9
+                start: Some(91),
+                end: Some(10),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["length"], 20);
         let expected = format!("{}{}", &seq[90..], &seq[..=9]);
@@ -5462,7 +5451,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_feature_joins_segments_5_to_3() {
+    async fn save_file_region_feature_joins_segments_5_to_3() {
         let seq = synthetic_dna(100, 13);
         let mut cds = feature("cds", "spliced", 10, 39, "+");
         cds.segments = vec![
@@ -5482,12 +5471,16 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-feat-{}.gbk", std::process::id()));
-        let req = ExportSubsequenceRequest {
-            feature_id: Some("cds".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "feat_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                feature_id: Some("cds".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 20);
@@ -5510,7 +5503,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_minus_strand_feature_is_reverse_complemented() {
+    async fn save_file_region_minus_strand_feature_is_reverse_complemented() {
         let seq = synthetic_dna(100, 17);
         let project = ProjectData {
             name: "minus_test".to_string(),
@@ -5527,12 +5520,16 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-minus-{}.gbk", std::process::id()));
-        let req = ExportSubsequenceRequest {
-            feature_id: Some("rev".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "minus_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                feature_id: Some("rev".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 20);
@@ -5565,7 +5562,7 @@ mod tests {
     /// wrap-around window (circular). The bbox must cover the full span
     /// occupied by the feature on the template, regardless of piece order.
     #[tokio::test]
-    async fn export_subsequence_multi_segment_minus_strand_regionview_span() {
+    async fn save_file_region_multi_segment_minus_strand_regionview_span() {
         use libregene_core::models::Segment;
         let seq = synthetic_dna(120, 23);
         // Two-segment minus-strand feature: pieces (after resolve) are
@@ -5598,12 +5595,16 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-multi-minus-{}.gbk", std::process::id()));
-        let req = ExportSubsequenceRequest {
-            feature_id: Some("split".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "multi_minus".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                feature_id: Some("split".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "export should succeed");
         // The headline assertion: regionView must be present (non-null) and
@@ -5621,7 +5622,7 @@ mod tests {
     /// origin ((90, 119) + (0, 20)) must report the wrap window 90..20, not a
     /// full-length min/max span.
     #[tokio::test]
-    async fn export_subsequence_wrap_origin_minus_strand_regionview_span() {
+    async fn save_file_region_wrap_origin_minus_strand_regionview_span() {
         use libregene_core::models::Segment;
         let seq = synthetic_dna(120, 24);
         let wrap_feat = Feature {
@@ -5652,12 +5653,16 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-wrap-minus-{}.gbk", std::process::id()));
-        let req = ExportSubsequenceRequest {
-            feature_id: Some("wrap".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "wrap_minus".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                feature_id: Some("wrap".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "export should succeed");
         let region = v["regionView"].as_str().unwrap_or("");
@@ -5670,7 +5675,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_enzyme_fragment_and_explicit_cuts() {
+    async fn save_file_region_enzyme_fragment_and_explicit_cuts() {
         // "ACGT" repeat has no EcoRI/BamHI recognition sites, so the placed
         // sites are the only ones: EcoRI cuts G^AATTC (cut 41), BamHI G^GATCC
         // (cut 101).
@@ -5694,13 +5699,17 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let out_path = dir.join("frag.gbk");
-        let req = ExportSubsequenceRequest {
-            enzyme1: Some("EcoRI".to_string()),
-            enzyme2: Some("BamHI".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "enz_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                enzyme1: Some("EcoRI".to_string()),
+                enzyme2: Some("BamHI".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 60, "fragment [41..=100] = 60 bp");
@@ -5709,13 +5718,17 @@ mod tests {
 
         // explicit cut indices mode (cuts may be given in either order)
         let out_path2 = dir.join("cuts.gbk");
-        let req = ExportSubsequenceRequest {
-            cut1: Some(70),
-            cut2: Some(30),
-            output_path: out_path2.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "enz_test".to_string(),
+            path: out_path2.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                cut1: Some(70),
+                cut2: Some(30),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["length"], 40, "[30, 69] = 40 bp");
         let parsed = libregene_core::file_io::parse_file(&out_path2).unwrap();
@@ -5725,7 +5738,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_primer_amplicon() {
+    async fn save_file_region_primer_amplicon() {
         let seq = synthetic_dna(200, 19);
         let project = ProjectData {
             name: "amp_test".to_string(),
@@ -5741,13 +5754,17 @@ mod tests {
 
         // raw primer sequences
         let out_path = dir.join("amp.gbk");
-        let req = ExportSubsequenceRequest {
-            fwd_primer: Some(seq[50..70].to_string()),
-            rev_primer: Some(libregene_core::utils::reverse_complement(&seq[100..120])),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "amp_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                fwd_primer: Some(seq[50..70].to_string()),
+                rev_primer: Some(libregene_core::utils::reverse_complement(&seq[100..120])),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 70, "amplicon [50, 119]");
@@ -5781,13 +5798,17 @@ mod tests {
         libregene_core::primer::recompute(&mut project);
         let server = handler_with_project(project).await;
         let out_path2 = dir.join("amp-name.gbk");
-        let req = ExportSubsequenceRequest {
-            fwd_primer: Some("F1".to_string()),
-            rev_primer: Some("R1".to_string()),
-            output_path: out_path2.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "amp_name_test".to_string(),
+            path: out_path2.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                fwd_primer: Some("F1".to_string()),
+                rev_primer: Some("R1".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         assert_eq!(out.0["length"], 70);
         let parsed = libregene_core::file_io::parse_file(&out_path2).unwrap();
         assert_eq!(parsed.sequence, seq[50..=119].to_string());
@@ -5796,7 +5817,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_circular_primer_amplicon_wraps_origin() {
+    async fn save_file_region_circular_primer_amplicon_wraps_origin() {
         let seq = synthetic_dna(200, 23);
         let project = ProjectData {
             name: "amp_circ".to_string(),
@@ -5812,13 +5833,17 @@ mod tests {
         let out_path = dir.join("amp.gbk");
         // fwd primer sits at the very end (188..200, its site wraps the origin),
         // rev primer at 30..45: the amplicon wraps 188..199 + 0..44.
-        let req = ExportSubsequenceRequest {
-            fwd_primer: Some(seq[188..200].to_string()),
-            rev_primer: Some(libregene_core::utils::reverse_complement(&seq[30..45])),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "amp_circ".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                fwd_primer: Some(seq[188..200].to_string()),
+                rev_primer: Some(libregene_core::utils::reverse_complement(&seq[30..45])),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 57, "12 bp (188..199) + 45 bp (0..44)");
@@ -5829,7 +5854,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_exports_overlapping_primers() {
+    async fn save_file_region_exports_overlapping_primers() {
         // Export region [200..299]. P_in fully inside, P_part overlapping the
         // left edge, P_out fully outside → only P_in and P_part are written.
         let seq = synthetic_dna(400, 23);
@@ -5869,11 +5894,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let out_path = dir.join("region.gbk");
         let out = server
-            .export_subsequence(Parameters(ExportSubsequenceRequest {
-                // 1-based inclusive interface → internal 0-based [200, 299]
-                start: Some(201),
-                end: Some(300),
-                output_path: out_path.to_string_lossy().into_owned(),
+            .save_file(Parameters(SaveFileRequest {
+                project_id: "exp_primer_test".to_string(),
+                path: out_path.to_string_lossy().into_owned(),
+                region: Some(RegionSpec {
+                    // 1-based inclusive interface → internal 0-based [200, 299]
+                    start: Some(201),
+                    end: Some(300),
+                    ..Default::default()
+                }),
                 ..Default::default()
             }))
             .await
@@ -5893,7 +5922,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_protein_writes_gpt() {
+    async fn save_file_region_protein_writes_gpt() {
         let aa = "MVSKGEEDNMAAEF".to_string();
         let project = ProjectData {
             name: "prot_test".to_string(),
@@ -5909,14 +5938,18 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let out_path = dir.join("out.gpt");
-        let req = ExportSubsequenceRequest {
-            // 1-based inclusive: the whole 14 aa protein
-            start: Some(1),
-            end: Some(aa.len() as i64),
-            output_path: out_path.to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "prot_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                // 1-based inclusive: the whole 14 aa protein
+                start: Some(1),
+                end: Some(aa.len() as i64),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         assert_eq!(out.0["ok"], true);
         assert_eq!(out.0["length"], aa.len() as i64);
         let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
@@ -5924,13 +5957,17 @@ mod tests {
         assert_eq!(parsed.sequence, aa.to_lowercase(), "the gpt writer lower-cases");
 
         // protein project must not go to a .gbk path
-        let req = ExportSubsequenceRequest {
-            start: Some(1),
-            end: Some(4),
-            output_path: dir.join("out.gbk").to_string_lossy().into_owned(),
+        let req = SaveFileRequest {
+            project_id: "prot_test".to_string(),
+            path: dir.join("out.gbk").to_string_lossy().into_owned(),
+            region: Some(RegionSpec {
+                start: Some(1),
+                end: Some(4),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let out = server.export_subsequence(Parameters(req)).await.unwrap();
+        let out = server.save_file(Parameters(req)).await.unwrap();
         assert_eq!(out.0["ok"], false);
         assert!(out.0["message"].as_str().unwrap().contains(".gpt"));
 
@@ -5938,7 +5975,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_subsequence_rejects_bad_requests() {
+    async fn save_file_region_rejects_bad_requests() {
         let seq = synthetic_dna(100, 29);
         let project = ProjectData {
             name: "bad_test".to_string(),
@@ -5952,111 +5989,111 @@ mod tests {
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-bad-{}.gbk", std::process::id()));
-        let expect_err = |req: ExportSubsequenceRequest| async {
-            match server.export_subsequence(Parameters(req)).await {
+        let bad_req = |region: RegionSpec| SaveFileRequest {
+            project_id: "bad_test".to_string(),
+            path: out_path.to_string_lossy().into_owned(),
+            region: Some(region),
+            ..Default::default()
+        };
+        let expect_err = |req: SaveFileRequest| async {
+            match server.save_file(Parameters(req)).await {
                 Err(e) => e.message.into_owned(),
                 Ok(v) => v.0["message"].as_str().unwrap_or("").to_string(),
             }
         };
 
         // multiple selectors
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             start: Some(0),
             end: Some(9),
             feature_id: Some("f1".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("exactly one region selector"), "{}", msg);
 
         // start without end
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             start: Some(0),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("both required"), "{}", msg);
 
         // linear start > end
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             start: Some(50),
             end: Some(10),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("only allowed on circular"), "{}", msg);
 
         // unknown feature
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             feature_id: Some("nope".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("Feature not found"), "{}", msg);
 
         // unknown enzyme
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             enzyme1: Some("EcoRI".to_string()),
             enzyme2: Some("NotARealEnzyme".to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("Unknown enzyme"), "{}", msg);
 
         // mixed fragment selectors
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             enzyme1: Some("EcoRI".to_string()),
             cut1: Some(10),
             cut2: Some(20),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("not a mix"), "{}", msg);
 
         // equal cuts on a linear sequence
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             cut1: Some(10),
             cut2: Some(10),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("equal"), "{}", msg);
 
         // primer that is neither a name nor a sequence
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             fwd_primer: Some("!!!".to_string()),
             rev_primer: Some(seq[20..40].to_string()),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("neither a primer name"), "{}", msg);
 
         // primer that only binds the reverse strand in the fwd role
-        let msg = expect_err(ExportSubsequenceRequest {
+        let msg = expect_err(bad_req(RegionSpec {
             fwd_primer: Some(libregene_core::utils::reverse_complement(&seq[20..40])),
             rev_primer: Some(libregene_core::utils::reverse_complement(&seq[50..70])),
-            output_path: out_path.to_string_lossy().into_owned(),
             ..Default::default()
-        })
+        }))
         .await;
         assert!(msg.contains("does not bind the forward strand"), "{}", msg);
 
         // DNA project must not go to a .gpt path
-        let msg = expect_err(ExportSubsequenceRequest {
+        let mut req = bad_req(RegionSpec {
             start: Some(0),
             end: Some(9),
-            output_path: out_path.to_string_lossy().replace("bad", "bad2").replace(".gbk", ".gpt"),
             ..Default::default()
-        })
-        .await;
+        });
+        req.path = out_path
+            .to_string_lossy()
+            .replace("bad", "bad2")
+            .replace(".gbk", ".gpt");
+        let msg = expect_err(req).await;
         assert!(msg.contains(".gpt"), "{}", msg);
 
         std::fs::remove_file(&out_path).ok();
@@ -6091,6 +6128,7 @@ mod tests {
         // replacement_path
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 61,
                 end: 60,
                 replacement_path: Some(fasta.to_string_lossy().into_owned()),
@@ -6152,6 +6190,7 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 61,
                 end: 60,
                 replacement_path: Some(gbk.to_string_lossy().into_owned()),
@@ -6189,6 +6228,7 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 61,
                 end: 60,
                 replacement_path: Some(gbk.to_string_lossy().into_owned()),
@@ -6222,6 +6262,7 @@ mod tests {
         // both replacement and replacement_path → error
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 11,
                 end: 21,
                 replacement: Some("ACGT".to_string()),
@@ -6236,6 +6277,7 @@ mod tests {
         // neither → error
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 11,
                 end: 21,
                 ..Default::default()
@@ -6248,6 +6290,7 @@ mod tests {
         // bad extension → hard error from validate_user_path
         let res = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 11,
                 end: 21,
                 replacement_path: Some("notes.txt".to_string()),
@@ -6261,6 +6304,7 @@ mod tests {
             .join(format!("libregene-mcp-edit-missing-{}.fasta", std::process::id()));
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 11,
                 end: 21,
                 replacement_path: Some(missing.to_string_lossy().into_owned()),
@@ -6287,6 +6331,7 @@ mod tests {
         // pure insertion before base 61 (1-based) with strand "-" → revcomp inserted
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 61,
                 end: 60,
                 replacement: Some("AAACCCGGGTTG".to_string()),
@@ -6317,6 +6362,7 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 61,
                 end: 60,
                 replacement: Some("ACGT".to_string()),
@@ -6336,6 +6382,7 @@ mod tests {
         let server = handler_with_project(protein_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "prot".to_string(),
                 start: 11,
                 end: 11,
                 replacement: Some("AA".to_string()),
@@ -6357,6 +6404,7 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 11,
                 end: 20,
                 replacement: Some("TT".to_string()),
@@ -6405,7 +6453,7 @@ mod tests {
 
         let err = match server
             .search_sequence(Parameters(SearchRequest {
-                project_id: Some("prot".to_string()),
+                project_id: "prot".to_string(),
                 query: "ACG".to_string(),
             }))
             .await
@@ -6417,7 +6465,7 @@ mod tests {
 
         let err = match server
             .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
-                project_id: Some("prot".to_string()),
+                project_id: "prot".to_string(),
                 enzymes: None,
             }))
             .await
@@ -6431,7 +6479,7 @@ mod tests {
         let server = handler_with_project(rna_test_project()).await;
         let err = match server
             .check_primer_binding(Parameters(CheckPrimerBindingRequest {
-                project_id: Some("rna".to_string()),
+                project_id: "rna".to_string(),
                 primers: vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
@@ -6472,6 +6520,7 @@ mod tests {
         // lowercase replacement is normalized to uppercase and stored as-is
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "prot".to_string(),
                 start: 1,
                 end: 4,
                 replacement: Some("mvs*".to_string()),
@@ -6492,6 +6541,7 @@ mod tests {
         // non-amino-acid characters are rejected
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "prot".to_string(),
                 start: 6,
                 end: 9,
                 replacement: Some("MVS1".to_string()),
@@ -6509,6 +6559,7 @@ mod tests {
         // a '*' anywhere but the end is rejected too
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "prot".to_string(),
                 start: 6,
                 end: 9,
                 replacement: Some("M*VS".to_string()),
@@ -6527,7 +6578,7 @@ mod tests {
         let server = handler_with_project(protein_test_project()).await;
         let out = server
             .get_project_overview(Parameters(OverviewRequest {
-                project_id: Some("prot".to_string()),
+                project_id: "prot".to_string(),
                 ..Default::default()
             }))
             .await
@@ -6545,7 +6596,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // add_feature / update_feature (1-based inclusive interface params)
+    // set_feature (create / update; 1-based inclusive interface params)
     // ------------------------------------------------------------------
 
     fn dna_test_project() -> ProjectData {
@@ -6559,13 +6610,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_feature_converts_1based_to_internal_0based() {
+    async fn set_feature_create_converts_1based_to_internal_0based() {
         let server = handler_with_project(dna_test_project()).await;
         let out = server
-            .add_feature(Parameters(AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "cds1".to_string(),
-                ftype: "CDS".to_string(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("cds1".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(1),
                 end: Some(10),
                 ..Default::default()
@@ -6596,14 +6647,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_feature_segments_and_bounds() {
+    async fn set_feature_create_segments_and_bounds() {
         let server = handler_with_project(dna_test_project()).await;
         // Segmented (join) feature: 1-based interface, 0-based storage
         let out = server
-            .add_feature(Parameters(AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "seg1".to_string(),
-                ftype: "CDS".to_string(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("seg1".to_string()),
+                ftype: Some("CDS".to_string()),
                 segments: Some(vec![
                     FeatureSegmentSpec { start: 1, end: 10 },
                     FeatureSegmentSpec { start: 20, end: 30 },
@@ -6625,10 +6676,10 @@ mod tests {
 
         // Single point (start == end)
         let out = server
-            .add_feature(Parameters(AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "pt".to_string(),
-                ftype: "misc_feature".to_string(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("pt".to_string()),
+                ftype: Some("misc_feature".to_string()),
                 start: Some(42),
                 end: Some(42),
                 ..Default::default()
@@ -6639,10 +6690,10 @@ mod tests {
 
         // Out of range: 1-based end 101 is past the last valid base 100
         let out = server
-            .add_feature(Parameters(AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "oob".to_string(),
-                ftype: "CDS".to_string(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("oob".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(91),
                 end: Some(101),
                 ..Default::default()
@@ -6658,60 +6709,60 @@ mod tests {
 
         // Zero/negative start / reversed span / segments+start conflict / start alone
         for req in [
-            AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "bad".to_string(),
-                ftype: "CDS".to_string(),
+            SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("bad".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(0),
                 end: Some(5),
                 ..Default::default()
             },
-            AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "bad".to_string(),
-                ftype: "CDS".to_string(),
+            SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("bad".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(9),
                 end: Some(5),
                 ..Default::default()
             },
-            AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "bad".to_string(),
-                ftype: "CDS".to_string(),
+            SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("bad".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(1),
                 end: Some(10),
                 segments: Some(vec![FeatureSegmentSpec { start: 1, end: 10 }]),
                 ..Default::default()
             },
-            AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "bad".to_string(),
-                ftype: "CDS".to_string(),
+            SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("bad".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(1),
                 ..Default::default()
             },
-            AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "bad".to_string(),
-                ftype: "CDS".to_string(),
+            SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("bad".to_string()),
+                ftype: Some("CDS".to_string()),
                 ..Default::default()
             },
         ] {
             assert!(
-                server.add_feature(Parameters(req)).await.is_err(),
+                server.set_feature(Parameters(req)).await.is_err(),
                 "expected invalid_params error"
             );
         }
     }
 
     #[tokio::test]
-    async fn update_feature_span_and_segments() {
+    async fn set_feature_update_span_and_segments() {
         let server = handler_with_project(dna_test_project()).await;
         let out = server
-            .add_feature(Parameters(AddFeatureRequest {
-                project_id: Some("feat".to_string()),
-                name: "cds1".to_string(),
-                ftype: "CDS".to_string(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("cds1".to_string()),
+                ftype: Some("CDS".to_string()),
                 start: Some(1),
                 end: Some(10),
                 strand: Some("-".to_string()),
@@ -6723,9 +6774,9 @@ mod tests {
 
         // Move the span; strand must be left untouched.
         let out = server
-            .update_feature(Parameters(UpdateFeatureRequest {
-                project_id: Some("feat".to_string()),
-                feature_id: fid.clone(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                feature_id: Some(fid.clone()),
                 start: Some(11),
                 end: Some(20),
                 ..Default::default()
@@ -6742,9 +6793,9 @@ mod tests {
 
         // Replace with segments (join)
         let out = server
-            .update_feature(Parameters(UpdateFeatureRequest {
-                project_id: Some("feat".to_string()),
-                feature_id: fid.clone(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                feature_id: Some(fid.clone()),
                 segments: Some(vec![
                     FeatureSegmentSpec { start: 1, end: 10 },
                     FeatureSegmentSpec { start: 91, end: 100 },
@@ -6763,9 +6814,9 @@ mod tests {
 
         // Nothing to update
         let out = server
-            .update_feature(Parameters(UpdateFeatureRequest {
-                project_id: Some("feat".to_string()),
-                feature_id: fid.clone(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                feature_id: Some(fid.clone()),
                 ..Default::default()
             }))
             .await
@@ -6779,9 +6830,9 @@ mod tests {
 
         // Out-of-range span (1-based end 101 > length 100)
         let out = server
-            .update_feature(Parameters(UpdateFeatureRequest {
-                project_id: Some("feat".to_string()),
-                feature_id: fid.clone(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                feature_id: Some(fid.clone()),
                 start: Some(96),
                 end: Some(101),
                 ..Default::default()
@@ -6796,13 +6847,13 @@ mod tests {
         );
 
         // start without end → invalid_params
-        let req = UpdateFeatureRequest {
-            project_id: Some("feat".to_string()),
-            feature_id: fid.clone(),
+        let req = SetFeatureRequest {
+            project_id: "feat".to_string(),
+            feature_id: Some(fid.clone()),
             start: Some(1),
             ..Default::default()
         };
-        assert!(server.update_feature(Parameters(req)).await.is_err());
+        assert!(server.set_feature(Parameters(req)).await.is_err());
     }
 
     // ------------------------------------------------------------------
@@ -6835,7 +6886,7 @@ mod tests {
 
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "read1".to_string(),
                 bases: Some(read.clone()),
                 path: None,
@@ -6873,7 +6924,7 @@ mod tests {
         // Region view over the mismatch lists it in the diff section.
         let out = server
             .get_region_view(Parameters(RegionRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 start: 101,
                 end: 121,
                 ..Default::default()
@@ -6890,7 +6941,7 @@ mod tests {
         // Window overlapping the read but not the diff.
         let out = server
             .get_region_view(Parameters(RegionRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 start: 51,
                 end: 61,
                 ..Default::default()
@@ -6904,7 +6955,7 @@ mod tests {
         // Window outside the read: no diff section at all.
         let out = server
             .get_region_view(Parameters(RegionRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 start: 1,
                 end: 41,
                 ..Default::default()
@@ -6932,7 +6983,7 @@ mod tests {
 
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "focused".to_string(),
                 bases: Some(read),
                 path: None,
@@ -6976,7 +7027,7 @@ mod tests {
         // feature_id focus with flank 5 -> window 96..116.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "ffocus".to_string(),
                 bases: Some(read.clone()),
                 path: None,
@@ -6996,7 +7047,7 @@ mod tests {
         // Unknown feature id is rejected before aligning.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "bad".to_string(),
                 bases: Some(read.clone()),
                 path: None,
@@ -7015,7 +7066,7 @@ mod tests {
         // region + feature_id together are rejected.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "both".to_string(),
                 bases: Some(read),
                 path: None,
@@ -7045,7 +7096,7 @@ mod tests {
         let read = libregene_core::utils::reverse_complement(&template[50..120]);
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "rev_read".to_string(),
                 bases: Some(read),
                 path: None,
@@ -7074,7 +7125,7 @@ mod tests {
         let read = format!("{}{}", &template[170..200], &template[0..25]);
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "wrap_read".to_string(),
                 bases: Some(read.clone()),
                 path: None,
@@ -7103,7 +7154,7 @@ mod tests {
         // compact=true drops orientedSequence and regionView, keeps coverage.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "compact_read".to_string(),
                 bases: Some(read.clone()),
                 path: None,
@@ -7128,7 +7179,7 @@ mod tests {
         // compact=false / omitted keeps orientedSequence and regionView.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "full_read".to_string(),
                 bases: Some(read),
                 path: None,
@@ -7162,7 +7213,7 @@ mod tests {
         read1.replace_range(i..i + 1, &(flipped as char).to_string());
         server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "read1".to_string(),
                 bases: Some(read1.clone()),
                 path: None,
@@ -7174,7 +7225,7 @@ mod tests {
         let read2 = template[60..130].to_string();
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
-                project_id: Some("aln_test".to_string()),
+                project_id: "aln_test".to_string(),
                 name: "read2".to_string(),
                 bases: Some(read2),
                 path: None,
@@ -7267,7 +7318,7 @@ mod tests {
         let server = handler_with_project(project).await;
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("amp_test".to_string()),
+                project_id: "amp_test".to_string(),
                 mode: "amplify".to_string(),
                 seg: Some(SegParam { start: 51, end: 151 }),
                 name: Some("Amp".to_string()),
@@ -7315,7 +7366,7 @@ mod tests {
         // Whole-codon swap CGC -> AAA (Arg -> Lys): expected operation.
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("mut_test".to_string()),
+                project_id: "mut_test".to_string(),
                 mode: "mutagenesis".to_string(),
                 seg: Some(SegParam { start: 61, end: 63 }),
                 site_name: Some("A11K".to_string()),
@@ -7343,7 +7394,7 @@ mod tests {
         // Same 3-base full replacement outside any CDS: warning kept.
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("mut_test".to_string()),
+                project_id: "mut_test".to_string(),
                 mode: "mutagenesis".to_string(),
                 seg: Some(SegParam { start: 11, end: 13 }),
                 site_name: Some("M1".to_string()),
@@ -7385,7 +7436,7 @@ mod tests {
         // mut_seq = rev-comp(AAG) = CTT.
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("mut_hint".to_string()),
+                project_id: "mut_hint".to_string(),
                 mode: "mutagenesis".to_string(),
                 seg: Some(SegParam { start: 61, end: 63 }),
                 site_name: Some("A11K".to_string()),
@@ -7423,7 +7474,7 @@ mod tests {
         let server = handler_with_project(project).await;
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("mut_hint2".to_string()),
+                project_id: "mut_hint2".to_string(),
                 mode: "mutagenesis".to_string(),
                 seg: Some(SegParam { start: 61, end: 63 }),
                 site_name: Some("A11K".to_string()),
@@ -7460,7 +7511,7 @@ mod tests {
         let server = handler_with_project(project).await;
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("tail_test".to_string()),
+                project_id: "tail_test".to_string(),
                 mode: "amplify".to_string(),
                 seg: Some(SegParam { start: 37, end: 77 }),
                 name: Some("Amp".to_string()),
@@ -7492,7 +7543,7 @@ mod tests {
         // Verify the same values come out of check_primer_binding.
         let chk = server
             .check_primer_binding(Parameters(CheckPrimerBindingRequest {
-                project_id: Some("tail_test".to_string()),
+                project_id: "tail_test".to_string(),
                 primers: vec![PrimerInput {
                     name: "cand".to_string(),
                     r#type: "fwd".to_string(),
@@ -7537,7 +7588,7 @@ mod tests {
         let server = handler_with_project(project).await;
         let out = server
             .design_primers(Parameters(DesignPrimersRequest {
-                project_id: Some("tail_rev_test".to_string()),
+                project_id: "tail_rev_test".to_string(),
                 mode: "amplify".to_string(),
                 seg: Some(SegParam { start: 37, end: 77 }),
                 name: Some("Amp".to_string()),
@@ -7567,7 +7618,7 @@ mod tests {
 
         let chk = server
             .check_primer_binding(Parameters(CheckPrimerBindingRequest {
-                project_id: Some("tail_rev_test".to_string()),
+                project_id: "tail_rev_test".to_string(),
                 primers: vec![PrimerInput {
                     name: "cand".to_string(),
                     r#type: "rev".to_string(),
@@ -7591,7 +7642,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn convert_coordinates_three_input_forms() {
+    async fn read_sequence_coordinate_input_forms() {
         // "ATGGTATAA" -> M V *; CDS on plus strand covers positions 1..9.
         let seq = "ATGGTATAA".to_string();
         let project = ProjectData {
@@ -7607,8 +7658,8 @@ mod tests {
 
         // 1. Template position input.
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_test".to_string(),
                 position: Some(2),
                 ..Default::default()
             }))
@@ -7626,8 +7677,8 @@ mod tests {
 
         // 2. Feature offset input -> same position.
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_test".to_string(),
                 feature_id: Some("cds1".to_string()),
                 feature_offset: Some(2),
                 ..Default::default()
@@ -7641,8 +7692,8 @@ mod tests {
 
         // 3. Amino-acid position input -> codon positions and translation.
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_test".to_string(),
                 feature_id: Some("cds1".to_string()),
                 aa_position: Some(2),
                 ..Default::default()
@@ -7662,8 +7713,8 @@ mod tests {
 
         // Mutual-exclusion error.
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_test".to_string(),
                 position: Some(2),
                 feature_id: Some("cds1".to_string()),
                 feature_offset: Some(2),
@@ -7680,8 +7731,8 @@ mod tests {
 
         // Out-of-bounds error.
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_test".to_string(),
                 position: Some(100),
                 ..Default::default()
             }))
@@ -7696,7 +7747,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn convert_coordinates_minus_strand_segmented_round_trip() {
+    async fn read_sequence_coordinate_minus_strand_segmented_round_trip() {
         // Same minus-strand segmented CDS used in coords.rs tests: translates to FH.
         let seq = "ATGAAATTTAAA".to_string();
         let mut f = feature("mEGFP", "mEGFP", 0, 5, "-");
@@ -7727,8 +7778,8 @@ mod tests {
         // the higher template coordinate to the lower one (positions 3,2,1 in
         // 1-based), because the CDS's 5' end is at the right-hand segment.
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_minus_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_minus_test".to_string(),
                 feature_id: Some("mEGFP".to_string()),
                 aa_position: Some(2),
                 ..Default::default()
@@ -7743,8 +7794,8 @@ mod tests {
         // Convert the first codon position (5' end, 1-based 3) back via template input.
         let pos = v["codonPositions"][0].as_i64().unwrap();
         let out = server
-            .convert_coordinates(Parameters(ConvertCoordinatesRequest {
-                project_id: Some("coord_minus_test".to_string()),
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "coord_minus_test".to_string(),
                 position: Some(pos),
                 ..Default::default()
             }))
@@ -7762,6 +7813,7 @@ mod tests {
         // start = 0 is invalid on the 1-based interface.
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 0,
                 end: 5,
                 replacement: Some("ACGT".to_string()),
@@ -7779,6 +7831,7 @@ mod tests {
         // Wrapping ranges are rejected (start > end+1).
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 50,
                 end: 40,
                 replacement: Some("ACGT".to_string()),
@@ -7796,6 +7849,7 @@ mod tests {
         // Pure insertion before base 61 is start=61, end=60.
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
                 start: 61,
                 end: 60,
                 replacement: Some("TT".to_string()),
@@ -7828,7 +7882,7 @@ mod tests {
         let server = handler_with_project(project).await;
         let out = server
             .check_primer_binding(Parameters(CheckPrimerBindingRequest {
-                project_id: Some("chk".to_string()),
+                project_id: "chk".to_string(),
                 primers: vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
@@ -7870,7 +7924,7 @@ mod tests {
         let server = handler_with_project(project).await;
         let out = server
             .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
-                project_id: Some("enz".to_string()),
+                project_id: "enz".to_string(),
                 enzymes: Some(vec!["EcoRI".to_string()]),
             }))
             .await
@@ -7898,9 +7952,10 @@ mod tests {
         let server = handler_with_project(edit_test_project()).await;
         let out = server
             .read_sequence(Parameters(SequenceRequest {
-                project_id: Some("edit_test".to_string()),
-                start: 1,
-                end: 10,
+                project_id: "edit_test".to_string(),
+                start: Some(1),
+                end: Some(10),
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -7916,11 +7971,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn read_sequence_window_reports_endpoint_contexts() {
+        // CDS at internal 20..49 (1-based 21..50): a 21..50 window starts and
+        // ends exactly on the feature boundaries.
+        let mut project = edit_test_project();
+        project.features = vec![feature("cds1", "mEGFP", 20, 49, "+")];
+        let server = handler_with_project(project).await;
+        let out = server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: Some(21),
+                end: Some(50),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let start_ctx = &v["startContext"];
+        assert_eq!(start_ctx["position"], 21, "{v}");
+        assert_eq!(start_ctx["features"][0]["name"], "mEGFP", "{v}");
+        assert_eq!(start_ctx["features"][0]["featureOffset"], 1, "{v}");
+        let end_ctx = &v["endContext"];
+        assert_eq!(end_ctx["position"], 50, "{v}");
+        assert_eq!(end_ctx["features"][0]["featureOffset"], 30, "{v}");
+    }
+
+    #[test]
+    fn project_id_is_required_on_project_tools() {
+        assert!(serde_json::from_value::<EditSequenceRequest>(serde_json::json!({
+            "start": 1,
+            "end": 2,
+            "replacement": "AA"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<SequenceRequest>(serde_json::json!({
+            "start": 1,
+            "end": 10
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<OverviewRequest>(serde_json::json!({})).is_err());
+    }
+
+    #[tokio::test]
     async fn mutating_tools_require_agent_tab() {
         let server = handler_with_unbound_project(edit_test_project()).await;
         let err = server
             .edit_sequence(Parameters(EditSequenceRequest {
-                project_id: Some("edit_test".to_string()),
+                project_id: "edit_test".to_string(),
                 start: 1,
                 end: 2,
                 replacement: Some("AA".to_string()),
@@ -7929,25 +8026,29 @@ mod tests {
             .await
             .err()
             .expect("expected agent-tab gate error");
-        assert!(err.message.contains("request_agent_tab"), "{err}");
-        assert!(err.message.contains("open_file"), "{err}");
+        assert!(err.message.contains("not bound"), "{err}");
+        assert!(err.message.contains("open_project"), "{err}");
+        assert!(err.message.contains("cp"), "{err}");
         let err = server
-            .add_feature(Parameters(AddFeatureRequest {
-                project_id: Some("edit_test".to_string()),
-                name: "x".to_string(),
-                ftype: "misc_feature".to_string(),
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "edit_test".to_string(),
+                name: Some("x".to_string()),
+                ftype: Some("misc_feature".to_string()),
+                start: Some(1),
+                end: Some(5),
                 ..Default::default()
             }))
             .await
             .err()
             .expect("expected agent-tab gate error");
-        assert!(err.message.contains("request_agent_tab"), "{err}");
+        assert!(err.message.contains("not bound"), "{err}");
         // Read-only tools stay usable without an agent tab.
         server
             .read_sequence(Parameters(SequenceRequest {
-                project_id: Some("edit_test".to_string()),
-                start: 1,
-                end: 10,
+                project_id: "edit_test".to_string(),
+                start: Some(1),
+                end: Some(10),
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -7970,89 +8071,18 @@ mod tests {
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             agent_tabs.clone(),
-            Arc::new(RwLock::new(HashSet::new())),
         );
         // Any tool call that resolves the project re-locks the tab.
         server
             .read_sequence(Parameters(SequenceRequest {
-                project_id: Some(id.clone()),
-                start: 1,
-                end: 10,
+                project_id: id.clone(),
+                start: Some(1),
+                end: Some(10),
+                ..Default::default()
             }))
             .await
             .unwrap();
         assert!(agent_tabs.read().await[&id].locked);
-    }
-
-    #[tokio::test]
-    async fn request_agent_tab_reuses_existing_tab() {
-        // handler_with_project pre-binds the project as an agent tab.
-        let server = handler_with_project(edit_test_project()).await;
-        let out = server
-            .request_agent_tab(Parameters(RequestAgentTabRequest {
-                project_id: Some("edit_test".to_string()),
-            }))
-            .await
-            .unwrap();
-        let v = out.0;
-        assert_eq!(v["ok"], true);
-        assert_eq!(v["reused"], true);
-        assert_eq!(v["locked"], true);
-    }
-
-    #[tokio::test]
-    async fn request_agent_tab_rejects_user_opened_project() {
-        // The project is in the manager but NOT in mcp_opened (the user
-        // opened it) and not bound — binding must be refused with a hint to
-        // copy the file.
-        let app = mock_builder()
-            .build(mock_context(noop_assets()))
-            .expect("mock app builds");
-        let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        let project = edit_test_project();
-        let id = project.name.clone();
-        pm.write().await.load(&id, project);
-        let server = LibreGeneMcp::new(
-            app.handle().clone(),
-            pm,
-            Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(HashSet::new())),
-        );
-        let err = server
-            .request_agent_tab(Parameters(RequestAgentTabRequest {
-                project_id: Some(id.clone()),
-            }))
-            .await
-            .err()
-            .expect("expected refusal for a user-opened project");
-        assert!(err.message.contains("cp"), "{err}");
-        assert!(err.message.contains("open_file"), "{err}");
-        assert!(err.message.contains("request_agent_tab"), "{err}");
-    }
-
-    #[tokio::test]
-    async fn request_agent_tab_binds_after_mcp_open_file() {
-        // The project was opened via MCP open_file (in mcp_opened) but not
-        // yet bound — request_agent_tab must succeed.
-        let server = handler_with_mcp_opened(edit_test_project()).await;
-        let out = server
-            .request_agent_tab(Parameters(RequestAgentTabRequest {
-                project_id: Some("edit_test".to_string()),
-            }))
-            .await
-            .unwrap();
-        let v = out.0;
-        assert_eq!(v["ok"], true, "{v}");
-        assert_eq!(v["locked"], true);
-        // A second call reuses the existing binding.
-        let out = server
-            .request_agent_tab(Parameters(RequestAgentTabRequest {
-                project_id: Some("edit_test".to_string()),
-            }))
-            .await
-            .unwrap();
-        assert_eq!(out.0["reused"], true);
     }
 
     #[test]
@@ -8065,59 +8095,285 @@ mod tests {
         assert_eq!(sanitize_window_label("ABC-def_123"), "ABC-def_123");
     }
 
-    #[tokio::test]
-    async fn request_agent_tab_binds_project_id_with_parens_and_spaces() {
-        // Agent tabs are keyed by the raw project id (no window label is
-        // created), so paths with parens/spaces bind without sanitization and
-        // never touch window_projects.
-        let app = mock_builder()
-            .build(mock_context(noop_assets()))
-            .expect("mock app builds");
-        let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        let id = "/tmp/my project (v2).gbk".to_string();
-        pm.write().await.load(&id, ProjectData {
-            name: id.clone(),
-            sequence: synthetic_dna(200, 9),
-            length: 200,
+    // ------------------------------------------------------------------
+    // open_project / close_project / save_file guards
+    // ------------------------------------------------------------------
+
+    fn write_temp_gbk(dir_name: &str, file_name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let project = ProjectData {
+            name: "tmp".to_string(),
+            sequence: synthetic_dna(120, 77),
+            length: 120,
             topology: "linear".to_string(),
             molecule_type: "dna".to_string(),
+            features: vec![feature("f1", "gene", 10, 49, "+")],
             ..Default::default()
-        });
-        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
-        let at: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
-        let mcp_opened: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
-        mcp_opened.write().await.insert(id.clone());
-        let server = LibreGeneMcp::new(
-            app.handle().clone(),
-            pm,
-            wp.clone(),
-            at.clone(),
-            mcp_opened,
-        );
+        };
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-{}-{}", dir_name, std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(file_name);
+        libregene_core::file_io::gbk::write_gbk(&project, &path).unwrap();
+        (dir, path)
+    }
+
+    #[tokio::test]
+    async fn open_project_binds_fresh_file_as_agent_tab() {
+        let (dir, path) = write_temp_gbk("open", "fresh.gbk");
+        let server = test_handler();
         let out = server
-            .request_agent_tab(Parameters(RequestAgentTabRequest {
-                project_id: Some(id.clone()),
+            .open_project(Parameters(OpenProjectRequest {
+                path: path.to_string_lossy().into_owned(),
             }))
             .await
             .unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "{v}");
-        assert_eq!(v["projectId"], id);
-        // Bound by raw project id, no window label registered anywhere.
-        assert!(at.read().await.contains_key(&id));
-        assert!(wp.read().await.is_empty(), "no window must be created: {wp:?}");
+        assert_eq!(v["projectId"], path.to_str().unwrap(), "{v}");
+        assert!(v["regionView"].is_string(), "{v}");
+        let id = path.to_string_lossy().into_owned();
+        {
+            let pm = server.pm.read().await;
+            assert!(pm.get_project_by_id(&id).is_some(), "project loaded");
+        }
+        assert!(
+            server.agent_tabs.read().await[&id].locked,
+            "fresh open binds a locked agent tab"
+        );
+        // The bound project accepts mutations.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: id.clone(),
+                start: 1,
+                end: 2,
+                replacement: Some("AA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]
-    async fn activate_project_rejects_agent_owned_project() {
+    async fn open_project_reuses_existing_agent_tab() {
+        // handler_with_project pre-loads AND pre-binds the project; the id
+        // doubles as the "path" key here.
         let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .open_project(Parameters(OpenProjectRequest {
+                path: "edit_test".to_string(),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["reused"], true, "{v}");
+        assert_eq!(v["locked"], true, "{v}");
+    }
+
+    #[tokio::test]
+    async fn open_project_rejects_user_opened_project() {
+        // Loaded but not bound = opened by the user; open_project refuses and
+        // points at the bash-cp-copy workflow.
+        let server = handler_with_unbound_project(edit_test_project()).await;
         let err = server
-            .activate_project(Parameters(ActivateProjectRequest {
-                project_id: "edit_test".to_string(),
+            .open_project(Parameters(OpenProjectRequest {
+                path: "edit_test".to_string(),
             }))
             .await
             .err()
-            .expect("expected agent-tab activation error");
-        assert!(err.message.contains("agent tab"), "{err}");
+            .expect("expected refusal for a user-opened project");
+        assert!(err.message.contains("cp"), "{err}");
+        assert!(err.message.contains("open_project"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn open_project_binds_path_with_parens_and_spaces() {
+        // Agent tabs are keyed by the raw project id (= path), so paths with
+        // parens/spaces bind without sanitization and never touch
+        // window_projects.
+        let (dir, path) = write_temp_gbk("open-parens", "my project (v2).gbk");
+        let server = test_handler();
+        let out = server
+            .open_project(Parameters(OpenProjectRequest {
+                path: path.to_string_lossy().into_owned(),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let id = path.to_string_lossy().into_owned();
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["projectId"], id, "{v}");
+        assert!(server.agent_tabs.read().await.contains_key(&id));
+        assert!(
+            server.wp.read().await.is_empty(),
+            "no window must be created"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn close_project_guards_unbound_and_dirty() {
+        // Unbound project → refused by the agent-tab gate.
+        let server = handler_with_unbound_project(edit_test_project()).await;
+        let err = server
+            .close_project(Parameters(CloseProjectRequest {
+                project_id: "edit_test".to_string(),
+                ..Default::default()
+            }))
+            .await
+            .err()
+            .expect("unbound close must fail");
+        assert!(err.message.contains("not bound"), "{err}");
+
+        // Bound but dirty → needs force.
+        let server = handler_with_project(edit_test_project()).await;
+        server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 1,
+                end: 2,
+                replacement: Some("AA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let out = server
+            .close_project(Parameters(CloseProjectRequest {
+                project_id: "edit_test".to_string(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(out.0["message"].as_str().unwrap().contains("force"), "{}", out.0);
+        assert!(
+            server.pm.read().await.get_project_by_id("edit_test").is_some(),
+            "project survives a refused close"
+        );
+
+        // force: true discards the dirty project.
+        let out = server
+            .close_project(Parameters(CloseProjectRequest {
+                project_id: "edit_test".to_string(),
+                force: Some(true),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(server.pm.read().await.get_project_by_id("edit_test").is_none());
+        assert!(
+            !server.agent_tabs.read().await.contains_key("edit_test"),
+            "agent tab is cleaned up"
+        );
+    }
+
+    #[tokio::test]
+    async fn close_project_clean_project_closes() {
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .close_project(Parameters(CloseProjectRequest {
+                project_id: "edit_test".to_string(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(server.pm.read().await.get_project_by_id("edit_test").is_none());
+    }
+
+    #[tokio::test]
+    async fn save_file_overwrite_rules() {
+        let (dir, path) = write_temp_gbk("save-overwrite", "existing.gbk");
+        let server = test_handler();
+        // Open the real file; its project id IS the path.
+        let out = server
+            .open_project(Parameters(OpenProjectRequest {
+                path: path.to_string_lossy().into_owned(),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        let id = path.to_string_lossy().into_owned();
+
+        // Saving back to the project's own path is always allowed.
+        let out = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: id.clone(),
+                path: id.clone(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(out.0["bytesWritten"].as_u64().unwrap() > 0, "{}", out.0);
+
+        // Saving to a DIFFERENT existing path requires overwrite: true.
+        let other = dir.join("other.gbk");
+        let mut other_project = edit_test_project();
+        other_project.name = "other".to_string();
+        libregene_core::file_io::gbk::write_gbk(&other_project, &other).unwrap();
+        let out = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: id.clone(),
+                path: other.to_string_lossy().into_owned(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("overwrite"),
+            "{}",
+            out.0
+        );
+        let out = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: id.clone(),
+                path: other.to_string_lossy().into_owned(),
+                overwrite: Some(true),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn save_file_whole_project_marks_clean() {
+        let (dir, path) = write_temp_gbk("save-clean", "clean.gbk");
+        let server = test_handler();
+        server
+            .open_project(Parameters(OpenProjectRequest {
+                path: path.to_string_lossy().into_owned(),
+            }))
+            .await
+            .unwrap();
+        let id = path.to_string_lossy().into_owned();
+        // Dirty the project, then save it back to its own path.
+        server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: id.clone(),
+                start: 1,
+                end: 2,
+                replacement: Some("AA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert!(server.pm.read().await.is_dirty(&id), "edit marks dirty");
+        let out = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: id.clone(),
+                path: id.clone(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(out.0["bytesWritten"].as_u64().unwrap() > 0, "{}", out.0);
+        assert!(!server.pm.read().await.is_dirty(&id), "save marks clean");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

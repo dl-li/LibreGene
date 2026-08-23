@@ -74,7 +74,7 @@ const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
 // ---------------------------------------------------------------------------
 
 /// Per-agent-tab metadata. Agent tabs (projects bound by the MCP
-/// `request_agent_tab` tool) stay in the main window's sidebar; this map adds
+/// `open_project` tool) stay in the main window's sidebar; this map adds
 /// the lock state.
 #[derive(Clone)]
 pub struct AgentTabMeta {
@@ -93,10 +93,6 @@ pub struct AppState {
     /// MCP-agent-bound projects, keyed by project id. Lock order: never take
     /// this lock while holding `pm` or `window_projects`.
     pub agent_tabs: AgentTabs,
-    /// Project ids the MCP server opened via `open_file` — only these may be
-    /// bound as agent tabs (`request_agent_tab` refuses user-opened projects).
-    /// Lock order: never take this lock while holding `pm` or `window_projects`.
-    pub mcp_opened: Arc<RwLock<HashSet<String>>>,
     /// Paths handed to us by the OS (Open With / double-click / second
     /// instance) that the frontend hasn't consumed yet. The frontend drains
     /// this via `take_pending_opens` on mount so cold-start events that
@@ -732,7 +728,6 @@ async fn do_delete_project<R: Runtime>(
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
-    mcp_opened: &Arc<RwLock<HashSet<String>>>,
     source: Option<&str>,
     id: String,
 ) -> Result<serde_json::Value, String> {
@@ -748,10 +743,6 @@ async fn do_delete_project<R: Runtime>(
         {
             let mut at = agent_tabs.write().await;
             at.remove(&id);
-        }
-        {
-            let mut mo = mcp_opened.write().await;
-            mo.remove(&id);
         }
         broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
         Ok(serde_json::json!({"status": "ok"}))
@@ -2848,7 +2839,6 @@ async fn delete_project(
         &state.pm,
         &state.window_projects,
         &state.agent_tabs,
-        &state.mcp_opened,
         Some(webview_window.label()),
         id,
     )
@@ -3251,7 +3241,6 @@ pub fn run() {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
-            mcp_opened: Arc::new(RwLock::new(HashSet::new())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -3262,7 +3251,6 @@ pub fn run() {
                 state.pm.clone(),
                 state.window_projects.clone(),
                 state.agent_tabs.clone(),
-                state.mcp_opened.clone(),
             );
             app.manage(mcp.clone());
             // Start with the default config (enabled on MCP_PORT); the frontend
