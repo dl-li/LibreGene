@@ -2398,7 +2398,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// severed between topCutIndex and topCutIndex+1 (topCutIndex = len on a
     /// circular sequence means between the last and the first base); strand is
     /// "top" or "bottom" (recognition orientation); unique = exactly one site
-    /// for that enzyme.
+    /// for that enzyme. Sites whose cuts fall OUTSIDE the recognition
+    /// sequence (type IIS enzymes like BbsI) carry
+    /// `cutsOutsideRecognitionSite: true` plus a `note`; for those,
+    /// topCutIndex/botCutIndex — not recStart/recEnd — give the actual break
+    /// points.
     ///
     /// Half-site accounting for assembly: a cut at topCutIndex N severs the
     /// DNA between the 1-based bases N and N+1, so the UPSTREAM fragment ends
@@ -2514,18 +2518,39 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 sites.sort_by_key(|e| e.rec_start);
                 serde_json::json!({
                     "name": n,
-                    "sites": sites.iter().map(|e| serde_json::json!({
-                        "recStart": to1(e.rec_start),
-                        "recEnd": to1(e.rec_end),
-                        "recSeq": e.rec_seq,
-                        "strand": e.recognition_strand,
-                        "cuts": e.cut_pairs.iter().map(|p| serde_json::json!({
+                    "sites": sites.iter().map(|e| {
+                        let rec_start = to1(e.rec_start);
+                        let rec_end = to1(e.rec_end);
+                        let cuts: Vec<serde_json::Value> = e.cut_pairs.iter().map(|p| serde_json::json!({
                             "topCutIndex": cut_flanks(p.top_cut_index, tlen, circular).0,
                             "botCutIndex": cut_flanks(p.bot_cut_index, tlen, circular).0,
-                        })).collect::<Vec<_>>(),
-                        "methylationBlocked": e.methylation_blocked,
-                        "unique": e.is_unique,
-                    })).collect::<Vec<_>>(),
+                        })).collect();
+                        // Type IIS and similar enzymes cut outside their
+                        // recognition sequence; flag those sites so the
+                        // cut-vs-recognition offset does not have to be
+                        // inferred from the coordinates alone.
+                        let outside = cuts.iter().any(|c| {
+                            let t = c["topCutIndex"].as_i64().unwrap_or(0);
+                            let b = c["botCutIndex"].as_i64().unwrap_or(0);
+                            t < rec_start || t > rec_end || b < rec_start || b > rec_end
+                        });
+                        let mut site = serde_json::json!({
+                            "recStart": rec_start,
+                            "recEnd": rec_end,
+                            "recSeq": e.rec_seq,
+                            "strand": e.recognition_strand,
+                            "cuts": cuts,
+                            "cutsOutsideRecognitionSite": outside,
+                            "methylationBlocked": e.methylation_blocked,
+                            "unique": e.is_unique,
+                        });
+                        if outside {
+                            site["note"] = serde_json::json!(
+                                "cut positions lie outside the recognition sequence (type IIS-style); topCutIndex/botCutIndex give the actual break points"
+                            );
+                        }
+                        site
+                    }).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -8287,6 +8312,45 @@ mod tests {
         let msg = v["message"].as_str().unwrap_or("");
         assert!(msg.contains("Unknown enzyme 'EcoR'"), "{msg}");
         assert!(msg.contains("EcoRI"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_flags_type_iis_cuts_outside_recognition() {
+        // BbsI (GAAGAC, cuts 2/6 nt downstream) at internal 0-based 40..45.
+        let mut seq = "ACGT".repeat(50);
+        seq.replace_range(40..46, "GAAGAC");
+        let mut project = ProjectData {
+            name: "iis".to_string(),
+            sequence: seq,
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        let internal = project
+            .enzymes
+            .iter()
+            .find(|e| e.name == "BbsI")
+            .expect("BbsI site")
+            .clone();
+        let server = handler_with_project(project).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "iis".to_string(),
+                enzymes: Some(vec!["BbsI".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let site = &v["enzymes"][0]["sites"][0];
+        let top = site["cuts"][0]["topCutIndex"].as_i64().unwrap();
+        assert!(top > internal.rec_end + 1, "BbsI cuts downstream: {v}");
+        assert_eq!(site["cutsOutsideRecognitionSite"], true, "{v}");
+        assert!(
+            site["note"].as_str().unwrap_or("").contains("type IIS"),
+            "{v}"
+        );
     }
 
     #[tokio::test]
