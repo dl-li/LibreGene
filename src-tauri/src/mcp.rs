@@ -403,7 +403,11 @@ struct RegionSpec {
     cut1: Option<i64>,
     /// Fragment mode (explicit cuts): second cut position (same convention).
     cut2: Option<i64>,
-    /// Amplicon mode: fwd primer (project primer name or raw sequence).
+    /// Amplicon mode: fwd primer (project primer name or raw sequence). The
+    /// exported amplicon spans the fwd primer's forward-strand site start to
+    /// the rev primer's reverse-strand site end — its length is the primer
+    /// pair's product size (also derivable from check_primer_binding's site
+    /// coordinates without exporting anything).
     fwd_primer: Option<String>,
     /// Amplicon mode: rev primer (project primer name or raw sequence).
     rev_primer: Option<String>,
@@ -3495,6 +3499,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Add a primer ("fwd" or "rev") and recompute its binding sites against
     /// the template. Primer sequences are short (~20-60 nt), so passing `seq`
     /// as plain text is the intended input here — no file input needed.
+    /// The primer `name` must not collide with an existing primer or FEATURE
+    /// name in the project — a name taken by a feature is rejected (choose a
+    /// distinct name, e.g. append "-F"/"-R").
     /// Returns {ok, message, projectId, bindingSites, regionView}
     /// — bindingSites: [{strand, templateStart, templateEnd, tm, annealLen}].
     /// templateStart/templateEnd are 1-based inclusive (the bound range spans
@@ -4248,6 +4255,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// an enzyme-tail primer (e.g. GCG+GGATCC+anneal core) whose tail's 3'
     /// side matches the template next to the binding site, so check's
     /// annealLen/Tm come out higher than design's.
+    /// Primer-pair amplicon size can be derived from the binding sites
+    /// reported here: the product spans the fwd primer's forward-strand site
+    /// start (templateStart) to the rev primer's reverse-strand site end
+    /// (templateEnd), inclusive. To obtain the amplicon itself (as a file),
+    /// use save_file's fwd_primer/rev_primer region mode.
     /// DNA-only: rejects RNA/protein projects (no primer binding on
     /// single-strand molecules).
     #[tool]
