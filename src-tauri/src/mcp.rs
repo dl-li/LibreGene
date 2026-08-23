@@ -543,12 +543,15 @@ fn codon_preview_json(
 /// format: .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated
 /// (`source` replaces the default minimal project when the input file already
 /// carried features), .gpt → protein GenBank of the translated sequence.
+/// `cds_name` labels the whole-length CDS feature of a minimal project
+/// (typically the source file stem); it falls back to the output file stem.
 /// Returns the written path.
 fn write_optimization_output(
     output_path: &str,
     dna: Option<&str>,
     aa: &str,
     source: Option<&ProjectData>,
+    cds_name: Option<&str>,
 ) -> Result<String, String> {
     let ext = crate::validate_user_path(output_path, crate::CODON_OUTPUT_EXTS)?;
     let path = std::path::Path::new(output_path);
@@ -559,14 +562,14 @@ fn write_optimization_output(
                 None => {
                     let dna = dna
                         .ok_or_else(|| "no DNA sequence available for GenBank output".to_string())?;
-                    minimal_dna_project(output_path, dna)
+                    minimal_dna_project(output_path, dna, cds_name)
                 }
             };
             libregene_core::file_io::gbk::write_gbk(&project, path)
                 .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
         }
         "gpt" => {
-            let project = minimal_protein_project(output_path, aa);
+            let project = minimal_protein_project(output_path, aa, cds_name);
             libregene_core::file_io::gpt::write_gpt(&project, path)
                 .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
         }
@@ -580,30 +583,30 @@ fn write_optimization_output(
     Ok(output_path.to_string())
 }
 
-fn minimal_dna_project(output_path: &str, dna: &str) -> ProjectData {
+fn minimal_dna_project(output_path: &str, dna: &str, cds_name: Option<&str>) -> ProjectData {
     let name = output_project_name(output_path);
     let len = dna.len() as i64;
     ProjectData {
+        features: vec![whole_cds_feature(len, cds_name.unwrap_or(&name))],
         name,
         sequence: dna.to_string(),
         length: len,
         topology: "linear".to_string(),
         molecule_type: "dna".to_string(),
-        features: vec![whole_cds_feature(len)],
         ..Default::default()
     }
 }
 
-fn minimal_protein_project(output_path: &str, aa: &str) -> ProjectData {
+fn minimal_protein_project(output_path: &str, aa: &str, cds_name: Option<&str>) -> ProjectData {
     let name = output_project_name(output_path);
     let len = aa.len() as i64;
     ProjectData {
+        features: vec![whole_cds_feature(len, cds_name.unwrap_or(&name))],
         name,
         sequence: aa.to_string(),
         length: len,
         topology: "linear".to_string(),
         molecule_type: "protein".to_string(),
-        features: vec![whole_cds_feature(len)],
         ..Default::default()
     }
 }
@@ -615,10 +618,10 @@ fn output_project_name(output_path: &str) -> String {
         .unwrap_or_else(|| "optimized".to_string())
 }
 
-fn whole_cds_feature(len: i64) -> Feature {
+fn whole_cds_feature(len: i64, name: &str) -> Feature {
     Feature {
         id: "cds".to_string(),
-        name: "CDS".to_string(),
+        name: name.to_string(),
         start: 0,
         end: len - 1,
         color: "#60A5FA".to_string(),
@@ -1293,7 +1296,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             result.unresolved.len(),
         ));
         if let Some(op) = output_path {
-            let written = write_optimization_output(&op, Some(&optimized), &aa, None)
+            let written = write_optimization_output(&op, Some(&optimized), &aa, None, None)
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
             v["outputPath"] = serde_json::json!(written);
         }
@@ -1446,7 +1449,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 FileOutcome::Feature { source_project, .. } => (None, Some(source_project)),
                 FileOutcome::Plain { dna, .. } => (Some(dna.as_str()), None),
             };
-            let written = write_optimization_output(&op, dna, &aa, source)
+            // Label the minimal project's CDS after the source file (e.g.
+            // CAR.gpt → a "CAR" CDS), saving a rename step downstream.
+            let cds_name = std::path::Path::new(&path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().replace(' ', "_"));
+            let written = write_optimization_output(&op, dna, &aa, source, cds_name.as_deref())
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
             v["outputPath"] = serde_json::json!(written);
         }
@@ -4295,14 +4303,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Returns {ok, message, projectId?, aa, codonCount, newCodons,
     /// caiBefore, caiAfter, gcBefore, gcAfter, repairs, repairCount,
     /// unresolved, method, species, optimizedSequence?, outputPath?,
-    /// regionView?}. `optimizedSequence` (the full optimized DNA) is added in
+    /// regionView?}. `aa` is the translated protein INCLUDING a trailing '*'
+    /// for the stop codon, and `codonCount` counts that stop codon too (a
+    /// 466-aa protein with a stop shows codonCount 467).
+    /// `optimizedSequence` (the full optimized DNA) is added in
     /// sequence/input_path modes; `outputPath` when `output_path` was given;
     /// `regionView` after an apply=true project write-back.
     ///
     /// `output_path` (any input mode, optional): writes the result to a file
     /// — .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated,
     /// .gpt → protein GenBank of the translated sequence; other extensions
-    /// are rejected. PREFER writing the result to a file (and open_project it
+    /// are rejected. When the output carries a single whole-length CDS
+    /// (sequence/whole-file/protein reverse-translation inputs), the CDS
+    /// feature is labeled after the SOURCE file stem (falling back to the
+    /// output file stem) instead of a generic "CDS". PREFER writing the
+    /// result to a file (and open_project it
     /// afterwards) over reading the `optimizedSequence` text — sequences move
     /// between tools as files, not pasted text. `apply=true` is only meaningful in project mode: in
     /// sequence/input_path mode it requires `output_path` (there is no
@@ -5185,10 +5200,10 @@ mod tests {
 
     #[test]
     fn write_optimization_output_rejects_unknown_extension() {
-        assert!(write_optimization_output("out.fasta", Some("ATG"), "M", None).is_err());
-        assert!(write_optimization_output("out.ab1", Some("ATG"), "M", None).is_err());
-        assert!(write_optimization_output("out.txt", Some("ATG"), "M", None).is_err());
-        assert!(write_optimization_output("../esc.gbk", Some("ATG"), "M", None).is_err());
+        assert!(write_optimization_output("out.fasta", Some("ATG"), "M", None, None).is_err());
+        assert!(write_optimization_output("out.ab1", Some("ATG"), "M", None, None).is_err());
+        assert!(write_optimization_output("out.txt", Some("ATG"), "M", None, None).is_err());
+        assert!(write_optimization_output("../esc.gbk", Some("ATG"), "M", None, None).is_err());
     }
 
     #[test]
@@ -5198,16 +5213,17 @@ mod tests {
 
         let gbk_path = dir.join("out.gbk");
         let written =
-            write_optimization_output(gbk_path.to_str().unwrap(), Some("ATGGTGAGCTAA"), "MVS*", None)
+            write_optimization_output(gbk_path.to_str().unwrap(), Some("ATGGTGAGCTAA"), "MVS*", None, Some("CAR"))
                 .unwrap();
         assert_eq!(written, gbk_path.to_str().unwrap());
         let parsed = libregene_core::file_io::parse_file(&gbk_path).unwrap();
         assert_eq!(parsed.sequence, "ATGGTGAGCTAA");
         assert_eq!(parsed.molecule_type, "dna");
-        assert!(parsed.features.iter().any(|f| f.ftype == "CDS"));
+        // The whole-length CDS is labeled after the source name when given.
+        assert!(parsed.features.iter().any(|f| f.ftype == "CDS" && f.name == "CAR"));
 
         let gpt_path = dir.join("out.gpt");
-        write_optimization_output(gpt_path.to_str().unwrap(), None, "MVS*", None).unwrap();
+        write_optimization_output(gpt_path.to_str().unwrap(), None, "MVS*", None, None).unwrap();
         let parsed = libregene_core::file_io::parse_file(&gpt_path).unwrap();
         assert_eq!(parsed.molecule_type, "protein");
         assert_eq!(parsed.sequence, "mvs*"); // the gpt writer lower-cases
