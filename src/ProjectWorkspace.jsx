@@ -960,10 +960,11 @@ export default function ProjectWorkspace({
    * 编辑会删除 [editStart, editEnd] 区间（oldLen 个碱基），
    * 然后插入 newLen 个碱基。
    * 编辑区之外的特征位置保持与原序列的相对偏移不变。
+   * 等长替换（delta === 0）不改变任何坐标，特征原样保留。
    */
   const adjustAnnotations = useCallback((anns, editStart, editEnd, oldLen, newLen) => {
     const delta = newLen - oldLen;
-    if (delta === 0 && oldLen === 0) return anns; // no-op
+    if (delta === 0) return anns; // no-op / equal-length replace keeps all coordinates
 
     return anns
       .map((ann) => {
