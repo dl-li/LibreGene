@@ -83,13 +83,13 @@
 
 ### MCP / LLM Agent 集成
 
-LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。先启动 LibreGene；连接方式与访问令牌见 app 侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接）。
+LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。启动 LibreGene 后，打开侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接），复制自动生成的配置提示词（已内嵌 URL 和访问令牌）发给你的 Agent，它会自行完成配置。
 
-共暴露 21 个工具，覆盖完整编辑流程：
+共暴露 18 个工具，覆盖完整编辑流程：
 
-- **项目与文件** — `open_file`、`save_file`、`close_project`、`activate_project`、`list_projects`、`export_subsequence`
+- **项目与文件** — `open_project`、`save_file`（支持子序列/区域导出）、`close_project`、`list_projects`
 - **读取** — `read_sequence`、`get_project_overview`、`get_region_view`、`search_sequence`（IUPAC 模糊搜索，肽段查询自动展开为简并密码子）
-- **编辑** — `edit_sequence`（插入/删除/替换）、`add_feature`、`update_feature`
+- **编辑** — `edit_sequence`（插入/删除/替换）、`set_feature`（创建与更新）
 - **引物** — `add_primer`、`list_primers`、`check_primer_binding`（结合位点 + Tm）、`design_primers`（扩增 / OE-PCR / 诱变）
 - **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`optimize_cds`（9 个物种的密码子优化）
 
@@ -98,16 +98,18 @@ LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听
 [`examples/tasks`](examples/tasks) 目录收录了可直接运行的 Agent 任务，每个都附带 `Prompt.txt`（可直接发给 Agent 的自然语言指令）和参考结果：
 
 - **[Primer Design](examples/tasks/Primer%20Design)** — 将 mEGFP 克隆进 BamHI/HindIII 消化过的 BlueScribe 载体：设计带酶切尾巴的克隆引物、挑选菌落 PCR 鉴定引物，再设计 A206K 定点诱变引物
-- **[Alignment](examples/tasks/Alignment)** — 给定 pVA-MCS 和三份 Sanger `.ab1` 测序结果，判断哪个样本成功突变掉了 BbsI 酶切位点
-- **[Drosophila RNAi](examples/tasks/Drosophila%20RNAi)** — 根据载体序列和实验 Protocol，设计靶向目标基因（GOI）的 RNAi 质粒
+- **[Alignment](examples/tasks/Alignment)** — 给定 pVA-MCS 和三份 Sanger `.ab1` 测序结果，判断哪些样本成功突变掉了 BbsI 酶切位点
+- **[RNAi](examples/tasks/RNAi)** — 根据载体序列和实验 Protocol，设计靶向目标基因（GOI）的 RNAi 质粒
+- **[CAR-T](examples/tasks/CAR-T)** — 根据抗 CD19 CAR（FMC63 scFv–CD28–CD3ζ）的氨基酸序列，设计 pLVX-CAR-IRES-ZsGreen1 表达载体
 
 ### 更多
 
 - **SVG 质粒图谱**，多行自适应换行显示
+- **DNA / RNA / 蛋白质模式** — RNA 和蛋白质序列使用单链编辑器
 - **插件系统** — 可扩展架构，方便添加自定义工具
 - **多项目标签页** — 侧边栏快速切换
 - **完整的撤销/重做** — 序列编辑和特征修改均可回退
-- **GenBank / SnapGene** — 读写 .gb/.gbk，读取 .dna（[SnapGene](https://www.snapgene.com)）
+- **GenBank / SnapGene / FASTA** — 读写 .gb/.gbk 与蛋白 .gpt；读取 .dna/.rna/.prot（[SnapGene](https://www.snapgene.com)）、FASTA 和 Sanger .ab1
 
 ## 快速开始
 

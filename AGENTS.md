@@ -89,13 +89,9 @@ LibreGene/
 
 ## 仍有改进空间（非 Bug）
 
-- `SequenceEditor.jsx` ~2474 行，需拆分组件
+- `SequenceEditor.jsx` ~5200 行，需拆分组件
 - SVG 容器 `contain: 'layout style'` 可能影响固定定位元素
 - `list_projects` JSON 构建可用序列化替代 `json!` 宏
-
-## 待实现功能
-
-`EditorNavMenu.jsx` 中酶切 → 自定义酶集合为占位（disabled，"即将推出"）。导航菜单用 `src/components/ui/dropdown-menu.jsx`（`@radix-ui/react-dropdown-menu`）。
 
 ## API
 
@@ -126,7 +122,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **架构**：进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState` 的 `Arc<RwLock<ProjectManager>>`。所有 mutation 工具走同一套 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径，UI 实时更新；Tauri command 只是薄包装）
 - **启停**：`McpServer` 持配置 `{enabled, port}`；`set_mcp_config` 原进程内停止/重启（端口冲突自动重试）。默认 `enabled=true, port=8766`；配置存前端 localStorage `mcpConfig`
 - **鉴权**：每请求需 `Authorization: Bearer <token>` 且 `Host` 严格等于 `127.0.0.1:<port>`（防 DNS rebinding）。令牌存 `<app_config_dir>/mcp_auth_token`；前端经 `get_mcp_token` 读、`regenerate_mcp_token` 轮换。middleware 把协议错误改写为可读 JSON-RPC 错误体（缺 `Accept` → 406/-32600；未知 session → -32001）。文件路径经 `validate_user_path` 校验（拒绝 `..` 遍历 + 扩展名白名单）
-- **入口**：`src/components/McpGuideDialog.jsx`（开关 + 端口 + 令牌 + 各客户端配置片段），从侧边栏 "MCP Server" 打开
+- **入口**：`src/components/McpGuideDialog.jsx`（开关 + 端口 + 令牌 + 自动生成的 Agent 配置提示词——内嵌 URL 与令牌，用户复制发给自己的 Agent 即可自行完成配置），从侧边栏 "MCP Server" 打开
 - **后台待命**：关主窗口只是隐藏（进程与 MCP 继续跑）；托盘菜单含 MCP 状态、Show、Quit；macOS Dock 图标经 `RunEvent::Reopen` 重开。项目窗口不参与
 - **Agent 标签页（强制隔离）**：MCP `open_project` 打开文件时一步完成「加载 + 绑定为**主窗口侧边栏里的 Agent 标签**」（`AppState.agent_tabs`，按 project_id 索引，默认 locked；不创建任何窗口）。已加载且已绑定则复用+重锁，返回 `reused: true`；已加载但未绑定 = 用户打开的项目，`open_project` 拒绝，错误文案指引 Agent 用 bash `cp` 复制文件、`open_project` 副本。门控：mutation 工具（`edit_sequence`/`set_feature`/`add_primer`/`add_alignment`/`save_file`/`close_project`/`optimize_cds(apply)`/`find_orfs(add_as_features)`）对未绑定项目报错并提示先 `open_project`；只读工具不受限。`close_project` 对有未保存改动的项目要求 `force: true`。自动重锁：`resolve_project_id`/`resolve_project`（所有工具解析项目的唯一入口）解析后调 `lock_agent_tab_for_project`——任何工具调用都把绑定标签重新锁定（仅 unlocked→locked 跃迁时 emit app 级 `agent-tab-lock` 事件，payload `{projectId, locked}`）。解锁/手动锁定走前端 `set_agent_tab_locked(projectId, locked)`；`get_projects`/`broadcast_project_arcs` 的项目列表每条带 `agentLocked: bool|null`
 - **工具**：18 个（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`optimize_cds`）。所有项目工具的 `project_id` 均为必填（无 active 回退；`optimize_cds` 例外——`project_id`+`feature_id` / `sequence` / `input_path` 三输入模式互斥）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`；digest 酶切列表只列单切酶、多切酶折叠计数（`get_region_view(compact:false)` / `get_project_overview(compactCutters:false)` 得完整列表）。项目窗口 label 经 `sanitize_window_label`（非 `[A-Za-z0-9-_]` 字符全部替换为 `_`，含 `(` `)`/空格/`.` 的路径也能生成合法 label；Agent 标签按 project_id 直接索引，无需 sanitize）

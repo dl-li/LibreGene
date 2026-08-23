@@ -83,13 +83,13 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 ### MCP / LLM Agent Integration
 
-LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene first; connection details and the access token are shown in the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen).
+LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene, open the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen), and copy the auto-generated setup prompt — with the URL and access token embedded — to your agent; it configures the connection itself.
 
-21 tools are exposed, covering the full editing workflow:
+18 tools are exposed, covering the full editing workflow:
 
-- **Projects & files** — `open_file`, `save_file`, `close_project`, `activate_project`, `list_projects`, `export_subsequence`
+- **Projects & files** — `open_project`, `save_file` (with subsequence/region export), `close_project`, `list_projects`
 - **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`, `search_sequence` (IUPAC fuzzy search, peptide queries expanded to degenerate codons)
-- **Editing** — `edit_sequence` (insert/delete/replace), `add_feature`, `update_feature`
+- **Editing** — `edit_sequence` (insert/delete/replace), `set_feature` (create & update)
 - **Primers** — `add_primer`, `list_primers`, `check_primer_binding` (binding sites + Tm), `design_primers` (amplify / OE-PCR / mutagenesis)
 - **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `optimize_cds` (codon optimization for 9 species)
 
@@ -98,16 +98,18 @@ LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only
 Ready-to-run agent tasks live in [`examples/tasks`](examples/tasks), each with a `Prompt.txt` you can hand to your agent and a reference result:
 
 - **[Primer Design](examples/tasks/Primer%20Design)** — clone mEGFP into a BamHI/HindIII-digested BlueScribe vector: design cloning primers with restriction tails, pick colony-PCR verification primers, then design A206K mutagenesis primers
-- **[Alignment](examples/tasks/Alignment)** — given pVA-MCS and three Sanger `.ab1` reads, determine which sample successfully mutated away the BbsI site
-- **[Drosophila RNAi](examples/tasks/Drosophila%20RNAi)** — given a vector and an experimental protocol, design an RNAi plasmid targeting a gene of interest with a given antisense sequence
+- **[Alignment](examples/tasks/Alignment)** — given pVA-MCS and three Sanger `.ab1` reads, determine which samples successfully mutated away the BbsI site
+- **[RNAi](examples/tasks/RNAi)** — given a vector and an experimental protocol, design an RNAi plasmid targeting a gene of interest with a given antisense sequence
+- **[CAR-T](examples/tasks/CAR-T)** — given the amino-acid sequence of an anti-CD19 CAR (FMC63 scFv–CD28–CD3ζ), design a pLVX-CAR-IRES-ZsGreen1 expression vector
 
 ### And More
 
 - **SVG plasmid map** with multi-line wrapped sequence display
+- **DNA / RNA / protein modes** — single-strand editors for RNA and protein sequences
 - **Plugin system** — extensible architecture for adding custom tools
 - **Multi-project tabs** — switch between plasmids in the sidebar
 - **Full undo/redo** — sequence edits and feature changes
-- **GenBank / SnapGene I/O** — read/write .gb/.gbk, read .dna ([SnapGene](https://www.snapgene.com))
+- **GenBank / SnapGene / FASTA I/O** — read/write .gb/.gbk and protein .gpt; read .dna/.rna/.prot ([SnapGene](https://www.snapgene.com)), FASTA and Sanger .ab1
 
 ## Quick Start
 
