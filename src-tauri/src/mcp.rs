@@ -2871,9 +2871,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// coordinates changed other than a pure translation ({name, ftype,
     /// before, after} as 1-based {start, end}). `transferredFeatures`/
     /// `transferredPrimers` list annotation names brought in by
-    /// `replacement_path` (omitted when none). On protein projects the replacement is
-    /// uppercased and must be amino-acid letters (A-Z, optional trailing '*'
-    /// stop codon); lengths are reported in aa (nt for RNA, bp for DNA).
+    /// `replacement_path` (omitted when none). The replacement is normalized
+    /// to uppercase on every molecule type (matching update_sequence). On
+    /// protein projects it must additionally be amino-acid letters (A-Z,
+    /// optional trailing '*' stop codon); lengths are reported in aa (nt for
+    /// RNA, bp for DNA).
     #[tool]
     async fn edit_sequence(
         &self,
@@ -2951,19 +2953,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         };
 
-        // Protein projects: normalize the replacement to uppercase and require
-        // the amino-acid alphabet (A-Z, optional single trailing '*' stop).
-        let mut replacement = replacement;
+        // Normalize the replacement to uppercase on every molecule type
+        // (matching update_sequence): lowercase bases would evade the
+        // case-sensitive enzyme recompute and leak into GenBank output.
+        // Protein projects additionally require the amino-acid alphabet
+        // (A-Z, optional single trailing '*' stop).
+        let mut replacement = replacement.to_ascii_uppercase();
         if project.molecule_type == "protein" {
-            let up = replacement.to_ascii_uppercase();
-            let body = up.strip_suffix('*').unwrap_or(&up);
-            if up.matches('*').count() > 1 || !body.chars().all(|c| c.is_ascii_alphabetic()) {
+            let body = replacement.strip_suffix('*').unwrap_or(&replacement);
+            if replacement.matches('*').count() > 1 || !body.chars().all(|c| c.is_ascii_alphabetic()) {
                 return Ok(Json(fail_envelope(
                     &id,
                     "Invalid protein replacement: only amino-acid letters (A-Z) and an optional trailing '*' (stop codon) are allowed".to_string(),
                 )));
             }
-            replacement = up;
         }
 
         // Insertion direction: "-" reverse-complements the replacement (DNA
@@ -6418,6 +6421,66 @@ mod tests {
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
         assert_eq!(&p.sequence[10..12], "TT");
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_uppercases_dna_replacement() {
+        // Lowercase replacement bases must be normalized to uppercase (as
+        // update_sequence does); otherwise the case-sensitive enzyme recompute
+        // loses sites spanning the edit boundary and gbk output mixes case.
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 11,
+                end: 20,
+                replacement: Some("gaattcGGTT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(&p.sequence[10..20], "GAATTCGGTT");
+        assert!(
+            !p.sequence.chars().any(|c| c.is_ascii_lowercase()),
+            "no lowercase bases left in the stored sequence"
+        );
+        drop(pm);
+
+        // Same normalization applies to the replacement_path input (GenBank
+        // files conventionally store lowercase sequence).
+        let server = handler_with_project(edit_test_project()).await;
+        let gbk = std::env::temp_dir()
+            .join(format!("libregene-mcp-edit-lower-{}.gbk", std::process::id()));
+        std::fs::write(
+            &gbk,
+            "LOCUS       ins                       10 bp    DNA     linear   UNA 01-JAN-1980\n\
+             FEATURES             Location/Qualifiers\n\
+             ORIGIN\n\
+             1 gaattcggtt\n\
+             //\n",
+        )
+        .unwrap();
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 11,
+                end: 20,
+                replacement_path: Some(gbk.to_string_lossy().into_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(&p.sequence[10..20], "GAATTCGGTT");
+        drop(pm);
+        std::fs::remove_file(&gbk).ok();
     }
 
     // ------------------------------------------------------------------
