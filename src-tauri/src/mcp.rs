@@ -794,7 +794,9 @@ fn in_window_1based(p: i64, s: i64, e: i64) -> bool {
 /// 1-based inclusive focus window (wrap-aware). Insertions sit BETWEEN
 /// template bases `pos` and `pos + 1`, so they are kept when either flanking
 /// base is inside the window; a `pos + 1` past the last base wraps to 1 on
-/// circular templates.
+/// circular templates. Also adds an `outsideWindow` block with the
+/// whole-read diff totals minus the in-window base counts, so callers can
+/// see at a glance whether the window hides further differences.
 fn filter_alignment_json_focus(
     v: &mut serde_json::Value,
     s1: i64,
@@ -832,6 +834,32 @@ fn filter_alignment_json_focus(
             })
         });
     }
+    // In-window base counts: mismatch entries are one column each, deletion
+    // and insertion entries carry a base `length`.
+    let in_mismatches = obj
+        .get("mismatchDetails")
+        .and_then(|a| a.as_array())
+        .map(|a| a.len() as i64)
+        .unwrap_or(0);
+    let detail_bases = |key: &str| -> i64 {
+        obj.get(key)
+            .and_then(|a| a.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|d| d.get("length").and_then(|l| l.as_i64()))
+                    .sum()
+            })
+            .unwrap_or(0)
+    };
+    let total = |key: &str| obj.get(key).and_then(|n| n.as_i64()).unwrap_or(0);
+    obj.insert(
+        "outsideWindow".to_string(),
+        serde_json::json!({
+            "mismatches": total("mismatches") - in_mismatches,
+            "deletions": total("deletions") - detail_bases("deletionDetails"),
+            "insertions": total("insertions") - detail_bases("insertionDetails"),
+        }),
+    );
 }
 
 /// Total template columns not covered by any segment, summed over the gaps
@@ -3571,7 +3599,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   This is the recommended way to check "is this site mutated?"
     ///   without digesting a full-length read. The total
     ///   mismatches/insertions/deletions counts still describe the WHOLE
-    ///   read, and the response echoes the applied window as `focus`.
+    ///   read, the response echoes the applied window as `focus`, and an
+    ///   `outsideWindow` block ({mismatches, insertions, deletions}) gives
+    ///   the diff base counts OUTSIDE the window (all zero = every
+    ///   difference of this read is inside the window).
     ///   `compact: true` additionally suppresses the `regionView`.
     /// A `coverageNote` is added (top-level and on the new alignment's entry)
     /// when the read's coverage is multi-segment with uncovered template bp
@@ -3783,7 +3814,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 "start": s + 1,
                 "end": e + 1,
                 "featureId": request.feature_id,
-                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total counts still describe the whole read",
+                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total counts still describe the whole read; outsideWindow gives the diff counts outside this window",
             });
         }
         if let Some(note) = coverage_note {
@@ -7167,10 +7198,17 @@ mod tests {
         assert!(v.get("regionView").is_some(), "{v}");
         assert_eq!(v["focus"]["start"], 100, "{v}");
         assert_eq!(v["focus"]["end"], 120, "{v}");
+        // The out-of-window mismatch is counted in outsideWindow.
+        assert_eq!(
+            v["outsideWindow"],
+            serde_json::json!({"mismatches": 1, "deletions": 0, "insertions": 0}),
+            "{v}"
+        );
         // The alignments entry mirrors the filtering.
         let entry = &v["alignments"][0];
         assert!(entry.get("orientedSequence").is_none(), "{entry}");
         assert_eq!(entry["mismatchDetails"].as_array().unwrap().len(), 1, "{entry}");
+        assert_eq!(entry["outsideWindow"]["mismatches"], 1, "{entry}");
     }
 
     #[tokio::test]
@@ -7206,6 +7244,12 @@ mod tests {
         assert_eq!(v["focus"]["end"], 116, "{v}");
         assert_eq!(v["focus"]["featureId"], "f1", "{v}");
         assert_eq!(v["mismatchDetails"].as_array().unwrap().len(), 1, "{v}");
+        // The only mismatch is inside the window: nothing outside.
+        assert_eq!(
+            v["outsideWindow"],
+            serde_json::json!({"mismatches": 0, "deletions": 0, "insertions": 0}),
+            "{v}"
+        );
 
         // Unknown feature id is rejected before aligning.
         let out = server
