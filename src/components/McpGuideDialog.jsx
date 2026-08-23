@@ -50,27 +50,11 @@ function Snippet({ label, hint, text }) {
   );
 }
 
-function mcpSnippets(port) {
-  const url = `http://127.0.0.1:${port}/mcp`;
-  return [
-    {
-      label: 'opencode',
-      hint: 'opencode.json (project-level or global ~/.config/opencode/). First, in your shell: export LIBREGENE_MCP_TOKEN=<token> — the token shown in this dialog.',
-      text: `{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "libregene": {
-      "type": "remote",
-      "url": "${url}",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer {env:LIBREGENE_MCP_TOKEN}"
-      }
-    }
-  }
-}`,
-    },
-  ];
+function agentPrompt(port, token) {
+  return `Add LibreGene's MCP server to your config and verify with list_projects:
+- URL (Streamable HTTP): http://127.0.0.1:${port}/mcp
+- Header on every request: Authorization: Bearer ${token || '<token from the MCP Server dialog>'}
+- Host must stay 127.0.0.1:${port}`;
 }
 
 export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpConfigChange }) {
@@ -179,16 +163,14 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
               <div className="space-y-3 mt-3">
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {enabled
-                    ? 'The MCP server is running. Add one of the following configs to your agent client:'
+                    ? 'The MCP server is running. Copy the prompt below and send it to your agent — it will configure the connection itself.'
                     : 'The MCP server is currently disabled — tick Enable above first.'}
                 </p>
-                {mcpSnippets(port).map((s) => (
-                  <Snippet key={s.label} {...s} />
-                ))}
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  After configuring, restart your agent session and ask it to call{' '}
-                  <code>list_projects</code> to verify the connection.
-                </p>
+                <Snippet
+                  label="Agent setup prompt"
+                  hint="Embeds the current URL and access token. If you regenerate the token, copy and send the prompt again."
+                  text={agentPrompt(port, token)}
+                />
               </div>
             )}
           </div>
