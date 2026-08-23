@@ -48,7 +48,11 @@ fn adjust_span(
 
 /// Shift/clip feature coordinates after replacing `[edit_start, edit_end]`
 /// (0-based inclusive) with `new_len` bases. A pure insertion is
-/// `edit_end = edit_start - 1`. Mirrors the frontend `adjustAnnotations`.
+/// `edit_end = edit_start - 1`. An equal-length replacement
+/// (`new_len == edit_end - edit_start + 1`) leaves every feature untouched —
+/// all coordinates stay valid, including features fully inside the replaced
+/// span (e.g. case normalization or point mutations must not delete them).
+/// Mirrors the frontend `adjustAnnotations` for length-changing edits.
 pub fn adjust_features_for_edit(
     features: &mut Vec<crate::models::Feature>,
     edit_start: i64,
@@ -57,7 +61,7 @@ pub fn adjust_features_for_edit(
 ) {
     let old_len = edit_end - edit_start + 1;
     let delta = new_len - old_len;
-    if delta == 0 && old_len == 0 {
+    if delta == 0 {
         return;
     }
 
@@ -96,6 +100,8 @@ pub fn adjust_features_for_edit(
 /// math as [`adjust_features_for_edit`]: features fully inside the deleted or
 /// replaced span are `removed`, and features whose span changed other than a
 /// pure translation (a boundary clipped or the length altered) are `clipped`.
+/// Equal-length replacements keep every feature (coordinates unchanged), so
+/// both lists are empty there.
 pub fn features_edit_impact(
     features: &[crate::models::Feature],
     edit_start: i64,
@@ -103,6 +109,10 @@ pub fn features_edit_impact(
     new_len: i64,
 ) -> crate::models::FeaturesEditImpact {
     let mut impact = crate::models::FeaturesEditImpact::default();
+    let delta = new_len - (edit_end - edit_start + 1);
+    if delta == 0 {
+        return impact;
+    }
     for f in features {
         let mut new_spans: Vec<(i64, i64)> = Vec::new();
         if f.segments.is_empty() {
@@ -432,6 +442,38 @@ mod tests {
     fn impact_noop_edit_is_empty() {
         let feats = vec![feat("a", 0, 50, vec![])];
         let impact = features_edit_impact(&feats, 100, 99, 0);
+        assert!(impact.removed_features.is_empty());
+        assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn adjust_equal_length_replacement_keeps_all_features() {
+        // Replace [100..199] with 100 new bases (e.g. case normalization or
+        // point mutations): coordinates stay valid, nothing is removed or
+        // clipped — including features fully inside the replaced span.
+        let mut feats = vec![
+            feat("before", 0, 50, vec![]),
+            feat("inside", 110, 150, vec![]),
+            feat("spanning", 50, 250, vec![]),
+            feat("seg", 60, 300, vec![(60, 120), (180, 300)]),
+            feat("after", 200, 300, vec![]),
+        ];
+        adjust_features_for_edit(&mut feats, 100, 199, 100);
+        assert_eq!(feats.len(), 5);
+        assert_eq!((feats[1].start, feats[1].end), (110, 150));
+        assert_eq!((feats[2].start, feats[2].end), (50, 250));
+        let spans: Vec<(i64, i64)> = feats[3].segments.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(spans, vec![(60, 120), (180, 300)]);
+        assert_eq!((feats[4].start, feats[4].end), (200, 300));
+    }
+
+    #[test]
+    fn impact_equal_length_replacement_is_empty() {
+        let feats = vec![
+            feat("inside", 110, 150, vec![]),
+            feat("spanning", 50, 250, vec![]),
+        ];
+        let impact = features_edit_impact(&feats, 100, 199, 100);
         assert!(impact.removed_features.is_empty());
         assert!(impact.clipped_features.is_empty());
     }
