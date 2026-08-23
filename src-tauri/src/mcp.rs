@@ -1145,7 +1145,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "protein" => "aa",
             _ => "bp",
         };
-        Some(format!("{}: {} {} {}", p.name, p.length, unit, p.topology))
+        let desc = format!("{} {} {}", p.length, unit, p.topology);
+        Some(if p.name.is_empty() {
+            desc
+        } else {
+            format!("{}: {}", p.name, desc)
+        })
     }
 
     /// Resolve the project and reject non-DNA projects for DNA-only tools.
@@ -6612,6 +6617,20 @@ mod tests {
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
         assert!(p.features.iter().all(|f| f.name != "gene"));
+    }
+
+    #[tokio::test]
+    async fn project_summary_omits_name_prefix_when_nameless() {
+        // A nameless project must not render as ": 200 bp linear".
+        let mut p = edit_test_project();
+        p.name = String::new();
+        let server = handler_with_project(p).await;
+        let msg = server.project_summary("").await.expect("summary");
+        assert_eq!(msg, "200 bp linear", "{msg}");
+
+        let server = handler_with_project(edit_test_project()).await;
+        let msg = server.project_summary("edit_test").await.expect("summary");
+        assert_eq!(msg, "edit_test: 200 bp linear", "{msg}");
     }
 
     // ------------------------------------------------------------------
