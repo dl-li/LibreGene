@@ -2920,7 +2920,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// fully inside the deleted/replaced span ({name, ftype, location} with
     /// the pre-edit 1-based "start..end"); clipped lists features whose
     /// coordinates changed other than a pure translation ({name, ftype,
-    /// before, after} as 1-based {start, end}). `transferredFeatures`/
+    /// before, after} as 1-based {start, end}). An equal-length replacement
+    /// (deleted length == inserted length) keeps ALL features at their
+    /// current coordinates — nothing is removed or clipped, so case
+    /// normalization and point-mutation edits are safe inside features. `transferredFeatures`/
     /// `transferredPrimers` list annotation names brought in by
     /// `replacement_path` (omitted when none). The replacement is normalized
     /// to uppercase on every molecule type (matching update_sequence). On
@@ -6532,6 +6535,52 @@ mod tests {
         assert_eq!(&p.sequence[10..20], "GAATTCGGTT");
         drop(pm);
         std::fs::remove_file(&gbk).ok();
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_equal_length_replacement_keeps_covered_features() {
+        // Equal-length replacement over feature f1 (internal 50..100): the
+        // feature stays at its coordinates and removedFeatures is empty.
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 61,
+                end: 70,
+                replacement: Some("TTTTTTTTTT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(v["removedFeatures"], serde_json::json!([]), "{v}");
+        assert_eq!(v["clippedFeatures"], serde_json::json!([]), "{v}");
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        let f = p.features.iter().find(|f| f.name == "gene").unwrap();
+        assert_eq!((f.start, f.end), (50, 100), "feature untouched");
+        drop(pm);
+
+        // A length-changing replacement fully covering the feature still
+        // removes it (reported in removedFeatures).
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 41,
+                end: 120,
+                replacement: Some("GG".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(v["removedFeatures"][0]["name"], "gene", "{v}");
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        assert!(p.features.iter().all(|f| f.name != "gene"));
     }
 
     // ------------------------------------------------------------------
