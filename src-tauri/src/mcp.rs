@@ -2332,8 +2332,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// List restriction-enzyme recognition sites on a project's sequence.
     /// `enzymes` is an optional list of enzyme names (case-insensitive); omit
-    /// it (or pass []) to report every enzyme that has a site. Unknown names
-    /// are rejected with near-match suggestions — use that error to probe
+    /// it (or pass []) to report every enzyme that has a site. Requested names
+    /// fall into three classes: cutting this sequence (normal entry), in the
+    /// enzyme database but WITHOUT a site on this sequence (entry with empty
+    /// `sites` and a `note` saying so — this is the answer for e.g. a site
+    /// destroyed by cloning), and unknown to the database. A batch query
+    /// degrades gracefully: known names return normally and unknown names are
+    /// listed under `unknownEnzymes` ([{name, error, similar}]) without
+    /// failing the whole call; only when EVERY requested name is unknown does
+    /// the call fail with near-match suggestions — use that error to probe
     /// which enzyme names exist on this sequence (this is the replacement for
     /// the removed full-database dump: query per name instead of pulling the
     /// whole ~196 KB catalog). When you need a full panorama of EVERY enzyme
@@ -2390,48 +2397,68 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .collect()
         });
         // The engine only stores entries with at least one recognition site,
-        // so validate requested names against those.
-        let requested: Vec<String> = match &wanted {
-            Some(list) if !list.is_empty() => {
-                let names: Vec<&str> = project.enzymes.iter().map(|e| e.name.as_str()).collect();
-                let mut resolved: Vec<String> = Vec::new();
-                for n in list {
-                    match names.iter().find(|a| a.eq_ignore_ascii_case(n)) {
-                        Some(found) if !resolved.iter().any(|r| r.eq_ignore_ascii_case(found)) => {
-                            resolved.push(found.to_string());
-                        }
-                        Some(_) => {}
-                        None => {
-                            let q = n.to_lowercase();
-                            let sugg: Vec<&str> = names
-                                .iter()
-                                .copied()
-                                .filter(|a| a.to_lowercase().contains(&q))
-                                .take(5)
-                                .collect();
-                            let msg = if sugg.is_empty() {
-                                format!(
-                                    "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name",
-                                    n
-                                )
-                            } else {
-                                format!(
-                                    "Unknown enzyme '{}'; enzymes cutting this sequence with similar names: {}",
-                                    n,
-                                    sugg.join(", ")
-                                )
-                            };
-                            return Ok(Json(fail_envelope(&id, msg)));
-                        }
+        // so requested names fall into three classes: cutting this sequence
+        // (resolved), in the enzyme database but no site here (no_site), and
+        // unknown to the database (unknown). Batch queries degrade
+        // gracefully: known names return normally and only truly unknown
+        // names are listed under `unknownEnzymes`; a query where EVERY name
+        // is unknown still fails with near-match suggestions (the enzyme-name
+        // probe).
+        let mut requested: Vec<String> = Vec::new();
+        let mut no_site: Vec<String> = Vec::new();
+        let mut unknown: Vec<(String, Vec<String>)> = Vec::new();
+        if let Some(list) = wanted.as_ref().filter(|l| !l.is_empty()) {
+            let names: Vec<&str> = project.enzymes.iter().map(|e| e.name.as_str()).collect();
+            let db = libregene_core::enzyme::search::get_db();
+            for n in list {
+                if let Some(found) = names.iter().find(|a| a.eq_ignore_ascii_case(n)) {
+                    if !requested.iter().any(|r| r.eq_ignore_ascii_case(found)) {
+                        requested.push(found.to_string());
                     }
+                    continue;
                 }
-                resolved
+                if let Some(e) = db.enzymes.iter().find(|e| e.name.eq_ignore_ascii_case(n)) {
+                    if !no_site.iter().any(|r| r.eq_ignore_ascii_case(&e.name)) {
+                        no_site.push(e.name.clone());
+                    }
+                    continue;
+                }
+                let q = n.to_lowercase();
+                let sugg: Vec<String> = names
+                    .iter()
+                    .copied()
+                    .filter(|a| a.to_lowercase().contains(&q))
+                    .take(5)
+                    .map(|s| s.to_string())
+                    .collect();
+                unknown.push((n.clone(), sugg));
             }
-            _ => Vec::new(),
-        };
+            if !unknown.is_empty() && requested.is_empty() && no_site.is_empty() {
+                let msg = unknown
+                    .iter()
+                    .map(|(n, sugg)| {
+                        if sugg.is_empty() {
+                            format!(
+                                "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name",
+                                n
+                            )
+                        } else {
+                            format!(
+                                "Unknown enzyme '{}'; enzymes cutting this sequence with similar names: {}",
+                                n,
+                                sugg.join(", ")
+                            )
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Ok(Json(fail_envelope(&id, msg)));
+            }
+        }
+        let filter_active = !requested.is_empty() || !no_site.is_empty() || !unknown.is_empty();
         let mut by_name: HashMap<&str, Vec<&Enzyme>> = HashMap::new();
         for e in &project.enzymes {
-            if requested.is_empty() || requested.iter().any(|w| w.eq_ignore_ascii_case(&e.name)) {
+            if !filter_active || requested.iter().any(|w| w.eq_ignore_ascii_case(&e.name)) {
                 by_name.entry(e.name.as_str()).or_default().push(e);
             }
         }
@@ -2439,7 +2466,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         enzyme_names.sort();
         let circular = project.topology == "circular";
         let tlen = project.length;
-        let enzymes_json: Vec<serde_json::Value> = enzyme_names
+        let mut enzymes_json: Vec<serde_json::Value> = enzyme_names
             .into_iter()
             .map(|n| {
                 let mut sites = by_name[n].clone();
@@ -2461,7 +2488,31 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })
             })
             .collect();
-        Ok(Json(serde_json::json!({ "projectId": id, "enzymes": enzymes_json })))
+        // Known-in-database enzymes without a site on this sequence are
+        // reported with empty sites and an explicit note, so an agent can
+        // tell "no site here" apart from "unknown enzyme".
+        for n in &no_site {
+            enzymes_json.push(serde_json::json!({
+                "name": n,
+                "sites": [],
+                "note": "enzyme exists in the enzyme database but has no recognition site on this sequence",
+            }));
+        }
+        enzymes_json.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
+        let mut resp = serde_json::json!({ "projectId": id, "enzymes": enzymes_json });
+        if !unknown.is_empty() {
+            resp["unknownEnzymes"] = unknown
+                .iter()
+                .map(|(n, sugg)| {
+                    serde_json::json!({
+                        "name": n,
+                        "error": format!("Unknown enzyme '{}': not in the enzyme database", n),
+                        "similar": sugg,
+                    })
+                })
+                .collect();
+        }
+        Ok(Json(resp))
     }
 
     /// List the primers stored in a project (read-only; never recomputes or
@@ -8008,6 +8059,106 @@ mod tests {
             internal.cut_pairs[0].bot_cut_index,
             "{v}"
         );
+    }
+
+    fn enzyme_test_project() -> ProjectData {
+        // EcoRI GAATTC at internal 0-based 40..45; no AgeI (ACCGGT) site.
+        let mut seq = "ACGT".repeat(50);
+        seq.replace_range(40..46, "GAATTC");
+        let mut project = ProjectData {
+            name: "enz".to_string(),
+            sequence: seq,
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        assert!(project.enzymes.iter().any(|e| e.name == "EcoRI"));
+        assert!(!project.enzymes.iter().any(|e| e.name == "AgeI"));
+        project
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_known_enzyme_without_site_returns_empty_sites() {
+        // AgeI is in the enzyme database but does not cut this sequence:
+        // report it with empty sites and a note instead of an "Unknown
+        // enzyme" error.
+        let server = handler_with_project(enzyme_test_project()).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "enz".to_string(),
+                enzymes: Some(vec!["agei".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert!(v.get("ok").is_none(), "{v}");
+        let entry = &v["enzymes"][0];
+        assert_eq!(entry["name"], "AgeI", "{v}");
+        assert_eq!(entry["sites"], serde_json::json!([]), "{v}");
+        assert!(
+            entry["note"].as_str().unwrap_or("").contains("no recognition site"),
+            "{v}"
+        );
+        assert!(v.get("unknownEnzymes").is_none(), "{v}");
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_batch_degrades_partially() {
+        // Mixed batch: EcoRI cuts, AgeI is known but has no site,
+        // NotARealEnzyme is unknown — known names succeed, the unknown one
+        // is listed under unknownEnzymes without failing the whole call.
+        let server = handler_with_project(enzyme_test_project()).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "enz".to_string(),
+                enzymes: Some(vec![
+                    "EcoRI".to_string(),
+                    "AgeI".to_string(),
+                    "NotARealEnzyme".to_string(),
+                ]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let names: Vec<&str> = v["enzymes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["AgeI", "EcoRI"], "{v}");
+        assert_eq!(v["enzymes"][1]["sites"].as_array().unwrap().len(), 1, "{v}");
+        assert_eq!(
+            v["unknownEnzymes"][0]["name"], "NotARealEnzyme",
+            "{v}"
+        );
+        assert!(
+            v["unknownEnzymes"][0]["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("not in the enzyme database"),
+            "{v}"
+        );
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_all_unknown_still_fails_with_suggestions() {
+        // Every requested name unknown → keep the probe error.
+        let server = handler_with_project(enzyme_test_project()).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "enz".to_string(),
+                enzymes: Some(vec!["EcoR".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], false, "{v}");
+        let msg = v["message"].as_str().unwrap_or("");
+        assert!(msg.contains("Unknown enzyme 'EcoR'"), "{msg}");
+        assert!(msg.contains("EcoRI"), "{msg}");
     }
 
     #[tokio::test]
