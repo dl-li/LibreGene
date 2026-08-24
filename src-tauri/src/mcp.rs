@@ -58,6 +58,7 @@ pub const MCP_PORT: u16 = 8766;
 struct OverviewRequest {
     /// Required: the project to inspect (see list_projects).
     project_id: String,
+    #[schemars(with = "Option<i64>")]
     max_features: Option<usize>,
     feature_filter: Option<String>,
     /// Collapse the UNIQUE CUTTERS list into a single count line (default true;
@@ -74,6 +75,7 @@ struct RegionRequest {
     start: i64,
     /// Window end, 1-based inclusive.
     end: i64,
+    #[schemars(with = "Option<i64>")]
     max_features: Option<usize>,
     feature_filter: Option<String>,
     /// Collapse the enzyme cut list into a count line (default true; pass
@@ -309,6 +311,7 @@ struct AddAlignmentRequest {
 struct FindOrfsRequest {
     /// Required: the project to scan (see list_projects).
     project_id: String,
+    #[schemars(with = "Option<i64>")]
     min_aa: Option<usize>,
     add_as_features: Option<bool>,
 }
@@ -349,11 +352,14 @@ struct DesignPrimersRequest {
     name2: Option<String>,
     site_name: Option<String>,
     target_tm: f64,
+    #[schemars(with = "Option<i64>")]
     overlap_len: Option<usize>,
+    #[schemars(with = "Option<i64>")]
     arm_len: Option<usize>,
     mut_seq: Option<String>,
     fwd_enzyme: Option<String>,
     rev_enzyme: Option<String>,
+    #[schemars(with = "Option<i64>")]
     protect_bases: Option<usize>,
     na_conc: Option<f64>,
     mg_conc: Option<f64>,
@@ -5241,6 +5247,22 @@ mod tests {
         assert!(write_optimization_output("out.ab1", Some("ATG"), "M", None, None).is_err());
         assert!(write_optimization_output("out.txt", Some("ATG"), "M", None, None).is_err());
         assert!(write_optimization_output("../esc.gbk", Some("ATG"), "M", None, None).is_err());
+    }
+
+    #[test]
+    fn tool_input_schemas_avoid_nonstandard_int_formats() {
+        // schemars maps usize/isize to format "uint"/"int", which strict MCP
+        // clients (e.g. kimi-code) reject as unknown JSON Schema formats;
+        // unsigned fields must use #[schemars(with = "Option<i64>")] instead.
+        for tool in LibreGeneMcp::<tauri::Wry>::tool_router().list_all() {
+            let schema = serde_json::to_string(&tool.input_schema).unwrap();
+            assert!(
+                !schema.contains("\"format\":\"uint\"") && !schema.contains("\"format\":\"int\""),
+                "tool {} emits a non-standard integer format: {}",
+                tool.name,
+                schema
+            );
+        }
     }
 
     #[test]
