@@ -3,6 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { bgColor, featLabelW } from './editorConstants';
 
 const TWO_PI = Math.PI * 2;
+// Full-turn arcs are split at ~π: nudge the split off the antipodal endpoints
+// so large-arc-flag is well-defined per the SVG spec.
+const ARC_EPS = 1e-4;
 
 // --- circular geometry helpers ---
 // angle θ: 0 = top, clockwise, one full turn = sequence length
@@ -37,14 +40,18 @@ function arcArrowPath(cx, cy, rOut, rIn, th0, th1, strand) {
 }
 
 function arcSectorPath(cx, cy, rOut, rIn, th0, th1) {
-  // A full-turn arc has identical start/end points and renders as nothing —
-  // split it into two half-turn arcs.
+  // A full-turn arc has identical start/end points and renders as nothing.
+  // Draw the outer and inner circles as one path with opposite winding
+  // (nonzero fill-rule fills the annulus) — no radial seam lines.
   if (th1 - th0 >= TWO_PI - 1e-6) {
-    const mid = (th0 + th1) / 2;
+    const a1 = th0 + Math.PI + ARC_EPS;
+    const [x0o, y0o] = pol(cx, cy, rOut, th0);
+    const [x1o, y1o] = pol(cx, cy, rOut, a1);
+    const [x0i, y0i] = pol(cx, cy, rIn, th0);
+    const [x1i, y1i] = pol(cx, cy, rIn, a1);
     return (
-      arcSectorPath(cx, cy, rOut, rIn, th0, mid) +
-      ' ' +
-      arcSectorPath(cx, cy, rOut, rIn, mid, th1)
+      `M ${x0o} ${y0o} A ${rOut} ${rOut} 0 1 1 ${x1o} ${y1o} A ${rOut} ${rOut} 0 0 1 ${x0o} ${y0o} Z ` +
+      `M ${x0i} ${y0i} A ${rIn} ${rIn} 0 0 0 ${x1i} ${y1i} A ${rIn} ${rIn} 0 1 0 ${x0i} ${y0i} Z`
     );
   }
   const [x0o, y0o] = pol(cx, cy, rOut, th0);
@@ -56,9 +63,10 @@ function arcSectorPath(cx, cy, rOut, rIn, th0, th1) {
 }
 
 function arcPath(cx, cy, r, th0, th1) {
-  // Full-turn arc: split into two halves (same degenerate-endpoint issue).
+  // Full-turn arc: split into two arcs (same degenerate-endpoint issue),
+  // nudged off the antipodal endpoints to keep large-arc-flag well-defined.
   if (th1 - th0 >= TWO_PI - 1e-6) {
-    const mid = (th0 + th1) / 2;
+    const mid = (th0 + th1) / 2 + ARC_EPS;
     return arcPath(cx, cy, r, th0, mid) + ' ' + arcPath(cx, cy, r, mid, th1);
   }
   const [x0, y0] = pol(cx, cy, r, th0);
