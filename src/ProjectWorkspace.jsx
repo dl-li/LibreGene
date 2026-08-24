@@ -1460,6 +1460,7 @@ export default function ProjectWorkspace({
               primers={editorPrimers}
               charsPerLine={60}
               layoutKey={hidden ? undefined : 'visible'}
+              hidden={hidden}
               layoutParams={editorLayoutParams}
               onEditRequest={handleEditRequest}
               restoreState={restoreState}
