@@ -349,6 +349,7 @@ fn build_mutagenesis_groups_with(
     mut_seq: &str,
     target_tm: f64,
     arm_len: usize,
+    topology: &str,
     tm_of: impl Fn(&str) -> f64,
 ) -> Vec<PrimerGroup> {
     let mut_clean: String = mut_seq
@@ -356,10 +357,11 @@ fn build_mutagenesis_groups_with(
         .chars()
         .filter(|c| matches!(c, 'A' | 'C' | 'G' | 'T'))
         .collect();
-    let up_arm = slice_wrap(seq, seg.start - arm_len as i64, arm_len, true);
-    let down_arm = slice_wrap(seq, seg.end + 1, arm_len, true);
-    let fwd_anneal = |l: usize| slice_wrap(seq, seg.end + 1, l, true);
-    let rev_anneal = |l: usize| rev_comp(&slice_wrap(seq, seg.start - l as i64, l, true));
+    let circular = topology == "circular";
+    let up_arm = slice_wrap(seq, seg.start - arm_len as i64, arm_len, circular);
+    let down_arm = slice_wrap(seq, seg.end + 1, arm_len, circular);
+    let fwd_anneal = |l: usize| slice_wrap(seq, seg.end + 1, l, circular);
+    let rev_anneal = |l: usize| rev_comp(&slice_wrap(seq, seg.start - l as i64, l, circular));
     let fwd_tail = format!("{up_arm}{mut_clean}");
     // Rev tail mirrors the fwd tail: template-matching arm at the 5' end,
     // mutation adjacent to the anneal core — revComp(mut + downArm).
@@ -394,9 +396,10 @@ pub fn build_mutagenesis_groups(
     mut_seq: &str,
     target_tm: f64,
     arm_len: usize,
+    topology: &str,
     params: &TmParams,
 ) -> Vec<PrimerGroup> {
-    build_mutagenesis_groups_with(seq, seg, site_name, mut_seq, target_tm, arm_len, |s| {
+    build_mutagenesis_groups_with(seq, seg, site_name, mut_seq, target_tm, arm_len, topology, |s| {
         compute_tm_with_params(s, params)
     })
 }
@@ -975,7 +978,7 @@ mod tests {
             color: None,
         };
         let groups =
-            build_mutagenesis_groups_with(SEQ, &seg, "Site", "GGG", 30.0, 10, |s| s.len() as f64);
+            build_mutagenesis_groups_with(SEQ, &seg, "Site", "GGG", 30.0, 10, "circular", |s| s.len() as f64);
         let expected: &[(&str, &str, usize, &[(&str, usize, usize, f64, f64)])] = &[
             (
                 "Site-Fwd",
@@ -1159,7 +1162,7 @@ mod tests {
             color: None,
         };
         let groups =
-            build_mutagenesis_groups(seq, &seg, "M", "g-g!T", 45.0, 9, &TmParams::default());
+            build_mutagenesis_groups(seq, &seg, "M", "g-g!T", 45.0, 9, "circular", &TmParams::default());
         assert_eq!(groups.len(), 2);
         // Up arm = seq[9..18], down arm = seq[24..33], mut = "GGT".
         assert_eq!(groups[0].candidates[0].tail_len, 12);
@@ -1174,6 +1177,30 @@ mod tests {
         assert_eq!(
             groups[1].candidates[0].seq[..12],
             rev_comp(&format!("GGT{}", &seq[24..33]))
+        );
+    }
+
+    #[test]
+    fn mutagenesis_linear_does_not_wrap_near_end() {
+        // Mutation at [4,9] of a linear template with arm_len 9: the upstream
+        // arm must clamp to the sequence start instead of wrapping around.
+        let seq = "GGGAAACCCGGGAAACCCGGGAAACCCGGGAAACCCGGGAAACCC";
+        let seg = Segment {
+            start: 4,
+            end: 9,
+            color: None,
+        };
+        let groups =
+            build_mutagenesis_groups(seq, &seg, "M", "TTT", 45.0, 9, "linear", &TmParams::default());
+        assert_eq!(groups.len(), 2);
+        // Up arm = seq[0..4] (4 bp, clamped), so fwd tail = upArm+mut is 7 bp.
+        assert_eq!(groups[0].candidates[0].tail_len, 7);
+        assert_eq!(groups[0].candidates[0].seq[..7], format!("{}TTT", &seq[0..4]));
+        // Down arm = seq[10..19]; rev tail = revComp(mut + downArm).
+        assert_eq!(groups[1].candidates[0].tail_len, 12);
+        assert_eq!(
+            groups[1].candidates[0].seq[..12],
+            rev_comp(&format!("TTT{}", &seq[10..19]))
         );
     }
 

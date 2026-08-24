@@ -136,23 +136,6 @@ pub struct Primer {
     pub binding_sites: Vec<PrimerBindingSite>,
 }
 
-/// A predicted primer pair (one fwd + one rev) that could form a PCR product.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrimerPair {
-    pub fwd_primer_id: String,
-    pub rev_primer_id: String,
-    /// 0-based template start (inclusive).
-    pub fwd_position: i64,
-    /// 0-based template end (inclusive).
-    pub rev_position: i64,
-    /// Expected PCR product size in bp (including primers).
-    pub product_size: usize,
-    /// Optimal annealing temperature in °C (Taq).
-    #[serde(default)]
-    pub ta: f64,
-}
-
 // ---------------------------------------------------------------------------
 // Feature
 // ---------------------------------------------------------------------------
@@ -247,6 +230,9 @@ pub struct Enzyme {
     pub spacers: Option<Vec<Segment>>,
     #[serde(default = "default_true")]
     pub is_unique: bool,
+    /// the site list was truncated to the first 200 hits (enzyme has more sites)
+    #[serde(default)]
+    pub truncated: bool,
     /// Whether this enzyme is methylation-sensitive (true) or methylation-unaffected (false).
     #[serde(default)]
     pub is_methylation_sensitive: bool,

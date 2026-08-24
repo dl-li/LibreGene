@@ -216,9 +216,12 @@ pub fn wrap_template_region(template: &[u8], start: usize, end: usize) -> Vec<u8
         v.extend_from_slice(&template[..end]);
         v
     } else {
-        // start == end: region spans the entire remainder of the template.
-        // e.g. start=0, end=0 after modulo means end originally == tlen.
-        template[start..].to_vec()
+        // start == end after modulo: the region spans a whole number of full
+        // turns (e.g. span == tlen) — return the full circle from `start`.
+        let mut v = Vec::with_capacity(tlen);
+        v.extend_from_slice(&template[start..]);
+        v.extend_from_slice(&template[..start]);
+        v
     }
 }
 
@@ -805,6 +808,15 @@ pub fn generate_candidates(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_wrap_template_region_full_circle() {
+        let tpl = b"ACGTAC";
+        // span == tlen starting at 2: full circle from position 2.
+        assert_eq!(wrap_template_region(tpl, 2, 8), b"GTACAC");
+        // start == 0, end == tlen: whole template.
+        assert_eq!(wrap_template_region(tpl, 0, 6), b"ACGTAC");
+    }
 
     #[test]
     fn test_mismatch_penalty_3prime() {

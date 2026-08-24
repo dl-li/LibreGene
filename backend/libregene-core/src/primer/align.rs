@@ -19,7 +19,7 @@
 
 use std::collections::HashSet;
 
-use crate::models::{PrimerBindingSite, Primer, PrimerPair};
+use crate::models::{PrimerBindingSite, Primer};
 
 use super::formatter;
 use super::matcher::{self, DEFAULT_LIMIT};
@@ -68,11 +68,19 @@ pub fn compute_binding_sites(
         plen, is_circular, tm_threshold,
     ));
 
-    // Sort by Tm descending (best first), then dedup by position.
-    results.sort_by(|a, b| b.tm.partial_cmp(&a.tm).unwrap_or(std::cmp::Ordering::Equal));
-    results.dedup_by(|a, b| {
-        a.template_start == b.template_start && a.template_end == b.template_end
+    // Dedup by (start, end, strand) keeping the highest-Tm entry of each
+    // group, then present results sorted by Tm descending (best first).
+    results.sort_by(|a, b| {
+        (a.template_start, a.template_end, a.strand)
+            .cmp(&(b.template_start, b.template_end, b.strand))
+            .then(b.tm.partial_cmp(&a.tm).unwrap_or(std::cmp::Ordering::Equal))
     });
+    results.dedup_by(|a, b| {
+        a.template_start == b.template_start
+            && a.template_end == b.template_end
+            && a.strand == b.strand
+    });
+    results.sort_by(|a, b| b.tm.partial_cmp(&a.tm).unwrap_or(std::cmp::Ordering::Equal));
 
     results
 }
@@ -317,63 +325,6 @@ pub fn recompute_all_primers(
 }
 
 // ---------------------------------------------------------------------------
-// Primer pair detection from binding sites
-// ---------------------------------------------------------------------------
-
-pub fn compute_primer_pairs(
-    template: &str,
-    primers: &[Primer],
-) -> Vec<PrimerPair> {
-    let mut pairs: Vec<PrimerPair> = Vec::new();
-
-    let fwd_sites: Vec<(&Primer, &PrimerBindingSite)> = primers
-        .iter()
-        .filter(|p| p.r#type == "fwd")
-        .filter_map(|p| p.binding_sites.first().map(|bs| (p, bs)))
-        .filter(|(_, bs)| bs.strand == 1)
-        .collect();
-
-    let rev_sites: Vec<(&Primer, &PrimerBindingSite)> = primers
-        .iter()
-        .filter(|p| p.r#type == "rev")
-        .filter_map(|p| p.binding_sites.first().map(|bs| (p, bs)))
-        .filter(|(_, bs)| bs.strand == -1)
-        .collect();
-
-    for (fp, fbs) in &fwd_sites {
-        for (rp, rbs) in &rev_sites {
-            if fp.id == rp.id {
-                continue;
-            }
-            if fbs.template_end > rbs.template_start {
-                continue;
-            }
-
-            let mid = (rbs.template_start - fbs.template_end) as usize;
-            let product_size = fp.primer_seq.len() + mid + rp.primer_seq.len();
-
-            let ta = thermodynamics::compute_ta(
-                fbs.tm,
-                rbs.tm,
-                thermodynamics::tm_product_default(template),
-            );
-
-            pairs.push(PrimerPair {
-                fwd_primer_id: fp.id.clone(),
-                rev_primer_id: rp.id.clone(),
-                fwd_position: fbs.template_start,
-                rev_position: rbs.template_end,
-                product_size,
-                ta,
-            });
-        }
-    }
-
-    pairs.sort_by_key(|p| p.product_size);
-    pairs
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -478,55 +429,6 @@ mod tests {
         let updated = recompute_all_primers(template, "linear", &primers);
         assert_eq!(updated.len(), 1);
         assert!(!updated[0].binding_sites.is_empty());
-    }
-
-    #[test]
-    fn test_compute_primer_pairs() {
-        let spacer = "AAAAATTTTTGGGGGCCCCC";
-        // Fwd: primer "CGTACGCTAG" directly on top strand.
-        // Rev: RC of "GCTAGCATCG" = "CGATGCTAGC" must be on top strand.
-        let template = format!("CGTACGCTAG{}CGATGCTAGC", spacer);
-
-        let mut primers = vec![
-            Primer {
-                id: "F".into(),
-                name: "Fwd".into(),
-                r#type: "fwd".into(),
-                primer_seq: "CGTACGCTAG".into(),
-                binding_sites: vec![],
-            },
-            Primer {
-                id: "R".into(),
-                name: "Rev".into(),
-                r#type: "rev".into(),
-                primer_seq: "GCTAGCATCG".into(),
-                binding_sites: vec![],
-            },
-        ];
-
-        primers = recompute_all_primers(&template, "linear", &primers);
-        let pairs = compute_primer_pairs(&template, &primers);
-        assert!(!pairs.is_empty(), "should find at least one primer pair");
-        let pair = &pairs[0];
-        assert_eq!(pair.fwd_primer_id, "F");
-        assert_eq!(pair.rev_primer_id, "R");
-        assert!(pair.product_size > 20);
-        assert!(pair.ta > 0.0);
-    }
-
-    #[test]
-    fn test_compute_primer_pairs_no_valid_pair() {
-        let template = "CGTACGCTAGAAAACGTACGCTAG";
-        let primers = vec![Primer {
-            id: "F".into(),
-            name: "Fwd".into(),
-            r#type: "fwd".into(),
-            primer_seq: "CGTACGCTAG".into(),
-            binding_sites: vec![],
-        }];
-        let primers = recompute_all_primers(template, "linear", &primers);
-        let pairs = compute_primer_pairs(template, &primers);
-        assert!(pairs.is_empty());
     }
 
     #[test]

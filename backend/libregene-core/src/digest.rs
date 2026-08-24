@@ -933,7 +933,7 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
     if count as usize > LINE_BASES {
         out.push_str(&" ".repeat(7));
         for i in 0..COLS {
-            let _ = write!(out, "{:>11}", s + 1 + (i as i64) * GROUP as i64);
+            let _ = write!(out, "{:>11}", (s + (i as i64) * GROUP as i64) % project.length + 1);
         }
         out.push('\n');
     }
@@ -942,7 +942,7 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
             if idx > 0 {
                 out.push('\n');
             }
-            let _ = write!(out, "{:>6} ", s + 1 + idx as i64);
+            let _ = write!(out, "{:>6} ", (s + idx as i64) % project.length + 1);
         }
         out.push((base as char).to_ascii_uppercase());
         if (idx + 1) % GROUP == 0 && (idx + 1) % LINE_BASES != 0 {
@@ -1079,6 +1079,7 @@ mod tests {
                     rec_seq_pattern: "GAATTC".into(),
                     spacers: None,
                     is_unique: true,
+                    truncated: false,
                     is_methylation_sensitive: false,
                     methylation_blocked: false,
                     methylated_offsets: Vec::new(),
@@ -1110,6 +1111,7 @@ mod tests {
                     rec_seq_pattern: "GGTCTC".into(),
                     spacers: None,
                     is_unique: false,
+                    truncated: false,
                     is_methylation_sensitive: false,
                     methylation_blocked: false,
                     methylated_offsets: Vec::new(),
@@ -1140,6 +1142,7 @@ mod tests {
                     rec_seq_pattern: "GGTCTC".into(),
                     spacers: None,
                     is_unique: false,
+                    truncated: false,
                     is_methylation_sensitive: false,
                     methylation_blocked: false,
                     methylated_offsets: Vec::new(),
@@ -1177,6 +1180,7 @@ mod tests {
                     rec_seq_pattern: "GAAGAC".into(),
                     spacers: None,
                     is_unique: true,
+                    truncated: false,
                     is_methylation_sensitive: false,
                     methylation_blocked: false,
                     methylated_offsets: Vec::new(),
@@ -1215,6 +1219,7 @@ mod tests {
                     rec_seq_pattern: "GGCC".into(),
                     spacers: None,
                     is_unique: false,
+                    truncated: false,
                     is_methylation_sensitive: false,
                     methylation_blocked: false,
                     methylated_offsets: Vec::new(),
@@ -1476,6 +1481,29 @@ mod tests {
         let out = read_sequence(&synthetic_project(), 55, 4).unwrap();
         assert!(out.contains("Window 56..5 (10 bp) of 60 bp circular (wrap: true)"));
         assert!(out.contains("TACGTACGTA"));
+    }
+
+    #[test]
+    fn read_sequence_circular_wrap_coordinates_normalized() {
+        // 70 bp wrap window on a 120 bp circular template: ruler and per-line
+        // coordinates must wrap at tlen instead of exceeding it.
+        let big = ProjectData {
+            name: "big".into(),
+            sequence: "ACGT".repeat(30),
+            length: 120,
+            topology: "circular".into(),
+            ..Default::default()
+        };
+        let out = read_sequence(&big, 100, 49).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 4, "header + ruler + 2 lines: {:?}", out);
+        assert!(lines[1].contains("111"), "ruler normalized: {:?}", lines[1]);
+        assert!(!lines[1].contains("121"), "ruler must not exceed tlen: {:?}", lines[1]);
+        assert!(
+            lines[3].starts_with("    41 "),
+            "second line coordinate wraps to 41: {:?}",
+            lines[3]
+        );
     }
 
     #[test]
