@@ -1134,7 +1134,7 @@ export default function ProjectWorkspace({
         console.error('update_sequence exception:', e);
       }
     },
-    [sequence, editDialog, adjustAnnotations, features, onProjectsSync, isDna],
+    [sequence, editDialog, adjustAnnotations, features, primers, onProjectsSync, isDna],
   );
 
   // --- Edit dialog cancelled ---
