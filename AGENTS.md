@@ -84,7 +84,7 @@ LibreGene/
 ### 多窗口
 
 - 主窗口 label `"main"`（不在 `window_projects`）；项目窗口 `"project-{safe_id}-{timestamp}"`（注册在 `window_projects`）。MCP Agent 不再开独立窗口：MCP `open_project` 打开文件时把项目绑定为**主窗口侧边栏里的 Agent 标签**（`AppState.agent_tabs`，按 project_id 索引，记录 locked；项目留在主窗口列表并带 `agentLocked: bool|null` 字段）
-- 项目窗口经 `resolve_project_id()` 按 label 查项目；`broadcast_project()` 只广播主窗口可见项目
+- 项目窗口经 `resolve_project_id()` 按 label 查项目（映射未命中=项目被驱逐，返回错误提示 reload，绝不回退主窗口 active）；`broadcast_project()` 只广播主窗口可见项目
 - 窗口创建统一走 `spawn_project_window()`（仅项目窗口）；`do_delete_project` 清理 `agent_tabs` 条目（不再有关闭窗口逻辑）
 
 ## 仍有改进空间（非 Bug）
@@ -120,7 +120,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 嵌入式 MCP server（`src-tauri/src/mcp.rs`）让外部 LLM Agent 像真实用户一样操作应用。
 
 - **架构**：进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState` 的 `Arc<RwLock<ProjectManager>>`。所有 mutation 工具走同一套 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径，UI 实时更新；Tauri command 只是薄包装）
-- **启停**：`McpServer` 持配置 `{enabled, port}`；`set_mcp_config` 原进程内停止/重启（端口冲突自动重试）。默认 `enabled=true, port=8766`；配置存前端 localStorage `mcpConfig`
+- **启停**：`McpServer` 持配置 `{enabled, port}`；`set_mcp_config` 原进程内停止/重启（端口冲突自动重试，重试仍失败则把 `enabled` 置 false 并同步托盘状态，反映真实运行状态）。默认 `enabled=true, port=8766`；配置存前端 localStorage `mcpConfig`
 - **鉴权**：每请求需 `Authorization: Bearer <token>` 且 `Host` 严格等于 `127.0.0.1:<port>`（防 DNS rebinding）。令牌存 `<app_config_dir>/mcp_auth_token`；前端经 `get_mcp_token` 读、`regenerate_mcp_token` 轮换。middleware 把协议错误改写为可读 JSON-RPC 错误体（缺 `Accept` → 406/-32600；未知 session → -32001）。文件路径经 `validate_user_path` 校验（拒绝 `..` 遍历 + 扩展名白名单）
 - **入口**：`src/components/McpGuideDialog.jsx`（开关 + 端口 + 令牌 + 自动生成的 Agent 配置提示词——内嵌 URL 与令牌，用户复制发给自己的 Agent 即可自行完成配置），从侧边栏 "MCP Server" 打开
 - **后台待命**：关主窗口只是隐藏（进程与 MCP 继续跑）；托盘菜单含 MCP 状态、Show、Quit（有未保存改动时 Quit 不直接退出：显示主窗口并 emit `quit-requested`（payload = 脏项目 id 数组），前端确认后走 `force_quit`）；macOS Dock 图标经 `RunEvent::Reopen` 重开。项目窗口不参与
