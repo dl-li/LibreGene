@@ -36,16 +36,16 @@ fn is_dcm_site(seq: &[u8]) -> bool {
         && seq[4].eq_ignore_ascii_case(&b'G')
 }
 
-/// EcoKI methylation: A(m6A)CNNNNNNNGTGC (13 bp)
+/// EcoKI methylation: A(m6A)CNNNNNNGTGC (13 bp)
 fn is_ecoki_site(seq: &[u8]) -> bool {
     seq.len() >= 13
         && seq[0].eq_ignore_ascii_case(&b'A')
         && seq[1].eq_ignore_ascii_case(&b'A')
         && seq[2].eq_ignore_ascii_case(&b'C')
-        && seq[8].eq_ignore_ascii_case(&b'G')
-        && seq[9].eq_ignore_ascii_case(&b'T')
-        && seq[10].eq_ignore_ascii_case(&b'G')
-        && seq[11].eq_ignore_ascii_case(&b'C')
+        && seq[9].eq_ignore_ascii_case(&b'G')
+        && seq[10].eq_ignore_ascii_case(&b'T')
+        && seq[11].eq_ignore_ascii_case(&b'G')
+        && seq[12].eq_ignore_ascii_case(&b'C')
 }
 
 /// EcoKI reverse-strand target: GCACNNNNNNGTT — the recognition site is
@@ -53,10 +53,10 @@ fn is_ecoki_site(seq: &[u8]) -> bool {
 /// checked positions mirror `is_ecoki_site` exactly.
 fn is_ecoki_site_rc(seq: &[u8]) -> bool {
     seq.len() >= 13
-        && seq[1].eq_ignore_ascii_case(&b'G')
-        && seq[2].eq_ignore_ascii_case(&b'C')
-        && seq[3].eq_ignore_ascii_case(&b'A')
-        && seq[4].eq_ignore_ascii_case(&b'C')
+        && seq[0].eq_ignore_ascii_case(&b'G')
+        && seq[1].eq_ignore_ascii_case(&b'C')
+        && seq[2].eq_ignore_ascii_case(&b'A')
+        && seq[3].eq_ignore_ascii_case(&b'C')
         && seq[10].eq_ignore_ascii_case(&b'G')
         && seq[11].eq_ignore_ascii_case(&b'T')
         && seq[12].eq_ignore_ascii_case(&b'T')
@@ -290,9 +290,9 @@ mod tests {
     #[test]
     fn test_methylation_sensitive_blocked_by_ecoki_reverse_strand() {
         // Sensitive enzyme rec site [20, 27], overlap 2. EcoKI reverse target
-        // GCACNNNNNGTT at [8, 19] intersects the rec ± ov region [18, 29].
+        // GCACNNNNNNGTT at [8, 20] intersects the rec ± ov region [18, 29].
         let mut tpl = vec![b'N'; 50];
-        tpl[8..20].copy_from_slice(b"GCACNNNNNGTT");
+        tpl[8..21].copy_from_slice(b"GCACNNNNNNGTT");
         let template = String::from_utf8(tpl).unwrap();
         let mut enzyme = make_enzyme(20, 27, false, true);
         let active_systems: Vec<String> = vec!["ecoki".to_string()];
@@ -308,9 +308,9 @@ mod tests {
 
     #[test]
     fn test_methylation_sensitive_blocked_by_ecoki_forward_strand() {
-        // Forward target AACNNNNNGTGC at [8, 19] (as detected by is_ecoki_site).
+        // Forward target AACNNNNNNGTGC at [8, 20] (as detected by is_ecoki_site).
         let mut tpl = vec![b'N'; 50];
-        tpl[8..20].copy_from_slice(b"AACNNNNNGTGC");
+        tpl[8..21].copy_from_slice(b"AACNNNNNNGTGC");
         let template = String::from_utf8(tpl).unwrap();
         let mut enzyme = make_enzyme(20, 27, false, true);
         let active_systems: Vec<String> = vec!["ecoki".to_string()];
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn test_ecoki_reverse_site_ignored_when_system_inactive() {
         let mut tpl = vec![b'N'; 50];
-        tpl[8..20].copy_from_slice(b"GCACNNNNNGTT");
+        tpl[8..21].copy_from_slice(b"GCACNNNNNNGTT");
         let template = String::from_utf8(tpl).unwrap();
         let mut enzyme = make_enzyme(20, 27, false, true);
         let active_systems: Vec<String> = vec!["dam".to_string()];
