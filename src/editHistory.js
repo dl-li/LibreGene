@@ -3,12 +3,11 @@ const MAX_HISTORY = 50;
 /**
  * 撤销/重做历史栈
  *
- * 快照格式: { sequence, cursorIndex, selStart, selEnd }
+ * 快照格式: { sequence, features, primers, cursorIndex, selStart, selEnd }
  *
  * 刚打开文件时: reset() 初始化第一条记录
- * 每次编辑确认后: push() 记录编辑后的新状态
- * undo(): 退回前一个状态
- * redo(): 前进到下一个状态
+ * 每次编辑成功后: push() 记录编辑后的新状态（undo 退回前一条 = 编辑前状态，
+ * redo 前进到本条 = 重做该编辑）
  */
 export function createEditHistory() {
   const stack = [];

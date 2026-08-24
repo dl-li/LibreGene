@@ -222,7 +222,7 @@ function PrimerDesignDialogInner({
             type: g.type,
             primerSeq: c.seq,
           },
-          { recordHistory: i === 0 },
+          { recordHistory: i === groups.length - 1 },
         );
       }
       onOpenChange(false);

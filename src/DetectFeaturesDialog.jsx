@@ -121,7 +121,7 @@ export default function DetectFeaturesDialog({
         locationStr: locationString0based(hit),
       };
       try {
-        await onAddFeature(feature, { recordHistory: i === 0 });
+        await onAddFeature(feature, { recordHistory: i === chosen.length - 1 });
       } catch (e) {
         failures.push(`${hit.name} (${e?.message || e})`);
       }
