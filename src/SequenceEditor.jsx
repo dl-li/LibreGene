@@ -720,6 +720,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [isDragging, setIsDragging] = useState(false);
   const [selectionTm, setSelectionTm] = useState(null);
   const tmLastRunRef = useRef(0); // last computeTm dispatch time (drag throttle)
+  const tmTimerRef = useRef(null); // pending trailing Tm timer (kept across re-runs)
+  const tmSeqRef = useRef(null); // latest selection seq a Tm was scheduled for
   const dragRef = useRef({ startIdx: null, active: false });
   const isDraggingRef = useRef(false);
   const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -1047,24 +1049,29 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setSelectionTm(null);
       return;
     }
-    let cancelled = false;
-    let timer = null;
+    tmSeqRef.current = seq;
     const run = () => {
+      tmTimerRef.current = null;
       tmLastRunRef.current = Date.now();
       computeTm(seq, tmParams).then((tm) => {
-        if (!cancelled) setSelectionTm(tm);
+        // Drop stale results: a newer selection was scheduled meanwhile.
+        if (tmSeqRef.current === seq) setSelectionTm(tm);
       });
     };
-    // Throttle to ~100ms while dragging; trailing call ensures the final
-    // position still gets computed.
+    // Throttle to ~100ms while dragging. The trailing timer lives in a ref and
+    // is not cleared by effect cleanup, so it fires once the drag settles (even
+    // on mouseup) and computes the final position; stale timers/results are
+    // dropped via tmSeqRef.
     const elapsed = Date.now() - tmLastRunRef.current;
     if (elapsed >= 100) run();
-    else timer = setTimeout(run, 100 - elapsed);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
+    else {
+      if (tmTimerRef.current) clearTimeout(tmTimerRef.current);
+      tmTimerRef.current = setTimeout(run, 100 - elapsed);
+    }
   }, [isDragging, selStart, selEnd, cleanSeq, tmParams, isDna]);
+
+  // Clear any pending trailing Tm timer on unmount.
+  useEffect(() => () => clearTimeout(tmTimerRef.current), []);
 
   // Enrich primers with flat fields from bindingSites data model (v2).
   const enrichedPrimers = useMemo(
