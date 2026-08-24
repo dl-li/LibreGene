@@ -119,6 +119,7 @@ export default function SettingsPage({
                 max="10"
                 value={methylationOverlap}
                 onChange={(e) => {
+                  if (e.target.value === '') return;
                   const v = Number(e.target.value);
                   if (Number.isFinite(v)) setMethylationOverlap(v);
                 }}
@@ -141,6 +142,7 @@ export default function SettingsPage({
                 min={6}
                 max={20}
                 onChange={(e) => {
+                  if (e.target.value === '') return;
                   const v = Number(e.target.value);
                   if (Number.isFinite(v)) setPrimerSeedLength(v);
                 }}
