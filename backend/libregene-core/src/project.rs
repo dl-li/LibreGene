@@ -21,41 +21,52 @@ impl ProjectManager {
         Self::default()
     }
 
-    /// Evict the oldest non-active project to stay under the limit.
-    /// No-op if already within capacity, or the only project is the active one.
-    fn evict_one(&mut self) {
-        if self.projects.len() < MAX_PROJECTS || self.projects.is_empty() {
-            return;
+    /// Evict the oldest non-active, non-dirty project to stay under the limit.
+    /// Returns false when at capacity with no evictable candidate — dirty
+    /// projects are never evicted, so their unsaved changes can't be lost.
+    fn evict_one(&mut self) -> bool {
+        if self.projects.len() < MAX_PROJECTS {
+            return true;
         }
-        // Evict the oldest non-active project (first in insertion order that isn't active)
         let idx = self.ordered_ids.iter().position(|k| {
-            Some(k.as_str()) != self.active.as_deref()
+            Some(k.as_str()) != self.active.as_deref() && !self.dirty_projects.contains(k)
         });
         if let Some(i) = idx {
             let id = self.ordered_ids.remove(i);
             self.projects.remove(&id);
             self.dirty_projects.remove(&id);
         }
+        self.projects.len() < MAX_PROJECTS
     }
 
-    pub fn load(&mut self, id: &str, project: ProjectData) {
+    pub fn load(&mut self, id: &str, project: ProjectData) -> Result<(), String> {
         // Only evict when adding a genuinely new entry
         if !self.projects.contains_key(id) {
-            self.evict_one();
+            if !self.evict_one() {
+                return Err(format!(
+                    "project limit ({MAX_PROJECTS}) reached and every other open project has unsaved changes; save or close one before loading {id}"
+                ));
+            }
             self.ordered_ids.push(id.to_string());
         }
         self.projects.insert(id.to_string(), project);
         self.active = Some(id.to_string());
+        Ok(())
     }
 
-    pub fn open_project(&mut self, id: String, project: ProjectData) {
+    pub fn open_project(&mut self, id: String, project: ProjectData) -> Result<(), String> {
         // Only evict when adding a genuinely new entry
         if !self.projects.contains_key(&id) {
-            self.evict_one();
+            if !self.evict_one() {
+                return Err(format!(
+                    "project limit ({MAX_PROJECTS}) reached and every other open project has unsaved changes; save or close one before loading {id}"
+                ));
+            }
             self.ordered_ids.push(id.clone());
         }
         self.projects.insert(id.clone(), project);
         self.active = Some(id);
+        Ok(())
     }
 
     pub fn get_project(&self) -> Option<&ProjectData> {
@@ -183,5 +194,47 @@ impl ProjectManager {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proj(name: &str) -> ProjectData {
+        ProjectData {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn eviction_skips_dirty_projects() {
+        let mut pm = ProjectManager::new();
+        for i in 0..MAX_PROJECTS {
+            let id = format!("p{i}");
+            pm.load(&id, proj(&id)).unwrap();
+        }
+        // Active is p23; mark p0 dirty → p1 becomes the oldest evictable.
+        pm.mark_dirty("p0");
+        pm.load("p24", proj("p24")).unwrap();
+        assert!(pm.get_project_by_id("p0").is_some(), "dirty project must survive eviction");
+        assert!(pm.get_project_by_id("p1").is_none(), "oldest clean project evicted");
+    }
+
+    #[test]
+    fn load_errors_when_no_evictable_project() {
+        let mut pm = ProjectManager::new();
+        for i in 0..MAX_PROJECTS {
+            let id = format!("p{i}");
+            pm.load(&id, proj(&id)).unwrap();
+        }
+        // Every project except the active one (p23) is dirty.
+        for i in 0..MAX_PROJECTS - 1 {
+            pm.mark_dirty(&format!("p{i}"));
+        }
+        let err = pm.load("p25", proj("p25")).unwrap_err();
+        assert!(err.contains("unsaved changes"), "{err}");
+        assert!(pm.get_project_by_id("p25").is_none());
     }
 }

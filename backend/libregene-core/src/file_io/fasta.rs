@@ -19,7 +19,7 @@ pub fn parse_fasta_with_molecule_type(path: &Path, molecule_type: &str) -> io::R
 
     let mut sequence = String::new();
     let mut in_seq = false;
-    let mut _name = String::new();
+    let mut name = String::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -31,7 +31,12 @@ pub fn parse_fasta_with_molecule_type(path: &Path, molecule_type: &str) -> io::R
                 break;
             }
             in_seq = true;
-            _name = trimmed[1..].trim().to_string();
+            name = trimmed[1..]
+                .trim()
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string();
             continue;
         }
 
@@ -43,6 +48,7 @@ pub fn parse_fasta_with_molecule_type(path: &Path, molecule_type: &str) -> io::R
     let length = sequence.len() as i64;
 
     Ok(ProjectData {
+        name,
         sequence,
         length,
         topology: "linear".to_string(),

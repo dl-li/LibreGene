@@ -48,12 +48,26 @@ fn is_ecoki_site(seq: &[u8]) -> bool {
         && seq[11].eq_ignore_ascii_case(&b'C')
 }
 
+/// EcoKI reverse-strand target: GCACNNNNNNGTT — the recognition site is
+/// asymmetric, so the reverse complement must be scanned separately. The
+/// checked positions mirror `is_ecoki_site` exactly.
+fn is_ecoki_site_rc(seq: &[u8]) -> bool {
+    seq.len() >= 13
+        && seq[1].eq_ignore_ascii_case(&b'G')
+        && seq[2].eq_ignore_ascii_case(&b'C')
+        && seq[3].eq_ignore_ascii_case(&b'A')
+        && seq[4].eq_ignore_ascii_case(&b'C')
+        && seq[10].eq_ignore_ascii_case(&b'G')
+        && seq[11].eq_ignore_ascii_case(&b'T')
+        && seq[12].eq_ignore_ascii_case(&b'T')
+}
+
 /// Find a methylation target site anywhere within `window`.
 fn find_site_in_window(window: &[u8], sys: &str) -> bool {
     match sys {
         "dam"   => window.windows(4).any(|w| is_dam_site(w)),
         "dcm"   => window.windows(5).any(|w| is_dcm_site(w)),
-        "ecoki" => window.windows(13).any(|w| is_ecoki_site(w)),
+        "ecoki" => window.windows(13).any(|w| is_ecoki_site(w) || is_ecoki_site_rc(w)),
         _ => false,
     }
 }
@@ -107,11 +121,18 @@ pub fn apply_methylation(
     if enzyme.is_methylation_sensitive {
         // --- Methylation-sensitive: check if any active system's target overlaps rec ± overlap ---
         for sys in active_systems {
-            let (win_start, win_end) = match sys.as_str() {
-                "dam" | "dcm" => (rec_s.saturating_sub(ov), rec_e + ov),
-                "ecoki" => (rec_s.saturating_sub(13), rec_e + 13 + ov),
+            let k = match sys.as_str() {
+                "dam" => 4usize,
+                "dcm" => 5,
+                "ecoki" => 13,
                 _ => continue,
             };
+            // The overlap region is rec ± ov, inclusive on both sides; the
+            // scan window covers every k-mer target intersecting that region.
+            let lo = rec_s.saturating_sub(ov);
+            let hi = rec_e + ov;
+            let win_start = lo.saturating_sub(k - 1);
+            let win_end = hi + k; // half-open
             let window: Vec<u8> = if win_end <= tlen {
                 match tpl.get(win_start..win_end) {
                     Some(w) => w.to_vec(),
@@ -262,5 +283,54 @@ mod tests {
             enzyme.methylation_required,
             "Origin-spanning DpnI site must still be evaluated for methylation dependence (Dam inactive → required), but the logic was skipped"
         );
+    }
+
+    /// EcoKI recognition is asymmetric (AACNNNNNNGTGC); its reverse-strand
+    /// target GCACNNNNNNGTT must also block methylation-sensitive enzymes.
+    #[test]
+    fn test_methylation_sensitive_blocked_by_ecoki_reverse_strand() {
+        // Sensitive enzyme rec site [20, 27], overlap 2. EcoKI reverse target
+        // GCACNNNNNGTT at [8, 19] intersects the rec ± ov region [18, 29].
+        let mut tpl = vec![b'N'; 50];
+        tpl[8..20].copy_from_slice(b"GCACNNNNNGTT");
+        let template = String::from_utf8(tpl).unwrap();
+        let mut enzyme = make_enzyme(20, 27, false, true);
+        let active_systems: Vec<String> = vec!["ecoki".to_string()];
+
+        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+
+        assert!(
+            enzyme.methylation_blocked,
+            "EcoKI reverse-strand target overlapping rec ± overlap should block the enzyme"
+        );
+        assert_eq!(enzyme.methylation_sources, vec!["EcoKI"]);
+    }
+
+    #[test]
+    fn test_methylation_sensitive_blocked_by_ecoki_forward_strand() {
+        // Forward target AACNNNNNGTGC at [8, 19] (as detected by is_ecoki_site).
+        let mut tpl = vec![b'N'; 50];
+        tpl[8..20].copy_from_slice(b"AACNNNNNGTGC");
+        let template = String::from_utf8(tpl).unwrap();
+        let mut enzyme = make_enzyme(20, 27, false, true);
+        let active_systems: Vec<String> = vec!["ecoki".to_string()];
+
+        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+
+        assert!(enzyme.methylation_blocked);
+        assert_eq!(enzyme.methylation_sources, vec!["EcoKI"]);
+    }
+
+    #[test]
+    fn test_ecoki_reverse_site_ignored_when_system_inactive() {
+        let mut tpl = vec![b'N'; 50];
+        tpl[8..20].copy_from_slice(b"GCACNNNNNGTT");
+        let template = String::from_utf8(tpl).unwrap();
+        let mut enzyme = make_enzyme(20, 27, false, true);
+        let active_systems: Vec<String> = vec!["dam".to_string()];
+
+        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+
+        assert!(!enzyme.methylation_blocked);
     }
 }

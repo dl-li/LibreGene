@@ -126,9 +126,8 @@ fn process_enzyme(
     }
 
     let unique_hits = deduplicate_hits(&hits, rec_len as usize, record.is_palindromic);
-    if unique_hits.len() > 200 {
-        return Vec::new();
-    }
+    let truncated = unique_hits.len() > 200;
+    let unique_hits = &unique_hits[..unique_hits.len().min(200)];
 
     let is_unique = unique_hits.len() == 1;
 
@@ -277,6 +276,7 @@ fn process_enzyme(
                 comp_seq: comp,
                 spacers,
                 is_unique,
+                truncated,
                 is_palindromic: record.is_palindromic,
                 is_methylation_sensitive: record.is_methylation_sensitive(),
                 methylation_required: record.methylation_dependent,

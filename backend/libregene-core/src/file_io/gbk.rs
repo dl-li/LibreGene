@@ -133,7 +133,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     let sequence: String = std::str::from_utf8(&seq.seq)
-        .unwrap_or("")
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("sequence is not valid UTF-8: {e}")))?
         .to_string();
 
     let name = seq.name.clone().unwrap_or_default();
@@ -939,8 +939,10 @@ fn parse_segments_note(note: &str) -> Option<(Vec<Segment>, String)> {
         return None;
     }
     let body = &note[idx + "segments:".len()..];
-    let re = regex::Regex::new(r"(\d+)\s*:\s*(\d+)\s*\.\.\s*(\d+)(?:\s*/\s*(#[0-9A-Fa-f]+))?")
-        .ok()?;
+    static SEGMENTS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = SEGMENTS_RE.get_or_init(|| {
+        regex::Regex::new(r"(\d+)\s*:\s*(\d+)\s*\.\.\s*(\d+)(?:\s*/\s*(#[0-9A-Fa-f]+))?").unwrap()
+    });
     let mut segs = Vec::new();
     let mut last_end = 0;
     for cap in re.captures_iter(body) {
