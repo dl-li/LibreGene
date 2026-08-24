@@ -211,21 +211,44 @@ function PrimerDesignDialogInner({
     if (!allSelected || busy) return;
     setBusy(true);
     try {
+      const failures = [];
+      let lastOk = null;
+      let lastOkIndex = -1;
       for (let i = 0; i < groups.length; i++) {
         const g = groups[i];
         const c = g.candidates.find((cand) => cand.seq === selections[i]);
-        if (!c) return;
-        await onPrimerChange?.(
-          {
-            id: `primer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            name: g.name,
-            type: g.type,
-            primerSeq: c.seq,
-          },
-          { recordHistory: i === groups.length - 1 },
+        if (!c) continue;
+        const primer = {
+          id: `primer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: g.name,
+          type: g.type,
+          primerSeq: c.seq,
+        };
+        try {
+          await onPrimerChange?.(primer, { recordHistory: i === groups.length - 1 });
+          lastOk = primer;
+          lastOkIndex = i;
+        } catch (e) {
+          failures.push(`${g.name} (${e?.message || e})`);
+        }
+      }
+      // The last group may have failed or been skipped — re-adding the last
+      // successful primer is an idempotent upsert (same id), so record the
+      // batch's history via it.
+      if (lastOk && lastOkIndex !== groups.length - 1) {
+        try {
+          await onPrimerChange?.(lastOk, { recordHistory: true });
+        } catch (e) {
+          console.error('record history error:', e);
+        }
+      }
+      if (failures.length === 0) {
+        onOpenChange(false);
+      } else {
+        setError(
+          `Failed to add ${failures.length} of ${groups.length} primers: ${failures.join('; ')}`,
         );
       }
-      onOpenChange(false);
     } finally {
       setBusy(false);
     }
