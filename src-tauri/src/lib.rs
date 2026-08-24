@@ -1024,6 +1024,16 @@ where
     Ok(feature_mutation_response(pm, wp, agent_tabs, project_id).await)
 }
 
+/// Cheap structural equality for the primers list (Primer has no PartialEq).
+/// The snapshot/merge write-back guard only needs to detect whether the list
+/// membership changed (add/remove/replace), not binding-site internals.
+fn primers_equal(a: &[Primer], b: &[Primer]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| x.id == y.id && x.name == y.name && x.primer_seq == y.primer_seq)
+}
+
 async fn do_add_primer<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -1033,53 +1043,66 @@ async fn do_add_primer<R: Runtime>(
     project_id: &str,
     primer: Primer,
 ) -> Result<serde_json::Value, String> {
-    let name_conflict = {
-        let pm = pm.read().await;
-        pm.get_project_by_id(project_id).map(|p| {
-            if p.primers.iter().any(|p| p.id != primer.id && p.name == primer.name) {
-                Some("primer")
-            } else if p.features.iter().any(|f| f.name == primer.name) {
-                Some("feature")
-            } else {
-                None
-            }
-        }).unwrap_or(None)
-    };
-    if let Some(kind) = name_conflict {
-        return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists as a {}", primer.name, kind)}));
-    }
+    // Snapshot → merge → recompute (off-lock) → write-back. The write-back
+    // only lands when the primers list is unchanged since the snapshot;
+    // otherwise a concurrent add slipped in and we retry onto the fresh list
+    // (binding sites depend only on the template, which does not change).
+    loop {
+        let name_conflict = {
+            let pm = pm.read().await;
+            pm.get_project_by_id(project_id).map(|p| {
+                if p.primers.iter().any(|p| p.id != primer.id && p.name == primer.name) {
+                    Some("primer")
+                } else if p.features.iter().any(|f| f.name == primer.name) {
+                    Some("feature")
+                } else {
+                    None
+                }
+            }).unwrap_or(None)
+        };
+        if let Some(kind) = name_conflict {
+            return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists as a {}", primer.name, kind)}));
+        }
 
-    // Snapshot under the read lock; the binding-site recompute (CPU-heavy)
-    // runs on a blocking thread, and the result is written back under a
-    // short write lock.
-    let snapshot = {
-        let pm = pm.read().await;
-        pm.get_project_by_id(project_id).map(|p| {
-            (p.sequence.clone(), p.topology.clone(), p.primers.clone())
+        let snapshot = {
+            let pm = pm.read().await;
+            pm.get_project_by_id(project_id).map(|p| {
+                (p.sequence.clone(), p.topology.clone(), p.primers.clone())
+            })
+        };
+        let Some((template, topology, existing)) = snapshot else {
+            return Ok(serde_json::json!({"error": "Project not found"}));
+        };
+
+        let mut merged = existing.clone();
+        if let Some(pos) = merged.iter().position(|p| p.id == primer.id) {
+            merged[pos] = primer.clone();
+        } else {
+            merged.push(primer.clone());
+        }
+
+        let updated = tokio::task::spawn_blocking(move || {
+            libregene_core::primer::align::recompute_all_primers(&template, &topology, &merged)
         })
-    };
-    let Some((template, topology, existing)) = snapshot else {
-        return Ok(serde_json::json!({"error": "Project not found"}));
-    };
+        .await
+        .map_err(|e| format!("task join error: {}", e))?;
 
-    let mut primers = existing;
-    if let Some(pos) = primers.iter().position(|p| p.id == primer.id) {
-        primers[pos] = primer.clone();
-    } else {
-        primers.push(primer.clone());
-    }
-
-    let updated = tokio::task::spawn_blocking(move || {
-        libregene_core::primer::align::recompute_all_primers(&template, &topology, &primers)
-    })
-    .await
-    .map_err(|e| format!("task join error: {}", e))?;
-
-    {
-        let mut pm = pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(project_id) {
-            p.primers = updated;
-            pm.mark_dirty(project_id);
+        let wrote = {
+            let mut pm = pm.write().await;
+            match pm.get_project_mut_by_id(project_id) {
+                Some(p) if primers_equal(&p.primers, &existing) => {
+                    p.primers = updated;
+                    pm.mark_dirty(project_id);
+                    true
+                }
+                // The list changed under us (another window added a primer):
+                // re-merge onto the fresh state instead of overwriting.
+                Some(_) => false,
+                None => return Ok(serde_json::json!({"error": "Project not found"})),
+            }
+        };
+        if wrote {
+            break;
         }
     }
 
@@ -2232,46 +2255,60 @@ async fn add_primers(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
-    // Snapshot under the read lock; merge + binding-site recompute (CPU-heavy)
-    // run off-lock, and the result is written back under a short write lock.
-    let snapshot = {
-        let pm = state.pm.read().await;
-        pm.get_project_by_id(&project_id).map(|p| {
-            (p.sequence.clone(), p.topology.clone(), p.primers.clone())
+    // Snapshot → merge → recompute (off-lock) → write-back. The write-back
+    // only lands when the primers list is unchanged since the snapshot;
+    // otherwise a concurrent add slipped in and we retry onto the fresh list
+    // (binding sites depend only on the template, which does not change).
+    loop {
+        let snapshot = {
+            let pm = state.pm.read().await;
+            pm.get_project_by_id(&project_id).map(|p| {
+                (p.sequence.clone(), p.topology.clone(), p.primers.clone())
+            })
+        };
+        let Some((template, topology, existing)) = snapshot else {
+            return Ok(serde_json::json!({"error": "Project not found"}));
+        };
+
+        let mut merged = existing.clone();
+        for primer in &primers {
+            let seq_conflict = merged
+                .iter()
+                .any(|p| p.primer_seq.to_uppercase() == primer.primer_seq.to_uppercase());
+            let name_conflict =
+                merged.iter().any(|p| p.id != primer.id && p.name == primer.name);
+            if seq_conflict || name_conflict {
+                continue;
+            }
+            if let Some(pos) = merged.iter().position(|p| p.id == primer.id) {
+                merged[pos] = primer.clone();
+            } else {
+                merged.push(primer.clone());
+            }
+        }
+
+        let updated = tokio::task::spawn_blocking(move || {
+            libregene_core::primer::align::recompute_all_primers(&template, &topology, &merged)
         })
-    };
-    let Some((template, topology, existing)) = snapshot else {
-        return Ok(serde_json::json!({"error": "Project not found"}));
-    };
+        .await
+        .map_err(|e| format!("task join error: {}", e))?;
 
-    let mut merged = existing;
-    for primer in primers {
-        let seq_conflict = merged
-            .iter()
-            .any(|p| p.primer_seq.to_uppercase() == primer.primer_seq.to_uppercase());
-        let name_conflict =
-            merged.iter().any(|p| p.id != primer.id && p.name == primer.name);
-        if seq_conflict || name_conflict {
-            continue;
-        }
-        if let Some(pos) = merged.iter().position(|p| p.id == primer.id) {
-            merged[pos] = primer;
-        } else {
-            merged.push(primer);
-        }
-    }
-
-    let updated = tokio::task::spawn_blocking(move || {
-        libregene_core::primer::align::recompute_all_primers(&template, &topology, &merged)
-    })
-    .await
-    .map_err(|e| format!("task join error: {}", e))?;
-
-    {
-        let mut pm = state.pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.primers = updated;
-            pm.mark_dirty(&project_id);
+        let wrote = {
+            let mut pm = state.pm.write().await;
+            match pm.get_project_mut_by_id(&project_id) {
+                Some(p) if primers_equal(&p.primers, &existing) => {
+                    p.primers = updated;
+                    pm.mark_dirty(&project_id);
+                    true
+                }
+                // The list changed under us (another window added a primer):
+                // re-merge onto the fresh state instead of overwriting.
+                Some(_) => false,
+                None => return Ok(serde_json::json!({"error": "Project not found"})),
+            }
+        };
+        if wrote {
+            break;
         }
     }
 
@@ -3815,5 +3852,69 @@ mod tests {
         state.window_projects.write().await.remove("project-x-1");
         let err = resolve_project_id(&state, "project-x-1").await.unwrap_err();
         assert!(err.contains("evicted"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn concurrent_primer_adds_do_not_clobber_each_other() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: "GATTACAGATTACAGATTACA".to_string(),
+                    length: 21,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        let mk = |id: &str| Primer {
+            id: id.to_string(),
+            name: id.to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "GATTACA".to_string(),
+            binding_sites: Vec::new(),
+        };
+
+        // Two adds racing on the same empty list: each snapshots the same
+        // state, so a naive last-writer-wins write-back would drop one.
+        let (a, b) = tokio::join!(
+            do_add_primer(
+                app.handle(),
+                &pm,
+                &wp,
+                &agent_tabs,
+                None,
+                "p1",
+                mk("f1"),
+            ),
+            do_add_primer(
+                app.handle(),
+                &pm,
+                &wp,
+                &agent_tabs,
+                None,
+                "p1",
+                mk("f2"),
+            ),
+        );
+        a.unwrap();
+        b.unwrap();
+
+        let pm = pm.read().await;
+        let p = pm.get_project_by_id("p1").unwrap();
+        let names: Vec<&str> = p.primers.iter().map(|pr| pr.name.as_str()).collect();
+        assert!(
+            names.contains(&"f1") && names.contains(&"f2"),
+            "both primers must survive a concurrent add: {:?}",
+            names
+        );
     }
 }
