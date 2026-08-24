@@ -215,6 +215,7 @@ export default function ProjectWorkspace({
       editHistoryRef.current.reset({
         sequence: initialData.sequence,
         features: initialData.features || EMPTY_ARRAY,
+        primers: initialData.primers || EMPTY_ARRAY,
         cursorIndex: null,
         selStart: null,
         selEnd: null,
@@ -237,6 +238,7 @@ export default function ProjectWorkspace({
           editHistoryRef.current.reset({
             sequence: data.sequence,
             features: data.features || EMPTY_ARRAY,
+            primers: data.primers || EMPTY_ARRAY,
             cursorIndex: null,
             selStart: null,
             selEnd: null,
@@ -289,6 +291,7 @@ export default function ProjectWorkspace({
         editHistoryRef.current.reset({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
+          primers: data.primers || EMPTY_ARRAY,
           cursorIndex: null,
           selStart: null,
           selEnd: null,
@@ -504,21 +507,35 @@ export default function ProjectWorkspace({
     });
   }, []);
 
+  // Record a post-mutation snapshot in undo history. Entries are always the
+  // state AFTER a mutation (sequence edits follow the same convention), so
+  // undo returns the previous entry — the pre-mutation state — and redo
+  // restores the mutation. Snapshots always carry primers so undo/redo can
+  // restore them on both sides (UI state + backend via update_sequence).
+  const pushHistory = useCallback(
+    (overrides = {}) => {
+      editHistoryRef.current.push({
+        sequence,
+        features: features || EMPTY_ARRAY,
+        primers: primers || EMPTY_ARRAY,
+        cursorIndex: null,
+        selStart: null,
+        selEnd: null,
+        ...overrides,
+      });
+    },
+    [sequence, features, primers],
+  );
+
   const handleFeatureFtypeChange = useCallback(
     async (featureId, newFtype) => {
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await updateFeatureFtype(featureId, newFtype);
         if (operationGenRef.current !== gen) return;
         if (data && data.features) {
+          pushHistory({ features: data.features });
           setFeatures(data.features);
           if (data.projects) onProjectsSync(data.projects);
           setIsDirty(true);
@@ -527,7 +544,7 @@ export default function ProjectWorkspace({
         console.error('update feature ftype error:', e);
       }
     },
-    [sequence, features, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const handleFeatureColorChange = useCallback(
@@ -535,16 +552,10 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await updateFeatureColor(featureId, newColor);
         if (operationGenRef.current !== gen) return;
         if (data && data.features) {
+          pushHistory({ features: data.features });
           setFeatures(data.features);
           if (data.projects) onProjectsSync(data.projects);
           setIsDirty(true);
@@ -553,7 +564,7 @@ export default function ProjectWorkspace({
         console.error('update feature color error:', e);
       }
     },
-    [sequence, features, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const handleFeatureNameChange = useCallback(
@@ -561,16 +572,10 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await updateFeatureName(featureId, newName);
         if (operationGenRef.current !== gen) return;
         if (data && data.features) {
+          pushHistory({ features: data.features });
           setFeatures(data.features);
           if (data.projects) onProjectsSync(data.projects);
           setIsDirty(true);
@@ -579,7 +584,7 @@ export default function ProjectWorkspace({
         console.error('update feature name error:', e);
       }
     },
-    [sequence, features, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const handlePrimerChange = useCallback(
@@ -587,21 +592,12 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        // Push current state to undo history before mutating (batch callers
-        // push once via recordHistory on their first call only)
-        if (recordHistory) {
-          editHistoryRef.current.push({
-            sequence,
-            features: features || EMPTY_ARRAY,
-            primers: primers || EMPTY_ARRAY,
-            cursorIndex: null,
-            selStart: null,
-            selEnd: null,
-          });
-        }
         const data = await addPrimer(primerData);
         if (operationGenRef.current !== gen) return;
         if (data && data.primers) {
+          // Batch callers record history once via recordHistory on their last
+          // call only — the response carries the full post-batch list.
+          if (recordHistory) pushHistory({ primers: data.primers });
           setPrimers(data.primers);
           if (data.alignments) setAlignments(data.alignments);
           if (data.enzymes) setEnzymes(data.enzymes);
@@ -612,7 +608,7 @@ export default function ProjectWorkspace({
         console.error('add primer error:', e);
       }
     },
-    [sequence, features, primers, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   // --- My Primers library actions ---
@@ -685,21 +681,16 @@ export default function ProjectWorkspace({
       if (!entry) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await addPrimers(libraryToPrimers([entry]));
+        if (data && data.primers && operationGenRef.current === gen) {
+          pushHistory({ primers: data.primers });
+        }
         applyAddedPrimers(data, gen);
       } catch (e) {
         console.error('add primer from My Primers error:', e);
       }
     },
-    [sequence, features, primers, applyAddedPrimers],
+    [pushHistory, applyAddedPrimers],
   );
 
   const handleAddAllBindingPrimers = useCallback(async () => {
@@ -714,20 +705,15 @@ export default function ProjectWorkspace({
     if (!toAdd.length) return;
     const gen = ++operationGenRef.current;
     try {
-      editHistoryRef.current.push({
-        sequence,
-        features: features || EMPTY_ARRAY,
-        primers: primers || EMPTY_ARRAY,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
-      });
       const data = await addPrimers(libraryToPrimers(toAdd));
+      if (data && data.primers && operationGenRef.current === gen) {
+        pushHistory({ primers: data.primers });
+      }
       applyAddedPrimers(data, gen);
     } catch (e) {
       console.error('add binding primers error:', e);
     }
-  }, [myPrimerBinding.results, myPrimers, primers, sequence, features, applyAddedPrimers]);
+  }, [myPrimerBinding.results, myPrimers, primers, pushHistory, applyAddedPrimers]);
 
   const handleMyEnzymesChange = useCallback(
     (list) => {
@@ -741,28 +727,20 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       const { locationStr, ...feature } = featureData;
-      // errors propagate so the dialog can display them; batch callers push
-      // history once via recordHistory on their first call only
-      if (recordHistory) {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-      }
+      // errors propagate so the dialog can display them; batch callers record
+      // history once via recordHistory on their last call only — the response
+      // carries the full post-batch list
       const data = await addFeature(feature, locationStr);
       if (operationGenRef.current !== gen) return;
       if (data && data.features) {
+        if (recordHistory) pushHistory({ features: data.features });
         setFeatures(data.features);
         if (data.enzymes) setEnzymes(data.enzymes);
         setIsDirty(true);
         if (data.projects) onProjectsSync(data.projects);
       }
     },
-    [sequence, features, primers, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const handleFeatureStrandChange = useCallback(
@@ -770,16 +748,10 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await updateFeatureStrand(featureId, strand);
         if (operationGenRef.current !== gen) return;
         if (data && data.features) {
+          pushHistory({ features: data.features });
           setFeatures(data.features);
           if (data.enzymes) setEnzymes(data.enzymes);
           setIsDirty(true);
@@ -788,7 +760,7 @@ export default function ProjectWorkspace({
         console.error('update feature strand error:', e);
       }
     },
-    [sequence, features],
+    [pushHistory],
   );
 
   const handleFeatureLocationChange = useCallback(
@@ -796,22 +768,16 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       // errors propagate so the dialog can display them
-      editHistoryRef.current.push({
-        sequence,
-        features: features || EMPTY_ARRAY,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
-      });
       const data = await updateFeatureLocation(featureId, locationStr);
       if (operationGenRef.current !== gen) return;
       if (data && data.features) {
+        pushHistory({ features: data.features });
         setFeatures(data.features);
         if (data.projects) onProjectsSync(data.projects);
         setIsDirty(true);
       }
     },
-    [sequence, features, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const handleDeleteFeature = useCallback(
@@ -819,16 +785,10 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await deleteFeature(featureId);
         if (operationGenRef.current !== gen) return;
         if (data && data.features) {
+          pushHistory({ features: data.features });
           setFeatures(data.features);
           if (data.projects) onProjectsSync(data.projects);
           setIsDirty(true);
@@ -837,7 +797,7 @@ export default function ProjectWorkspace({
         console.error('delete feature error:', e);
       }
     },
-    [sequence, features, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const handleDeletePrimer = useCallback(
@@ -845,17 +805,10 @@ export default function ProjectWorkspace({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
         const data = await deletePrimer(primerId);
         if (operationGenRef.current !== gen) return;
         if (data && data.primers) {
+          pushHistory({ primers: data.primers });
           setPrimers(data.primers);
           if (data.alignments) setAlignments(data.alignments);
           if (data.projects) onProjectsSync(data.projects);
@@ -865,7 +818,7 @@ export default function ProjectWorkspace({
         console.error('delete primer error:', e);
       }
     },
-    [sequence, features, primers, onProjectsSync],
+    [pushHistory, onProjectsSync],
   );
 
   const addAlignmentFiles = useCallback(
@@ -1111,6 +1064,7 @@ export default function ProjectWorkspace({
       editHistoryRef.current.push({
         sequence: newSeq,
         features: mergedFeatures,
+        primers: primers || EMPTY_ARRAY,
         cursorIndex,
         selStart: mode === 'insert' ? null : selStart,
         selEnd: mode === 'insert' ? null : selEnd,
@@ -1211,7 +1165,8 @@ export default function ProjectWorkspace({
         setSequence(data.sequence);
         setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
+        // Backend response carries freshly recomputed binding sites
+        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
         if (data.projects) onProjectsSync(data.projects);
         // Accurate dirty check: undo to saved state = not dirty
@@ -1257,7 +1212,7 @@ export default function ProjectWorkspace({
         setSequence(data.sequence);
         setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(snapshot.primers || data.primers || EMPTY_ARRAY);
+        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
         if (data.projects) onProjectsSync(data.projects);
         // Accurate dirty check: redo back to saved state = not dirty
@@ -1359,6 +1314,7 @@ export default function ProjectWorkspace({
         editHistoryRef.current.push({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
+          primers: data.primers || EMPTY_ARRAY,
           cursorIndex: null,
           selStart: null,
           selEnd: null,
