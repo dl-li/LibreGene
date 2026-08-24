@@ -34,7 +34,6 @@ impl ProjectManager {
         if let Some(i) = idx {
             let id = self.ordered_ids.remove(i);
             self.projects.remove(&id);
-            self.dirty_projects.remove(&id);
         }
         self.projects.len() < MAX_PROJECTS
     }

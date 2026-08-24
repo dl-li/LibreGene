@@ -71,16 +71,15 @@ pub fn compute_binding_sites(
     // Dedup by (start, end, strand) keeping the highest-Tm entry of each
     // group, then present results sorted by Tm descending (best first).
     results.sort_by(|a, b| {
-        (a.template_start, a.template_end, a.strand)
-            .cmp(&(b.template_start, b.template_end, b.strand))
-            .then(b.tm.partial_cmp(&a.tm).unwrap_or(std::cmp::Ordering::Equal))
+        b.tm.partial_cmp(&a.tm)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                (a.template_start, a.template_end, a.strand)
+                    .cmp(&(b.template_start, b.template_end, b.strand))
+            })
     });
-    results.dedup_by(|a, b| {
-        a.template_start == b.template_start
-            && a.template_end == b.template_end
-            && a.strand == b.strand
-    });
-    results.sort_by(|a, b| b.tm.partial_cmp(&a.tm).unwrap_or(std::cmp::Ordering::Equal));
+    let mut seen: HashSet<(i64, i64, i8)> = HashSet::new();
+    results.retain(|r| seen.insert((r.template_start, r.template_end, r.strand)));
 
     results
 }
