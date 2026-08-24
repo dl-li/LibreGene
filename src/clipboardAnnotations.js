@@ -120,7 +120,9 @@ export function metaMatchesText(meta, text, fallbackText) {
   } catch {
     // ignore
   }
-  if (fallbackText != null) return norm(fallbackText) === norm(text);
+  if (fallbackText != null) {
+    return norm(fallbackText) === norm(text) && norm(text).length === meta.length;
+  }
   return norm(text).length === meta.length;
 }
 
