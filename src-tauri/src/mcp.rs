@@ -207,6 +207,9 @@ struct OptimizeCdsRequest {
     /// translated sequence. PREFERRED way to collect the result — use the file
     /// (open_project afterwards) rather than copying the `optimizedSequence` text.
     output_path: Option<String>,
+    /// Required (true) when `output_path` already exists (same overwrite rule
+    /// as save_file).
+    overwrite: Option<bool>,
     /// Species key from list_species (e.g. "e_coli", "h_sapiens").
     species: String,
     /// use_best_codon (default) | match_codon_usage | harmonize_rca.
@@ -680,6 +683,11 @@ fn to1(x: i64) -> i64 {
 fn from1(x: i64) -> i64 {
     x - 1
 }
+
+/// Upper bound for caller-supplied `flank` context windows (read_sequence
+/// coordinate mode, add_alignment focus). Bounds i64 arithmetic and stops
+/// absurd requests; anything larger is clamped at the sequence ends anyway.
+const MAX_FLANK: i64 = 10_000;
 
 /// Window-label sanitizer: keep only `[A-Za-z0-9-_]`; every other character
 /// (path separators, '.', spaces, parentheses, ...) becomes '_' so a file
@@ -1771,6 +1779,15 @@ fn resolve_export_region(
         }
         pieces.sort_unstable();
         let minus = f.strand == "-";
+        if minus && !project.is_dna() {
+            // Minus-strand export reverse-complements each piece, which is
+            // only meaningful for DNA — on RNA/protein projects (single-
+            // strand sequences) it would corrupt the exported sequence.
+            return Err(format!(
+                "feature '{}' is on the minus strand, but minus-strand export (reverse complement) is only supported for DNA projects; this is a {} project",
+                f.id, project.molecule_type
+            ));
+        }
         if minus {
             pieces.reverse();
         }
@@ -1961,25 +1978,36 @@ fn build_export_data(
         };
         let ss = site.template_start;
         let se = site.template_end - 1;
+        // Circular origin-wrapping sites are stored with template_end =
+        // (start + footprint) % len, i.e. se < ss; split the span into its
+        // two arcs so the overlap test below sees both (otherwise the
+        // inverted span matches nothing and the primer is silently dropped).
+        let spans: Vec<(i64, i64)> = if se < ss && project.topology == "circular" {
+            vec![(ss, project.length - 1), (0, se)]
+        } else {
+            vec![(ss, se)]
+        };
         let mut best: Option<(i64, i64)> = None;
         for (pi, &(ps, pe)) in pieces.iter().enumerate() {
             let (wo, _) = windows[pi];
-            let os = ss.max(ps);
-            let oe = se.min(pe);
-            if os > oe {
-                continue;
-            }
-            let (ns, ne) = if flip {
-                (wo + (pe - oe), wo + (pe - os))
-            } else {
-                (wo + (os - ps), wo + (oe - ps))
-            };
-            let replace = match best {
-                None => true,
-                Some((bs, be)) => ne - ns > be - bs,
-            };
-            if replace {
-                best = Some((ns, ne));
+            for &(s, e) in &spans {
+                let os = s.max(ps);
+                let oe = e.min(pe);
+                if os > oe {
+                    continue;
+                }
+                let (ns, ne) = if flip {
+                    (wo + (pe - oe), wo + (pe - os))
+                } else {
+                    (wo + (os - ps), wo + (oe - ps))
+                };
+                let replace = match best {
+                    None => true,
+                    Some((bs, be)) => ne - ns > be - bs,
+                };
+                if replace {
+                    best = Some((ns, ne));
+                }
             }
         }
         let Some((ns, ne)) = best else {
@@ -2323,9 +2351,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             )));
         }
 
-        let flank = request.flank.unwrap_or(30).max(0);
-        let ws = (position - flank).max(0);
-        let we = (position + flank).min(len - 1);
+        let flank = request.flank.unwrap_or(30).clamp(0, MAX_FLANK);
+        let ws = position.saturating_sub(flank).max(0);
+        let we = position.saturating_add(flank).min(len - 1);
         let ctx = position_context_json(position, sequence, features);
         let text = read_sequence(&project, ws, we)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -2665,27 +2693,41 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         if already_loaded {
             // Reuse the existing agent tab for this project when there is one.
-            let reused = {
+            // Emit agent-tab-lock only on an unlocked → locked transition
+            // (same semantics as lock_agent_tab_for_project).
+            enum Reuse {
+                Relocked,
+                AlreadyLocked,
+                NotBound,
+            }
+            let reuse = {
                 let mut at = self.agent_tabs.write().await;
-                if let Some(meta) = at.get_mut(&id) {
-                    meta.locked = true;
-                    true
-                } else {
-                    false
+                match at.get_mut(&id) {
+                    Some(meta) if meta.locked => Reuse::AlreadyLocked,
+                    Some(meta) => {
+                        meta.locked = true;
+                        Reuse::Relocked
+                    }
+                    None => Reuse::NotBound,
                 }
             };
-            if reused {
-                let _ = self.app_handle.emit(
-                    "agent-tab-lock",
-                    serde_json::json!({ "projectId": id, "locked": true }),
-                );
-                return Ok(Json(serde_json::json!({
-                    "ok": true,
-                    "projectId": id,
-                    "locked": true,
-                    "reused": true,
-                    "message": format!("Project '{}' is already open and bound as your agent tab (re-locked)", id),
-                })));
+            match reuse {
+                Reuse::Relocked | Reuse::AlreadyLocked => {
+                    if matches!(reuse, Reuse::Relocked) {
+                        let _ = self.app_handle.emit(
+                            "agent-tab-lock",
+                            serde_json::json!({ "projectId": id, "locked": true }),
+                        );
+                    }
+                    return Ok(Json(serde_json::json!({
+                        "ok": true,
+                        "projectId": id,
+                        "locked": true,
+                        "reused": true,
+                        "message": format!("Project '{}' is already open and bound as your agent tab (re-locked)", id),
+                    })));
+                }
+                Reuse::NotBound => {}
             }
             // Loaded but not bound → the user opened it; their projects stay
             // under user control.
@@ -2697,7 +2739,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 None,
             ));
         }
-        let payload = crate::do_open_file(&self.pm, request.path)
+        let payload = crate::do_open_file(&self.pm, &self.wp, &self.agent_tabs, request.path)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
@@ -2926,19 +2968,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = request.project_id.clone();
         self.require_agent_tab(&id).await?;
-        let dirty = {
-            let pm = self.pm.read().await;
-            if pm.get_project_by_id(&id).is_none() {
-                return Err(ErrorData::invalid_params(format!("Project not found: {}", id), None));
-            }
-            pm.is_dirty(&id)
-        };
-        if dirty && !request.force.unwrap_or(false) {
-            return Ok(Json(fail_envelope(
-                &id,
-                "Project has unsaved changes — save_file first, or pass force: true to discard them".to_string(),
-            )));
-        }
+        // The dirty/force check runs inside do_delete_project's pm write
+        // critical section, so a concurrent mutation cannot slip in between
+        // the check and the removal (TOCTOU).
         let payload = crate::do_delete_project(
             &self.app_handle,
             &self.pm,
@@ -2946,10 +2978,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.agent_tabs,
             None,
             request.project_id,
+            request.force.unwrap_or(false),
         )
         .await
         .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
+            if err == "project not found" {
+                return Err(ErrorData::invalid_params(format!("Project not found: {}", id), None));
+            }
             return Ok(Json(fail_envelope(&id, err)));
         }
         Ok(Json(serde_json::json!({
@@ -3014,20 +3050,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
         let len = project.length;
-        // 1-based inclusive inputs; internal model coordinates are 0-based.
+        // Validate the raw 1-based inclusive inputs BEFORE any arithmetic on
+        // them (from1 / end+1 would overflow on extreme i64 inputs); the
+        // bounds check uses comparisons only, so once it passes, u_end <= len
+        // and the wrap check's `u_end + 1` cannot overflow either.
         let (u_start, u_end) = (request.start, request.end);
-        let start = from1(u_start);
-        let end = from1(u_end);
-
-        if u_start > u_end + 1 {
-            return Ok(Json(fail_envelope(
-                &id,
-                format!(
-                    "invalid range {}..{}: start > end+1; ranges must not wrap (a pure insertion before base N is start=N, end=N-1)",
-                    u_start, u_end
-                ),
-            )));
-        }
         if u_start < 1 || u_start > len + 1 || u_end < 0 || u_end > len {
             return Ok(Json(fail_envelope(
                 &id,
@@ -3037,6 +3064,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 ),
             )));
         }
+        if u_start > u_end + 1 {
+            return Ok(Json(fail_envelope(
+                &id,
+                format!(
+                    "invalid range {}..{}: start > end+1; ranges must not wrap (a pure insertion before base N is start=N, end=N-1)",
+                    u_start, u_end
+                ),
+            )));
+        }
+        let start = from1(u_start);
+        let end = from1(u_end);
 
         let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path) {
             (Some(_), Some(_)) => {
@@ -3056,7 +3094,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (Some(s), None) => (s, None),
             (None, Some(path)) => {
                 crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
-                    ErrorData::internal_error(format!("invalid replacement_path: {}", e), None)
+                    ErrorData::invalid_params(format!("invalid replacement_path: {}", e), None)
                 })?;
                 let parsed = tokio::task::spawn_blocking(move || {
                     libregene_core::file_io::parse_file(std::path::Path::new(&path))
@@ -3066,10 +3104,30 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 match parsed {
                     // Annotations travel with the sequence: features/primers
                     // from the file land on the inserted region below.
-                    Ok(data) => (
-                        data.sequence,
-                        Some((data.features, data.primers)),
-                    ),
+                    Ok(data) => {
+                        // The file's molecule type must match the target
+                        // project (e.g. a protein .gpt into a DNA project
+                        // would corrupt the sequence).
+                        if project.molecule_type == "protein" && data.molecule_type != "protein" {
+                            return Ok(Json(fail_envelope(
+                                &id,
+                                format!(
+                                    "replacement_path is a {} file but the project is protein — pass a protein file (.gpt/.prot)",
+                                    data.molecule_type
+                                ),
+                            )));
+                        }
+                        if project.molecule_type != "protein" && data.molecule_type == "protein" {
+                            return Ok(Json(fail_envelope(
+                                &id,
+                                "replacement_path is a protein file (.gpt/.prot) but the project is DNA/RNA — pass a nucleotide sequence file".to_string(),
+                            )));
+                        }
+                        (
+                            data.sequence,
+                            Some((data.features, data.primers)),
+                        )
+                    }
                     Err(e) => {
                         return Ok(Json(fail_envelope(
                             &id,
@@ -3087,7 +3145,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // (matching update_sequence): lowercase bases would evade the
         // case-sensitive enzyme recompute and leak into GenBank output.
         // Protein projects additionally require the amino-acid alphabet
-        // (A-Z, optional single trailing '*' stop).
+        // (A-Z, optional single trailing '*' stop); DNA/RNA projects require
+        // the IUPAC nucleotide alphabet (ACGTURYSWKMBDHVN).
         let mut replacement = replacement.to_ascii_uppercase();
         if project.molecule_type == "protein" {
             let body = replacement.strip_suffix('*').unwrap_or(&replacement);
@@ -3097,6 +3156,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     "Invalid protein replacement: only amino-acid letters (A-Z) and an optional trailing '*' (stop codon) are allowed".to_string(),
                 )));
             }
+        } else if !replacement.is_empty()
+            && !replacement
+                .chars()
+                .all(|c| c.is_ascii() && !libregene_core::primer::iupac::iupac_expand(c as u8).is_empty())
+        {
+            return Ok(Json(fail_envelope(
+                &id,
+                "Invalid DNA/RNA replacement: only IUPAC nucleotide bases (ACGTURYSWKMBDHVN) are allowed".to_string(),
+            )));
         }
 
         // Insertion direction: "-" reverse-complements the replacement (DNA
@@ -3244,14 +3312,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
 
-        let payload = crate::do_update_sequence(&self.pm, id.clone(), new_seq)
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
+        let payload = crate::do_update_sequence(
+            &self.app_handle,
+            &self.pm,
+            &self.wp,
+            &self.agent_tabs,
+            None,
+            id.clone(),
+            new_seq,
+            None,
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(Json(fail_envelope(&id, err)));
         }
-        // update_sequence core does not broadcast — notify the UI ourselves.
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
 
         let repl_len = replacement.len() as i64;
         let unit = match project.molecule_type.as_str() {
@@ -3684,7 +3759,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     "region and feature_id are mutually exclusive".to_string(),
                 )));
             }
-            let flank = request.flank.unwrap_or(0).max(0);
+            let flank = request.flank.unwrap_or(0).clamp(0, MAX_FLANK);
             let pm = self.pm.read().await;
             let p = pm
                 .get_project_by_id(&id)
@@ -3707,8 +3782,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         "region start > end wraps the origin and is only allowed on circular sequences".to_string(),
                     )));
                 }
-                let s = (r.start - 1 - flank).max(0);
-                let e = (r.end - 1 + flank).min(len - 1);
+                let s = r.start.saturating_sub(1).saturating_sub(flank).max(0);
+                let e = r.end.saturating_sub(1).saturating_add(flank).min(len - 1);
                 Some((s, e))
             } else if let Some(fid) = &request.feature_id {
                 let f = match p.features.iter().find(|f| &f.id == fid) {
@@ -3747,7 +3822,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (Some(bases), None) => bases,
             (None, Some(path)) => {
                 crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
-                    ErrorData::internal_error(format!("invalid path: {}", e), None)
+                    ErrorData::invalid_params(format!("invalid path: {}", e), None)
                 })?;
                 let parsed = tokio::task::spawn_blocking(move || {
                     libregene_core::file_io::parse_file(std::path::Path::new(&path))
@@ -4362,7 +4437,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// output file stem) instead of a generic "CDS". PREFER writing the
     /// result to a file (and open_project it
     /// afterwards) over reading the `optimizedSequence` text — sequences move
-    /// between tools as files, not pasted text. `apply=true` is only meaningful in project mode: in
+    /// between tools as files, not pasted text. When `output_path` already
+    /// exists, `overwrite: true` is required (same rule as save_file).
+    /// `apply=true` is only meaningful in project mode: in
     /// sequence/input_path mode it requires `output_path` (there is no
     /// project to update).
     #[tool]
@@ -4390,6 +4467,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
             crate::validate_user_path(op, crate::CODON_OUTPUT_EXTS).map_err(|e| {
                 ErrorData::invalid_params(format!("invalid output_path: {}", e), None)
             })?;
+            if !request.overwrite.unwrap_or(false) && std::path::Path::new(op).exists() {
+                return Err(ErrorData::invalid_params(
+                    format!(
+                        "{} already exists — pass overwrite: true to replace it, or choose a different output_path",
+                        op
+                    ),
+                    None,
+                ));
+            }
         }
 
         let species = request.species.clone();
@@ -4453,13 +4539,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     result.unresolved.len(),
                 ));
                 if apply {
-                    let payload = crate::do_update_sequence(&self.pm, id.clone(), new_sequence)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e, None))?;
+                    let payload = crate::do_update_sequence(
+                        &self.app_handle,
+                        &self.pm,
+                        &self.wp,
+                        &self.agent_tabs,
+                        None,
+                        id.clone(),
+                        new_sequence,
+                        None,
+                    )
+                    .await
+                    .map_err(|e| ErrorData::internal_error(e, None))?;
                     if let Some(err) = Self::payload_error(&payload) {
                         return Ok(Json(fail_envelope(&id, err)));
                     }
-                    crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
                     if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
                         v["regionView"] = serde_json::json!(rv);
                     }
@@ -4625,7 +4719,7 @@ impl<R: Runtime> McpServer<R> {
 
     /// Update the config and restart the server only when something changed.
     pub async fn set_config(&self, enabled: bool, port: u16) -> Result<McpConfig, String> {
-        if !(1..=65535).contains(&port) {
+        if port == 0 {
             return Err(format!("Invalid port: {port} (must be 1-65535)"));
         }
         let changed = {
@@ -4766,22 +4860,32 @@ fn load_or_create_token<R: Runtime>(app: &AppHandle<R>) -> String {
 }
 
 /// Generate a 32-byte random bearer token, hex-encoded (64 chars).
+/// Reads the OS CSPRNG (/dev/urandom) on unix; elsewhere (Windows) falls back
+/// to time/pid mixing — a local-only shared secret (the threat is other local
+/// processes / browser rebinding), so no crypto crate is pulled in.
 fn generate_auth_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    // Mix in process id + a high-resolution counter for uniqueness without
-    // pulling a crypto crate. This is a local-only shared secret (the threat
-    // is other local processes / browser rebinding, not a remote attacker who
-    // can guess 64 hex chars); randomness quality matters less than presence.
     let mut buf = [0u8; 32];
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-        ^ (std::process::id() as u64);
-    let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-    for b in buf.iter_mut() {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        *b = (s >> 33) as u8;
+    #[cfg(unix)]
+    let filled = {
+        use std::io::Read;
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| f.read_exact(&mut buf))
+            .is_ok()
+    };
+    #[cfg(not(unix))]
+    let filled = false;
+    if !filled {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+            ^ (std::process::id() as u64);
+        let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        for b in buf.iter_mut() {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *b = (s >> 33) as u8;
+        }
     }
     buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -4982,7 +5086,10 @@ async fn serve_mcp<R: Runtime>(
         .layer(auth_layer);
 
     // Retry briefly on AddrInUse so a restart that races the previous
-    // instance's socket release still binds.
+    // instance's socket release still binds; give up (with a log trail) after
+    // ~2 s so a port held by another app doesn't spin forever.
+    const MAX_BIND_ATTEMPTS: u32 = 40;
+    let mut attempt = 0u32;
     loop {
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
@@ -4990,6 +5097,14 @@ async fn serve_mcp<R: Runtime>(
                 return axum::serve(listener, router).await.map_err(Into::into);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                attempt += 1;
+                if attempt >= MAX_BIND_ATTEMPTS {
+                    log::error!(
+                        "MCP server: {addr} still in use after {MAX_BIND_ATTEMPTS} bind attempts; giving up"
+                    );
+                    return Err(Box::new(e));
+                }
+                log::warn!("MCP server: {addr} in use, retrying ({attempt}/{MAX_BIND_ATTEMPTS})");
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
             Err(e) => return Err(Box::new(e)),
@@ -5500,7 +5615,7 @@ mod tests {
             .expect("mock app builds");
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
         let id = project.name.clone();
-        pm.write().await.load(&id, project);
+        pm.write().await.load(&id, project).unwrap();
         let agent_tabs: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         agent_tabs.write().await.insert(id.clone(), crate::AgentTabMeta { locked: true });
         LibreGeneMcp::new(
@@ -5519,7 +5634,7 @@ mod tests {
             .expect("mock app builds");
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
         let id = project.name.clone();
-        pm.write().await.load(&id, project);
+        pm.write().await.load(&id, project).unwrap();
         LibreGeneMcp::new(
             app.handle().clone(),
             pm,
@@ -8502,7 +8617,7 @@ mod tests {
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
         let project = edit_test_project();
         let id = project.name.clone();
-        pm.write().await.load(&id, project);
+        pm.write().await.load(&id, project).unwrap();
         let agent_tabs: crate::AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         // The user has unlocked the tab.
         agent_tabs.write().await.insert(id.clone(), crate::AgentTabMeta { locked: false });
@@ -8815,5 +8930,172 @@ mod tests {
         assert!(out.0["bytesWritten"].as_u64().unwrap() > 0, "{}", out.0);
         assert!(!server.pm.read().await.is_dirty(&id), "save marks clean");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A minus-strand feature export reverse-complements each piece — DNA-only
+    /// semantics. On protein/RNA projects it must be refused, not silently
+    /// complemented with the DNA alphabet.
+    #[tokio::test]
+    async fn save_file_region_minus_strand_feature_rejected_on_protein() {
+        let project = ProjectData {
+            name: "prot_test".to_string(),
+            sequence: "MVSAAAAAAAAR".to_string(),
+            length: 12,
+            topology: "linear".to_string(),
+            molecule_type: "protein".to_string(),
+            features: vec![feature("dom", "domain", 2, 8, "-")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-export-prot-{}.gpt", std::process::id()));
+        let err = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: "prot_test".to_string(),
+                path: out_path.to_string_lossy().into_owned(),
+                region: Some(RegionSpec {
+                    feature_id: Some("dom".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }))
+            .await
+            .err()
+            .expect("minus-strand feature export on a protein project must fail");
+        assert!(err.message.contains("minus strand"), "{err}");
+        assert!(err.message.contains("DNA"), "{err}");
+        assert!(!out_path.exists(), "no file written on refusal");
+    }
+
+    /// DNA/RNA replacements must be IUPAC nucleotide bases; a protein file as
+    /// replacement_path for a DNA project is rejected (and vice versa).
+    #[tokio::test]
+    async fn edit_sequence_validates_replacement_alphabet_and_file_type() {
+        let server = handler_with_project(edit_test_project()).await;
+
+        // Non-IUPAC letters rejected on a DNA project.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 10,
+                end: 12,
+                replacement: Some("AXZ".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(out.0["message"].as_str().unwrap().contains("IUPAC"), "{}", out.0);
+
+        // Degenerate IUPAC codes are accepted.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 10,
+                end: 12,
+                replacement: Some("NWR".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+
+        // A protein .gpt as replacement_path for a DNA project is refused.
+        let gpt_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-repl-{}.gpt", std::process::id()));
+        write_optimization_output(gpt_path.to_str().unwrap(), None, "MVS*", None, None).unwrap();
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 10,
+                end: 12,
+                replacement_path: Some(gpt_path.to_string_lossy().into_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(out.0["message"].as_str().unwrap().contains("protein"), "{}", out.0);
+        std::fs::remove_file(&gpt_path).ok();
+    }
+
+    /// optimize_cds's output_path follows the save_file overwrite rule: an
+    /// existing target needs an explicit overwrite flag.
+    #[tokio::test]
+    async fn optimize_cds_output_path_requires_overwrite() {
+        let server = test_handler();
+        let out_path = std::env::temp_dir()
+            .join(format!("libregene-mcp-opt-overwrite-{}.gbk", std::process::id()));
+        std::fs::write(&out_path, "placeholder").unwrap();
+
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            sequence: Some("ATGGTGAGCTAA".to_string()),
+            output_path: Some(out_path.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let err = server
+            .optimize_cds(Parameters(req))
+            .await
+            .err()
+            .expect("existing output_path without overwrite must fail");
+        assert!(err.message.contains("overwrite"), "{err}");
+
+        let req = OptimizeCdsRequest {
+            species: "e_coli".to_string(),
+            sequence: Some("ATGGTGAGCTAA".to_string()),
+            output_path: Some(out_path.to_string_lossy().into_owned()),
+            overwrite: Some(true),
+            ..Default::default()
+        };
+        let out = server.optimize_cds(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert_eq!(out.0["outputPath"], out_path.to_str().unwrap(), "{}", out.0);
+        std::fs::remove_file(&out_path).ok();
+    }
+
+    /// The primer engine stores a circular origin-wrapping primary binding
+    /// site as template_start near len with template_end = (start + len) %
+    /// tlen (< start). Region export must split that span into its two arcs —
+    /// previously the inverted span matched nothing and the primer was
+    /// silently dropped from the exported file.
+    #[test]
+    fn build_export_data_keeps_wrap_origin_primer() {
+        let seq = synthetic_dna(100, 5);
+        let site = libregene_core::models::PrimerBindingSite {
+            primer_id: "wp".to_string(),
+            strand: 1,
+            template_start: 95,
+            template_end: 5, // wraps the origin: covers 95..=99 and 0..=4
+            tm: 60.0,
+            gc_content: 0.5,
+            match_score: 10,
+            has_3_prime_mismatch: false,
+            five_prime_tail: String::new(),
+            three_prime_tail: String::new(),
+            alignment: Default::default(),
+        };
+        let project = ProjectData {
+            name: "wrap_primer".to_string(),
+            sequence: seq,
+            length: 100,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            primers: vec![Primer {
+                id: "wp".to_string(),
+                name: "wp".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: "AAAAAAAAAA".to_string(),
+                binding_sites: vec![site],
+            }],
+            ..Default::default()
+        };
+        // Export the wrap window 91..100,1..11 (0-based pieces).
+        let (_sequence, _features, primers) =
+            build_export_data(&project, &[(90, 99), (0, 10)], false);
+        assert_eq!(primers.len(), 1, "wrap-origin primer must be exported");
+        let site = &primers[0].binding_sites[0];
+        // Arc 95..=99 lands at 5..=9 of the export (offset 90→0).
+        assert_eq!((site.template_start, site.template_end), (5, 10));
     }
 }
