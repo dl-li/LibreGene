@@ -141,11 +141,14 @@ export function findSeqMatches(seq, query) {
   // by requiring an actual stop codon at every '*' position of the peptide.
   if (pepPattern && query.includes('*')) {
     const q = query.trim().toUpperCase();
-    const starOffsets = [];
-    for (let i = 0; i < q.length; i++) if (q[i] === '*') starOffsets.push(i * 3);
-    if (starOffsets.length > 0) {
+    const starIdx = [];
+    for (let i = 0; i < q.length; i++) if (q[i] === '*') starIdx.push(i);
+    if (starIdx.length > 0) {
       return out.filter((h) =>
-        starOffsets.every((off) => {
+        starIdx.every((i) => {
+          // Negative-strand ORFs read right-to-left: residue i sits at template
+          // offset (q.length - 1 - i) * 3.
+          const off = h.strand === '+' ? i * 3 : (q.length - 1 - i) * 3;
           const codon = seq.substr(h.start + off, 3).toUpperCase();
           return STOP_CODONS.has(h.strand === '+' ? codon : reverseComplementIupac(codon));
         }),
