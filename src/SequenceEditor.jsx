@@ -634,6 +634,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // misoperation while the MCP agent works.
   agentLocked = false,
   onUnlockAgent,
+  // Hidden workspaces stay mounted (CSS-only); global input listeners must not
+  // respond while this editor is not the visible one.
+  hidden = false,
 }) {
   const isDna = moleculeType === 'dna';
   // Length unit for the sequence: base pairs (DNA), nucleotides (ss-RNA),
@@ -2319,6 +2322,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const toLowercase = useCallback(() => convertSelectionCase(false), [convertSelectionCase]);
 
   useEffect(() => {
+    if (hidden) return undefined;
     const onKey = (e) => {
       // Ignore events from input/textarea (e.g. dialog textarea has focus)
       // Also skip when inside a dialog — let the browser handle text selection copy naturally
@@ -2492,6 +2496,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cancelDesignPick,
     isDna,
     topology,
+    hidden,
   ]);
 
   useEffect(() => {
@@ -2584,6 +2589,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   }, [cleanSeq, normFeatures]);
 
   useEffect(() => {
+    if (hidden) return undefined;
     const onKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
@@ -2592,7 +2598,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [hidden]);
 
   const applySearchHit = useCallback(
     (hit) => {
@@ -2719,7 +2725,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // --- Paste event: read clipboard and trigger insert/replace dialog ---
   useEffect(() => {
-    if (!onEditRequest) return;
+    if (!onEditRequest || hidden) return undefined;
     const onPaste = (e) => {
       // Ignore paste in input/textarea (e.g. dialog textarea, search input)
       const tag = e.target?.tagName?.toLowerCase();
@@ -2735,7 +2741,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [onEditRequest, requestPaste]);
+  }, [onEditRequest, requestPaste, hidden]);
 
   // Visible row range for enzyme virtualization.
   // Hold a stable object identity while start/end are unchanged: downstream
