@@ -347,7 +347,7 @@ export default function ProjectWorkspace({
   // whenever the toggle, sequence, topology, or backend availability changes.
   // Old ORFs stay visible during the refetch to avoid flicker.
   useEffect(() => {
-    if (!orfEnabled || backendStatus !== 'online' || !sequence) {
+    if (hidden || !orfEnabled || backendStatus !== 'online' || !sequence) {
       setOrfFeatures(EMPTY_ARRAY);
       return undefined;
     }
@@ -363,7 +363,7 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [orfEnabled, backendStatus, sequence, topology]);
+  }, [orfEnabled, backendStatus, sequence, topology, hidden]);
   const editorFeatures = useMemo(
     () => [...(showFeatures ? features : EMPTY_ARRAY), ...orfFeatures],
     [showFeatures, features, orfFeatures],
@@ -507,7 +507,7 @@ export default function ProjectWorkspace({
   const handleFeatureFtypeChange = useCallback(
     async (featureId, newFtype) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -533,7 +533,7 @@ export default function ProjectWorkspace({
   const handleFeatureColorChange = useCallback(
     async (featureId, newColor) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -559,7 +559,7 @@ export default function ProjectWorkspace({
   const handleFeatureNameChange = useCallback(
     async (featureId, newName) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -583,19 +583,22 @@ export default function ProjectWorkspace({
   );
 
   const handlePrimerChange = useCallback(
-    async (primerData) => {
+    async (primerData, { recordHistory = true } = {}) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
-        // Push current state to undo history before mutating
-        editHistoryRef.current.push({
-          sequence,
-          features: features || EMPTY_ARRAY,
-          primers: primers || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
+        // Push current state to undo history before mutating (batch callers
+        // push once via recordHistory on their first call only)
+        if (recordHistory) {
+          editHistoryRef.current.push({
+            sequence,
+            features: features || EMPTY_ARRAY,
+            primers: primers || EMPTY_ARRAY,
+            cursorIndex: null,
+            selStart: null,
+            selEnd: null,
+          });
+        }
         const data = await addPrimer(primerData);
         if (operationGenRef.current !== gen) return;
         if (data && data.primers) {
@@ -680,7 +683,7 @@ export default function ProjectWorkspace({
     async (entry) => {
       if (agentLockedRef.current) return;
       if (!entry) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -709,7 +712,7 @@ export default function ProjectWorkspace({
       (p) => bindingIds.has(p.id) && !inFile.has(String(p.seq || p.primerSeq || '').toUpperCase()),
     );
     if (!toAdd.length) return;
-    const gen = operationGenRef.current;
+    const gen = ++operationGenRef.current;
     try {
       editHistoryRef.current.push({
         sequence,
@@ -734,19 +737,22 @@ export default function ProjectWorkspace({
   );
 
   const handleFeatureAdd = useCallback(
-    async (featureData) => {
+    async (featureData, { recordHistory = true } = {}) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       const { locationStr, ...feature } = featureData;
-      // errors propagate so the dialog can display them
-      editHistoryRef.current.push({
-        sequence,
-        features: features || EMPTY_ARRAY,
-        primers: primers || EMPTY_ARRAY,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
-      });
+      // errors propagate so the dialog can display them; batch callers push
+      // history once via recordHistory on their first call only
+      if (recordHistory) {
+        editHistoryRef.current.push({
+          sequence,
+          features: features || EMPTY_ARRAY,
+          primers: primers || EMPTY_ARRAY,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+        });
+      }
       const data = await addFeature(feature, locationStr);
       if (operationGenRef.current !== gen) return;
       if (data && data.features) {
@@ -762,7 +768,7 @@ export default function ProjectWorkspace({
   const handleFeatureStrandChange = useCallback(
     async (featureId, strand) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -788,7 +794,7 @@ export default function ProjectWorkspace({
   const handleFeatureLocationChange = useCallback(
     async (featureId, locationStr) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       // errors propagate so the dialog can display them
       editHistoryRef.current.push({
         sequence,
@@ -811,7 +817,7 @@ export default function ProjectWorkspace({
   const handleDeleteFeature = useCallback(
     async (featureId) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -837,7 +843,7 @@ export default function ProjectWorkspace({
   const handleDeletePrimer = useCallback(
     async (primerId) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         editHistoryRef.current.push({
           sequence,
@@ -864,7 +870,7 @@ export default function ProjectWorkspace({
 
   const addAlignmentFiles = useCallback(
     async (paths) => {
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       const failed = [];
       let added = 0;
       let lastData = null;
@@ -909,7 +915,7 @@ export default function ProjectWorkspace({
   const handleAddAlignmentText = useCallback(
     async (name, seq) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       const data = await addAlignmentSeq(name, seq);
       if (operationGenRef.current !== gen) return;
       if (data && data.error) throw new Error(data.error);
@@ -939,7 +945,7 @@ export default function ProjectWorkspace({
   const handleRemoveAlignment = useCallback(
     async (alignmentId) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       try {
         const data = await removeAlignment(alignmentId);
         if (operationGenRef.current !== gen) return;
@@ -1012,7 +1018,7 @@ export default function ProjectWorkspace({
   const handleEditConfirm = useCallback(
     async (result) => {
       if (agentLockedRef.current) return;
-      const gen = operationGenRef.current;
+      const gen = ++operationGenRef.current;
       const { mode, cursorIndex, selStart, selEnd } = editDialog;
       let newSeq;
       const currentSeq = sequence || '';
@@ -1185,7 +1191,7 @@ export default function ProjectWorkspace({
   // --- Undo ---
   const handleUndo = useCallback(async () => {
     if (agentLockedRef.current) return;
-    const gen = operationGenRef.current;
+    const gen = ++operationGenRef.current;
     const snapshot = editHistoryRef.current.undo();
     if (!snapshot) return;
 
@@ -1199,7 +1205,7 @@ export default function ProjectWorkspace({
 
     // Send to backend for recomputation
     try {
-      const data = await updateSequence(snapshot.sequence, snapshot.features);
+      const data = await updateSequence(snapshot.sequence, snapshot.features, snapshot.primers);
       if (operationGenRef.current !== gen) return;
       if (data && !data.error) {
         setSequence(data.sequence);
@@ -1233,7 +1239,7 @@ export default function ProjectWorkspace({
   // --- Redo ---
   const handleRedo = useCallback(async () => {
     if (agentLockedRef.current) return;
-    const gen = operationGenRef.current;
+    const gen = ++operationGenRef.current;
     const snapshot = editHistoryRef.current.redo();
     if (!snapshot) return;
 
@@ -1245,7 +1251,7 @@ export default function ProjectWorkspace({
     });
 
     try {
-      const data = await updateSequence(snapshot.sequence, snapshot.features);
+      const data = await updateSequence(snapshot.sequence, snapshot.features, snapshot.primers);
       if (operationGenRef.current !== gen) return;
       if (data && !data.error) {
         setSequence(data.sequence);
@@ -1281,7 +1287,9 @@ export default function ProjectWorkspace({
 
     // Protein projects export as protein GenBank (.gpt); DNA/RNA as .gbk.
     const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
-    const rawName = projectIdRef.current ? projectIdRef.current.split('/').pop() : 'sequence.gbk';
+    const rawName = projectIdRef.current
+      ? projectIdRef.current.split('/').pop().split('\\').pop()
+      : 'sequence.gbk';
     const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
     const path = await saveFileDialog(defaultName, defaultExt);
     if (!path) return; // User cancelled

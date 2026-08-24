@@ -169,11 +169,16 @@ export default function EditorNavMenu({
     setSearchOpen((v) => !v);
   }, []);
 
+  const searchDebounceRef = useRef(null);
+  useEffect(() => () => clearTimeout(searchDebounceRef.current), []);
+
   const onQueryChange = useCallback(
     (e) => {
       const q = e.target.value;
       setQuery(q);
-      onSearch?.(q, 'reset', searchScope);
+      // Debounce: scanning the whole sequence on every keystroke is wasteful
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = setTimeout(() => onSearch?.(q, 'reset', searchScope), 200);
     },
     [onSearch, searchScope],
   );

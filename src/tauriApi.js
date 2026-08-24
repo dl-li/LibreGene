@@ -140,9 +140,15 @@ export async function writeTextFile(path, contents) {
 // Sequence
 // ---------------------------------------------------------------------------
 
-export async function updateSequence(sequence, features) {
+export async function updateSequence(sequence, features, primers) {
   assertEditable();
-  return tauriInvoke('update_sequence', { sequence, features: features || null });
+  return tauriInvoke('update_sequence', {
+    sequence,
+    features: features || null,
+    // Optional full replacement of the project's primers (undo/redo restores
+    // the snapshot's primers); the backend recomputes binding sites.
+    primers: primers || null,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +347,25 @@ export function listenAgentTabLock(callback) {
 
 export async function rekeyProject(oldId, newId) {
   return tauriInvoke('rekey_project', { oldId, newId });
+}
+
+/** Quit the app immediately, discarding unsaved changes (user-confirmed). */
+export async function forceQuit() {
+  return tauriInvoke('force_quit');
+}
+
+/** Listen for tray Quit requests blocked by unsaved changes (payload: dirty project ids). */
+export function listenQuitRequested(callback) {
+  let closed = false;
+  const ready = tauriListen('quit-requested', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

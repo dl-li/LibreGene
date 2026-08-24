@@ -37,6 +37,16 @@ function arcArrowPath(cx, cy, rOut, rIn, th0, th1, strand) {
 }
 
 function arcSectorPath(cx, cy, rOut, rIn, th0, th1) {
+  // A full-turn arc has identical start/end points and renders as nothing —
+  // split it into two half-turn arcs.
+  if (th1 - th0 >= TWO_PI - 1e-6) {
+    const mid = (th0 + th1) / 2;
+    return (
+      arcSectorPath(cx, cy, rOut, rIn, th0, mid) +
+      ' ' +
+      arcSectorPath(cx, cy, rOut, rIn, mid, th1)
+    );
+  }
   const [x0o, y0o] = pol(cx, cy, rOut, th0);
   const [x1o, y1o] = pol(cx, cy, rOut, th1);
   const [x1i, y1i] = pol(cx, cy, rIn, th1);
@@ -46,6 +56,11 @@ function arcSectorPath(cx, cy, rOut, rIn, th0, th1) {
 }
 
 function arcPath(cx, cy, r, th0, th1) {
+  // Full-turn arc: split into two halves (same degenerate-endpoint issue).
+  if (th1 - th0 >= TWO_PI - 1e-6) {
+    const mid = (th0 + th1) / 2;
+    return arcPath(cx, cy, r, th0, mid) + ' ' + arcPath(cx, cy, r, mid, th1);
+  }
   const [x0, y0] = pol(cx, cy, r, th0);
   const [x1, y1] = pol(cx, cy, r, th1);
   const large = th1 - th0 > Math.PI ? 1 : 0;
@@ -96,8 +111,16 @@ function layoutCircularLabels(features, length, R, half) {
   const labelR = R + 40;
   const GAP = 17;
   const items = features.map((f) => {
-    const segs = normSegments(f, length);
-    const mid = (segs[0].start + segs[segs.length - 1].end + 1) / 2;
+    let mid;
+    if (f.start > f.end) {
+      // Origin-wrapping feature: midpoint of the clockwise arc from the raw
+      // (unsplit) start to end — splitting first would point the leader at
+      // the opposite side of the circle.
+      mid = (f.start + (f.end + length - f.start + 1) / 2) % length;
+    } else {
+      const segs = normSegments(f, length);
+      mid = (segs[0].start + segs[segs.length - 1].end + 1) / 2;
+    }
     const th = (mid / length) * TWO_PI;
     return { f, th, w: featLabelW(f.name) };
   });

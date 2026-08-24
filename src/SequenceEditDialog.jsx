@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { InlineNotice } from '@/components/ui/notice';
 import { Repeat } from 'lucide-react';
+import { metaMatchesText } from './clipboardAnnotations';
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {
@@ -125,7 +126,9 @@ export default function SequenceEditDialog({
   }, [open, mode]);
 
   const cleaned = stripWhitespace(inputText);
-  const metaMatch = clipboardMeta && cleaned.length === clipboardMeta.length;
+  // Length alone is not enough — the annotations only apply when the pasted
+  // text is still equivalent to the one they were copied from.
+  const metaMatch = metaMatchesText(clipboardMeta, cleaned, filterLetters(initialText));
   const insertLen = cleaned.length;
   const deleteLen =
     mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0;

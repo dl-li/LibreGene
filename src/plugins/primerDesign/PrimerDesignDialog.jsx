@@ -215,12 +215,15 @@ function PrimerDesignDialogInner({
         const g = groups[i];
         const c = g.candidates.find((cand) => cand.seq === selections[i]);
         if (!c) return;
-        await onPrimerChange?.({
-          id: `primer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          name: g.name,
-          type: g.type,
-          primerSeq: c.seq,
-        });
+        await onPrimerChange?.(
+          {
+            id: `primer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: g.name,
+            type: g.type,
+            primerSeq: c.seq,
+          },
+          { recordHistory: i === 0 },
+        );
       }
       onOpenChange(false);
     } finally {

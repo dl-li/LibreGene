@@ -72,8 +72,9 @@ export function addMyPrimers(primers) {
       });
     }
   }
-  writeList(next.slice(0, MAX));
-  return next;
+  const trimmed = next.slice(0, MAX);
+  writeList(trimmed);
+  return trimmed;
 }
 
 export function removeMyPrimer(id) {

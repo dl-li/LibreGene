@@ -99,6 +99,31 @@ export function readClipboardMeta(pastedText) {
   return null;
 }
 
+/**
+ * True when `text` is equivalent (whitespace/case-insensitive) to the sequence
+ * the given clipboard meta was collected from. Uses the localStorage record
+ * when the meta is the one stored there; otherwise falls back to
+ * `fallbackText` (the text that accompanied the meta, e.g. from the same
+ * paste event).
+ */
+export function metaMatchesText(meta, text, fallbackText) {
+  if (!meta) return false;
+  const norm = (s) => (s || '').replace(/\s/g, '').toUpperCase();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const { text: storedText, meta: storedMeta } = JSON.parse(raw);
+      if (storedMeta && storedText && JSON.stringify(storedMeta) === JSON.stringify(meta)) {
+        return norm(storedText) === norm(text);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  if (fallbackText != null) return norm(fallbackText) === norm(text);
+  return norm(text).length === meta.length;
+}
+
 export function parseMetaFromPasteEvent(e) {
   try {
     const raw = e.clipboardData?.getData('application/x-libregene-annotations');

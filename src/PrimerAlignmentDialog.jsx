@@ -269,7 +269,7 @@ export default function PrimerAlignmentDialog({
         ? {
             id: `primer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name: editName || 'New Primer',
-            type: 'fwd',
+            type: primerType,
             primerSeq: stripIUPAC(editSeq),
           }
         : {
