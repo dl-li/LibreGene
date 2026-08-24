@@ -133,7 +133,11 @@ pub fn apply_methylation(
             let hi = rec_e + ov;
             let win_start = lo.saturating_sub(k - 1);
             let win_end = hi + k; // half-open
-            let window: Vec<u8> = if win_end <= tlen {
+            let window: Vec<u8> = if win_end.saturating_sub(win_start) >= tlen {
+                // Window spans the whole circle — wrapping would truncate it to
+                // one turn and skip targets; scan the entire template instead.
+                tpl.to_vec()
+            } else if win_end <= tlen {
                 match tpl.get(win_start..win_end) {
                     Some(w) => w.to_vec(),
                     None => continue,
@@ -254,6 +258,27 @@ mod tests {
         assert!(
             enzyme.methylation_blocked,
             "Dam target upstream within overlap should block the enzyme, but it was missed"
+        );
+    }
+
+    /// RED test for bug: an over-length scan window is truncated by wrapping.
+    ///
+    /// The rec ± ov scan window spans 17 bp but the template is only 10 bp;
+    /// `wrap_template_region` returned just `tpl[0..7]` and skipped the Dam
+    /// target at [6, 10). The fix scans the whole template whenever the
+    /// window covers the entire circle.
+    #[test]
+    fn test_methylation_sensitive_short_template_full_scan() {
+        let mut enzyme = make_enzyme(2, 9, false, true);
+        //       index: 0123456789
+        let template = "NNNNNNGATC"; // Dam target GATC at [6, 10)
+        let active_systems: Vec<String> = vec!["dam".to_string()];
+
+        apply_methylation(&mut enzyme, template, &active_systems, 4);
+
+        assert!(
+            enzyme.methylation_blocked,
+            "Dam target in the truncated tail of an over-length scan window must still block the enzyme"
         );
     }
 
