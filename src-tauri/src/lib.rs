@@ -616,6 +616,27 @@ async fn do_create_project(
                 }));
             }
         }
+        // Encoding order (same shape annotate.rs emits): linear segments
+        // ascending; an origin-wrapping feature leads with its tail, the one
+        // descending transition marking the origin. Out-of-order segments
+        // would make the first/last-derived bounds wrong (a phantom wrap).
+        let descents = f
+            .segments
+            .windows(2)
+            .filter(|w| w[1].start < w[0].start)
+            .count();
+        let ordered = f.segments.iter().all(|s| s.start <= s.end)
+            && descents <= 1
+            && (descents == 0
+                || f.segments.first().unwrap().start > f.segments.last().unwrap().end);
+        if !ordered {
+            return Ok(serde_json::json!({
+                "error": format!(
+                    "feature '{}' segments are not in encoding order (ascending starts; a wrapping feature leads with its tail)",
+                    f.name
+                )
+            }));
+        }
     }
 
     let features: Vec<Feature> = features
@@ -3916,5 +3937,108 @@ mod tests {
             "both primers must survive a concurrent add: {:?}",
             names
         );
+    }
+
+    #[tokio::test]
+    async fn create_project_validates_feature_segment_encoding_order() {
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        let seq = "A".repeat(5000);
+        let nf = |name: &str, segments: Vec<Segment>| NewFeatureInput {
+            name: name.to_string(),
+            ftype: "gene".to_string(),
+            color: "#fff".to_string(),
+            strand: "+".to_string(),
+            segments,
+        };
+
+        // Origin-wrapping feature in encoding order (tail first) keeps
+        // start > end semantics instead of being flattened.
+        let ok = do_create_project(
+            &pm,
+            &wp,
+            &agent_tabs,
+            "circ".to_string(),
+            seq.clone(),
+            "dna".to_string(),
+            "circular".to_string(),
+            vec![nf(
+                "wrap",
+                vec![
+                    Segment { start: 4900, end: 4999, color: None },
+                    Segment { start: 0, end: 99, color: None },
+                ],
+            )],
+        )
+        .await
+        .unwrap();
+        let feats = ok["features"].as_array().unwrap();
+        assert_eq!(feats[0]["start"], 4900);
+        assert_eq!(feats[0]["end"], 99);
+
+        // Head-before-tail disorder → explicit error instead of a phantom wrap.
+        let bad = do_create_project(
+            &pm,
+            &wp,
+            &agent_tabs,
+            "circ2".to_string(),
+            seq.clone(),
+            "dna".to_string(),
+            "circular".to_string(),
+            vec![nf(
+                "bad",
+                vec![
+                    Segment { start: 0, end: 99, color: None },
+                    Segment { start: 4900, end: 4999, color: None },
+                    Segment { start: 200, end: 299, color: None },
+                ],
+            )],
+        )
+        .await
+        .unwrap();
+        assert!(
+            bad["error"].as_str().unwrap().contains("encoding order"),
+            "{}",
+            bad
+        );
+
+        // A segment with start > end is not a linear span → error.
+        let bad2 = do_create_project(
+            &pm,
+            &wp,
+            &agent_tabs,
+            "circ3".to_string(),
+            seq.clone(),
+            "dna".to_string(),
+            "circular".to_string(),
+            vec![nf("bad2", vec![Segment { start: 100, end: 50, color: None }])],
+        )
+        .await
+        .unwrap();
+        assert!(bad2["error"].as_str().is_some(), "{}", bad2);
+
+        // Multi-segment linear feature (ascending, no wrap) stays valid.
+        let ok2 = do_create_project(
+            &pm,
+            &wp,
+            &agent_tabs,
+            "linear".to_string(),
+            seq.clone(),
+            "dna".to_string(),
+            "linear".to_string(),
+            vec![nf(
+                "multi",
+                vec![
+                    Segment { start: 10, end: 20, color: None },
+                    Segment { start: 30, end: 40, color: None },
+                ],
+            )],
+        )
+        .await
+        .unwrap();
+        let feats2 = ok2["features"].as_array().unwrap();
+        assert_eq!(feats2[0]["start"], 10);
+        assert_eq!(feats2[0]["end"], 40);
     }
 }
