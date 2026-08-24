@@ -157,18 +157,24 @@ struct ProjectParams {
 const DEFAULT_CPL: i64 = 60;
 
 /// Resolve the project_id for a given window:
-/// - Project windows look up their mapping in `window_projects`
-/// - The main window falls back to `ProjectManager::active_id()`
-async fn resolve_project_id(state: &State<'_, AppState>, window_label: &str) -> Option<String> {
-    // Check per-window mapping first
-    let wp = state.window_projects.read().await;
-    if let Some(pid) = wp.get(window_label) {
-        return Some(pid.clone());
+/// - Project windows look up their mapping in `window_projects`; a miss means
+///   the project was evicted — never fall back to the main window's active
+///   project, or the window's mutations would silently hit the wrong file.
+/// - The main window falls back to `ProjectManager::active_id()`.
+async fn resolve_project_id(
+    state: &State<'_, AppState>,
+    window_label: &str,
+) -> Result<String, String> {
+    if window_label != "main" {
+        let wp = state.window_projects.read().await;
+        return wp.get(window_label).cloned().ok_or_else(|| {
+            "Project not found in this window (may have been evicted); reload the file".to_string()
+        });
     }
-    drop(wp);
-    // Fall back to active project (main window)
     let pm = state.pm.read().await;
-    pm.active_id().map(|s| s.to_string())
+    pm.active_id()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No project loaded".to_string())
 }
 
 /// Returns the set of project IDs that are currently open in dedicated project windows.
@@ -1685,10 +1691,9 @@ async fn get_project(
     let params = ProjectParams { enzyme_filter, row_start, row_end, cpl };
 
     // Resolve project_id for this window
-    let project_id = resolve_project_id(&state, &window_label).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, &window_label).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     let pm = state.pm.read().await;
@@ -1751,10 +1756,9 @@ async fn save_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    match project_id {
-        Some(id) => do_save_file(&state.pm, id, path).await,
-        None => Ok(serde_json::json!({"error": "No project loaded"})),
+    match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => do_save_file(&state.pm, id, path).await,
+        Err(e) => Ok(serde_json::json!({"error": e})),
     }
 }
 
@@ -1779,10 +1783,9 @@ async fn update_sequence(
     features: Option<Vec<Feature>>,
     primers: Option<Vec<Primer>>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
     if let Some(features) = features {
         let mut pm = state.pm.write().await;
@@ -1814,9 +1817,8 @@ async fn set_roi(
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    match project_id {
-        Some(id) => {
+    match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => {
             let mut pm = state.pm.write().await;
             if let Some(p) = pm.get_project_mut_by_id(&id) {
                 p.roi = Some((start, end));
@@ -1824,7 +1826,7 @@ async fn set_roi(
             }
             Ok(serde_json::json!({"status": "ok"}))
         }
-        None => Ok(serde_json::json!({"error": "No project loaded"})),
+        Err(e) => Ok(serde_json::json!({"error": e})),
     }
 }
 
@@ -1833,9 +1835,8 @@ async fn clear_roi(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    match project_id {
-        Some(id) => {
+    match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => {
             let mut pm = state.pm.write().await;
             if let Some(p) = pm.get_project_mut_by_id(&id) {
                 p.roi = None;
@@ -1843,7 +1844,7 @@ async fn clear_roi(
             }
             Ok(serde_json::json!({"status": "ok"}))
         }
-        None => Ok(serde_json::json!({"error": "No project loaded"})),
+        Err(e) => Ok(serde_json::json!({"error": e})),
     }
 }
 
@@ -1856,16 +1857,15 @@ async fn get_features(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    match project_id {
-        Some(id) => {
+    match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => {
             let pm = state.pm.read().await;
             match pm.get_project_by_id(&id) {
                 Some(p) => Ok(serde_json::to_value(&p.features).unwrap_or(serde_json::json!([]))),
                 None => Ok(serde_json::json!([])),
             }
         }
-        None => Ok(serde_json::json!([])),
+        Err(_) => Ok(serde_json::json!([])),
     }
 }
 
@@ -1877,10 +1877,9 @@ async fn add_feature(
     feature: Feature,
     location_str: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     // If location_str is provided, parse and validate it (0-based inclusive,
@@ -1919,10 +1918,9 @@ async fn delete_feature(
     app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_delete_feature(
@@ -1945,10 +1943,9 @@ async fn update_feature_ftype(
     feature_id: String,
     new_ftype: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_update_feature(
@@ -1979,10 +1976,9 @@ async fn update_feature_color(
     feature_id: String,
     new_color: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_update_feature(
@@ -2017,10 +2013,9 @@ async fn update_feature_name(
     feature_id: String,
     new_name: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_update_feature(
@@ -2051,10 +2046,9 @@ async fn update_feature_strand(
     feature_id: String,
     strand: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     let valid = strand == "." || strand == "+" || strand == "-";
@@ -2090,10 +2084,9 @@ async fn update_feature_location(
     feature_id: String,
     location_str: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_update_feature(
@@ -2140,9 +2133,8 @@ async fn get_primers(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    match project_id {
-        Some(id) => {
+    match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => {
             let pm = state.pm.read().await;
             match pm.get_project_by_id(&id) {
                 Some(p) => {
@@ -2156,7 +2148,7 @@ async fn get_primers(
                 None => Ok(serde_json::json!([])),
             }
         }
-        None => Ok(serde_json::json!([])),
+        Err(_) => Ok(serde_json::json!([])),
     }
 }
 
@@ -2167,10 +2159,9 @@ async fn add_primer(
     app_handle: AppHandle,
     primer: Primer,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_add_primer(
@@ -2192,10 +2183,9 @@ async fn delete_primer(
     app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_delete_primer(
@@ -2220,10 +2210,9 @@ async fn check_primers_binding(
     state: State<'_, AppState>,
     primers: Vec<Primer>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_check_primers_binding(&state.pm, &project_id, primers).await
@@ -2238,10 +2227,9 @@ async fn add_primers(
     app_handle: AppHandle,
     primers: Vec<Primer>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     // Snapshot under the read lock; merge + binding-site recompute (CPU-heavy)
@@ -2319,8 +2307,7 @@ async fn compute_primer_alignment(
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await
-        .ok_or_else(|| "No project loaded".to_string())?;
+    let project_id = resolve_project_id(&state, webview_window.label()).await?;
 
     // Clone all needed data while holding the read lock, then drop it before spawn_blocking.
     let (template, topology, existing_primers) = {
@@ -2584,8 +2571,7 @@ async fn find_orfs(
     state: State<'_, AppState>,
     min_aa: Option<usize>,
 ) -> Result<Vec<Feature>, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await
-        .ok_or_else(|| "No project loaded".to_string())?;
+    let project_id = resolve_project_id(&state, webview_window.label()).await?;
 
     do_find_orfs(&state.pm, &project_id, min_aa).await
 }
@@ -2598,8 +2584,7 @@ async fn search_sequence(
     state: State<'_, AppState>,
     query: String,
 ) -> Result<Vec<libregene_core::search::SeqMatch>, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await
-        .ok_or_else(|| "No project loaded".to_string())?;
+    let project_id = resolve_project_id(&state, webview_window.label()).await?;
 
     do_search_sequence(&state.pm, &project_id, query).await
 }
@@ -2616,9 +2601,7 @@ async fn annotate_features(
 ) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
     let project_id = match project_id {
         Some(id) => id,
-        None => resolve_project_id(&state, webview_window.label())
-            .await
-            .ok_or_else(|| "No project loaded".to_string())?,
+        None => resolve_project_id(&state, webview_window.label()).await?,
     };
 
     do_annotate_features(&state.pm, &project_id).await
@@ -2676,8 +2659,7 @@ async fn preview_codon_optimization(
     avoid_enzyme_sites: Option<Vec<String>>,
     gc_window: Option<(usize, f64, f64)>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await
-        .ok_or_else(|| "No project loaded".to_string())?;
+    let project_id = resolve_project_id(&state, webview_window.label()).await?;
     let project = {
         let pm = state.pm.read().await;
         pm.get_project_by_id(&project_id)
@@ -2721,8 +2703,7 @@ async fn apply_codon_optimization(
     avoid_enzyme_sites: Option<Vec<String>>,
     gc_window: Option<(usize, f64, f64)>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await
-        .ok_or_else(|| "No project loaded".to_string())?;
+    let project_id = resolve_project_id(&state, webview_window.label()).await?;
     let project = {
         let pm = state.pm.read().await;
         pm.get_project_by_id(&project_id)
@@ -2817,8 +2798,7 @@ async fn design_primer_candidates(
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
 ) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await
-        .ok_or_else(|| "No project loaded".to_string())?;
+    let project_id = resolve_project_id(&state, webview_window.label()).await?;
 
     do_design_primer_candidates(
         &state.pm,
@@ -2856,10 +2836,9 @@ async fn add_alignment(
     app_handle: AppHandle,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     let project_clone = {
@@ -2937,10 +2916,9 @@ async fn add_alignment_seq(
     name: String,
     seq: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_add_alignment_seq(
@@ -2963,10 +2941,9 @@ async fn remove_alignment(
     app_handle: AppHandle,
     alignment_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_remove_alignment(
@@ -2993,10 +2970,9 @@ async fn set_methylation(
     systems: Vec<String>,
     overlap: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
     do_set_methylation(
@@ -3318,10 +3294,9 @@ async fn rekey_project(
     old_id: String,
     new_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await;
-    let project_id = match project_id {
-        Some(id) => id,
-        None => return Ok(serde_json::json!({"error": "No project loaded"})),
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
     };
     if project_id != old_id {
         return Ok(serde_json::json!({"error": "Project ID mismatch"}));
@@ -3793,5 +3768,52 @@ mod tests {
         // annealLen covers the tail bases that pair (14), beyond a nominal
         // 13-bp design core — the documented design/check discrepancy.
         assert_eq!(site["annealLen"], 14);
+    }
+
+    #[tokio::test]
+    async fn resolve_project_id_never_falls_back_for_evicted_project_windows() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: "GATTACA".to_string(),
+                    length: 7,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        app.manage(AppState {
+            pm: pm.clone(),
+            window_projects: Arc::new(RwLock::new(HashMap::new())),
+            agent_tabs: Arc::new(RwLock::new(HashMap::new())),
+            pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
+            tray_status: Arc::new(std::sync::Mutex::new(None)),
+        });
+        let state = app.state::<AppState>();
+
+        // Main window falls back to the active project.
+        assert_eq!(resolve_project_id(&state, "main").await.unwrap(), "p1");
+
+        // Project windows resolve through their mapping.
+        state
+            .window_projects
+            .write()
+            .await
+            .insert("project-x-1".to_string(), "p1".to_string());
+        assert_eq!(resolve_project_id(&state, "project-x-1").await.unwrap(), "p1");
+
+        // Evicted (mapping pruned): the window errors instead of silently
+        // falling back to the main window's active project — which would
+        // route its mutations to the wrong file.
+        state.window_projects.write().await.remove("project-x-1");
+        let err = resolve_project_id(&state, "project-x-1").await.unwrap_err();
+        assert!(err.contains("evicted"), "{err}");
     }
 }
