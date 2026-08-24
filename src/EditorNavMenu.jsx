@@ -185,6 +185,9 @@ export default function EditorNavMenu({
 
   const onSearchKeyDown = useCallback(
     (e) => {
+      // Drop any pending debounce so Enter/Tab navigation isn't clobbered by a
+      // stale timer (which would reset the nav index / use the old scope).
+      clearTimeout(searchDebounceRef.current);
       if (e.key === 'Enter') {
         e.preventDefault();
         if (query) onSearch?.(query, e.shiftKey ? 'prev' : 'next', searchScope);
@@ -203,6 +206,9 @@ export default function EditorNavMenu({
 
   const navTotal = searchNav && searchNav.query === query ? searchNav.total : 0;
   const navIndex = searchNav && searchNav.query === query ? searchNav.index : -1;
+  // 1-2 base nucleotide queries are rejected by findSeqMatches (min length 3);
+  // surface a hint instead of silently showing "0/0".
+  const shortNucQuery = /^[ACGTURYSWKMBDHVN]{1,2}$/.test(query?.trim().toUpperCase() || '');
 
   return (
     <div
@@ -505,7 +511,13 @@ export default function EditorNavMenu({
           />
           {query && (
             <span className="mr-0.5 flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
-              {navTotal > 0 ? `${navIndex + 1}/${navTotal}` : '0/0'}
+              {shortNucQuery ? (
+                'Enter at least 3 bases'
+              ) : navTotal > 0 ? (
+                `${navIndex + 1}/${navTotal}`
+              ) : (
+                '0/0'
+              )}
               <button
                 type="button"
                 aria-label="Previous match"
