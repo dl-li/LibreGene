@@ -111,6 +111,8 @@ export default function DetectFeaturesDialog({
     setAdding(true);
     setAddError('');
     const failures = [];
+    let lastOk = null;
+    let lastOkIndex = -1;
     for (let i = 0; i < chosen.length; i++) {
       const { hit } = chosen[i];
       const feature = {
@@ -122,8 +124,19 @@ export default function DetectFeaturesDialog({
       };
       try {
         await onAddFeature(feature, { recordHistory: i === chosen.length - 1 });
+        lastOk = feature;
+        lastOkIndex = i;
       } catch (e) {
         failures.push(`${hit.name} (${e?.message || e})`);
+      }
+    }
+    // When the last item failed the batch still needs one history snapshot —
+    // re-adding the last successful feature is an idempotent upsert (same id).
+    if (lastOk && lastOkIndex !== chosen.length - 1) {
+      try {
+        await onAddFeature(lastOk, { recordHistory: true });
+      } catch (e) {
+        console.error('record history error:', e);
       }
     }
     setAdding(false);
