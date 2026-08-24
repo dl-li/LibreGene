@@ -364,6 +364,7 @@ function SelectionLengthBadge({
   enzymeActiveBlue,
   amplimerGreen,
   hasWarningBelow,
+  topology = 'linear',
   unit = 'bp',
   showGc = true,
   showMw = false,
@@ -383,9 +384,12 @@ function SelectionLengthBadge({
     let intervening;
     if (fwdPrimer.matchEnd < revPrimer.matchStart) {
       intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
-    } else {
+    } else if (topology === 'circular') {
       intervening =
         cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
+    } else {
+      // Linear template: primers overlapping / facing away — no valid amplicon
+      return null;
     }
     len = fSeq.length + intervening.length + rSeq.length;
     seqToCopy = fSeq + intervening + reverseComplement(rSeq);
@@ -703,6 +707,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const lastVisibleStartRef = useRef(-1);
   const lastVisibleEndRef = useRef(-1);
   const numRowsRef = useRef(1);
+  const avgRowPitchRef = useRef(60); // average row pitch, kept in sync at svgHeight
   const svgRef = useRef(null);
 
   // --- selection state ---
@@ -711,6 +716,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [selEnd, setSelEnd] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectionTm, setSelectionTm] = useState(null);
+  const tmLastRunRef = useRef(0); // last computeTm dispatch time (drag throttle)
   const dragRef = useRef({ startIdx: null, active: false });
   const isDraggingRef = useRef(false);
   const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -783,7 +789,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     setTranslationSel(restoreState.translationSel ?? null);
     translationDragRef.current = null;
     setIsTranslationDragging(false);
-    if (restoreState.cursorIndex !== null) {
+    if (restoreState.cursorIndex != null) {
       resetCursorTimer();
     }
     if (restoreState.scrollToIndex != null) {
@@ -978,7 +984,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const sy = scroller ? scroller.scrollTop : window.scrollY;
           if (scroller) setViewportH(scroller.clientHeight || 900);
           const nr = numRowsRef.current;
-          const estRowH = 60;
+          const estRowH = avgRowPitchRef.current || 60;
           const buf = 8;
           const vh = scroller ? scroller.clientHeight || 900 : window.innerHeight || 900;
           const estStart = Math.max(0, Math.floor(sy / estRowH) - buf - 1);
@@ -1039,11 +1045,21 @@ const SequenceEditor = React.memo(function SequenceEditor({
       return;
     }
     let cancelled = false;
-    computeTm(seq, tmParams).then((tm) => {
-      if (!cancelled) setSelectionTm(tm);
-    });
+    let timer = null;
+    const run = () => {
+      tmLastRunRef.current = Date.now();
+      computeTm(seq, tmParams).then((tm) => {
+        if (!cancelled) setSelectionTm(tm);
+      });
+    };
+    // Throttle to ~100ms while dragging; trailing call ensures the final
+    // position still gets computed.
+    const elapsed = Date.now() - tmLastRunRef.current;
+    if (elapsed >= 100) run();
+    else timer = setTimeout(run, 100 - elapsed);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [isDragging, selStart, selEnd, cleanSeq, tmParams, isDna]);
 
@@ -1677,6 +1693,28 @@ const SequenceEditor = React.memo(function SequenceEditor({
   }, [rowY, rowAbove, charsPerLine, scrollContainerRef]);
 
   // --- selection: coordinate conversion & event handlers ---
+  // Row tops (getSeqY(r) - rowAbove[r]) increase monotonically, so the row
+  // containing a given y can be found by binary search.
+  const rowAtSvgY = useCallback(
+    (y) => {
+      let lo = 0,
+        hi = numRows - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const top = getSeqY(mid) - rowAbove[mid];
+        if (y < top) {
+          hi = mid - 1;
+          continue;
+        }
+        const bottom = mid < numRows - 1 ? getSeqY(mid + 1) - rowAbove[mid + 1] : Infinity;
+        if (y < bottom) return mid;
+        lo = mid + 1;
+      }
+      return -1;
+    },
+    [numRows, getSeqY, rowAbove],
+  );
+
   const clientToSeqIndex = useCallback(
     (clientX, clientY) => {
       if (!svgRef.current) return null;
@@ -1694,21 +1732,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const col = Math.max(0, Math.min(charsPerLine, colBase + side));
       // Content-based row boundaries: top of current row → top of next row
       // Row spacing already ensures a gap between row content areas
-      let row = -1;
-      for (let r = 0; r < numRows; r++) {
-        const sy = getSeqY(r);
-        const top = sy - rowAbove[r];
-        const bottom = r < numRows - 1 ? getSeqY(r + 1) - rowAbove[r + 1] : Infinity;
-        if (svgPt.y >= top && svgPt.y < bottom) {
-          row = r;
-          break;
-        }
-      }
+      const row = rowAtSvgY(svgPt.y);
       if (row < 0) return null;
       const idx = row * charsPerLine + col;
       return Math.max(0, Math.min(cleanSeq.length, idx));
     },
-    [charsPerLine, numRows, getSeqY, cleanSeq],
+    [charsPerLine, rowAtSvgY, cleanSeq],
   );
 
   // Returns which character the pointer is over (0-based char index), not the insertion point
@@ -1726,21 +1755,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
       let col = Math.floor(xRel / cw);
       if (xRel < 0) col = 0;
       if (col >= charsPerLine) col = charsPerLine - 1;
-      let row = -1;
-      for (let r = 0; r < numRows; r++) {
-        const sy = getSeqY(r);
-        const top = sy - rowAbove[r];
-        const bottom = r < numRows - 1 ? getSeqY(r + 1) - rowAbove[r + 1] : Infinity;
-        if (svgPt.y >= top && svgPt.y < bottom) {
-          row = r;
-          break;
-        }
-      }
+      const row = rowAtSvgY(svgPt.y);
       if (row < 0) return null;
       const idx = row * charsPerLine + col;
       return Math.max(0, Math.min(cleanSeq.length - 1, idx));
     },
-    [charsPerLine, numRows, getSeqY, cleanSeq],
+    [charsPerLine, rowAtSvgY, cleanSeq],
   );
 
   const handleSvgMouseDown = useCallback(
@@ -2075,7 +2095,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       showContextMenu(e.clientX, e.clientY, items);
     },
-    [cleanSeq, selectFeature, writeClipboard],
+    [cleanSeq, selectFeature, writeClipboard, features, primers],
   );
 
   // Select a primer (same as left-click on its arrow, without starting a drag)
@@ -2137,6 +2157,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const fwdPrimer = fp && fp.isFwd ? fp : rp;
     const revPrimer = fp && !fp.isFwd ? fp : rp;
     if (!fwdPrimer || !revPrimer) return;
+    // Linear template: no valid amplicon when the fwd primer is not upstream
+    if (topology !== 'circular' && fwdPrimer.matchEnd >= revPrimer.matchStart) return;
     const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
     const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
     let intervening;
@@ -2147,7 +2169,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
     }
     writeClipboard(fSeq + intervening + reverseComplement(rSeq));
-  }, [selectedPrimerIds, enrichedPrimers, cleanSeq, writeClipboard]);
+  }, [selectedPrimerIds, enrichedPrimers, cleanSeq, writeClipboard, topology]);
 
   // Generic right-click on the editor canvas: menu reflects the current selection.
   // Feature / primer elements attach their own menus and stopPropagation.
@@ -2388,6 +2410,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const fwdPrimer = fp && fp.isFwd ? fp : rp;
           const revPrimer = fp && !fp.isFwd ? fp : rp;
           if (fwdPrimer && revPrimer) {
+            // Linear template: no valid amplicon when the fwd primer is not upstream
+            if (topology !== 'circular' && fwdPrimer.matchEnd >= revPrimer.matchStart) return;
             const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
             const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
             let intervening;
@@ -2467,6 +2491,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     designPick,
     cancelDesignPick,
     isDna,
+    topology,
   ]);
 
   useEffect(() => {
@@ -2476,6 +2501,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     () => () => {
       clearCursorTimer();
       clearTimeout(featureLeaveRef.current);
+      clearTimeout(primerDimTimerRef.current);
     },
     [clearCursorTimer],
   );
@@ -2547,6 +2573,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [searchNav, setSearchNav] = useState({ query: '', index: -1, total: 0 });
   const searchStateRef = useRef({ query: '', scope: 'all', results: [], index: -1 });
   const openSearchRef = useRef(null);
+
+  // Cached results key only on query+scope, so reset them when the searched
+  // data (sequence / features) changes.
+  useEffect(() => {
+    const st = searchStateRef.current;
+    st.query = '';
+    st.results = [];
+    st.index = -1;
+  }, [cleanSeq, normFeatures]);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -2746,6 +2781,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     });
   }, [enzymes, visibleRows, charsPerLine]);
   const svgHeight = rowY[rowY.length - 1] + Math.max(40, rowBelow[numRows - 1] + 24);
+  avgRowPitchRef.current = numRows > 1 ? (rowY[numRows - 1] - rowY[0]) / (numRows - 1) : 60;
 
   const ROW_BUF = 8; // rows above/below viewport to pre-render
 
@@ -2825,15 +2861,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (xRel < 0) col = 0;
       if (col >= charsPerLine) col = charsPerLine - 1;
 
-      let row = -1;
-      for (let r = 0; r < numRows; r++) {
-        const top = getSeqY(r) - rowAbove[r];
-        const bottom = r < numRows - 1 ? getSeqY(r + 1) - rowAbove[r + 1] : Infinity;
-        if (svgPt.y >= top && svgPt.y < bottom) {
-          row = r;
-          break;
-        }
-      }
+      const row = rowAtSvgY(svgPt.y);
       if (row < 0) return;
 
       const idx = row * charsPerLine + col;
@@ -2849,7 +2877,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
     window.addEventListener('mousemove', onMove);
     return () => window.removeEventListener('mousemove', onMove);
-  }, [cdsFeatureData, charsPerLine, numRows, getSeqY, rowAbove]);
+  }, [cdsFeatureData, charsPerLine, rowAtSvgY]);
 
   const renderedFeatures = useMemo(() => {
     if (!visibleFeatures.length) return null;
@@ -3118,6 +3146,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alignLaneInfo,
     alwaysExpandFeatures,
     hoveredCodon,
+    openFeatureMenu,
   ]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
@@ -3905,6 +3934,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     isPrimerDragging,
     primerDimActive,
     openPrimerMenu,
+    alignLaneInfo,
   ]);
 
   // Pre-compute enzyme geometry — one entry per cut pair (cut-twice enzymes get 2 entries)
@@ -4163,17 +4193,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
               return;
             }
 
-            // Start enzyme drag — immediately select recognition site range
-            setSelStart(enzyme.displayStart);
-            setSelEnd(enzyme.displayEnd);
+            // Start enzyme drag — immediately select the recognition site.
+            // Sites wrapping the origin of a circular sequence (recEnd beyond
+            // the sequence length) fall back to the display window.
+            const recWraps = enzyme.recStart == null || enzyme.recEnd >= cleanSeq.length;
+            const recSelStart = recWraps ? enzyme.displayStart : enzyme.recStart;
+            const recSelEnd = recWraps ? enzyme.displayEnd : enzyme.recEnd;
+            setSelStart(recSelStart);
+            setSelEnd(recSelEnd);
             setCursorIndex(null);
             enzymeDragRef.current = {
               active: true,
               startEnzymeId: l.groupId,
               startName: l.name,
               startCutIdx: cutIdx,
-              recStart: enzyme.displayStart,
-              recEnd: enzyme.displayEnd,
+              recStart: recSelStart,
+              recEnd: recSelEnd,
               didDrag: false,
               backToStart: false,
               hoveredId: l.id,
@@ -4246,6 +4281,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selectedEnzymeIds,
     isEnzymeSelection,
     clearCursorTimer,
+    cleanSeq,
   ]);
 
   const renderedEnzymeOverlay = useMemo(() => {
@@ -4559,7 +4595,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
 
     let ranges;
-    if (fwdPrimer.matchEnd >= revPrimer.matchStart) {
+    if (topology === 'circular' && fwdPrimer.matchEnd >= revPrimer.matchStart) {
       // Circular: wrap from fwd end+1 to end of seq, then 0 to rev start-1
       ranges = [
         segsByRange(fwdPrimer.matchEnd + 1, cleanSeq.length - 1),
@@ -4616,7 +4652,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
         })}
       </g>
     );
-  }, [selectionMode, selectedPrimerIds, enrichedPrimers, cleanSeq, charsPerLine, getSeqY, sp]);
+  }, [
+    selectionMode,
+    selectedPrimerIds,
+    enrichedPrimers,
+    cleanSeq,
+    charsPerLine,
+    getSeqY,
+    sp,
+    topology,
+  ]);
 
   const renderedCursor = useMemo(() => {
     if (cursorIndex === null) return null;
@@ -4642,8 +4687,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
     charsPerLine,
     numRows,
     getSeqY,
+    rowAbove,
     rowBelow,
     selectionMode,
+    currentSelColor,
   ]);
 
   const renderedHoverIndex = useMemo(() => {
@@ -4954,6 +5001,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         enzymeActiveBlue={enzymeActiveBlue}
         amplimerGreen={amplimerGreen}
         hasWarningBelow={combinedWarnings.length > 0}
+        topology={topology}
         unit={seqUnit}
         showGc={moleculeType !== 'protein'}
         showMw={moleculeType === 'protein'}
