@@ -10,9 +10,12 @@ import {
   getProjects,
   activateProject,
   getWindowProjectId,
+  getAgentTabState,
   setAgentTabLocked,
   setAgentEditLock,
   listenAgentTabLock,
+  listenQuitRequested,
+  forceQuit,
   openInNewWindow,
   deleteProject,
   setWindowTitle,
@@ -173,7 +176,6 @@ export default function App() {
       return { enabled: true, port: 8766 };
     }
   });
-  const [openPath] = useState('');
   const activeIdRef = useRef(null);
   // Per-project dirty state reported by workspaces: { [projectId]: bool }
   const [dirtyById, setDirtyById] = useState({});
@@ -183,6 +185,10 @@ export default function App() {
   // { added, failed } for per-file failure feedback after alignment import.
   const [dropConfirm, setDropConfirm] = useState(null);
   const [dropResult, setDropResult] = useState(null);
+  // Per-file failures from the Open File dialog: [{ path, error }]
+  const [openError, setOpenError] = useState(null);
+  // Tray Quit blocked by unsaved changes: array of dirty project ids
+  const [quitRequest, setQuitRequest] = useState(null);
   const handlesRef = useRef({}); // { [projectId]: workspace imperative handle }
   const initialDataRef = useRef({}); // { [projectId]: openFile response } — consumed on workspace mount
   const keyMapRef = useRef({}); // { [projectId]: stable React key } — survives Save As rekey
@@ -358,6 +364,16 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [anyDirty]);
 
+  // Tray Quit with unsaved changes: backend shows this window and emits
+  // quit-requested (payload = dirty project ids); confirm here before force-quit.
+  useEffect(() => {
+    if (!isTauri || !windowInfo || windowInfo.type !== 'main') return;
+    const listener = listenQuitRequested((dirtyIds) => {
+      setQuitRequest(dirtyIds);
+    });
+    return () => listener.close();
+  }, [windowInfo]);
+
   // Title: filename of the active project, or the app name
   const activeTitle = activeId
     ? activeId.split('/').pop().split('\\').pop()
@@ -416,33 +432,48 @@ export default function App() {
     unsavedPendingRef.current = pendingAction;
   }, []);
 
+  // Switching is lossless (workspaces stay mounted) — just update activeId
+  const handleSwitchProject = useCallback((id) => {
+    if (!id || id === activeIdRef.current) return;
+    setActiveId(id);
+    activateProject(id)
+      .then((data) => {
+        if (data && data.projects) setProjects(data.projects);
+      })
+      .catch((e) => console.error('activate project error:', e));
+  }, []);
+
   const handleOpenFile = useCallback(async () => {
-    let paths;
-    if (isTauri) {
-      // Start the native dialog in the directory of the last opened file,
-      // so the user doesn't have to navigate from scratch each time.
-      const lastDir = dirOf(getLastOpenedFile());
-      paths = await openFileDialog(lastDir || undefined);
-      if (!paths || !paths.length) return;
-    } else {
-      paths = [openPath];
-    }
-    try {
-      for (const p of paths) {
-        // Reopening an already-open path would replace the project and lose unsaved edits
-        if (projects.some((pr) => pr.id === p)) continue;
+    if (!isTauri) return;
+    // Start the native dialog in the directory of the last opened file,
+    // so the user doesn't have to navigate from scratch each time.
+    const lastDir = dirOf(getLastOpenedFile());
+    const paths = await openFileDialog(lastDir || undefined);
+    if (!paths || !paths.length) return;
+    const failed = [];
+    for (const p of paths) {
+      // Reopening an already-open path would replace the project and lose
+      // unsaved edits — just activate it instead
+      if (projects.some((pr) => pr.id === p)) {
+        handleSwitchProject(p);
+        continue;
+      }
+      try {
         const data = await openFile(p);
         if (data && data.sequence) {
           // Hand the response to the new workspace so it doesn't refetch
           initialDataRef.current[p] = data;
           setRecentFiles(addRecentFile(p));
+        } else {
+          failed.push({ path: p, error: data?.error || 'Not a readable sequence file' });
         }
+      } catch (e) {
+        failed.push({ path: p, error: e?.message || String(e) });
       }
-      await refreshProjects();
-    } catch (e) {
-      console.error('open file error:', e);
     }
-  }, [openPath, projects, refreshProjects]);
+    await refreshProjects();
+    if (failed.length > 0) setOpenError(failed);
+  }, [projects, refreshProjects, handleSwitchProject]);
 
   // Create an in-memory project from the New Sequence dialog; hand the
   // response to the new workspace (same pattern as handleOpenFile).
@@ -462,17 +493,6 @@ export default function App() {
     },
     [refreshProjects],
   );
-
-  // Switching is lossless (workspaces stay mounted) — just update activeId
-  const handleSwitchProject = useCallback((id) => {
-    if (!id || id === activeIdRef.current) return;
-    setActiveId(id);
-    activateProject(id)
-      .then((data) => {
-        if (data && data.projects) setProjects(data.projects);
-      })
-      .catch((e) => console.error('activate project error:', e));
-  }, []);
 
   // Open a path directly from the recent-files list (no native dialog).
   const handleOpenRecent = useCallback(
@@ -646,8 +666,11 @@ export default function App() {
   // workspace with no sidebar.
   const isProjectWindow = windowInfo?.type === 'project';
   // The active project is an agent tab, bound and locked by the MCP agent.
-  const activeAgentLocked = !!activeId && agentTabs[activeId] === true;
-  const activeAgentUnlocked = !!activeId && agentTabs[activeId] === false;
+  // The project whose lock state drives this window: activeId in the main
+  // window, the bound projectId in project windows.
+  const lockTargetId = isProjectWindow ? windowInfo.projectId : activeId;
+  const activeAgentLocked = !!lockTargetId && agentTabs[lockTargetId] === true;
+  const activeAgentUnlocked = !!lockTargetId && agentTabs[lockTargetId] === false;
 
   // Agent-tab lock state is pushed from the backend (auto-relock on every MCP
   // tool call targeting the bound project).
@@ -660,6 +683,28 @@ export default function App() {
     });
     return () => listener.close();
   }, [windowInfo?.type]);
+
+  // Project windows get no project-list broadcasts, so resolve the bound
+  // project's agent-tab state directly and keep it in sync via lock events.
+  useEffect(() => {
+    if (windowInfo?.type !== 'project') return undefined;
+    const pid = windowInfo.projectId;
+    let cancelled = false;
+    getAgentTabState(pid)
+      .then((st) => {
+        if (!cancelled && st) setAgentTabs((prev) => ({ ...prev, [pid]: !!st.locked }));
+      })
+      .catch(() => {});
+    const listener = listenAgentTabLock((payload) => {
+      if (payload?.projectId === pid) {
+        setAgentTabs((prev) => ({ ...prev, [pid]: !!payload.locked }));
+      }
+    });
+    return () => {
+      cancelled = true;
+      listener.close();
+    };
+  }, [windowInfo]);
 
   // While the active project is a locked agent tab, the workspace stays
   // interactive (scroll/select/copy all work) and dirty-producing operations
@@ -681,14 +726,18 @@ export default function App() {
   // rna/protein projects hide DNA-only sidebar entries (ORFs, codon
   // optimization); DNA-only plugins are marked dnaOnly in the registry,
   // RNA-only plugins (RNA folding) are marked rnaOnly.
-  const activeMoleculeType = projects.find((p) => p.id === activeId)?.moleculeType || 'dna';
+  const activeProject = projects.find((p) => p.id === activeId);
+  const activeMoleculeType = activeProject?.moleculeType || 'dna';
+  // While the active project's moleculeType is unknown (project list still
+  // loading), hide type-gated entries instead of flashing DNA-only items.
+  const moleculeTypeKnown = !activeId || !!activeProject;
   const isActiveDna = activeMoleculeType === 'dna';
   const isActiveRna = activeMoleculeType === 'rna';
   const visiblePlugins = plugins.filter(
     (plugin) =>
       !disabledPlugins.includes(plugin.id) &&
-      (isActiveDna || !plugin.dnaOnly) &&
-      (isActiveRna || !plugin.rnaOnly),
+      (moleculeTypeKnown ? isActiveDna || !plugin.dnaOnly : !plugin.dnaOnly) &&
+      (moleculeTypeKnown ? isActiveRna || !plugin.rnaOnly : !plugin.rnaOnly),
   );
 
   // Files dragged onto the window: valid sequence files either attach to the
@@ -1041,7 +1090,7 @@ export default function App() {
                 variant="ghost"
                 size="sm"
                 className="h-6 gap-1 px-2 text-xs"
-                onClick={() => handleSetAgentLocked(activeId, true)}
+                onClick={() => handleSetAgentLocked(lockTargetId, true)}
               >
                 <Lock className="size-3" />
                 Lock
@@ -1066,6 +1115,7 @@ export default function App() {
                 hidden={false}
                 initialData={initialDataRef.current[windowInfo.projectId]}
                 topology="circular"
+                agentLocked={activeAgentLocked}
                 {...workspaceProps}
               />
             ) : projects.length > 0 ? (
@@ -1274,6 +1324,71 @@ export default function App() {
               <DialogClose asChild>
                 <Button>OK</Button>
               </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* --- Open File: per-file failure feedback --- */}
+        <Dialog
+          open={!!openError}
+          onOpenChange={(open) => {
+            if (!open) setOpenError(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                  <AlertTriangle className="size-4" />
+                </span>
+                {openError?.length > 1 ? 'Some Files Failed to Open' : 'Failed to Open File'}
+              </DialogTitle>
+            </DialogHeader>
+            <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              {(openError || []).map((f) => (
+                <li key={f.path} className="py-1">
+                  <span className="font-mono">{fileNameOf(f.path)}</span>
+                  <span className="block text-destructive/80">{f.error}</span>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button>OK</Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* --- Tray Quit: unsaved-changes confirmation --- */}
+        <Dialog
+          open={!!quitRequest}
+          onOpenChange={(open) => {
+            if (!open) setQuitRequest(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                  <AlertTriangle className="size-4" />
+                </span>
+                Quit LibreGene?
+              </DialogTitle>
+              <DialogDescription>Unsaved changes will be lost:</DialogDescription>
+            </DialogHeader>
+            <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              {(quitRequest || []).map((id) => (
+                <li key={id} className="py-1 font-mono">
+                  {fileNameOf(id)}
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Cancel</Button>
+              </DialogClose>
+              <Button variant="destructive" onClick={() => forceQuit().catch(() => {})}>
+                Quit Anyway
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

@@ -339,7 +339,7 @@ export default function FeatureInfoDialog({
   const handleCreateApply = async () => {
     const trimmedLoc = createLoc.trim();
     if (!trimmedLoc) {
-      setCreateLocError('请填写 location');
+      setCreateLocError('Please enter a location');
       return;
     }
     if (!onFeatureAdd) return;

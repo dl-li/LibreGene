@@ -118,7 +118,10 @@ export default function SettingsPage({
                 min="0"
                 max="10"
                 value={methylationOverlap}
-                onChange={(e) => setMethylationOverlap(Number(e.target.value))}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) setMethylationOverlap(v);
+                }}
               />
               <span className="text-sm text-muted-foreground">bp</span>
             </div>
@@ -137,7 +140,10 @@ export default function SettingsPage({
                 value={primerSeedLength}
                 min={6}
                 max={20}
-                onChange={(e) => setPrimerSeedLength(Number(e.target.value))}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) setPrimerSeedLength(v);
+                }}
               />
               <span className="text-sm text-muted-foreground">bp</span>
             </div>

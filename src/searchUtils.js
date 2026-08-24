@@ -126,13 +126,32 @@ function scanStrand(seq, pattern, strand, out) {
   }
 }
 
+const STOP_CODONS = new Set(['TAA', 'TAG', 'TGA']);
+
 export function findSeqMatches(seq, query) {
-  const pattern = normalizePeptideQuery(query) || normalizeSeqQuery(query);
-  if (!pattern || !seq) return [];
+  const pepPattern = normalizePeptideQuery(query);
+  const pattern = pepPattern || normalizeSeqQuery(query);
+  // A minimum length keeps single/double-base scans (thousands of hits) out.
+  if (!pattern || !seq || pattern.length < 3) return [];
   const out = [];
   scanStrand(seq, pattern, '+', out);
   const rc = reverseComplementIupac(pattern);
   if (rc && rc !== pattern) scanStrand(seq, rc, '-', out);
+  // '*' expands to TRR, which also matches TGG (Trp) — drop those false hits
+  // by requiring an actual stop codon at every '*' position of the peptide.
+  if (pepPattern && query.includes('*')) {
+    const q = query.trim().toUpperCase();
+    const starOffsets = [];
+    for (let i = 0; i < q.length; i++) if (q[i] === '*') starOffsets.push(i * 3);
+    if (starOffsets.length > 0) {
+      return out.filter((h) =>
+        starOffsets.every((off) => {
+          const codon = seq.substr(h.start + off, 3).toUpperCase();
+          return STOP_CODONS.has(h.strand === '+' ? codon : reverseComplementIupac(codon));
+        }),
+      );
+    }
+  }
   return out;
 }
 
