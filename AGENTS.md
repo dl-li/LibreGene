@@ -76,7 +76,7 @@ LibreGene/
 
 ### 后端（Rust）
 
-- **异步锁顺序**：永远先取 `window_projects` 读锁再取 `pm` 锁，反之亦然；`agent_tabs` 锁不得与 `pm`/`window_projects` 同时持有（取前先 drop 其他 guard）。防死锁
+- **异步锁顺序**：永远先取 `pm` 锁再取 `window_projects` 读锁；`agent_tabs` 锁不得与 `pm`/`window_projects` 同时持有（取前先 drop 其他 guard）。防死锁
 - **重计算放 `spawn_blocking`**：酶/引物计算 CPU 密集
 - **广播通知**：所有 mutation 命令调用 `broadcast_project()` 同步多窗口
 - **环状序列**：region 计算注意 `% tlen` 可能为 0 导致空切片，用 `wrap_template_region` 拼接
@@ -108,7 +108,7 @@ add_alignment, add_alignment_seq, remove_alignment, set_methylation,
 get_projects, activate_project, delete_project, open_in_new_window, get_window_project_id, rekey_project,
 get_agent_tab_state, set_agent_tab_locked,
 compute_tm, get_mcp_config, set_mcp_config,
-activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
+activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, force_quit
 ```
 
 ### HTTP API (libregene serve)
@@ -123,7 +123,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - **启停**：`McpServer` 持配置 `{enabled, port}`；`set_mcp_config` 原进程内停止/重启（端口冲突自动重试）。默认 `enabled=true, port=8766`；配置存前端 localStorage `mcpConfig`
 - **鉴权**：每请求需 `Authorization: Bearer <token>` 且 `Host` 严格等于 `127.0.0.1:<port>`（防 DNS rebinding）。令牌存 `<app_config_dir>/mcp_auth_token`；前端经 `get_mcp_token` 读、`regenerate_mcp_token` 轮换。middleware 把协议错误改写为可读 JSON-RPC 错误体（缺 `Accept` → 406/-32600；未知 session → -32001）。文件路径经 `validate_user_path` 校验（拒绝 `..` 遍历 + 扩展名白名单）
 - **入口**：`src/components/McpGuideDialog.jsx`（开关 + 端口 + 令牌 + 自动生成的 Agent 配置提示词——内嵌 URL 与令牌，用户复制发给自己的 Agent 即可自行完成配置），从侧边栏 "MCP Server" 打开
-- **后台待命**：关主窗口只是隐藏（进程与 MCP 继续跑）；托盘菜单含 MCP 状态、Show、Quit；macOS Dock 图标经 `RunEvent::Reopen` 重开。项目窗口不参与
+- **后台待命**：关主窗口只是隐藏（进程与 MCP 继续跑）；托盘菜单含 MCP 状态、Show、Quit（有未保存改动时 Quit 不直接退出：显示主窗口并 emit `quit-requested`（payload = 脏项目 id 数组），前端确认后走 `force_quit`）；macOS Dock 图标经 `RunEvent::Reopen` 重开。项目窗口不参与
 - **Agent 标签页（强制隔离）**：MCP `open_project` 打开文件时一步完成「加载 + 绑定为**主窗口侧边栏里的 Agent 标签**」（`AppState.agent_tabs`，按 project_id 索引，默认 locked；不创建任何窗口）。已加载且已绑定则复用+重锁，返回 `reused: true`；已加载但未绑定 = 用户打开的项目，`open_project` 拒绝，错误文案指引 Agent 用 bash `cp` 复制文件、`open_project` 副本。门控：mutation 工具（`edit_sequence`/`set_feature`/`add_primer`/`add_alignment`/`save_file`/`close_project`/`optimize_cds(apply)`/`find_orfs(add_as_features)`）对未绑定项目报错并提示先 `open_project`；只读工具不受限。`close_project` 对有未保存改动的项目要求 `force: true`。自动重锁：`resolve_project_id`/`resolve_project`（所有工具解析项目的唯一入口）解析后调 `lock_agent_tab_for_project`——任何工具调用都把绑定标签重新锁定（仅 unlocked→locked 跃迁时 emit app 级 `agent-tab-lock` 事件，payload `{projectId, locked}`）。解锁/手动锁定走前端 `set_agent_tab_locked(projectId, locked)`；`get_projects`/`broadcast_project_arcs` 的项目列表每条带 `agentLocked: bool|null`
 - **工具**：18 个（`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`optimize_cds`）。所有项目工具的 `project_id` 均为必填（无 active 回退；`optimize_cds` 例外——`project_id`+`feature_id` / `sequence` / `input_path` 三输入模式互斥）。mutation 工具统一返回 `{ok, message, projectId, regionView?}`；digest 酶切列表只列单切酶、多切酶折叠计数（`get_region_view(compact:false)` / `get_project_overview(compactCutters:false)` 得完整列表）。项目窗口 label 经 `sanitize_window_label`（非 `[A-Za-z0-9-_]` 字符全部替换为 `_`，含 `(` `)`/空格/`.` 的路径也能生成合法 label；Agent 标签按 project_id 直接索引，无需 sanitize）
 - **文件优先 I/O 策略**：server `instructions` 与各工具/参数描述统一引导 Agent 用文件传序列（`open_project` 的 `path`、`edit_sequence` 的 `replacement_path`、`add_alignment` 的 `path`、`optimize_cds` 的 `input_path`/`output_path`、`save_file` 的 `path`/`region`），纯文本只留给短手写输入（引物、点突变、短插入）；`read_sequence` 只作查看。改描述时保持此口径一致
@@ -149,7 +149,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar
 - 甲基化 → 无独立工具；`get_project_overview` LOCUS 行展示；前端设置 `set_methylation`
 - 限制酶切位点 → `find_restriction_sites`（区分三类名字：序列上有位点的正常返回；**库中有此酶但序列无位点**返回空 sites + note；**库中无此酶**才报 Unknown——批量查询部分降级（未知名列入 `unknownEnzymes`，不整组拒绝），仅当全部名字未知时才整体报错并给近似名（探测酶库机制保留）。切点在识别序列外的位点（IIS 型如 BbsI）附 `cutsOutsideRecognitionSite: true` + note）
 - 自动标注 → `get_project_overview` 的 DETECTED COMMON FEATURES 节（只读不落库）；前端另有 `annotate_features`/`annotate_sequence`
-- 密码子优化 → `optimize_cds`（项目 feature/序列/文件三输入；apply=true 仅项目模式，sequence/input_path 模式用 `output_path`；`aa`/`codonCount` **含终止密码子** `*`；全长 CDS 输出的 gbk 其 CDS label 沿用来源文件名，缺省回退输出文件名）
+- 密码子优化 → `optimize_cds`（项目 feature/序列/文件三输入；apply=true 仅项目模式，sequence/input_path 模式用 `output_path`——目标已存在时需 `overwrite: true`，同 save_file 规则；`aa`/`codonCount` **含终止密码子** `*`；全长 CDS 输出的 gbk 其 CDS label 沿用来源文件名，缺省回退输出文件名）
 - 坐标转换 → 并入 `read_sequence` 坐标模式（position / feature+offset / feature+aa 三种互斥输入）
 
 上述 DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError。
