@@ -3582,6 +3582,21 @@ pub fn run() {
                 state.pm.clone(),
                 state.window_projects.clone(),
                 state.agent_tabs.clone(),
+                {
+                    // Server state can change without a set_config call (bind
+                    // failure): refresh the tray status line so it matches
+                    // what get_mcp_config reports.
+                    let app = app.handle().clone();
+                    move |enabled, port| {
+                        let tray_status = app.state::<AppState>().tray_status.clone();
+                        let guard = tray_status.lock();
+                        if let Ok(guard) = guard {
+                            if let Some(item) = guard.as_ref() {
+                                let _ = item.set_text(mcp_status_text(enabled, port));
+                            }
+                        }
+                    }
+                },
             );
             app.manage(mcp.clone());
             // Start with the default config (enabled on MCP_PORT); the frontend

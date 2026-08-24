@@ -4663,6 +4663,10 @@ pub struct McpServer<R: Runtime> {
     /// restarts; only regenerated when the user explicitly asks. Exposed to
     /// the trusted frontend via `get_mcp_token` / `regenerate_mcp_token`.
     auth_token: Arc<StdMutex<String>>,
+    /// Called when the server's effective state changes outside a
+    /// `set_config` call (currently: bind failure) so the caller (tray /
+    /// frontend status) can reflect the real state instead of "running".
+    status: Arc<dyn Fn(bool, u16) + Send + Sync>,
 }
 
 impl<R: Runtime> Clone for McpServer<R> {
@@ -4675,6 +4679,7 @@ impl<R: Runtime> Clone for McpServer<R> {
             config: self.config.clone(),
             task: self.task.clone(),
             auth_token: self.auth_token.clone(),
+            status: self.status.clone(),
         }
     }
 }
@@ -4685,6 +4690,7 @@ impl<R: Runtime> McpServer<R> {
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
+        status: impl Fn(bool, u16) + Send + Sync + 'static,
     ) -> Self {
         let auth_token = load_or_create_token(&app_handle);
         Self {
@@ -4695,6 +4701,7 @@ impl<R: Runtime> McpServer<R> {
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
             auth_token: Arc::new(StdMutex::new(auth_token)),
+            status: Arc::new(status),
         }
     }
 
@@ -4750,9 +4757,23 @@ impl<R: Runtime> McpServer<R> {
             let agent_tabs = self.agent_tabs.clone();
             let port = cfg.port;
             let token = self.auth_token.clone();
+            let config = self.config.clone();
+            let status = self.status.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app, pm, wp, agent_tabs, port, token).await {
+                if let Err(e) = serve_mcp(app.clone(), pm, wp, agent_tabs, port, token).await {
                     log::error!("MCP server error on port {}: {}", port, e);
+                    // Give-up (e.g. the port is held by another app): the
+                    // server never came up. Flip the config so get_mcp_config
+                    // and the tray stop claiming it is running; guarded so a
+                    // concurrent re-enable/relocate via set_config isn't
+                    // clobbered.
+                    {
+                        let mut cfg = config.lock().unwrap();
+                        if cfg.enabled && cfg.port == port {
+                            cfg.enabled = false;
+                        }
+                    }
+                    status(false, port);
                 }
             });
             *self.task.lock().unwrap() = Some(handle);
@@ -5187,6 +5208,7 @@ mod tests {
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            |_, _| {},
         )
     }
 
@@ -5234,6 +5256,25 @@ mod tests {
         server.set_config(false, 20001).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!handshake_ok(20001, &token).await);
+    }
+
+    #[tokio::test]
+    async fn bind_failure_marks_server_disabled() {
+        // Occupy a port so serve_mcp's bind retries exhaust and give up; the
+        // config must then report disabled (get_mcp_config/tray reflect the
+        // real state) instead of "running".
+        let _occupied = std::net::TcpListener::bind(("127.0.0.1", 21007)).unwrap();
+        let server = test_server();
+        server.set_config(true, 21007).await.unwrap();
+        // 40 retries × 50ms + slack; the give-up is asynchronous.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while server.config().enabled {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "config still enabled after bind give-up"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     #[tokio::test]
