@@ -556,6 +556,17 @@ const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
   return _rgbToHex(..._hslToRgb(h, s, 0.1));
 };
 
+// Nudge lightness so two abutting same-colored bars stay distinguishable.
+// Input colors are the readability-mapped ones (normFeatures); the shift is
+// applied on top of that mapping.
+const shiftAbutLightness = (hex) => {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
+  const [r, g, b] = _hexToRgb(hex);
+  const [h, s, l] = _rgbToHsl(r, g, b);
+  const nl = l <= 0.7 ? Math.min(1, l + 0.1) : Math.max(0, l - 0.1);
+  return _rgbToHex(..._hslToRgb(h, s, nl));
+};
+
 const SequenceEditor = React.memo(function SequenceEditor({
   sequence,
   features = [],
@@ -591,6 +602,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onToggleFeatures,
   alwaysExpandFeatures = false,
   onToggleAlwaysExpandFeatures,
+  featureLabelsBelow = false,
   showOrfs,
   onToggleOrfs,
   showPrimers,
@@ -960,6 +972,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       featTrackHeight: 18,
       featBaseOffset: 14,
       featLabelPad: 12,
+      featLabelBelowExtra: 8,
       enzTrackHeight: 18,
       enzLineGap: 18,
       enzLabelBase: 51,
@@ -1251,6 +1264,52 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [features],
   );
 
+  // Lightness-nudge for abutting (touching, non-overlapping) same-colored bars
+  // so they stay distinguishable. Chain rule: A-B-C-D same color → A base,
+  // B shifted, C base (B already differs), D shifted. Segment level applies in
+  // both modes (joined segments that touch); feature level only in
+  // labels-below mode.
+  const abutColors = useMemo(() => {
+    const feat = {};
+    if (featureLabelsBelow) {
+      const ordered = [...normFeatures].sort(
+        (a, b) =>
+          Math.min(...a.segments.map((s) => s.start)) -
+          Math.min(...b.segments.map((s) => s.start)),
+      );
+      const shownByEnd = new Map();
+      for (const f of ordered) {
+        const start = Math.min(...f.segments.map((s) => s.start));
+        const end = Math.max(...f.segments.map((s) => s.end));
+        const color = f.color || ensureReadableColor('#60A5FA');
+        const abutters = shownByEnd.get(start - 1);
+        const shown = abutters && abutters.includes(color) ? shiftAbutLightness(color) : color;
+        if (shown !== color) feat[f.id] = shown;
+        if (!shownByEnd.has(end)) shownByEnd.set(end, []);
+        shownByEnd.get(end).push(shown);
+      }
+    }
+    const seg = {};
+    for (const f of normFeatures) {
+      const order = f.segments
+        .map((_, i) => i)
+        .sort((a, b) => f.segments[a].start - f.segments[b].start);
+      const cols = new Array(f.segments.length);
+      let prevDi = -1;
+      for (const di of order) {
+        const s = f.segments[di];
+        const base = s.color || feat[f.id] || f.color || ensureReadableColor('#60A5FA');
+        cols[di] =
+          prevDi >= 0 && s.start === f.segments[prevDi].end + 1 && base === cols[prevDi]
+            ? shiftAbutLightness(base)
+            : base;
+        prevDi = di;
+      }
+      seg[f.id] = cols;
+    }
+    return { seg, feat };
+  }, [normFeatures, featureLabelsBelow]);
+
   const { processedFeatures, primerTracks, featureRowTracks, revPrimerFeatOffsets } =
     useMemo(() => {
       const resultFeatures = [];
@@ -1366,14 +1425,46 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const segStart = Math.min(...rowSegs.map((s) => s.start));
           const segEnd = Math.max(...rowSegs.map((s) => s.end));
           const isFRev = f.strand === '-';
-          const labelCols =
-            Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
-          const es = isFRev ? segStart - 0.5 : Math.max(rs, segStart - labelCols) - 0.5;
-          const ee = isFRev ? segEnd + labelCols + 0.5 : segEnd + 0.5;
+          // Below-line labels sit flush under the bar (fwd: left end aligned,
+          // rev: right end aligned); the whole feature interval extends one
+          // track down, so nothing in the next track sits under this feature.
+          // Below mode uses no half-column margins: abutting (non-overlapping)
+          // features may share a track.
+          const hangsBelow = featureLabelsBelow && !f.orf;
+          // Below-mode labels are never truncated: reserve the exact rendered
+          // label width instead of the padded estimate.
+          const labelCols = hangsBelow
+            ? Math.ceil(
+                primerLabelW(isFRev ? `< ${f.name}` : f.strand === '+' ? `${f.name} >` : f.name) /
+                  cw,
+              )
+            : Math.ceil(primerLabelW(f.name) / cw) +
+              2 +
+              (f.strand && f.strand !== '.' ? 2 : 0);
+          const es = hangsBelow
+            ? isFRev
+              ? Math.min(segStart, Math.max(rs, segEnd - labelCols))
+              : segStart
+            : isFRev
+              ? segStart - 0.5
+              : Math.max(rs, segStart - labelCols) - 0.5;
+          const ee = hangsBelow
+            ? isFRev
+              ? segEnd
+              : Math.max(segEnd, segStart + labelCols)
+            : isFRev
+              ? segEnd + labelCols + 0.5
+              : segEnd + 0.5;
+          const overlaps = (track, s, e) =>
+            rowTracks[track] && rowTracks[track].some((t) => !(e < t.start || s > t.end));
           let placed = false;
           for (let i = 0; i < rowTracks.length; i++) {
-            if (!rowTracks[i].some((t) => !(ee < t.start || es > t.end))) {
+            if (!overlaps(i, es, ee) && (!hangsBelow || !overlaps(i + 1, es, ee))) {
               rowTracks[i].push({ start: es, end: ee });
+              if (hangsBelow) {
+                if (!rowTracks[i + 1]) rowTracks[i + 1] = [];
+                rowTracks[i + 1].push({ start: es, end: ee });
+              }
               if (!fRowTracks[f.id]) fRowTracks[f.id] = {};
               fRowTracks[f.id][r] = i;
               placed = true;
@@ -1382,8 +1473,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
           }
           if (!placed) {
             rowTracks.push([{ start: es, end: ee }]);
+            if (hangsBelow) rowTracks.push([{ start: es, end: ee }]);
             if (!fRowTracks[f.id]) fRowTracks[f.id] = {};
-            fRowTracks[f.id][r] = rowTracks.length - 1;
+            fRowTracks[f.id][r] = rowTracks.length - (hangsBelow ? 2 : 1);
           }
         }
       }
@@ -1401,18 +1493,40 @@ const SequenceEditor = React.memo(function SequenceEditor({
           for (const f of resultFeatures) {
             for (const fseg of f.segments) {
               const isFRev = f.strand === '-';
-              const labelCols =
-                Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
-              const fvs = isFRev ? fseg.start : fseg.start - labelCols;
-              const fve = isFRev ? fseg.end + labelCols : fseg.end;
+              const hangsBelow = featureLabelsBelow && !f.orf;
+              const labelCols = hangsBelow
+                ? Math.ceil(
+                    primerLabelW(
+                      isFRev ? `< ${f.name}` : f.strand === '+' ? `${f.name} >` : f.name,
+                    ) / cw,
+                  )
+                : Math.ceil(primerLabelW(f.name) / cw) +
+                  2 +
+                  (f.strand && f.strand !== '.' ? 2 : 0);
+              const fvs = hangsBelow
+                ? isFRev
+                  ? Math.min(fseg.start, fseg.end - labelCols)
+                  : fseg.start
+                : isFRev
+                  ? fseg.start
+                  : fseg.start - labelCols;
+              const fve = hangsBelow
+                ? isFRev
+                  ? fseg.end
+                  : Math.max(fseg.end, fseg.start + labelCols)
+                : isFRev
+                  ? fseg.end + labelCols
+                  : fseg.end;
               if (fve < vs || fvs > ve) continue;
               const sr = Math.floor(fseg.start / charsPerLine);
               const er = Math.floor(fseg.end / charsPerLine);
               for (let r = sr; r <= er; r++) {
                 const ft = (fRowTracks[f.id] || {})[r] || 0;
+                // below-line labels hang one extra track lower, clear them too
+                const tracksToClear = ft + (featureLabelsBelow && !f.orf ? 2 : 1);
                 revFeatOff[p.id][r] = Math.max(
                   revFeatOff[p.id][r] || 0,
-                  (ft + 1) * lp.featTrackHeight,
+                  tracksToClear * lp.featTrackHeight,
                 );
               }
             }
@@ -1426,7 +1540,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         featureRowTracks: fRowTracks,
         revPrimerFeatOffsets: revFeatOff,
       };
-    }, [features, enrichedPrimers, numRows, charsPerLine, lp]);
+    }, [features, enrichedPrimers, numRows, charsPerLine, lp, featureLabelsBelow]);
 
   // --- adaptive row spacing (memoized with pre-indexed lookups) ---
   const enzymesByRow = useMemo(() => {
@@ -1623,7 +1737,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const t = (featureRowTracks[f.id] || {})[r] || 0;
           be = Math.max(
             be,
-            lp.featBaseOffset + (t + nAlign) * lp.featTrackHeight + lp.featLabelPad,
+            lp.featBaseOffset +
+              (t + nAlign) * lp.featTrackHeight +
+              lp.featLabelPad +
+              (featureLabelsBelow && !f.orf ? lp.featLabelBelowExtra : 0),
           );
         }
       }
@@ -1646,6 +1763,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     pp,
     lp,
     alignLaneInfo,
+    featureLabelsBelow,
   ]);
 
   const rowY = useMemo(() => {
@@ -2915,7 +3033,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 colStart: vs.colStart,
                 colEnd: vs.colEnd,
                 showLabel: showL,
-                color: f.color || ensureReadableColor('#60A5FA'),
+                color: abutColors.feat[f.id] || f.color || ensureReadableColor('#60A5FA'),
               });
             }
           }
@@ -2923,7 +3041,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const vs of sp(ds.start, ds.end)) {
           const showLabel = !seenRows.has(vs.row);
           seenRows.add(vs.row);
-          const segColor = dataSegs[di].color || f.color || ensureReadableColor('#60A5FA');
+          const segColor =
+            abutColors.seg[f.id]?.[di] ||
+            dataSegs[di].color ||
+            f.color ||
+            ensureReadableColor('#60A5FA');
           visuals.push({
             type: 'solid',
             row: vs.row,
@@ -3109,10 +3231,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
             (cdsFeatureData[f.id]?.trans || []).flatMap((t) => {
               const r = Math.floor(t.templatePos2 / charsPerLine);
               const c = t.templatePos2 % charsPerLine;
-              const inVisual = visuals.some(
+              const cov = visuals.find(
                 (v) => v.row === r && c >= v.colStart && c <= v.colEnd && v.type !== 'gap',
               );
-              if (!inVisual) return [];
+              if (!cov) return [];
               const sy = getSeqY(r);
               const rowTo =
                 (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
@@ -3128,7 +3250,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   fontSize={10}
                   fontWeight="900"
                   fontFamily={monoFont}
-                  fill={f.orf ? bgColor : f.dominantColor}
+                  fill={f.orf ? bgColor : cov.color}
                   stroke={f.orf ? 'none' : bgColor}
                   strokeWidth={f.orf ? 0 : 3}
                   paintOrder="stroke"
@@ -3160,6 +3282,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alwaysExpandFeatures,
     hoveredCodon,
     openFeatureMenu,
+    abutColors,
   ]);
 
   const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
@@ -3180,9 +3303,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (f.orf) return [];
       const isRev = f.strand === '-';
       const isFwd = f.strand === '+';
-      const labelColor = f.dominantColor || f.color || '#60A5FA';
       const isHovered = hoveredFeature === f.id;
-      const { full: fullText, short: shortText } = truncatedLabel(f.name, isRev, isFwd);
+      const { full: fullText, short: shortText } = truncatedLabel(
+        f.name,
+        isRev,
+        isFwd,
+        featureLabelsBelow ? Infinity : 12,
+      );
       const labelText = isHovered ? fullText : shortText;
 
       const rowLabels = {};
@@ -3196,7 +3323,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
             for (const vs of sp(prevEnd + 1, ds.start - 1)) {
               if (!seenRows.has(vs.row) || isRev) {
                 seenRows.add(vs.row);
-                rowLabels[vs.row] = vs;
+                rowLabels[vs.row] = {
+                  ...vs,
+                  color: abutColors.feat[f.id] || f.color || ensureReadableColor('#60A5FA'),
+                };
               }
             }
           }
@@ -3204,7 +3334,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const vs of sp(ds.start, ds.end)) {
           if (!seenRows.has(vs.row) || isRev) {
             seenRows.add(vs.row);
-            rowLabels[vs.row] = vs;
+            // label takes the color of the bar segment nearest to it
+            rowLabels[vs.row] = {
+              ...vs,
+              color:
+                abutColors.seg[f.id]?.[di] ||
+                ds.color ||
+                f.color ||
+                ensureReadableColor('#60A5FA'),
+            };
           }
         }
       }
@@ -3213,19 +3351,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const key = `${f.id}-${vs.row}`;
         if (seen.has(key)) return null;
         seen.add(key);
+        const labelColor = vs.color;
         const sy = getSeqY(vs.row);
         const rowTo =
           (((featureRowTracks[f.id] || {})[vs.row] || 0) + alignLaneInfo.counts[vs.row]) *
           lp.featTrackHeight;
         const y = sy + lp.featBaseOffset + rowTo;
         const textProps = {
-          y: y + 4,
+          y: featureLabelsBelow ? y + 17 : y + 4,
           fontSize: '12px',
           fontFamily: 'TeX Gyre Heros',
           fontWeight: '600',
         };
         if (isRev) {
           const xr = getX(vs.colEnd + 1);
+          const lx = featureLabelsBelow ? xr : xr + 8;
+          const lAnchor = featureLabelsBelow ? 'end' : 'start';
           return (
             <g
               key={key}
@@ -3270,22 +3411,24 @@ const SequenceEditor = React.memo(function SequenceEditor({
               className="cursor-pointer"
             >
               <text
-                x={xr + 8}
+                x={lx}
                 {...textProps}
-                textAnchor="start"
+                textAnchor={lAnchor}
                 fill="none"
                 stroke={bgColor}
                 strokeWidth="5"
               >
                 {labelText}
               </text>
-              <text x={xr + 8} {...textProps} textAnchor="start" fill={labelColor} stroke="none">
+              <text x={lx} {...textProps} textAnchor={lAnchor} fill={labelColor} stroke="none">
                 {labelText}
               </text>
             </g>
           );
         }
         const x = getX(vs.colStart);
+        const lx = featureLabelsBelow ? x : x - 8;
+        const lAnchor = featureLabelsBelow ? 'start' : 'end';
         return (
           <g
             key={key}
@@ -3324,16 +3467,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
             className="cursor-pointer"
           >
             <text
-              x={x - 8}
+              x={lx}
               {...textProps}
-              textAnchor="end"
+              textAnchor={lAnchor}
               fill="none"
               stroke={bgColor}
               strokeWidth="5"
             >
               {labelText}
             </text>
-            <text x={x - 8} {...textProps} textAnchor="end" fill={labelColor} stroke="none">
+            <text x={lx} {...textProps} textAnchor={lAnchor} fill={labelColor} stroke="none">
               {labelText}
             </text>
           </g>
@@ -3354,6 +3497,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     startTranslationSelection,
     alignLaneInfo,
     openFeatureMenu,
+    featureLabelsBelow,
+    abutColors,
   ]);
 
   const renderedAlignments = useMemo(() => {

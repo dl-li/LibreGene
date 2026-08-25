@@ -156,7 +156,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 未适配（前端/UI 专有，MCP 不可用）：
 
-- **ROI**（`set_roi`/`clear_roi`）、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器）：UI 视图状态
+- **ROI**（`set_roi`/`clear_roi`）、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置 `featureLabelsBelow`）：UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
 - **质粒图视图 / Map 水印**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
