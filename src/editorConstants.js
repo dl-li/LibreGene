@@ -68,6 +68,33 @@ export function splitRange(start, end, charsPerLine) {
   return segments;
 }
 
+/** Wrap-aware inclusive-range slice: start > end crosses the origin of a
+ *  circular sequence. */
+export function sliceRange(seq, start, end) {
+  return start <= end
+    ? seq.substring(start, end + 1)
+    : seq.substring(start) + seq.substring(0, end + 1);
+}
+
+/** Length of an inclusive range; start > end wraps the origin (totalLen needed). */
+export function rangeLen(start, end, totalLen) {
+  return start <= end ? end - start + 1 : totalLen - start + end + 1;
+}
+
+/** Selection range of a feature in join order: first segment's start .. last
+ *  segment's end. start > end means the feature crosses the origin. */
+export function featureSelRange(f) {
+  const segs = f.segments?.length ? f.segments : [{ start: f.start, end: f.end }];
+  return [segs[0].start, segs[segs.length - 1].end];
+}
+
+/** 1-based inclusive location string for a possibly origin-wrapping range. */
+export function rangeLocString1based(start, end, totalLen) {
+  return start <= end
+    ? `${start + 1}..${end + 1}`
+    : `join(${start + 1}..${totalLen},1..${end + 1})`;
+}
+
 /**
  * Location strings: the UI shows GenBank-style 1-based inclusive locations to
  * the user, while the Tauri IPC layer (`add_feature` / `update_feature_location`)

@@ -13,6 +13,10 @@ import {
   enzLabelW,
   primerLabelW,
   splitRange,
+  sliceRange,
+  rangeLen,
+  featureSelRange,
+  rangeLocString1based,
   enzymeActiveBlue,
   amplimerGreen,
   peptideMassKda,
@@ -408,12 +412,12 @@ function SelectionLengthBadge({
     bg = p.isFwd === false ? '#4A148C' : '#166534';
   } else if (isEnzymeSelection) {
     if (selStart === null || selEnd === null) return null;
-    len = selEnd - selStart + 1;
-    seqToCopy = cleanSeq.substring(selStart, selEnd + 1);
+    len = rangeLen(selStart, selEnd, cleanSeq.length);
+    seqToCopy = sliceRange(cleanSeq, selStart, selEnd);
     bg = enzymeActiveBlue;
   } else if (selectionMode === 'text' && selStart !== null && selEnd !== null) {
-    len = selEnd - selStart + 1;
-    seqToCopy = cleanSeq.substring(selStart, selEnd + 1);
+    len = rangeLen(selStart, selEnd, cleanSeq.length);
+    seqToCopy = sliceRange(cleanSeq, selStart, selEnd);
     bg = '#3E2723';
   } else {
     return null;
@@ -872,8 +876,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const hasSelection =
     selStart !== null &&
     selEnd !== null &&
-    selStart <= selEnd &&
+    (selStart <= selEnd || topology === 'circular') &&
     (selectionMode === 'text' || isEnzymeSelection);
+  // Wrap selection (start > end on a circular sequence): display/copy work,
+  // but edit operations (replace/delete/paste) stay linear-only.
+  const selWraps = hasSelection && selStart > selEnd;
   const hasTranslationSelection = selectionMode === 'translation' && translationSel !== null;
   const currentSelColor = designPick ? '#0f766e' : isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
 
@@ -909,6 +916,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   useEffect(() => {
     if (!designPick || isDragging || selectionMode !== 'text') return;
     if (selStart === null || selEnd === null) return;
+    if (selStart > selEnd) return; // origin-wrapping selections not supported here
     const key = `${selStart}:${selEnd}`;
     if (designCapturedRef.current === key) return;
     const meta = DESIGN_MODES[designPick.mode];
@@ -1057,7 +1065,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setSelectionTm(null);
       return;
     }
-    const seq = cleanSeq.substring(selStart, selEnd + 1);
+    const seq = sliceRange(cleanSeq, selStart, selEnd);
     if (seq.length < 2) {
       setSelectionTm(null);
       return;
@@ -1212,7 +1220,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
   numRowsRef.current = numRows;
   const svgWidth = startX + charsPerLine * cw + startX;
 
-  const sp = useCallback((s, e) => splitRange(s, e, charsPerLine), [charsPerLine]);
+  const sp = useCallback(
+    (s, e) =>
+      s <= e
+        ? splitRange(s, e, charsPerLine)
+        : [...splitRange(s, cleanSeq.length - 1, charsPerLine), ...splitRange(0, e, charsPerLine)],
+    [charsPerLine, cleanSeq.length],
+  );
 
   // Per-row compact lane assignment: an alignment only reserves a lane in
   // rows where it actually has sequence, so partial alignments leave no gaps.
@@ -1274,8 +1288,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (featureLabelsBelow) {
       const ordered = [...normFeatures].sort(
         (a, b) =>
-          Math.min(...a.segments.map((s) => s.start)) -
-          Math.min(...b.segments.map((s) => s.start)),
+          Math.min(...a.segments.map((s) => s.start)) - Math.min(...b.segments.map((s) => s.start)),
       );
       const shownByEnd = new Map();
       for (const f of ordered) {
@@ -1438,9 +1451,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 primerLabelW(isFRev ? `< ${f.name}` : f.strand === '+' ? `${f.name} >` : f.name) /
                   cw,
               )
-            : Math.ceil(primerLabelW(f.name) / cw) +
-              2 +
-              (f.strand && f.strand !== '.' ? 2 : 0);
+            : Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
           const es = hangsBelow
             ? isFRev
               ? Math.min(segStart, Math.max(rs, segEnd - labelCols))
@@ -1500,9 +1511,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       isFRev ? `< ${f.name}` : f.strand === '+' ? `${f.name} >` : f.name,
                     ) / cw,
                   )
-                : Math.ceil(primerLabelW(f.name) / cw) +
-                  2 +
-                  (f.strand && f.strand !== '.' ? 2 : 0);
+                : Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
               const fvs = hangsBelow
                 ? isFRev
                   ? Math.min(fseg.start, fseg.end - labelCols)
@@ -2119,7 +2128,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
 
       if (!hasSelection) return;
-      const sense = cleanSeq.substring(selStart, selEnd + 1);
+      const sense = sliceRange(cleanSeq, selStart, selEnd);
       let text;
       if (mode === 'antisense') {
         text = reverseComplement(sense);
@@ -2127,7 +2136,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         text = sense;
       }
       if (mode === 'sense' && hasSelection) {
-        const meta = collectAnnotations({ features, primers }, selStart, selEnd);
+        const meta = collectAnnotations({ features, primers }, selStart, selEnd, cleanSeq.length);
         writeAnnotatedClipboard(text, meta);
       } else {
         navigator.clipboard.writeText(text).catch(() => {});
@@ -2153,8 +2162,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // Select a feature as a text selection spanning its full extent (same as left-click)
   const selectFeature = useCallback(
     (f) => {
-      const fStart = Math.min(...f.segments.map((s) => s.start));
-      const fEnd = Math.max(...f.segments.map((s) => s.end));
+      const [fStart, fEnd] = featureSelRange(f);
       setSelStart(fStart);
       setSelEnd(fEnd);
       setCursorIndex(fEnd + 1);
@@ -2180,9 +2188,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
       e.preventDefault();
       e.stopPropagation();
       selectFeature(f);
-      const fStart = Math.min(...f.segments.map((s) => s.start));
-      const fEnd = Math.max(...f.segments.map((s) => s.end));
-      const sense = cleanSeq.substring(fStart, fEnd + 1);
+      const [fStart, fEnd] = featureSelRange(f);
+      // Feature sequence in join order (origin-wrapping features concatenate
+      // the end segment after the start segment).
+      const sense = (f.segments?.length ? f.segments : [{ start: f.start, end: f.end }])
+        .map((s) => cleanSeq.substring(s.start, s.end + 1))
+        .join('');
       const isRev = f.strand === '-';
       const items = [
         { icon: Tag, label: 'Copy Feature Name', onSelect: () => writeClipboard(f.name) },
@@ -2191,7 +2202,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           label: 'Copy (+) Strand',
           bold: !isRev,
           onSelect: () => {
-            const meta = collectAnnotations({ features, primers }, fStart, fEnd);
+            const meta = collectAnnotations({ features, primers }, fStart, fEnd, cleanSeq.length);
             writeAnnotatedClipboard(sense, meta);
           },
         },
@@ -2356,6 +2367,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const requestPaste = useCallback(
     (clipboardText, clipboardMeta = null) => {
       if (!clipboardText || !onEditRequest) return;
+      if (selWraps) return; // replacing across the origin is not supported
       if (hasSelection) {
         onEditRequest({
           type: 'replace',
@@ -2375,7 +2387,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         });
       }
     },
-    [onEditRequest, hasSelection, cursorIndex, selStart, selEnd, cleanSeq],
+    [onEditRequest, hasSelection, selWraps, cursorIndex, selStart, selEnd, cleanSeq],
   );
 
   const pasteFromClipboard = useCallback(() => {
@@ -2420,7 +2432,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         });
         return;
       }
-      if (!hasSelection || selectionMode !== 'text' || !onEditRequest) return;
+      if (!hasSelection || selWraps || selectionMode !== 'text' || !onEditRequest) return;
       const selectedText = cleanSeq.substring(selStart, selEnd + 1);
       onEditRequest({
         type: 'replace',
@@ -2433,6 +2445,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     },
     [
       hasSelection,
+      selWraps,
       selectionMode,
       hasTranslationSelection,
       translationSel,
@@ -2493,7 +2506,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         // Letter key → replace (any selection) or insert (cursor only)
         if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key) && onEditRequest) {
           // Replace mode: any active selection (text, enzyme, etc.)
-          if (hasSelection) {
+          if (hasSelection && !selWraps) {
             e.preventDefault();
             onEditRequest({
               type: 'replace',
@@ -2518,7 +2531,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
         }
 
         // Delete/Backspace with selection → delete
-        if ((e.key === 'Delete' || e.key === 'Backspace') && hasSelection && onEditRequest) {
+        if (
+          (e.key === 'Delete' || e.key === 'Backspace') &&
+          hasSelection &&
+          !selWraps &&
+          onEditRequest
+        ) {
           e.preventDefault();
           onEditRequest({
             type: 'delete',
@@ -2581,7 +2599,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         e.preventDefault();
         setPrimerAlignmentPrimer(null); // clear edit mode
         if (hasSelection && selectionMode === 'text') {
-          setCreatePrimerSeq(cleanSeq.substring(selStart, selEnd + 1));
+          setCreatePrimerSeq(sliceRange(cleanSeq, selStart, selEnd));
         } else {
           setCreatePrimerSeq('');
         }
@@ -2594,7 +2612,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         setFeatureInfoFeature(null); // clear edit mode
         if (hasSelection && selectionMode === 'text') {
           // 1-based inclusive location string (user-visible convention)
-          setCreateFeatureLoc(`${selStart + 1}..${selEnd + 1}`);
+          setCreateFeatureLoc(rangeLocString1based(selStart, selEnd, cleanSeq.length));
         } else {
           setCreateFeatureLoc('');
         }
@@ -2608,6 +2626,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selStart,
     selEnd,
     hasSelection,
+    selWraps,
     cleanSeq,
     charsPerLine,
     resetCursorTimer,
@@ -2684,16 +2703,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const createFeature = useCallback(() => {
     setFeatureInfoFeature(null);
     if (hasSelection && selectionMode === 'text') {
-      setCreateFeatureLoc(`${selStart + 1}..${selEnd + 1}`);
+      setCreateFeatureLoc(rangeLocString1based(selStart, selEnd, cleanSeq.length));
     } else {
       setCreateFeatureLoc('');
     }
-  }, [hasSelection, selectionMode, selStart, selEnd]);
+  }, [hasSelection, selectionMode, selStart, selEnd, cleanSeq]);
 
   const createPrimer = useCallback(() => {
     setPrimerAlignmentPrimer(null);
     if (hasSelection && selectionMode === 'text') {
-      setCreatePrimerSeq(cleanSeq.substring(selStart, selEnd + 1));
+      setCreatePrimerSeq(sliceRange(cleanSeq, selStart, selEnd));
     } else {
       setCreatePrimerSeq('');
     }
@@ -3138,8 +3157,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                     }
                   }
 
-                  const fStart = Math.min(...f.segments.map((s) => s.start));
-                  const fEnd = Math.max(...f.segments.map((s) => s.end));
+                  const [fStart, fEnd] = featureSelRange(f);
                   setSelStart(fStart);
                   setSelEnd(fEnd);
                   setCursorIndex(fEnd + 1);
@@ -3338,10 +3356,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             rowLabels[vs.row] = {
               ...vs,
               color:
-                abutColors.seg[f.id]?.[di] ||
-                ds.color ||
-                f.color ||
-                ensureReadableColor('#60A5FA'),
+                abutColors.seg[f.id]?.[di] || ds.color || f.color || ensureReadableColor('#60A5FA'),
             };
           }
         }
@@ -3384,8 +3399,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 e.stopPropagation();
                 e.preventDefault();
 
-                const fStart = Math.min(...f.segments.map((s) => s.start));
-                const fEnd = Math.max(...f.segments.map((s) => s.end));
+                const [fStart, fEnd] = featureSelRange(f);
                 setSelStart(fStart);
                 setSelEnd(fEnd);
                 setCursorIndex(fEnd + 1);
@@ -3440,8 +3454,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               e.stopPropagation();
               e.preventDefault();
 
-              const fStart = Math.min(...f.segments.map((s) => s.start));
-              const fEnd = Math.max(...f.segments.map((s) => s.end));
+              const [fStart, fEnd] = featureSelRange(f);
               setSelStart(fStart);
               setSelEnd(fEnd);
               setCursorIndex(fEnd + 1);
@@ -5171,11 +5184,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           features={features}
           topology={topology}
           name={mapName}
-          sel={
-            selStart != null && selEnd != null
-              ? { start: Math.min(selStart, selEnd), end: Math.max(selStart, selEnd) }
-              : null
-          }
+          sel={selStart != null && selEnd != null ? { start: selStart, end: selEnd } : null}
         />
       )}
       {designPick ? (

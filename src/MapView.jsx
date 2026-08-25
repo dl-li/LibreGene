@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { bgColor, featLabelW } from './editorConstants';
+import { bgColor, featLabelW, featureSelRange, rangeLen } from './editorConstants';
 
 const TWO_PI = Math.PI * 2;
 // Full-turn arcs are split at ~π: nudge the split off the antipodal endpoints
@@ -80,7 +80,20 @@ function featureSegments(f) {
 }
 
 const SEL_BROWN = '#3E2723';
-const segInSel = (s, sel) => sel && s.start <= sel.end && sel.start <= s.end;
+
+// Selection pieces in sequence coords: a selection with start > end wraps the
+// origin of a circular sequence.
+function selPieces(sel, len) {
+  if (!sel || sel.start == null || sel.end == null) return [];
+  return sel.start <= sel.end
+    ? [[sel.start, sel.end]]
+    : [
+        [sel.start, len - 1],
+        [0, sel.end],
+      ];
+}
+
+const segInSel = (s, sel, len) => selPieces(sel, len).some(([a, b]) => s.start <= b && a <= s.end);
 
 // normalize segments: split wrap-around (end < start) at the origin
 function normSegments(f, len) {
@@ -96,12 +109,38 @@ function normSegments(f, len) {
   return out.sort((a, b) => a.start - b.start);
 }
 
+// Unwrap origin-crossing segments onto a monotone coordinate line (values may
+// exceed len-1), preserving join order, then merge touching pieces into runs.
+// A feature crossing the origin becomes one continuous run.
+function unwrapRuns(f, len) {
+  const runs = [];
+  let off = 0;
+  let prevStart = -Infinity;
+  for (const s of featureSegments(f)) {
+    let a = s.start + off;
+    let b = s.end + off;
+    if (b < a) b += len; // the segment itself crosses the origin
+    if (a < prevStart) {
+      off += len;
+      a += len;
+      b += len;
+    }
+    prevStart = a;
+    const last = runs[runs.length - 1];
+    if (last && a <= last.end + 1) last.end = Math.max(last.end, b);
+    else runs.push({ start: a, end: b });
+  }
+  return runs;
+}
+
 const featTotalLen = (f, len) => normSegments(f, len).reduce((a, s) => a + s.end - s.start + 1, 0);
 
 // suppress the arrowhead when the tip end is covered by a longer feature
 function tipBuried(f, features, len) {
-  const segs = normSegments(f, len);
-  const tip = f.strand === '-' ? segs[0].start : segs[segs.length - 1].end;
+  // Tip in join order: for '-' the first segment's start, for '+' the last
+  // segment's end (origin-wrapping features keep their biological direction).
+  const raw = featureSegments(f);
+  const tip = f.strand === '-' ? raw[0].start : raw[raw.length - 1].end;
   const fl = featTotalLen(f, len);
   return features.some(
     (g) =>
@@ -119,16 +158,11 @@ function layoutCircularLabels(features, length, R, half) {
   const labelR = R + 40;
   const GAP = 17;
   const items = features.map((f) => {
-    let mid;
-    if (f.start > f.end) {
-      // Origin-wrapping feature: midpoint of the clockwise arc from the raw
-      // (unsplit) start to end — splitting first would point the leader at
-      // the opposite side of the circle.
-      mid = (f.start + (f.end + length - f.start + 1) / 2) % length;
-    } else {
-      const segs = normSegments(f, length);
-      mid = (segs[0].start + segs[segs.length - 1].end + 1) / 2;
-    }
+    // Midpoint along the unwrapped span: origin-crossing features unwrap to a
+    // coordinate line past len, so the midpoint lands on the feature's actual
+    // arc instead of the opposite side of the circle.
+    const runs = unwrapRuns(f, length);
+    const mid = ((runs[0].start + runs[runs.length - 1].end + 1) / 2) % length;
     const th = (mid / length) * TWO_PI;
     return { f, th, w: featLabelW(f.name) };
   });
@@ -260,7 +294,10 @@ export function CircularMap({
   const sel = dragSel || selection;
   const selTh =
     sel && sel.start != null && sel.end != null
-      ? [(sel.start / length) * TWO_PI, ((sel.end + 1) / length) * TWO_PI]
+      ? [
+          (sel.start / length) * TWO_PI,
+          ((sel.end + 1) / length) * TWO_PI + (sel.end < sel.start ? TWO_PI : 0),
+        ]
       : null;
 
   return (
@@ -291,10 +328,18 @@ export function CircularMap({
         />
       )}
       {features.map((f) => {
-        const segs = normSegments(f, length);
+        const runs = unwrapRuns(f, length);
         const hasDir = f.strand === '+' || f.strand === '-';
         const buried = hasDir && tipBuried(f, features, length);
         const hovered = hoverId === f.id;
+        const runPath = (r, i) => {
+          const th0 = (r.start / length) * TWO_PI;
+          const th1 = ((r.end + 1) / length) * TWO_PI;
+          const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === runs.length - 1);
+          return isTip
+            ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
+            : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
+        };
         return (
           <g
             key={f.id}
@@ -306,9 +351,8 @@ export function CircularMap({
             }}
             onClick={(e) => {
               e.stopPropagation();
-              const starts = segs.map((s) => s.start);
-              const ends = segs.map((s) => s.end);
-              onSelect(Math.min(...starts), Math.max(...ends));
+              const [fs, fe] = featureSelRange(f);
+              onSelect(fs, fe);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -317,61 +361,55 @@ export function CircularMap({
             onMouseEnter={() => setHoverId(f.id)}
             onMouseLeave={() => setHoverId(null)}
           >
-            {segs.map((s, i) => {
-              const th0 = (s.start / length) * TWO_PI;
-              const th1 = ((s.end + 1) / length) * TWO_PI;
-              const isTip =
-                hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
-              const d = isTip
-                ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
-                : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
-              return (
-                <path
-                  key={i}
-                  d={d}
-                  fill={f.color || '#9e9e9e'}
-                  fillOpacity={hovered ? 1 : 0.85}
-                  stroke="#333"
-                  strokeWidth={hovered ? 1.8 : 1.2}
-                />
-              );
-            })}
+            {runs.map((r, i) => (
+              <path
+                key={i}
+                d={runPath(r, i)}
+                fill={f.color || '#9e9e9e'}
+                fillOpacity={hovered ? 1 : 0.85}
+                stroke="#333"
+                strokeWidth={hovered ? 1.8 : 1.2}
+              />
+            ))}
             {sel &&
-              segs.map((s, i) => {
-                const o0 = Math.max(s.start, sel.start);
-                const o1 = Math.min(s.end, sel.end);
-                if (o0 > o1) return null;
-                const th0 = (s.start / length) * TWO_PI;
-                const th1 = ((s.end + 1) / length) * TWO_PI;
-                const isTip =
-                  hasDir && !buried && (f.strand === '-' ? i === 0 : i === segs.length - 1);
-                const fd = isTip
-                  ? arcArrowPath(cx, cy, R + half, R - half, th0, th1, f.strand)
-                  : arcSectorPath(cx, cy, R + half, R - half, th0, th1);
-                const clipId = `mapov-${f.id}-${i}`;
-                return (
-                  <g key={`ov-${i}`} pointerEvents="none">
-                    <clipPath id={clipId}>
+              runs.map((r, i) => {
+                const fd = runPath(r, i);
+                // Overlap in unwrapped space: selection pieces are compared at
+                // the base offset and one turn up, so origin-crossing runs and
+                // origin-crossing selections both match.
+                const pieces = selPieces(sel, length).flatMap(([a, b]) => [
+                  [a, b],
+                  [a + length, b + length],
+                ]);
+                return pieces.map(([ps, pe], pi) => {
+                  const o0 = Math.max(r.start, ps);
+                  const o1 = Math.min(r.end, pe);
+                  if (o0 > o1) return null;
+                  const clipId = `mapov-${f.id}-${i}-${pi}`;
+                  return (
+                    <g key={`ov-${i}-${pi}`} pointerEvents="none">
+                      <clipPath id={clipId}>
+                        <path
+                          d={arcSectorPath(
+                            cx,
+                            cy,
+                            R + half + HEAD_FLARE,
+                            R - half - HEAD_FLARE,
+                            (o0 / length) * TWO_PI,
+                            ((o1 + 1) / length) * TWO_PI,
+                          )}
+                        />
+                      </clipPath>
                       <path
-                        d={arcSectorPath(
-                          cx,
-                          cy,
-                          R + half + HEAD_FLARE,
-                          R - half - HEAD_FLARE,
-                          (o0 / length) * TWO_PI,
-                          ((o1 + 1) / length) * TWO_PI,
-                        )}
+                        d={fd}
+                        fill={SEL_BROWN}
+                        stroke={bgColor}
+                        strokeWidth="1.2"
+                        clipPath={`url(#${clipId})`}
                       />
-                    </clipPath>
-                    <path
-                      d={fd}
-                      fill={SEL_BROWN}
-                      stroke={bgColor}
-                      strokeWidth="1.2"
-                      clipPath={`url(#${clipId})`}
-                    />
-                  </g>
-                );
+                    </g>
+                  );
+                });
               })}
           </g>
         );
@@ -391,7 +429,7 @@ export function CircularMap({
       })}
       {labels.map(({ f, lx, ly, side }) => {
         const hovered = hoverId === f.id;
-        const fSel = featureSegments(f).some((s) => segInSel(s, sel));
+        const fSel = featureSegments(f).some((s) => segInSel(s, sel, length));
         return (
           <g
             key={f.id}
@@ -402,8 +440,8 @@ export function CircularMap({
             }}
             onClick={(e) => {
               e.stopPropagation();
-              const segs = normSegments(f, length);
-              onSelect(Math.min(...segs.map((s) => s.start)), Math.max(...segs.map((s) => s.end)));
+              const [fs, fe] = featureSelRange(f);
+              onSelect(fs, fe);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -483,7 +521,12 @@ export function LinearMap({
   // label stagger to avoid overlap; x clamped so text stays inside the view
   const labelLevels = useMemo(() => {
     const sorted = features
-      .map((f) => ({ f, mid: (f.start + f.end) / 2 }))
+      .map((f) => {
+        // midpoint along the unwrapped span (origin-crossing features land on
+        // their actual piece, not the middle of the plasmid)
+        const runs = unwrapRuns(f, length);
+        return { f, mid: ((runs[0].start + runs[runs.length - 1].end + 1) / 2) % length };
+      })
       .sort((a, b) => a.mid - b.mid);
     const levels = [];
     const levelEndX = [];
@@ -496,7 +539,7 @@ export function LinearMap({
       levels.push({ ...item, lvl, cxp });
     }
     return levels;
-  }, [features, px]);
+  }, [features, px, length]);
 
   const maxLvl = labelLevels.reduce((m, l) => Math.max(m, l.lvl), 0);
   const lineY = 74 + maxLvl * 16;
@@ -556,33 +599,47 @@ export function LinearMap({
       }}
     >
       <line x1={x0} y1={lineY} x2={x1} y2={lineY} stroke="#8a8577" strokeWidth="1.5" />
-      {sel && sel.start != null && sel.end != null && (
+      {selPieces(sel, length).map(([ps, pe]) => (
         <rect
-          x={px(sel.start)}
+          key={`sel-${ps}`}
+          x={px(ps)}
           y={lineY - 16}
-          width={Math.max(1, px(sel.end + 1) - px(sel.start))}
+          width={Math.max(1, px(pe + 1) - px(ps))}
           height={32}
           fill={SEL_BROWN}
           pointerEvents="none"
         />
-      )}
+      ))}
       {features.map((f) => {
-        const segs = featureSegments(f);
         const hovered = hoverId === f.id;
-        const fx0 = px(f.start);
-        const fx1 = px(f.end + 1);
-        const head = Math.min(10, Math.max(2, (fx1 - fx0) / 2));
-        const h = 8;
-        const hf = h + HEAD_FLARE;
         const hasDir = f.strand === '+' || f.strand === '-';
-        const tipRight = f.strand !== '-';
         const buried = hasDir && tipBuried(f, features, length);
-        const pts =
-          !hasDir || buried
-            ? `${fx0},${lineY - h} ${fx1},${lineY - h} ${fx1},${lineY + h} ${fx0},${lineY + h}`
-            : tipRight
-              ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1 - head},${lineY - hf} ${fx1},${lineY} ${fx1 - head},${lineY + hf} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
-              : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0 + head},${lineY - hf} ${fx0},${lineY} ${fx0 + head},${lineY + hf} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
+        // Origin-crossing features draw as the pieces on each side of the
+        // origin; others keep the single bounding polygon.
+        const runs = unwrapRuns(f, length);
+        const wraps = runs.some((r) => r.end >= length);
+        const pieces = [];
+        if (wraps) {
+          for (const r of runs) {
+            pieces.push({ s: r.start, e: Math.min(r.end, length - 1) });
+            if (r.end >= length) pieces.push({ s: 0, e: r.end - length });
+          }
+        } else {
+          pieces.push({ s: f.start, e: f.end });
+        }
+        const piecePts = (p, i) => {
+          const fx0 = px(p.s);
+          const fx1 = px(p.e + 1);
+          const head = Math.min(10, Math.max(2, (fx1 - fx0) / 2));
+          const h = 8;
+          const hf = h + HEAD_FLARE;
+          const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === pieces.length - 1);
+          if (!isTip)
+            return `${fx0},${lineY - h} ${fx1},${lineY - h} ${fx1},${lineY + h} ${fx0},${lineY + h}`;
+          return f.strand !== '-'
+            ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1 - head},${lineY - hf} ${fx1},${lineY} ${fx1 - head},${lineY + hf} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
+            : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0 + head},${lineY - hf} ${fx0},${lineY} ${fx0 + head},${lineY + hf} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
+        };
         return (
           <g
             key={f.id}
@@ -593,9 +650,8 @@ export function LinearMap({
             }}
             onClick={(e) => {
               e.stopPropagation();
-              const starts = segs.map((s) => s.start);
-              const ends = segs.map((s) => s.end);
-              onSelect(Math.min(...starts), Math.max(...ends));
+              const [fs, fe] = featureSelRange(f);
+              onSelect(fs, fe);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -604,39 +660,44 @@ export function LinearMap({
             onMouseEnter={() => setHoverId(f.id)}
             onMouseLeave={() => setHoverId(null)}
           >
-            <polygon
-              points={pts}
-              fill={f.color || '#9e9e9e'}
-              fillOpacity={hovered ? 1 : 0.85}
-              stroke="#333"
-              strokeWidth={hovered ? 1.8 : 1.2}
-            />
+            {pieces.map((p, i) => (
+              <polygon
+                key={i}
+                points={piecePts(p, i)}
+                fill={f.color || '#9e9e9e'}
+                fillOpacity={hovered ? 1 : 0.85}
+                stroke="#333"
+                strokeWidth={hovered ? 1.8 : 1.2}
+              />
+            ))}
             {sel &&
-              segs.map((s, i) => {
-                const o0 = Math.max(s.start, sel.start);
-                const o1 = Math.min(s.end, sel.end);
-                if (o0 > o1) return null;
-                const clipId = `mapovl-${f.id}-${i}`;
-                return (
-                  <g key={`ov-${i}`} pointerEvents="none">
-                    <clipPath id={clipId}>
-                      <rect
-                        x={px(o0)}
-                        y={lineY - 8 - HEAD_FLARE}
-                        width={Math.max(1, px(o1 + 1) - px(o0))}
-                        height={16 + HEAD_FLARE * 2}
+              pieces.map((p, i) =>
+                selPieces(sel, length).map(([ps, pe], pi) => {
+                  const o0 = Math.max(p.s, ps);
+                  const o1 = Math.min(p.e, pe);
+                  if (o0 > o1) return null;
+                  const clipId = `mapovl-${f.id}-${i}-${pi}`;
+                  return (
+                    <g key={`ov-${i}-${pi}`} pointerEvents="none">
+                      <clipPath id={clipId}>
+                        <rect
+                          x={px(o0)}
+                          y={lineY - 8 - HEAD_FLARE}
+                          width={Math.max(1, px(o1 + 1) - px(o0))}
+                          height={16 + HEAD_FLARE * 2}
+                        />
+                      </clipPath>
+                      <polygon
+                        points={piecePts(p, i)}
+                        fill={SEL_BROWN}
+                        stroke={bgColor}
+                        strokeWidth="1.2"
+                        clipPath={`url(#${clipId})`}
                       />
-                    </clipPath>
-                    <polygon
-                      points={pts}
-                      fill={SEL_BROWN}
-                      stroke={bgColor}
-                      strokeWidth="1.2"
-                      clipPath={`url(#${clipId})`}
-                    />
-                  </g>
-                );
-              })}
+                    </g>
+                  );
+                }),
+              )}
           </g>
         );
       })}
@@ -654,7 +715,7 @@ export function LinearMap({
       ))}
       {labelLevels.map(({ f, lvl, cxp }) => {
         const hovered = hoverId === f.id;
-        const fSel = featureSegments(f).some((s) => segInSel(s, sel));
+        const fSel = featureSegments(f).some((s) => segInSel(s, sel, length));
         return (
           <g
             key={f.id}
@@ -665,8 +726,8 @@ export function LinearMap({
             }}
             onClick={(e) => {
               e.stopPropagation();
-              const segs = featureSegments(f);
-              onSelect(Math.min(...segs.map((s) => s.start)), Math.max(...segs.map((s) => s.end)));
+              const [fs, fe] = featureSelRange(f);
+              onSelect(fs, fe);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -752,7 +813,7 @@ export default function MapView({
         <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted-foreground">
           <span>
             {sel
-              ? `${sel.start + 1} .. ${sel.end + 1} = ${sel.end - sel.start + 1} ${unit}`
+              ? `${sel.start + 1} .. ${sel.end + 1} = ${rangeLen(sel.start, sel.end, sequenceLength)} ${unit}`
               : view === 'circular'
                 ? 'Circular'
                 : 'Linear'}
