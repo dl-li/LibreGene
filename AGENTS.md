@@ -137,7 +137,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 - Agent 标签页（绑定后留在主窗口侧边栏（侧边栏条目无特殊样式）；锁定时工作区保持可交互（滚动/选择/复制可用），仅脏状态操作被禁——ProjectWorkspace 各 mutation handler 守卫 + tauriApi 命令层守卫 `setAgentEditLock`；底部导航栏整体替换为 Teal 描边控制条（同引物设计取段的样式：Bot 图标 + 提示 + Unlock），顺带占住导航栏防误操作；解锁后右下徽标 + Lock，下次 MCP 调用自动重锁；Agent 强调色统一 Teal）→ `open_project`（打开即绑定；已加载已绑定则复用+重锁；已加载未绑定=用户项目则拒绝并指引 bash `cp` 复制副本）
 - 项目/文件管理 → `open_project`（支持 gbk/gbf/gbff、dna/rna/prot、gpt 变体、fasta（.faa 按蛋白）、ab1、seq 嗅探）、`save_file`（写 .gbk/.gb/.gpt；目标路径≠项目自身路径且已存在时需 `overwrite: true`）、`close_project`（有未保存改动时需 `force: true`）、`list_projects`
-- 子序列导出 → `save_file` 的 `region` 参数（四种互斥区间：① 坐标 ② 特征 ③ 酶切或显式切口 ④ 引物扩增子；重叠特征截断+坐标平移、引物按首要位点重叠导出；环状项目导出线性；region 导出不 mark_clean）
+- 子序列导出 → `save_file` 的 `region` 参数（四种互斥区间：① 坐标 ② 特征 ③ 酶切或显式切口 ④ 引物扩增子；重叠特征截断+坐标平移、引物按首要位点重叠导出；特征区间按 join 顺序拼接（跨原点特征不排序），负链逆序逐段 rev-comp；环状项目导出线性；region 导出不 mark_clean）
 - 序列读取 → `read_sequence`（窗口模式 start+end；坐标模式 position / feature_id+feature_offset / feature_id+aa_position 三互斥，附 `flank` 上下文窗口与 features/translations 命中明细——即原 convert_coordinates）、`get_project_overview`、`get_region_view`（digest 按 molecule_type 分支；region 有比对时附 ALIGNMENT DIFFS 节 + ALIGNMENT VIEW 逐列视图：模板/掩码/read 三行，`|` 匹配 `.` 错配 `-` read 缺口，60 bp/行，插入与未覆盖区间以注记列出，覆盖窗口 >500 bp 省略视图；overview 另有 /translation 与 DNA 不一致 WARNING 行、多 read 相同 mismatch 的 MISMATCH CONSENSUS 提示）
 - 序列编辑 → `edit_sequence`（字符串或 `replacement_path` 互斥；两路输入均统一转大写（对齐 update_sequence），protein 额外校验氨基酸字母表；strand:"-" 先 rev-comp；携带特征/引物转移，名称冲突加 ` (2)`；`expected_old` 乐观校验失败附 `currentContent`；**等长替换保留全部特征不动**（removedFeatures/clippedFeatures 为空），仅长度变化的编辑才删除/裁剪区间内特征）
 - 特征 → `set_feature`（省略 `feature_id`=创建（name/ftype 必填），给定=更新；结构化 1-based 参数：start+end 或 segments，互斥）
