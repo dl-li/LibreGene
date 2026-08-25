@@ -157,6 +157,13 @@ export default function App() {
     }
   });
   const [showPrimers, setShowPrimers] = useState(true);
+  const [featureLabelsBelow, setFeatureLabelsBelow] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('featureLabelsBelow')) || false;
+    } catch {
+      return false;
+    }
+  });
   const [showEnzymes, setShowEnzymes] = useState(true);
   const [enzymeFilter, setEnzymeFilter] = useState('unique+twice');
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
@@ -804,6 +811,17 @@ export default function App() {
       }),
     showPrimers,
     onTogglePrimers: () => setShowPrimers((v) => !v),
+    featureLabelsBelow,
+    onToggleFeatureLabelsBelow: () =>
+      setFeatureLabelsBelow((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('featureLabelsBelow', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
     showEnzymes,
     onToggleEnzymes: () => setShowEnzymes((v) => !v),
     enzymeFilter,
@@ -1193,6 +1211,8 @@ export default function App() {
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
           focusSection={settingsFocus}
+          featureLabelsBelow={featureLabelsBelow}
+          onToggleFeatureLabelsBelow={workspaceProps.onToggleFeatureLabelsBelow}
           methylationSystems={methylationSystems}
           setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap}

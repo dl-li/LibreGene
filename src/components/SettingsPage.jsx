@@ -20,6 +20,8 @@ const SECTION_TITLE =
 export default function SettingsPage({
   open,
   onOpenChange,
+  featureLabelsBelow = false,
+  onToggleFeatureLabelsBelow,
   methylationSystems,
   setMethylationSystems,
   methylationOverlap,
@@ -56,6 +58,32 @@ export default function SettingsPage({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* ── 特征显示 ── */}
+          <div>
+            <div className={SECTION_TITLE}>Features</div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="st-feature-labels-below"
+                className="mt-0.5"
+                checked={featureLabelsBelow}
+                onCheckedChange={() => onToggleFeatureLabelsBelow?.()}
+              />
+              <div className="flex flex-col">
+                <Label
+                  htmlFor="st-feature-labels-below"
+                  className="cursor-pointer text-sm font-normal"
+                >
+                  Show feature labels below the line
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  Place name labels under the feature line instead of on its left/right extension
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           {/* ── 甲基化 ── */}
           <div>
             <div className={SECTION_TITLE}>Methylation</div>
