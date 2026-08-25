@@ -1777,7 +1777,9 @@ fn resolve_export_region(
                 ));
             }
         }
-        pieces.sort_unstable();
+        // Keep join order: for origin-wrapping (or otherwise non-ascending)
+        // segments the biological 5'→3' order is the stored join order —
+        // reversed for the minus strand — NOT coordinate-ascending order.
         let minus = f.strand == "-";
         if minus && !project.is_dna() {
             // Minus-strand export reverse-complements each piece, which is
@@ -5996,6 +5998,75 @@ mod tests {
             region.lines().next().unwrap_or("")
         );
         std::fs::remove_file(&out_path).ok();
+    }
+
+    /// Origin-wrapping feature export must keep join order (not coordinate
+    /// order): plus strand concatenates end-segment after start-segment;
+    /// minus strand reverse-complements each piece in reversed join order —
+    /// the biological 5'→3' order of the feature.
+    #[tokio::test]
+    async fn save_file_region_wrap_origin_feature_keeps_join_order() {
+        use libregene_core::models::Segment;
+        let seq = synthetic_dna(120, 25);
+        let mk = |strand: &str| Feature {
+            id: "wrap".to_string(),
+            name: "wrap_cds".to_string(),
+            start: 0,
+            end: 119,
+            color: "#60A5FA".to_string(),
+            ftype: "CDS".to_string(),
+            segments: vec![
+                Segment { start: 90, end: 119, color: None },
+                Segment { start: 0, end: 20, color: None },
+            ],
+            strand: strand.to_string(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        };
+        let cases: Vec<(&str, String)> = vec![
+            ("+", format!("{}{}", &seq[90..=119], &seq[0..=20])),
+            (
+                "-",
+                format!(
+                    "{}{}",
+                    libregene_core::utils::reverse_complement(&seq[0..=20]),
+                    libregene_core::utils::reverse_complement(&seq[90..=119])
+                ),
+            ),
+        ];
+        for (strand, expected) in cases {
+            let project = ProjectData {
+                name: "wrap_order".to_string(),
+                sequence: seq.clone(),
+                length: 120,
+                topology: "circular".to_string(),
+                molecule_type: "dna".to_string(),
+                features: vec![mk(strand)],
+                ..Default::default()
+            };
+            let server = handler_with_project(project).await;
+            let out_path = std::env::temp_dir().join(format!(
+                "libregene-mcp-export-wrap-order-{}-{}.gbk",
+                if strand == "+" { "plus" } else { "minus" },
+                std::process::id()
+            ));
+            let req = SaveFileRequest {
+                project_id: "wrap_order".to_string(),
+                path: out_path.to_string_lossy().into_owned(),
+                region: Some(RegionSpec {
+                    feature_id: Some("wrap".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let out = server.save_file(Parameters(req)).await.unwrap();
+            assert_eq!(out.0["ok"], true);
+            assert_eq!(out.0["length"], 51);
+            let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
+            assert_eq!(parsed.sequence, expected, "strand {} export order", strand);
+            std::fs::remove_file(&out_path).ok();
+        }
     }
 
     #[tokio::test]
