@@ -2612,6 +2612,10 @@ async fn add_alignment(
     app_handle: AppHandle,
     path: String,
 ) -> Result<serde_json::Value, String> {
+    // The drag-and-drop importer and the multi-file dialog both funnel here,
+    // and the frontend extension filter is not a trust boundary — align with
+    // the MCP-side add_alignment, which validates every path.
+    validate_user_path(&path, SEQ_EXTS)?;
     let project_id = resolve_project_id(&state, webview_window.label()).await;
     let project_id = match project_id {
         Some(id) => id,
@@ -3084,6 +3088,17 @@ async fn rekey_project(
     };
     if !ok {
         return Ok(serde_json::json!({"error": "Rename failed (target may already exist)"}));
+    }
+
+    // Migrate the agent-tab binding along with the project. Leaving the old
+    // entry behind means a later user-open of old_id would be treated as a
+    // locked agent tab (and MCP could mutate it) purely from the stale
+    // entry — the same reason do_delete_project cleans this map.
+    {
+        let mut at = state.agent_tabs.write().await;
+        if let Some(meta) = at.remove(&old_id) {
+            at.insert(new_id.clone(), meta);
+        }
     }
 
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
