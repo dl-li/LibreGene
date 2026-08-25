@@ -2894,6 +2894,10 @@ async fn add_alignment(
     app_handle: AppHandle,
     path: String,
 ) -> Result<serde_json::Value, String> {
+    // The drag-and-drop importer and the multi-file dialog both funnel here,
+    // and the frontend extension filter is not a trust boundary — align with
+    // the MCP-side add_alignment, which validates every path.
+    validate_user_path(&path, SEQ_EXTS)?;
     let project_id = match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
