@@ -1,8 +1,19 @@
 const STORAGE_KEY = 'clipboardAnnotations';
 
-export function collectAnnotations({ features, primers }, start, end) {
+export function collectAnnotations({ features, primers }, start, end, totalLen = 0) {
   const collectedFeatures = [];
   const collectedPrimers = [];
+
+  // start > end wraps the origin of a circular sequence: two pieces, with
+  // output offsets into the concatenated copied text.
+  const pieces =
+    start <= end
+      ? [[start, end, 0]]
+      : [
+          [start, totalLen - 1, 0],
+          [0, end, totalLen - start],
+        ];
+  const outLen = start <= end ? end - start + 1 : totalLen - start + end + 1;
 
   if (features) {
     for (const f of features) {
@@ -10,12 +21,14 @@ export function collectAnnotations({ features, primers }, start, end) {
         f.segments && f.segments.length > 0 ? f.segments : [{ start: f.start, end: f.end }];
       let hasOverlap = false;
       const clippedSegments = [];
-      for (const seg of segs) {
-        const s = Math.max(seg.start, start);
-        const e = Math.min(seg.end, end);
-        if (s <= e) {
-          hasOverlap = true;
-          clippedSegments.push({ start: s - start, end: e - start });
+      for (const [ps, pe, off] of pieces) {
+        for (const seg of segs) {
+          const s = Math.max(seg.start, ps);
+          const e = Math.min(seg.end, pe);
+          if (s <= e) {
+            hasOverlap = true;
+            clippedSegments.push({ start: s - ps + off, end: e - ps + off });
+          }
         }
       }
       if (hasOverlap) {
@@ -40,7 +53,7 @@ export function collectAnnotations({ features, primers }, start, end) {
       const matchStart = bs.templateStart ?? bs.matchStart;
       const matchEnd = bs.templateEnd != null ? bs.templateEnd - 1 : bs.matchEnd;
       if (matchStart == null || matchEnd == null) continue;
-      if (matchStart <= end && matchEnd >= start) {
+      if (pieces.some(([ps, pe]) => matchStart <= pe && matchEnd >= ps)) {
         collectedPrimers.push({ name: p.name, type: p.type, primerSeq: p.primerSeq });
       }
     }
@@ -51,7 +64,7 @@ export function collectAnnotations({ features, primers }, start, end) {
   return {
     app: 'libregene',
     version: 1,
-    length: end - start + 1,
+    length: outLen,
     features: collectedFeatures,
     primers: collectedPrimers,
   };

@@ -177,3 +177,4 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - `ProjectData.molecule_type` — `"dna" | "rna" | "protein"`（serde 输出 `moleculeType`），默认 `"dna"`；RNA/蛋白序列通常线性
 - **分子类型 gate**：digest 渲染、酶/引物 recompute、translate refresh 都按 molecule_type 分支，非 DNA 跳过酶切/引物/甲基化（`ProjectData::is_dna()` 统一判定，空串视为 DNA）；auto-annotation 例外（DNA 走 nt 级 + CDS 蛋白级双通路，protein 按 aa 匹配，RNA 不支持）
 - 环状序列坐标用 `% tlen` 归一化，`wrap_template_region` 负责环状拼接
+- **跨原点特征**：segments 按 join 顺序存储，后段 `start` < 前段 `start` 即跨原点（如 CmR `join(8886..9326,1..219)`）。特征选中范围取 join 顺序首段 start..末段 end，故 `selStart > selEnd` 表示跨原点选区（仅 circular 有效；渲染/复制支持，replace/delete/paste 不支持）；复制/导出序列按 join 顺序拼接，负链按逆序逐段 rev-comp（前端 helper 在 `src/editorConstants.js`：`featureSelRange`/`sliceRange`/`rangeLen`；图谱经 `MapView.jsx` 的 `unwrapRuns` 展开为单个跨原点箭头）
