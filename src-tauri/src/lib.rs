@@ -698,7 +698,7 @@ async fn do_save_file(
     project_id: String,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    let ext = validate_user_path(&path, &["gbk", "gb", "gpt"])?;
+    let ext = validate_user_path(&path, CODON_OUTPUT_EXTS)?;
     let save_path = std::path::PathBuf::from(&path);
     let project = {
         let pm = pm.read().await;
@@ -739,37 +739,51 @@ async fn do_save_file(
     }
 }
 
-/// Replace a project's sequence (and optionally its whole primer list, e.g.
-/// an undo/redo snapshot — `Some` replaces `p.primers` wholesale and binding
-/// sites are recomputed; `None` keeps the current primers), recompute
-/// enzymes/primers/translations off-lock, write back only the computed
-/// fields, mark dirty and broadcast.
-#[allow(clippy::too_many_arguments)]
-async fn do_update_sequence<R: Runtime>(
+/// CAS write-back of the off-lock recomputed fields after a sequence edit:
+/// land only when the live sequence still equals the one the recompute ran
+/// on — a concurrent edit that landed in between triggered its own recompute,
+/// so writing stale results back would clobber the newer state. Primers merge
+/// by id: a concurrently added primer survives, a concurrently deleted one
+/// stays gone, existing ones get their fresh binding sites.
+fn merge_recomputed_after_edit(live: &mut ProjectData, computed: ProjectData) -> bool {
+    if live.sequence != computed.sequence {
+        return false;
+    }
+    live.enzymes = computed.enzymes;
+    for cp in computed.primers {
+        if let Some(pr) = live.primers.iter_mut().find(|pr| pr.id == cp.id) {
+            *pr = cp;
+        }
+    }
+    // Refresh translations on features still at their cloned coordinates;
+    // features edited concurrently keep their state.
+    for cf in &computed.features {
+        if let Some(f) = live
+            .features
+            .iter_mut()
+            .find(|f| f.id == cf.id && f.start == cf.start && f.end == cf.end)
+        {
+            f.translation = cf.translation.clone();
+        }
+    }
+    true
+}
+
+/// Clone the project, recompute enzymes/primers/translations off-lock, CAS
+/// write the computed fields back and broadcast. Shared by
+/// do_update_sequence and the MCP edit_sequence path (which writes the
+/// sequence inside its own critical section, then calls this).
+pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
-    project_id: String,
-    sequence: String,
-    primers: Option<Vec<Primer>>,
-) -> Result<serde_json::Value, String> {
-    {
-        let mut pm = pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.sequence = sequence;
-            p.length = p.sequence.len() as i64;
-            if let Some(primers) = primers {
-                p.primers = primers;
-            }
-            pm.mark_dirty(&project_id);
-        }
-    }
-
+    project_id: &str,
+) -> Result<(), String> {
     let project_clone = {
         let pm = pm.read().await;
-        pm.get_project_by_id(&project_id).map(|p| ProjectData {
+        pm.get_project_by_id(project_id).map(|p| ProjectData {
             // enzyme::recompute below rebuilds the whole enzyme list from the
             // embedded database, so cloning the existing Vec<Enzyme> (the
             // single heaviest field on large plasmids) is pure waste.
@@ -803,28 +817,50 @@ async fn do_update_sequence<R: Runtime>(
         .await
         .map_err(|e| format!("task join error: {}", e))?;
 
-        // Write back ONLY the computed fields so concurrent edits made while
-        // spawn_blocking ran (e.g. a feature rename) are not clobbered; this
-        // also leaves the global active project untouched (no open_project).
+        // Write back ONLY the computed fields (CAS on the sequence) so
+        // concurrent edits made while spawn_blocking ran (e.g. a feature
+        // rename, a newer sequence edit) are not clobbered; this also leaves
+        // the global active project untouched (no open_project).
         let mut pm = pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.enzymes = computed.enzymes;
-            p.primers = computed.primers;
-            // Refresh translations on features still at their cloned
-            // coordinates; features edited concurrently keep their state.
-            for cf in &computed.features {
-                if let Some(f) = p
-                    .features
-                    .iter_mut()
-                    .find(|f| f.id == cf.id && f.start == cf.start && f.end == cf.end)
-                {
-                    f.translation = cf.translation.clone();
-                }
-            }
+        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+            merge_recomputed_after_edit(p, computed);
         }
     }
 
     broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    Ok(())
+}
+
+/// Replace a project's sequence (and optionally its whole primer list, e.g.
+/// an undo/redo snapshot — `Some` replaces `p.primers` wholesale and binding
+/// sites are recomputed; `None` keeps the current primers), recompute
+/// enzymes/primers/translations off-lock, write the computed fields back
+/// under a sequence CAS (a stale recompute is dropped), mark dirty and
+/// broadcast.
+#[allow(clippy::too_many_arguments)]
+async fn do_update_sequence<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: String,
+    sequence: String,
+    primers: Option<Vec<Primer>>,
+) -> Result<serde_json::Value, String> {
+    {
+        let mut pm = pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            p.sequence = sequence;
+            p.length = p.sequence.len() as i64;
+            if let Some(primers) = primers {
+                p.primers = primers;
+            }
+            pm.mark_dirty(&project_id);
+        }
+    }
+
+    recompute_after_sequence_change(app_handle, pm, wp, agent_tabs, source, &project_id).await?;
 
     let result = {
         let pm = pm.read().await;
@@ -1265,6 +1301,36 @@ fn alignment_reject_message(r: libregene_core::align::AlignReject) -> String {
     }
 }
 
+/// CAS/merge write-back for a freshly computed alignment (same discipline as
+/// do_add_primer): land the computed list wholesale only when the live
+/// alignment ids still match the snapshot the new alignment's id was
+/// allocated from; otherwise a concurrent add/remove slipped in — append the
+/// new alignment onto the live list with an id re-allocated from the CURRENT
+/// list, so the other writer's entry survives.
+async fn commit_computed_alignment(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+    snapshot_ids: &[String],
+    computed: ProjectData,
+) {
+    let mut pm = pm.write().await;
+    if let Some(p) = pm.get_project_mut_by_id(project_id) {
+        if p.alignments.len() == snapshot_ids.len()
+            && p
+                .alignments
+                .iter()
+                .zip(snapshot_ids)
+                .all(|(a, id)| &a.id == id)
+        {
+            p.alignments = computed.alignments;
+        } else if let Some(mut aln) = computed.alignments.into_iter().last() {
+            aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+            p.alignments.push(aln);
+        }
+    }
+    pm.mark_dirty(project_id);
+}
+
 async fn do_add_alignment_seq<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -1283,6 +1349,7 @@ async fn do_add_alignment_seq<R: Runtime>(
         Some(p) => p,
         None => return Ok(serde_json::json!({"error": "Project not found"})),
     };
+    let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
 
     let clean_seq: String = seq
         .chars()
@@ -1316,16 +1383,7 @@ async fn do_add_alignment_seq<R: Runtime>(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
-    {
-        let mut pm = pm.write().await;
-        // Write back only the computed field (the alignment list) so
-        // concurrent edits made while spawn_blocking ran survive, and the
-        // global active project stays untouched (no open_project).
-        if let Some(p) = pm.get_project_mut_by_id(project_id) {
-            p.alignments = computed.alignments;
-        }
-        pm.mark_dirty(project_id);
-    }
+    commit_computed_alignment(pm, project_id, &snapshot_ids, computed).await;
 
     broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
@@ -2907,6 +2965,7 @@ async fn add_alignment(
         Some(p) => p,
         None => return Ok(serde_json::json!({"error": "Project not found"})),
     };
+    let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
 
     let path_buf = std::path::PathBuf::from(&path);
     let name = path_buf
@@ -2938,16 +2997,7 @@ async fn add_alignment(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
-    {
-        let mut pm = state.pm.write().await;
-        // Write back only the computed field (the alignment list) so
-        // concurrent edits made while spawn_blocking ran survive, and the
-        // global active project stays untouched (no open_project).
-        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
-            p.alignments = computed.alignments;
-        }
-        pm.mark_dirty(&project_id);
-    }
+    commit_computed_alignment(&state.pm, &project_id, &snapshot_ids, computed).await;
 
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
@@ -4057,5 +4107,203 @@ mod tests {
         let feats2 = ok2["features"].as_array().unwrap();
         assert_eq!(feats2[0]["start"], 10);
         assert_eq!(feats2[0]["end"], 40);
+    }
+
+    #[tokio::test]
+    async fn concurrent_alignment_adds_do_not_clobber_each_other() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        // Pseudo-random 200 bp template (repeats would confuse the aligner).
+        let mut seq = String::new();
+        let mut x = 7u64;
+        for _ in 0..200 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seq.push(b"ACGT"[(x >> 33) as usize & 3] as char);
+        }
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: seq.clone(),
+                    length: 200,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        let read = seq[20..170].to_string();
+
+        // Two adds racing on the same empty alignment list: each snapshots
+        // the same state, so a naive last-writer-wins write-back would drop
+        // one alignment (and both would allocate the same id).
+        let (a, b) = tokio::join!(
+            do_add_alignment_seq(
+                app.handle(),
+                &pm,
+                &wp,
+                &agent_tabs,
+                None,
+                "p1",
+                "r1".to_string(),
+                read.clone(),
+            ),
+            do_add_alignment_seq(
+                app.handle(),
+                &pm,
+                &wp,
+                &agent_tabs,
+                None,
+                "p1",
+                "r2".to_string(),
+                read.clone(),
+            ),
+        );
+        a.unwrap();
+        b.unwrap();
+
+        let pm = pm.read().await;
+        let p = pm.get_project_by_id("p1").unwrap();
+        let names: Vec<&str> = p.alignments.iter().map(|al| al.name.as_str()).collect();
+        assert!(
+            names.contains(&"r1") && names.contains(&"r2"),
+            "both alignments must survive a concurrent add: {:?}",
+            names
+        );
+        let ids: std::collections::HashSet<&str> =
+            p.alignments.iter().map(|al| al.id.as_str()).collect();
+        assert_eq!(ids.len(), p.alignments.len(), "ids must be unique");
+    }
+
+    #[tokio::test]
+    async fn commit_computed_alignment_merges_onto_changed_list() {
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: "ACGT".repeat(50),
+                    length: 200,
+                    topology: "linear".to_string(),
+                    alignments: vec![
+                        libregene_core::models::Alignment {
+                            id: "aln-1".to_string(),
+                            name: "old".to_string(),
+                            ..Default::default()
+                        },
+                        // A concurrent add that slipped in after the snapshot.
+                        libregene_core::models::Alignment {
+                            id: "aln-9".to_string(),
+                            name: "concurrent".to_string(),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        // The computed state derives from a snapshot of [aln-1] plus the new
+        // alignment (id allocated from the snapshot).
+        let computed = ProjectData {
+            alignments: vec![
+                libregene_core::models::Alignment {
+                    id: "aln-1".to_string(),
+                    name: "old".to_string(),
+                    ..Default::default()
+                },
+                libregene_core::models::Alignment {
+                    id: "aln-2".to_string(),
+                    name: "new".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        commit_computed_alignment(&pm, "p1", &["aln-1".to_string()], computed).await;
+        let pmr = pm.read().await;
+        let p = pmr.get_project_by_id("p1").unwrap();
+        let ids: Vec<&str> = p.alignments.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids.len(), 3, "{ids:?}");
+        assert!(ids.contains(&"aln-1") && ids.contains(&"aln-9"), "{ids:?}");
+        let new = p.alignments.iter().find(|a| a.name == "new").unwrap();
+        assert!(
+            new.id != "aln-2" || !ids[..2].contains(&"aln-2"),
+            "id re-allocated from the live list: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn merge_recomputed_after_edit_cas_and_primer_merge() {
+        let mk_primer = |id: &str, sites: usize| Primer {
+            id: id.to_string(),
+            name: id.to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "ACGT".to_string(),
+            binding_sites: vec![
+                libregene_core::models::PrimerBindingSite {
+                    primer_id: id.to_string(),
+                    strand: 1,
+                    template_start: 0,
+                    template_end: 4,
+                    tm: 60.0,
+                    gc_content: 0.5,
+                    match_score: 4,
+                    has_3_prime_mismatch: false,
+                    five_prime_tail: String::new(),
+                    three_prime_tail: String::new(),
+                    alignment: Default::default(),
+                };
+                sites
+            ],
+        };
+        // Same sequence: enzymes replaced, existing primer's sites updated,
+        // concurrently added primer kept, concurrently deleted primer gone.
+        let mut live = ProjectData {
+            sequence: "ACGTACGT".to_string(),
+            length: 8,
+            primers: vec![mk_primer("keep", 0), mk_primer("added", 1)],
+            ..Default::default()
+        };
+        let computed = ProjectData {
+            sequence: "ACGTACGT".to_string(),
+            length: 8,
+            enzymes: vec![libregene_core::models::Enzyme {
+                name: "EcoRI".to_string(),
+                ..Default::default()
+            }],
+            primers: vec![mk_primer("keep", 2), mk_primer("deleted", 3)],
+            ..Default::default()
+        };
+        assert!(merge_recomputed_after_edit(&mut live, computed));
+        assert_eq!(live.enzymes.len(), 1);
+        assert_eq!(live.enzymes[0].name, "EcoRI");
+        let ids: Vec<&str> = live.primers.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["keep", "added"], "{ids:?}");
+        assert_eq!(live.primers[0].binding_sites.len(), 2);
+        assert_eq!(live.primers[1].binding_sites.len(), 1);
+
+        // Sequence changed under the recompute: nothing is written back.
+        let mut live = ProjectData {
+            sequence: "TTTT".to_string(),
+            length: 4,
+            ..Default::default()
+        };
+        let computed = ProjectData {
+            sequence: "ACGTACGT".to_string(),
+            length: 8,
+            enzymes: vec![libregene_core::models::Enzyme {
+                name: "EcoRI".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!merge_recomputed_after_edit(&mut live, computed));
+        assert!(live.enzymes.is_empty());
     }
 }

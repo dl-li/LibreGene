@@ -22,6 +22,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "net", "time"] }
 libregene-core = { path = "../backend/libregene-core" }
 log = "0.4"
+getrandom = "0.2"
 tauri-plugin-decoration = "2.1.4"
 tauri-plugin-single-instance = "2"
 
