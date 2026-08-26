@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Scissors,
   Search,
+  X,
   Undo2,
   Redo2,
   CopyPlus,
@@ -538,10 +539,11 @@ export default function EditorNavMenu({
           )}
           <button
             type="button"
+            aria-label="Close search"
             onClick={toggleSearch}
             className="flex items-center justify-center rounded-full bg-accent p-2 text-foreground outline-none transition-all duration-150 hover:text-foreground active:scale-90"
           >
-            <Search className="size-4" />
+            <X className="size-4" />
           </button>
         </div>
       </div>
