@@ -7,6 +7,7 @@ name = "LibreGene"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "getrandom 0.2.17",
  "libregene-core",
  "log",
  "rmcp",

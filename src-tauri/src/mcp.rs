@@ -259,7 +259,8 @@ struct SetFeatureRequest {
     /// Hex color, e.g. "#60A5FA" (create default "#60A5FA"; on update also
     /// recolors existing segments).
     color: Option<String>,
-    /// Create-only initial notes.
+    /// Create-only initial notes (passing notes on update is rejected —
+    /// notes update is not supported).
     notes: Option<String>,
 }
 
@@ -288,8 +289,11 @@ struct AddAlignmentRequest {
     /// open project, export it first with save_file's `region`.
     path: Option<String>,
     /// When true, omit the full `orientedSequence` and the post-alignment
-    /// `regionView` to reduce response size. Differences and coverage are still
-    /// returned; use read_sequence/get_region_view when you need the bases.
+    /// `regionView` to reduce response size. The newly added alignment's
+    /// difference details and coverage are still returned (filtered to the
+    /// focus window, with `outsideWindow` counts, when `region`/`feature_id`
+    /// is also given); previously stored alignments stay stats-only. Use
+    /// read_sequence/get_region_view when you need the bases.
     compact: Option<bool>,
     /// Focus window (1-based inclusive; start > end wraps the origin on
     /// circular templates): `mismatchDetails`/`deletionDetails`/
@@ -680,8 +684,10 @@ fn to1(x: i64) -> i64 {
 }
 
 /// MCP-visible 1-based inclusive coordinate → internal 0-based inclusive.
+/// Saturating: every caller range-checks the result afterwards, and an
+/// i64::MIN input must not panic a debug build.
 fn from1(x: i64) -> i64 {
-    x - 1
+    x.saturating_sub(1)
 }
 
 /// Upper bound for caller-supplied `flank` context windows (read_sequence
@@ -727,9 +733,14 @@ fn feature_json_1based(f: &Feature) -> serde_json::Value {
 /// (0-based `templateStart`, 0-based-EXCLUSIVE `templateEnd`) to the 1-based
 /// inclusive MCP convention: `templateStart` +1, while `templateEnd` keeps its
 /// value (a 0-based exclusive end IS the 1-based inclusive end of the site).
-fn site_json_to_1based(site: &mut serde_json::Value) {
+/// A circular site ending exactly at the last base stores `templateEnd` 0
+/// (wrapped); report the last base (`tlen`) instead of the out-of-domain 0.
+fn site_json_to_1based(site: &mut serde_json::Value, tlen: i64, circular: bool) {
     if let Some(s) = site.get("templateStart").and_then(|v| v.as_i64()) {
         site["templateStart"] = serde_json::json!(s + 1);
+    }
+    if circular && site.get("templateEnd").and_then(|v| v.as_i64()) == Some(0) {
+        site["templateEnd"] = serde_json::json!(tlen);
     }
 }
 
@@ -836,13 +847,17 @@ fn filter_alignment_json_focus(
                 .is_some_and(|p| in_window_1based(p, s1, e1))
         });
     }
+    // A deletion merged across the circular origin (terminal run + origin
+    // run in alignment_diff) can carry pos + length past tlen; map those
+    // coordinates back into 1..=tlen before comparing with the window.
+    let wrap_x = |x: i64| if circular && x > tlen { x - tlen } else { x };
     if let Some(arr) = obj.get_mut("deletionDetails").and_then(|a| a.as_array_mut()) {
         arr.retain(|d| {
             match (
                 d.get("pos").and_then(|p| p.as_i64()),
                 d.get("length").and_then(|l| l.as_i64()),
             ) {
-                (Some(p), Some(l)) => (p..p + l.max(1)).any(|x| in_window_1based(x, s1, e1)),
+                (Some(p), Some(l)) => (p..p + l.max(1)).any(|x| in_window_1based(wrap_x(x), s1, e1)),
                 _ => false,
             }
         });
@@ -855,30 +870,50 @@ fn filter_alignment_json_focus(
             })
         });
     }
-    // In-window base counts: mismatch entries are one column each, deletion
-    // and insertion entries carry a base `length`.
+    // In-window base counts: mismatch entries are one column each, insertion
+    // entries count fully by their anchor, and deletion entries count only
+    // the bases actually inside the window (a partially overlapping deletion
+    // is kept but its outside bases are not window content).
     let in_mismatches = obj
         .get("mismatchDetails")
         .and_then(|a| a.as_array())
         .map(|a| a.len() as i64)
         .unwrap_or(0);
-    let detail_bases = |key: &str| -> i64 {
-        obj.get(key)
-            .and_then(|a| a.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|d| d.get("length").and_then(|l| l.as_i64()))
-                    .sum()
-            })
-            .unwrap_or(0)
-    };
+    let in_deletions: i64 = obj
+        .get("deletionDetails")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|d| {
+                    match (
+                        d.get("pos").and_then(|p| p.as_i64()),
+                        d.get("length").and_then(|l| l.as_i64()),
+                    ) {
+                        (Some(p), Some(l)) => (p..p + l.max(1))
+                            .filter(|&x| in_window_1based(wrap_x(x), s1, e1))
+                            .count() as i64,
+                        _ => 0,
+                    }
+                })
+                .sum()
+        })
+        .unwrap_or(0);
+    let in_insertions: i64 = obj
+        .get("insertionDetails")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|d| d.get("length").and_then(|l| l.as_i64()))
+                .sum()
+        })
+        .unwrap_or(0);
     let total = |key: &str| obj.get(key).and_then(|n| n.as_i64()).unwrap_or(0);
     obj.insert(
         "outsideWindow".to_string(),
         serde_json::json!({
             "mismatches": total("mismatches") - in_mismatches,
-            "deletions": total("deletions") - detail_bases("deletionDetails"),
-            "insertions": total("insertions") - detail_bases("insertionDetails"),
+            "deletions": total("deletions") - in_deletions,
+            "insertions": total("insertions") - in_insertions,
         }),
     );
 }
@@ -1077,6 +1112,19 @@ fn resolve_feature_span(
                 }
                 out.push(Segment { start: seg.start - 1, end: seg.end - 1, color: None });
             }
+            // Encoding order (same rule as project creation): ascending
+            // starts; an origin-wrapping feature leads with its tail, the one
+            // descending transition marking the origin. Out-of-order segments
+            // would make the first/last-derived bounds wrong (a phantom wrap).
+            let descents = out.windows(2).filter(|w| w[1].start < w[0].start).count();
+            let ordered = descents <= 1
+                && (descents == 0 || out.first().unwrap().start > out.last().unwrap().end);
+            if !ordered {
+                return Err(
+                    "segments are not in encoding order (ascending starts; a wrapping feature leads with its tail, e.g. join(8886..9326, 1..219))"
+                        .to_string(),
+                );
+            }
             let s = out.iter().map(|x| x.start).min().unwrap_or(0);
             let e = out.iter().map(|x| x.end).max().unwrap_or(0);
             Ok((out, s, e))
@@ -1087,6 +1135,31 @@ fn resolve_feature_span(
         (None, None, None) => Err("give start+end or segments".to_string()),
         _ => Err("invalid span parameters".to_string()),
     }
+}
+
+/// Clean a caller-supplied primer sequence (letters only, uppercase) and
+/// validate `type` against the frontend's fwd/rev convention — an empty
+/// cleaned sequence would silently persist as a 0-site primer, and an
+/// arbitrary type string breaks the UI's fwd/rev rendering.
+fn clean_primer_input(name: &str, r#type: &str, seq: &str) -> Result<String, String> {
+    let clean: String = seq
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_uppercase();
+    if clean.is_empty() {
+        return Err(format!(
+            "primer '{}' seq is empty after removing non-letter characters",
+            name
+        ));
+    }
+    if !matches!(r#type, "fwd" | "rev") {
+        return Err(format!(
+            "primer '{}' has invalid type '{}': must be \"fwd\" or \"rev\"",
+            name, r#type
+        ));
+    }
+    Ok(clean)
 }
 
 /// Look up an enzyme's recognition site by name (case-insensitive); the error
@@ -1158,6 +1231,56 @@ impl<R: Runtime> LibreGeneMcp<R> {
         ))
     }
 
+    /// Reuse the agent tab binding of an already-loaded project (re-locking
+    /// it), or reject when the project is loaded but NOT bound — that means
+    /// the user opened it, and their projects stay under user control.
+    /// Shared by open_project's fast path and the lost-race path after its
+    /// atomic check-and-load.
+    async fn reuse_agent_tab_or_reject(&self, id: &str) -> Result<Json<serde_json::Value>, ErrorData> {
+        // Emit agent-tab-lock only on an unlocked → locked transition
+        // (same semantics as lock_agent_tab_for_project).
+        enum Reuse {
+            Relocked,
+            AlreadyLocked,
+            NotBound,
+        }
+        let reuse = {
+            let mut at = self.agent_tabs.write().await;
+            match at.get_mut(id) {
+                Some(meta) if meta.locked => Reuse::AlreadyLocked,
+                Some(meta) => {
+                    meta.locked = true;
+                    Reuse::Relocked
+                }
+                None => Reuse::NotBound,
+            }
+        };
+        match reuse {
+            Reuse::Relocked | Reuse::AlreadyLocked => {
+                if matches!(reuse, Reuse::Relocked) {
+                    let _ = self.app_handle.emit(
+                        "agent-tab-lock",
+                        serde_json::json!({ "projectId": id, "locked": true }),
+                    );
+                }
+                Ok(Json(serde_json::json!({
+                    "ok": true,
+                    "projectId": id,
+                    "locked": true,
+                    "reused": true,
+                    "message": format!("Project '{}' is already open and bound as your agent tab (re-locked)", id),
+                })))
+            }
+            Reuse::NotBound => Err(ErrorData::invalid_params(
+                format!(
+                    "Project '{}' is already open and was NOT opened via MCP open_project (it was opened by the user, or in a separate window). To work on a copy, copy the file with bash `cp` to a new path and open_project the copy.",
+                    id
+                ),
+                None,
+            )),
+        }
+    }
+
     async fn project_summary(&self, project_id: &str) -> Option<String> {
         let pm = self.pm.read().await;
         let p = pm.get_project_by_id(project_id)?;
@@ -1193,37 +1316,51 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// circular) or the whole project when `None`. `compact` collapses the
     /// enzyme cut list into a count line (mutation tools use it to keep
     /// regionView small). Rendered coordinates are 1-based inclusive.
+    /// The project is cloned out of the lock and rendered on a blocking
+    /// thread — rendering the enzyme list needs the full project, and
+    /// holding the pm read lock across it would starve UI edits (writers).
     async fn digest_region(
         &self,
         project_id: &str,
         region: Option<(i64, i64)>,
         compact: bool,
     ) -> Option<String> {
-        let pm = self.pm.read().await;
-        let project = pm.get_project_by_id(project_id)?;
+        let project = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(project_id).cloned()?
+        };
         let opts = DigestOptions {
             compact_enzymes: compact,
             ..DigestOptions::default()
         };
-        project_digest(project, &opts, region).ok()
+        tokio::task::spawn_blocking(move || project_digest(&project, &opts, region).ok())
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Text digest of the region around a feature (looked up by id); compact
     /// enzyme rendering (only mutation tools call this).
     async fn digest_feature_region(&self, project_id: &str, feature_id: &str) -> Option<String> {
-        let pm = self.pm.read().await;
-        let project = pm.get_project_by_id(project_id)?;
-        let f = project.features.iter().find(|f| f.id == feature_id)?;
-        // Clamp the +/-5 context window with saturating arithmetic so a
-        // feature near an end (or a maliciously huge coordinate that slipped
-        // past validation) can't underflow/overflow and panic the process.
-        let s = f.start.saturating_sub(5);
-        let e = (f.end.saturating_add(5)).min(project.length.saturating_sub(1));
+        let (project, s, e) = {
+            let pm = self.pm.read().await;
+            let project = pm.get_project_by_id(project_id)?;
+            let f = project.features.iter().find(|f| f.id == feature_id)?;
+            // Clamp the +/-5 context window with saturating arithmetic so a
+            // feature near an end (or a maliciously huge coordinate that slipped
+            // past validation) can't underflow/overflow and panic the process.
+            let s = f.start.saturating_sub(5);
+            let e = (f.end.saturating_add(5)).min(project.length.saturating_sub(1));
+            (project.clone(), s, e)
+        };
         let opts = DigestOptions {
             compact_enzymes: true,
             ..DigestOptions::default()
         };
-        project_digest(project, &opts, Some((s, e))).ok()
+        tokio::task::spawn_blocking(move || project_digest(&project, &opts, Some((s, e))).ok())
+            .await
+            .ok()
+            .flatten()
     }
 
     async fn feature_exists(&self, project_id: &str, feature_id: &str) -> bool {
@@ -1805,6 +1942,20 @@ fn resolve_export_region(
                 } else {
                     enzyme_cut_index(project, e2, 0)?
                 };
+                // Type-IIS enzymes cut outside their recognition site; on a
+                // linear molecule a site near an end can place the cut before
+                // base 1 or past the last base (circular cuts are normalized
+                // into [0, len) by the engine). Slicing there would panic.
+                if !circular {
+                    for (name, c) in [(e1, c1), (e2, c2)] {
+                        if c < 1 || c > len {
+                            return Err(format!(
+                                "cut of enzyme {} at position {} falls outside the linear molecule (1..={})",
+                                name, c, len
+                            ));
+                        }
+                    }
+                }
                 (
                     c1,
                     c2,
@@ -1866,8 +2017,14 @@ fn resolve_export_region(
     } else {
         rsite.template_end - 1
     };
+    // A rev site wrapping the origin stores template_end = (start +
+    // footprint) % len, so template_end < template_start (the == 0 case is
+    // already mapped to r_end = len - 1 above). The amplicon then always
+    // spans the origin — even when f_start <= r_end numerically, the forward
+    // arc from the fwd 5' end reaches the rev 5' end only across the origin.
+    let rev_wraps = circular && rsite.template_end != 0 && rsite.template_end < rsite.template_start;
     let pieces = if circular {
-        if f_start <= r_end {
+        if !rev_wraps && f_start <= r_end {
             vec![(f_start, r_end)]
         } else {
             vec![(f_start, len - 1), (0, r_end)]
@@ -2136,7 +2293,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             compact_cutters: request.compact_cutters.unwrap_or(true),
             include_auto_annotation: true,
         };
-        let text = project_digest(&project, &opts, None)
+        // Auto-annotation scans the whole feature database — CPU-heavy, so
+        // render off the tokio worker.
+        let text = tokio::task::spawn_blocking(move || project_digest(&project, &opts, None))
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
     }
@@ -2176,7 +2337,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             compact_cutters: false,
             include_auto_annotation: false,
         };
-        let text = project_digest(&project, &opts, Some((from1(request.start), from1(request.end))))
+        let region = (from1(request.start), from1(request.end));
+        let text = tokio::task::spawn_blocking(move || project_digest(&project, &opts, Some(region)))
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
     }
@@ -2634,21 +2798,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<ListPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
+        let tlen = project.length;
+        let circular = project.topology == "circular";
         let primers: Vec<serde_json::Value> = project
             .primers
             .iter()
             .map(|p| {
+                let sites: Vec<serde_json::Value> = p
+                    .binding_sites
+                    .iter()
+                    .map(|s| {
+                        let mut site = serde_json::json!({
+                            "strand": s.strand,
+                            "templateStart": s.template_start,
+                            "templateEnd": s.template_end,
+                        });
+                        site_json_to_1based(&mut site, tlen, circular);
+                        site
+                    })
+                    .collect();
                 serde_json::json!({
                     "id": p.id,
                     "name": p.name,
                     "type": p.r#type,
                     "seq": p.primer_seq,
                     "bindingSiteCount": p.binding_sites.len(),
-                    "sites": p.binding_sites.iter().map(|s| serde_json::json!({
-                        "strand": s.strand,
-                        "templateStart": to1(s.template_start),
-                        "templateEnd": s.template_end,
-                    })).collect::<Vec<_>>(),
+                    "sites": sites,
                 })
             })
             .collect();
@@ -2680,73 +2855,70 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// find_orfs/add_as_features) REFUSE to run on projects not bound as an
     /// agent tab. Multiple agents each open their own copy and work in
     /// parallel without interfering.
-    /// Returns {ok, message, projectId, regionView} where regionView is the
-    /// compact overview digest of the opened project (enzyme cutters
-    /// collapsed to a count line).
+    /// A fresh open returns {ok, message, projectId, regionView} where
+    /// regionView is the compact overview digest of the opened project
+    /// (enzyme cutters collapsed to a count line); a reused binding returns
+    /// {ok, message, projectId, locked, reused: true} WITHOUT regionView —
+    /// call get_project_overview if you need the digest.
     #[tool]
     async fn open_project(
         &self,
         Parameters(request): Parameters<OpenProjectRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = request.path.clone();
+        let id = request.path;
+        // Fast path: already loaded → reuse the binding or reject. No load
+        // happens on this path, so there is nothing to race with.
         let already_loaded = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id).is_some()
         };
         if already_loaded {
-            // Reuse the existing agent tab for this project when there is one.
-            // Emit agent-tab-lock only on an unlocked → locked transition
-            // (same semantics as lock_agent_tab_for_project).
-            enum Reuse {
-                Relocked,
-                AlreadyLocked,
-                NotBound,
-            }
-            let reuse = {
-                let mut at = self.agent_tabs.write().await;
-                match at.get_mut(&id) {
-                    Some(meta) if meta.locked => Reuse::AlreadyLocked,
-                    Some(meta) => {
-                        meta.locked = true;
-                        Reuse::Relocked
-                    }
-                    None => Reuse::NotBound,
-                }
-            };
-            match reuse {
-                Reuse::Relocked | Reuse::AlreadyLocked => {
-                    if matches!(reuse, Reuse::Relocked) {
-                        let _ = self.app_handle.emit(
-                            "agent-tab-lock",
-                            serde_json::json!({ "projectId": id, "locked": true }),
-                        );
-                    }
-                    return Ok(Json(serde_json::json!({
-                        "ok": true,
-                        "projectId": id,
-                        "locked": true,
-                        "reused": true,
-                        "message": format!("Project '{}' is already open and bound as your agent tab (re-locked)", id),
-                    })));
-                }
-                Reuse::NotBound => {}
-            }
-            // Loaded but not bound → the user opened it; their projects stay
-            // under user control.
-            return Err(ErrorData::invalid_params(
-                format!(
-                    "Project '{}' is already open and was NOT opened via MCP open_project (it was opened by the user, or in a separate window). To work on a copy, copy the file with bash `cp` to a new path and open_project the copy.",
-                    id
-                ),
-                None,
-            ));
+            return self.reuse_agent_tab_or_reject(&id).await;
         }
-        let payload = crate::do_open_file(&self.pm, &self.wp, &self.agent_tabs, request.path)
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
+        crate::validate_user_path(&id, crate::SEQ_EXTS)
+            .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
+        // Parse + recompute off the executor with no locks held (the same
+        // pipeline do_open_file runs for the frontend open_file command).
+        let path_buf = std::path::PathBuf::from(&id);
+        let parsed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
+            let mut project =
+                libregene_core::file_io::parse_file(&path_buf).map_err(|e| e.to_string())?;
+            libregene_core::enzyme::recompute(&mut project);
+            libregene_core::primer::recompute(&mut project);
+            Ok(project)
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?;
+        let project = match parsed {
+            Ok(p) => p,
+            Err(e) => return Ok(Json(fail_envelope(&id, e))),
+        };
+        // Atomic check-and-load under the pm write lock: the frontend's
+        // open_file loads under the same write lock, so whoever takes it
+        // first wins — if the user opened this file while we were parsing,
+        // we see "already loaded" here and take the reuse/reject path
+        // instead of clobbering their project and binding it as ours.
+        let loaded = {
+            let mut pm = self.pm.write().await;
+            if pm.get_project_by_id(&id).is_some() {
+                false
+            } else {
+                match pm.load(&id, project) {
+                    Ok(()) => {
+                        // A fresh load reflects the file on disk — clear any
+                        // stale dirty marker from a previous incarnation.
+                        pm.mark_clean(&id);
+                        true
+                    }
+                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                }
+            }
+        };
+        if !loaded {
+            return self.reuse_agent_tab_or_reject(&id).await;
         }
+        // The load may have evicted another project; drop its bindings.
+        crate::prune_orphan_bindings(&self.pm, &self.wp, &self.agent_tabs).await;
         // Bind the freshly opened project as this agent's tab (locked).
         {
             let mut at = self.agent_tabs.write().await;
@@ -2756,6 +2928,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "agent-tab-lock",
             serde_json::json!({ "projectId": id, "locked": true }),
         );
+        // A concurrent load between our load and the bind above could have
+        // evicted this project; never leave a binding to a ghost behind.
+        let still_loaded = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id).is_some()
+        };
+        if !still_loaded {
+            self.agent_tabs.write().await.remove(&id);
+            return Err(ErrorData::internal_error(
+                format!(
+                    "Project '{}' was evicted before it could be bound as an agent tab; retry open_project",
+                    id
+                ),
+                None,
+            ));
+        }
         // The open_file command does not broadcast (frontend applies the
         // response) — the MCP server must notify the UI itself.
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
@@ -2769,8 +2957,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// WITHOUT `region`: the whole project (current sequence + features) is
     /// written through the same serializer and mark-clean logic as the
-    /// save_file command (.gbk/.gb for DNA/RNA projects, .gpt for protein
-    /// projects; topology preserved). Returns the uniform envelope with the
+    /// save_file command (.gbk/.gb/.genbank for DNA/RNA projects, .gpt for
+    /// protein projects; topology preserved). Returns the uniform envelope
+    /// with the
     /// overview digest plus `bytesWritten` (file size in bytes, for write
     /// verification).
     ///
@@ -2821,8 +3010,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Overwrite rule: when `path` already exists and is NOT the project's
     /// own source path, `overwrite: true` is required — otherwise the call
     /// fails with a hint to choose a different path or overwrite explicitly.
-    /// Saving over the project's own file (scratch-copy iteration) needs no
-    /// flag.
+    /// A WHOLE-PROJECT save over the project's own file (scratch-copy
+    /// iteration) needs no flag; a REGION export over the project's own file
+    /// also requires `overwrite: true` (it would replace the full source
+    /// file with just the fragment).
     ///
     /// Region mode returns {ok, message, projectId, outputPath, length,
     /// primers?, regionView?}: `length` is the exported sequence length
@@ -2873,6 +3064,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
 
         // Region mode: subsequence export.
+        if path == id && !request.overwrite.unwrap_or(false) {
+            return Ok(Json(fail_envelope(
+                &id,
+                format!(
+                    "{} is the project's own source file — a region export would replace the full file with just the fragment; pass overwrite: true if that is really intended, or choose a different path",
+                    path
+                ),
+            )));
+        }
         let ext = crate::validate_user_path(&path, crate::CODON_OUTPUT_EXTS)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         let is_protein = project.molecule_type == "protein";
@@ -3043,7 +3243,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// to uppercase on every molecule type (matching update_sequence). On
     /// protein projects it must additionally be amino-acid letters (A-Z,
     /// optional trailing '*' stop codon); lengths are reported in aa (nt for
-    /// RNA, bp for DNA).
+    /// RNA, bp for DNA). On DNA projects any U in the replacement is
+    /// converted to T, and on RNA projects T to U (a cross-alphabet source
+    /// such as an .rna file inserted into a DNA project would otherwise
+    /// silently pollute the sequence — the enzyme recompute does not
+    /// recognize U); when any base is converted the response carries a
+    /// `note` field describing the direction and count.
     #[tool]
     async fn edit_sequence(
         &self,
@@ -3169,6 +3374,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
             )));
         }
 
+        // U and T both pass the IUPAC check above, but a cross-alphabet
+        // insert would silently pollute the project (the enzyme recompute
+        // does not recognize U; an RNA project must not gain T). Normalize
+        // to the target project's alphabet and tell the caller when any
+        // base was actually converted. Protein projects are untouched (the
+        // amino-acid alphabet check above already covers them).
+        let alphabet_note: Option<String> = if project.molecule_type == "protein" {
+            None
+        } else {
+            let (from, to, project_kind, source_kind) = if project.molecule_type == "rna" {
+                ('T', 'U', "RNA", "DNA")
+            } else {
+                ('U', 'T', "DNA", "RNA")
+            };
+            let count = replacement.matches(from).count();
+            if count == 0 {
+                None
+            } else {
+                replacement = replacement.replace(from, &to.to_string());
+                Some(format!(
+                    "Converted {} {}→{} to match the {} project (source looked like {})",
+                    count, from, to, project_kind, source_kind
+                ))
+            }
+        };
+
         // Insertion direction: "-" reverse-complements the replacement (DNA
         // only — revcomp is meaningless for RNA/protein sequences here).
         let reverse = match request.strand.as_deref() {
@@ -3195,49 +3426,125 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
 
         let is_insertion = end + 1 == start;
-        let current: String = if is_insertion {
-            String::new()
-        } else {
-            project.sequence[start as usize..=end as usize].to_string()
-        };
-        if let Some(expected) = &request.expected_old {
-            if !current.eq_ignore_ascii_case(expected) {
-                let exp = expected.as_bytes();
-                let cur = current.as_bytes();
-                let diff_at = exp
-                    .iter()
-                    .zip(cur.iter())
-                    .position(|(a, b)| !a.eq_ignore_ascii_case(b))
-                    .unwrap_or(exp.len().min(cur.len()));
-                let ctx_lo = diff_at.saturating_sub(20);
-                let exp_hi = (diff_at + 20).min(exp.len());
-                let cur_hi = (diff_at + 20).min(cur.len());
-                let mut v = fail_envelope(
-                    &id,
-                    format!(
-                        "expected_old mismatch at content position {} (1-based, within [{}..{}]): expected context '{}' vs current context '{}'",
-                        diff_at + 1,
-                        u_start,
-                        u_end,
-                        String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
-                        String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
-                    ),
-                );
-                v["currentContent"] = serde_json::json!(current);
-                v["mismatch"] = serde_json::json!({
-                    "index": diff_at + 1,
-                    "expectedContext": String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
-                    "currentContext": String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
-                    "expectedLength": exp.len(),
-                    "currentLength": cur.len(),
-                });
-                return Ok(Json(v));
-            }
-        }
 
-        let context_before = project.sequence[(start - 30).max(0) as usize..start as usize].to_string();
-        let context_after_end = (end + 1 + 30).min(len) as usize;
-        let context_after = project.sequence[(end + 1) as usize..context_after_end].to_string();
+        // One write-lock critical section: re-read the LIVE sequence, check
+        // expected_old against it, adjust/transfer annotations and swap the
+        // sequence atomically. Checking the resolve-time snapshot and mutating
+        // in separate locks would let a concurrent edit slip between check
+        // and apply, desyncing feature coordinates from the sequence. The
+        // update_sequence core never touches feature coordinates (the
+        // frontend adjusts them client-side), so the MCP path does it here.
+        let mut transferred_feature_names: Vec<String> = Vec::new();
+        let mut transferred_primer_names: Vec<String> = Vec::new();
+        let (new_seq, context_before, context_after, impact) = {
+            let mut pm = self.pm.write().await;
+            let Some(p) = pm.get_project_mut_by_id(&id) else {
+                return Ok(Json(fail_envelope(&id, "Project not found".to_string())));
+            };
+            let current: String = if is_insertion {
+                String::new()
+            } else {
+                p.sequence[start as usize..=end as usize].to_string()
+            };
+            if let Some(expected) = &request.expected_old {
+                if !current.eq_ignore_ascii_case(expected) {
+                    let exp = expected.as_bytes();
+                    let cur = current.as_bytes();
+                    let diff_at = exp
+                        .iter()
+                        .zip(cur.iter())
+                        .position(|(a, b)| !a.eq_ignore_ascii_case(b))
+                        .unwrap_or(exp.len().min(cur.len()));
+                    let ctx_lo = diff_at.saturating_sub(20);
+                    let exp_hi = (diff_at + 20).min(exp.len());
+                    let cur_hi = (diff_at + 20).min(cur.len());
+                    let mut v = fail_envelope(
+                        &id,
+                        format!(
+                            "expected_old mismatch at content position {} (1-based, within [{}..{}]): expected context '{}' vs current context '{}'",
+                            diff_at + 1,
+                            u_start,
+                            u_end,
+                            String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
+                            String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
+                        ),
+                    );
+                    v["currentContent"] = serde_json::json!(current);
+                    v["mismatch"] = serde_json::json!({
+                        "index": diff_at + 1,
+                        "expectedContext": String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
+                        "currentContext": String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
+                        "expectedLength": exp.len(),
+                        "currentLength": cur.len(),
+                    });
+                    return Ok(Json(v));
+                }
+            }
+
+            let context_before =
+                p.sequence[(start - 30).max(0) as usize..start as usize].to_string();
+            let context_after_end = (end + 1 + 30).min(p.length) as usize;
+            let context_after = p.sequence[(end + 1) as usize..context_after_end].to_string();
+
+            // Side effects on features, derived from the pre-edit list with
+            // the same span math as the adjust below.
+            let impact = libregene_core::utils::features_edit_impact(
+                &p.features,
+                start,
+                end,
+                replacement.len() as i64,
+            );
+
+            let new_seq = format!(
+                "{}{}{}",
+                &p.sequence[..start as usize],
+                replacement,
+                &p.sequence[(end + 1) as usize..]
+            );
+
+            libregene_core::utils::adjust_features_for_edit(
+                &mut p.features,
+                start,
+                end,
+                replacement.len() as i64,
+            );
+            if let Some((feats, primers)) = parsed_annotations {
+                // revcomp/uppercase preserve length, so replacement.len()
+                // is the local coordinate space of the parsed annotations.
+                let repl_len = replacement.len() as i64;
+                let mut transferred = libregene_core::utils::transfer_features_for_insert(
+                    &feats, repl_len, start, reverse,
+                );
+                let mut taken: std::collections::HashSet<String> = p
+                    .features
+                    .iter()
+                    .map(|f| f.name.clone())
+                    .chain(p.primers.iter().map(|pr| pr.name.clone()))
+                    .collect();
+                for f in &mut transferred {
+                    f.name = libregene_core::utils::unique_name(&f.name, &taken);
+                    taken.insert(f.name.clone());
+                }
+                transferred_feature_names =
+                    transferred.iter().map(|f| f.name.clone()).collect();
+                p.features.extend(transferred);
+                if p.is_dna() {
+                    for mut pr in primers {
+                        pr.name = libregene_core::utils::unique_name(&pr.name, &taken);
+                        taken.insert(pr.name.clone());
+                        pr.id = pr.name.clone();
+                        pr.binding_sites = Vec::new();
+                        transferred_primer_names.push(pr.name.clone());
+                        p.primers.push(pr);
+                    }
+                }
+            }
+            p.sequence = new_seq.clone();
+            p.length = p.sequence.len() as i64;
+            pm.mark_dirty(&id);
+            (new_seq, context_before, context_after, impact)
+        };
+        let new_len = new_seq.len() as i64;
 
         let old_win = (
             (start - 30).max(0),
@@ -3249,86 +3556,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         let old_region = project_digest(&project, &old_opts, Some(old_win)).ok();
 
-        let new_seq = format!(
-            "{}{}{}",
-            &project.sequence[..start as usize],
-            replacement,
-            &project.sequence[(end + 1) as usize..]
-        );
-        let new_len = new_seq.len() as i64;
-
-        // Side effects on features, derived from the pre-edit list with the
-        // same span math as the adjust below (no snapshot/compare needed).
-        let impact = libregene_core::utils::features_edit_impact(
-            &project.features,
-            start,
-            end,
-            replacement.len() as i64,
-        );
-
-        // Shift/clip features for the edit before the sequence swap: the
-        // update_sequence core never touches feature coordinates (the frontend
-        // adjusts them client-side), so the MCP path must do it here.
-        let mut transferred_feature_names: Vec<String> = Vec::new();
-        let mut transferred_primer_names: Vec<String> = Vec::new();
-        {
-            let mut pm = self.pm.write().await;
-            if let Some(p) = pm.get_project_mut_by_id(&id) {
-                libregene_core::utils::adjust_features_for_edit(
-                    &mut p.features,
-                    start,
-                    end,
-                    replacement.len() as i64,
-                );
-                if let Some((feats, primers)) = parsed_annotations {
-                    // revcomp/uppercase preserve length, so replacement.len()
-                    // is the local coordinate space of the parsed annotations.
-                    let repl_len = replacement.len() as i64;
-                    let mut transferred = libregene_core::utils::transfer_features_for_insert(
-                        &feats, repl_len, start, reverse,
-                    );
-                    let mut taken: std::collections::HashSet<String> = p
-                        .features
-                        .iter()
-                        .map(|f| f.name.clone())
-                        .chain(p.primers.iter().map(|pr| pr.name.clone()))
-                        .collect();
-                    for f in &mut transferred {
-                        f.name = libregene_core::utils::unique_name(&f.name, &taken);
-                        taken.insert(f.name.clone());
-                    }
-                    transferred_feature_names =
-                        transferred.iter().map(|f| f.name.clone()).collect();
-                    p.features.extend(transferred);
-                    if p.is_dna() {
-                        for mut pr in primers {
-                            pr.name = libregene_core::utils::unique_name(&pr.name, &taken);
-                            taken.insert(pr.name.clone());
-                            pr.id = pr.name.clone();
-                            pr.binding_sites = Vec::new();
-                            transferred_primer_names.push(pr.name.clone());
-                            p.primers.push(pr);
-                        }
-                    }
-                }
-            }
-        }
-
-        let payload = crate::do_update_sequence(
+        crate::recompute_after_sequence_change(
             &self.app_handle,
             &self.pm,
             &self.wp,
             &self.agent_tabs,
             None,
-            id.clone(),
-            new_seq,
-            None,
+            &id,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
-        }
 
         let repl_len = replacement.len() as i64;
         let unit = match project.molecule_type.as_str() {
@@ -3379,6 +3616,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if !transferred_primer_names.is_empty() {
             v["transferredPrimers"] = serde_json::json!(transferred_primer_names);
         }
+        if let Some(note) = alphabet_note {
+            v["note"] = serde_json::json!(note);
+        }
         if let Some(rv) = old_region {
             v["regionViewBefore"] = serde_json::json!(rv);
         }
@@ -3417,6 +3657,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
             // ---- update mode ----
             if !self.feature_exists(&id, &feature_id).await {
                 return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", feature_id))));
+            }
+            if request.notes.is_some() {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    "notes update is not supported by set_feature (notes can only be set when creating a feature)".to_string(),
+                )));
+            }
+            if let Some(n) = &request.name {
+                if n.is_empty() {
+                    return Ok(Json(fail_envelope(&id, "name must not be empty".to_string())));
+                }
             }
             if request.name.is_none()
                 && request.ftype.is_none()
@@ -3602,11 +3853,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.require_agent_tab(&id).await?;
         let primer_id = next_id("primer");
         let name = request.name.clone();
+        let clean_seq = match clean_primer_input(&request.name, &request.r#type, &request.seq) {
+            Ok(s) => s,
+            Err(e) => return Ok(Json(fail_envelope(&id, e))),
+        };
         let primer = Primer {
             id: primer_id.clone(),
             name: request.name,
             r#type: request.r#type,
-            primer_seq: request.seq,
+            primer_seq: clean_seq,
             binding_sites: Vec::new(),
         };
         let payload = crate::do_add_primer(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None, &id, primer)
@@ -3625,16 +3880,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         .binding_sites
                         .iter()
                         .map(|s| {
-                            serde_json::json!({
+                            let mut site = serde_json::json!({
                                 "strand": s.strand,
-                                "templateStart": to1(s.template_start),
+                                "templateStart": s.template_start,
                                 "templateEnd": s.template_end,
                                 "tm": (s.tm * 10.0).round() / 10.0,
                                 "3PrimeMismatch": s.has_3_prime_mismatch,
                                 "annealLen": libregene_core::primer::align::anneal_len(
                                     &p.sequence, &p.topology, &pr.primer_seq, s,
                                 ),
-                            })
+                            });
+                            site_json_to_1based(&mut site, p.length, p.topology == "circular");
+                            site
                         })
                         .collect();
                     let region = pr.binding_sites.first().map(|s| {
@@ -3712,9 +3969,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   insertions, deletions, coverage}; only the newly added alignment is
     ///   expanded with `mismatchDetails`, `deletionDetails`,
     ///   `insertionDetails` and `orientedSequence` — previously stored reads
-    ///   stay stats-only so multi-read responses don't balloon. Pass
+    ///   stay stats-only so multi-read responses don't balloon (in compact
+    ///   mode too). Pass
     ///   `compact: true` to omit `orientedSequence` from the top-level
-    ///   summary and from every entry (including the new one), and to skip
+    ///   summary and from the new alignment's entry, and to skip
     ///   the post-alignment `regionView`; use `read_sequence` or
     ///   `get_region_view` when you need the bases.
     ///   FOCUS: pass `region` ({start, end} 1-based inclusive, start > end
@@ -3883,10 +4141,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         .iter()
                         .enumerate()
                         .map(|(idx, a)| {
-                            if compact {
-                                alignment_json_1based(a, &p.sequence, p.length, circular, true)
-                            } else if idx + 1 == total {
-                                let mut v = alignment_json_1based(a, &p.sequence, p.length, circular, focus.is_some());
+                            if idx + 1 == total {
+                                // The newly added alignment keeps its diff
+                                // details (focused to the window when given);
+                                // orientedSequence only in a non-compact,
+                                // unfocused response.
+                                let mut v = alignment_json_1based(
+                                    a,
+                                    &p.sequence,
+                                    p.length,
+                                    circular,
+                                    compact || focus.is_some(),
+                                );
                                 if let Some((s, e)) = focus {
                                     filter_alignment_json_focus(
                                         &mut v,
@@ -4112,6 +4378,44 @@ impl<R: Runtime> LibreGeneMcp<R> {
             color: None,
         });
 
+        // Validate seg/seg2 against the project: the design engine slices
+        // with modulo/clamping instead of erroring, so an out-of-bounds
+        // segment would silently yield garbage candidates. seg/seg2 are
+        // 0-based here; messages are 1-based inclusive like every other tool.
+        let (tlen, circular) = {
+            let pm = self.pm.read().await;
+            let p = pm
+                .get_project_by_id(&id)
+                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
+            (p.length, p.topology == "circular")
+        };
+        for (label, s) in [("seg", &seg), ("seg2", &seg2)] {
+            let Some(s) = s else { continue };
+            if s.start < 0 || s.end < 0 || s.start >= tlen || s.end >= tlen {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!(
+                        "{} {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                        label,
+                        s.start + 1,
+                        s.end + 1,
+                        tlen
+                    ),
+                )));
+            }
+            if s.start > s.end && (!circular || request.mode == "mutagenesis") {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!(
+                        "{} {}..{}: start > end wraps the origin — only allowed on circular templates in amplify/oepcr mode",
+                        label,
+                        s.start + 1,
+                        s.end + 1
+                    ),
+                )));
+            }
+        }
+
         let mut fwd_tail = None;
         let mut rev_tail = None;
         let mut enzyme_sites: Vec<(String, String)> = Vec::new();
@@ -4192,6 +4496,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             ) {
                 Ok(info) => mutation_info = Some(mutagenesis_json_1based(&info)),
                 Err(e) => {
+                    // analyze_mutagenesis reports internal 0-based seg
+                    // coordinates; restate them 1-based inclusive for the
+                    // agent (bounds are pre-validated above, so this covers
+                    // the length/identity/diff-count errors).
+                    let e = e.replace(
+                        &format!("seg {}..{}", seg_ref.start, seg_ref.end),
+                        &format!("seg {}..{} (1-based inclusive)", seg_ref.start + 1, seg_ref.end + 1),
+                    );
                     let mut v = fail_envelope(&id, e);
                     let lo = seg_ref.start.max(0) as usize;
                     let hi = ((seg_ref.end + 1).min(sequence.len() as i64)) as usize;
@@ -4351,20 +4663,29 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<CheckPrimerBindingRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
-        let primers: Vec<Primer> = request
-            .primers
-            .into_iter()
-            .map(|p| Primer {
+        let mut primers: Vec<Primer> = Vec::with_capacity(request.primers.len());
+        for p in request.primers {
+            let clean_seq = match clean_primer_input(&p.name, &p.r#type, &p.seq) {
+                Ok(s) => s,
+                Err(e) => return Ok(Json(fail_envelope(&id, e))),
+            };
+            primers.push(Primer {
                 id: p.name.clone(),
                 name: p.name,
                 r#type: p.r#type,
-                primer_seq: p.seq,
+                primer_seq: clean_seq,
                 binding_sites: Vec::new(),
-            })
-            .collect();
+            });
+        }
         let payload = crate::do_check_primers_binding(&self.pm, &id, primers)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
+        let (tlen, circular) = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id)
+                .map(|p| (p.length, p.topology == "circular"))
+                .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?
+        };
         let mut v = payload;
         // The core reports internal 0-based coordinates; convert every site's
         // templateStart/templateEnd to the 1-based inclusive MCP convention.
@@ -4372,12 +4693,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             for result in results.iter_mut() {
                 if let Some(site) = result.get_mut("site") {
                     if !site.is_null() {
-                        site_json_to_1based(site);
+                        site_json_to_1based(site, tlen, circular);
                     }
                 }
                 if let Some(sites) = result.get_mut("sites").and_then(|s| s.as_array_mut()) {
                     for site in sites.iter_mut() {
-                        site_json_to_1based(site);
+                        site_json_to_1based(site, tlen, circular);
                     }
                 }
             }
@@ -4401,9 +4722,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   (default) is a read-only preview; `apply=true` replaces the feature's
     ///   coding bases in the template (equal-length synonymous substitution,
     ///   coordinates unchanged) through the same recompute+broadcast path as
-    ///   edit_sequence. Project mode requires a DNA project — protein projects
-    ///   are rejected with a hint to use `sequence`/`input_path` instead
-    ///   (amino acids are reverse-translated there).
+    ///   edit_sequence. Project mode requires a DNA project — RNA/protein
+    ///   projects are rejected with a hint to use `sequence`/`input_path`
+    ///   instead (amino acids are reverse-translated there).
     /// - `sequence`: raw DNA coding sequence text. Whitespace/digits are
     ///   ignored, letters must be A/C/G/T, length must be divisible by 3 (a
     ///   trailing stop codon is fine). No project is involved. Use ONLY for
@@ -4430,7 +4751,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// sequence/input_path modes; `outputPath` when `output_path` was given;
     /// `regionView` after an apply=true project write-back.
     ///
-    /// `output_path` (any input mode, optional): writes the result to a file
+    /// `output_path` (`sequence`/`input_path` modes only, optional —
+    /// REJECTED in project mode: use apply=true, then save_file): writes the
+    /// result to a file
     /// — .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated,
     /// .gpt → protein GenBank of the translated sequence; other extensions
     /// are rejected. When the output carries a single whole-length CDS
@@ -4462,6 +4785,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         {
             return Err(ErrorData::invalid_params(
                 "apply=true is only meaningful in project mode; in sequence/input_path mode pass `output_path` to write the result to a file (or set apply=false)",
+                None,
+            ));
+        }
+        if matches!(mode, OptimizeInput::Project { .. }) && request.output_path.is_some() {
+            return Err(ErrorData::invalid_params(
+                "output_path is only supported in sequence/input_path modes; in project mode use apply=true to write the optimized CDS back into the project, then save_file to export a file",
                 None,
             ));
         }
@@ -4500,9 +4829,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         ErrorData::invalid_params(format!("Project not found: {}", id), None)
                     })?
                 };
-                if project.molecule_type == "protein" {
+                if !project.is_dna() {
                     return Err(ErrorData::invalid_params(
-                        "optimize_cds project mode re-encodes a CDS feature inside a DNA project; a protein project has no coding DNA to re-encode — pass `sequence` (raw coding DNA) or `input_path` instead (a protein .gpt/.prot file is reverse-translated to optimized DNA)".to_string(),
+                        format!(
+                            "optimize_cds project mode re-encodes a CDS feature inside a DNA project; a {} project has no coding DNA to re-encode — pass `sequence` (raw coding DNA) or `input_path` instead (a protein .gpt/.prot file is reverse-translated to optimized DNA)",
+                            project.molecule_type
+                        ),
                         None,
                     ));
                 }
@@ -4768,14 +5100,20 @@ impl<R: Runtime> McpServer<R> {
                     // server never came up. Flip the config so get_mcp_config
                     // and the tray stop claiming it is running; guarded so a
                     // concurrent re-enable/relocate via set_config isn't
-                    // clobbered.
-                    {
+                    // clobbered — a stale task must neither flip the newer
+                    // config nor report its own failure as the tray status.
+                    let gave_up = {
                         let mut cfg = config.lock().unwrap();
                         if cfg.enabled && cfg.port == port {
                             cfg.enabled = false;
+                            true
+                        } else {
+                            false
                         }
+                    };
+                    if gave_up {
+                        status(false, port);
                     }
-                    status(false, port);
                 }
             });
             *self.task.lock().unwrap() = Some(handle);
@@ -4795,7 +5133,9 @@ fn token_file_path<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf>
 fn persist_token<R: Runtime>(app: &AppHandle<R>, token: &str) {
     if let Some(path) = token_file_path(app) {
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                log::warn!("failed to create MCP token dir {}: {}", parent.display(), e);
+            }
             restrict_token_dir(parent);
         }
         write_token_file(&path, token);
@@ -4811,18 +5151,24 @@ fn persist_token<R: Runtime>(app: &AppHandle<R>, token: &str) {
 fn write_token_file(path: &std::path::Path, token: &str) {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let _ = std::fs::OpenOptions::new()
+    if let Err(e) = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .mode(0o600)
         .open(path)
-        .and_then(|mut f| f.write_all(token.as_bytes()));
+        .and_then(|mut f| f.write_all(token.as_bytes()))
+    {
+        // The in-memory token keeps working; only the persistence diverged.
+        log::warn!("failed to persist MCP auth token to {}: {}", path.display(), e);
+    }
 }
 
 #[cfg(not(unix))]
 fn write_token_file(path: &std::path::Path, token: &str) {
-    let _ = std::fs::write(path, token);
+    if let Err(e) = std::fs::write(path, token) {
+        log::warn!("failed to persist MCP auth token to {}: {}", path.display(), e);
+    }
 }
 
 /// Tighten permissions on the token file itself.
@@ -4862,18 +5208,28 @@ fn restrict_token_dir(_path: &std::path::Path) {}
 /// Load the persisted token, or generate and persist a fresh one on first run.
 fn load_or_create_token<R: Runtime>(app: &AppHandle<R>) -> String {
     if let Some(path) = token_file_path(app) {
-        if let Ok(contents) = std::fs::read_to_string(&path) {
-            let token = contents.trim().to_string();
-            if !token.is_empty() {
-                // Token files persisted by older versions may still be 0644;
-                // tighten on load so upgrading users are covered without
-                // having to rotate the token.
-                if let Some(parent) = path.parent() {
-                    restrict_token_dir(parent);
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => {
+                let token = contents.trim().to_string();
+                if !token.is_empty() {
+                    // Token files persisted by older versions may still be 0644;
+                    // tighten on load so upgrading users are covered without
+                    // having to rotate the token.
+                    if let Some(parent) = path.parent() {
+                        restrict_token_dir(parent);
+                    }
+                    restrict_token_file(&path);
+                    return token;
                 }
-                restrict_token_file(&path);
-                return token;
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            // Unreadable token file (permissions, I/O): regenerating silently
+            // would desync the running server from the on-disk token.
+            Err(e) => log::warn!(
+                "failed to read persisted MCP auth token from {}: {} — generating a fresh one",
+                path.display(),
+                e
+            ),
         }
         let token = generate_auth_token();
         persist_token(app, &token);
@@ -4883,21 +5239,13 @@ fn load_or_create_token<R: Runtime>(app: &AppHandle<R>) -> String {
 }
 
 /// Generate a 32-byte random bearer token, hex-encoded (64 chars).
-/// Reads the OS CSPRNG (/dev/urandom) on unix; elsewhere (Windows) falls back
-/// to time/pid mixing — a local-only shared secret (the threat is other local
-/// processes / browser rebinding), so no crypto crate is pulled in.
+/// Filled from the OS CSPRNG (getrandom) on every platform; the time/pid
+/// mixing below is only a last-resort fallback when the CSPRNG itself fails
+/// (a local-only shared secret, so no crypto crate is pulled in).
 fn generate_auth_token() -> String {
     let mut buf = [0u8; 32];
-    #[cfg(unix)]
-    let filled = {
-        use std::io::Read;
-        std::fs::File::open("/dev/urandom")
-            .and_then(|mut f| f.read_exact(&mut buf))
-            .is_ok()
-    };
-    #[cfg(not(unix))]
-    let filled = false;
-    if !filled {
+    if let Err(e) = getrandom::getrandom(&mut buf) {
+        log::warn!("OS CSPRNG failed ({e}); falling back to time/pid mixing for the MCP auth token");
         use std::time::{SystemTime, UNIX_EPOCH};
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -9131,6 +9479,63 @@ mod tests {
         std::fs::remove_file(&gpt_path).ok();
     }
 
+    /// A U-bearing replacement inserted into a DNA project is normalized to T
+    /// (the note reports the conversion); a no-cross insertion carries no note.
+    #[tokio::test]
+    async fn edit_sequence_normalizes_u_for_dna_project_and_notes_conversion() {
+        let server = handler_with_project(edit_test_project()).await;
+
+        // Insert "AUG" (has U) into the DNA project: normalization rewrites it
+        // to "ATG" and the response must tell the caller a conversion happened.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 10,
+                end: 9,
+                replacement: Some("AUG".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        let note = out.0["note"].as_str().unwrap_or_default();
+        assert!(note.contains("Converted 1 U→T"), "{}", out.0);
+        // No U left in the sequence after normalization.
+        assert!(server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: Some(10),
+                end: Some(20),
+                ..Default::default()
+            }))
+            .await
+            .unwrap()
+            .0["sequence"]
+            .as_str()
+            .unwrap()
+            .matches('U')
+            .next()
+            .is_none());
+
+        // Same-alphabet insertion → no note.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 20,
+                end: 19,
+                replacement: Some("ATG".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(
+            !out.0["note"].as_str().unwrap_or_default().contains("Converted"),
+            "{}",
+            out.0
+        );
+    }
+
     /// optimize_cds's output_path follows the save_file overwrite rule: an
     /// existing target needs an explicit overwrite flag.
     #[tokio::test]
@@ -9209,5 +9614,539 @@ mod tests {
         let site = &primers[0].binding_sites[0];
         // Arc 95..=99 lands at 5..=9 of the export (offset 90→0).
         assert_eq!((site.template_start, site.template_end), (5, 10));
+    }
+
+    // ------------------------------------------------------------------
+    // Regression tests: audit fixes
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn from1_saturates_instead_of_overflowing() {
+        assert_eq!(from1(1), 0);
+        assert_eq!(from1(i64::MIN), i64::MIN);
+    }
+
+    #[test]
+    fn site_json_to_1based_maps_circular_zero_template_end() {
+        // A circular site ending exactly at the last base stores
+        // templateEnd 0 (wrapped); the 1-based inclusive end is tlen.
+        let mut site = serde_json::json!({"templateStart": 94, "templateEnd": 0});
+        site_json_to_1based(&mut site, 100, true);
+        assert_eq!(site["templateStart"], 95);
+        assert_eq!(site["templateEnd"], 100);
+        // Linear sites keep their value (0 never occurs for a real site).
+        let mut lin = serde_json::json!({"templateStart": 0, "templateEnd": 20});
+        site_json_to_1based(&mut lin, 100, false);
+        assert_eq!(lin["templateStart"], 1);
+        assert_eq!(lin["templateEnd"], 20);
+    }
+
+    #[test]
+    fn focus_filter_counts_partial_deletion_overlap() {
+        // A deletion kept by a partial overlap must count only its in-window
+        // bases against the window, not its full length.
+        let mut v = serde_json::json!({
+            "mismatches": 0, "insertions": 0, "deletions": 10,
+            "mismatchDetails": [],
+            "insertionDetails": [],
+            "deletionDetails": [{"pos": 8, "length": 10, "bases": "XXXXXXXXXX"}],
+        });
+        filter_alignment_json_focus(&mut v, 1, 10, 100, false);
+        assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 1, "{v}");
+        assert_eq!(
+            v["outsideWindow"],
+            serde_json::json!({"mismatches": 0, "deletions": 7, "insertions": 0}),
+            "{v}"
+        );
+    }
+
+    #[test]
+    fn focus_filter_wraps_origin_merged_deletion() {
+        // Circular tlen=20: a merged deletion at 1-based pos 18 length 5
+        // covers bases 18,19,20,1,2 (coordinates past tlen wrap back).
+        let mk = || serde_json::json!({
+            "mismatches": 0, "insertions": 0, "deletions": 5,
+            "mismatchDetails": [],
+            "insertionDetails": [],
+            "deletionDetails": [{"pos": 18, "length": 5, "bases": "XXXXX"}],
+        });
+        let mut v = mk();
+        filter_alignment_json_focus(&mut v, 1, 3, 20, true);
+        assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 1, "{v}");
+        assert_eq!(v["outsideWindow"]["deletions"], 3, "{v}");
+        let mut v = mk();
+        filter_alignment_json_focus(&mut v, 18, 20, 20, true);
+        assert_eq!(v["outsideWindow"]["deletions"], 2, "{v}");
+        // A window touching neither arc drops the entry entirely.
+        let mut v = mk();
+        filter_alignment_json_focus(&mut v, 5, 10, 20, true);
+        assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 0, "{v}");
+        assert_eq!(v["outsideWindow"]["deletions"], 5, "{v}");
+    }
+
+    #[test]
+    fn resolve_export_region_rejects_iis_cut_outside_linear_molecule() {
+        let seq = synthetic_dna(100, 11);
+        let project = ProjectData {
+            name: "iis".to_string(),
+            sequence: seq,
+            length: 100,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            enzymes: vec![
+                // Type-IIS enzyme whose recognition site sits at the very end:
+                // the cut lands before base 1 on a linear molecule.
+                libregene_core::models::Enzyme {
+                    name: "BbsI".to_string(),
+                    rec_start: 94,
+                    rec_end: 99,
+                    cut_index: -2,
+                    cut_pairs: vec![libregene_core::models::CutPair {
+                        top_cut_index: -2,
+                        bot_cut_index: 2,
+                    }],
+                    ..Default::default()
+                },
+                libregene_core::models::Enzyme {
+                    name: "GoodCutter".to_string(),
+                    rec_start: 40,
+                    rec_end: 45,
+                    cut_index: 50,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let spec = RegionSpec {
+            enzyme1: Some("GoodCutter".to_string()),
+            enzyme2: Some("BbsI".to_string()),
+            ..Default::default()
+        };
+        let err = resolve_export_region(&project, &spec).expect_err("must reject");
+        assert!(
+            err.contains("BbsI") && err.contains("falls outside the linear molecule"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn amplicon_rev_site_wrapping_origin_exports_wrap_arc() {
+        // Circular len=100: rev site covers 95..=99,0..=4 (stored wrapped,
+        // template_end < template_start); fwd 5' end at 3 (1-based). The
+        // amplicon runs from the fwd 5' end ACROSS the origin to the rev 5'
+        // end — previously f_start <= r_end picked the short wrong arc.
+        let seq = synthetic_dna(100, 13);
+        let site = |strand: i8, start: i64, end: i64, id: &str| libregene_core::models::PrimerBindingSite {
+            primer_id: id.to_string(),
+            strand,
+            template_start: start,
+            template_end: end,
+            tm: 60.0,
+            gc_content: 0.5,
+            match_score: 20,
+            has_3_prime_mismatch: false,
+            five_prime_tail: String::new(),
+            three_prime_tail: String::new(),
+            alignment: Default::default(),
+        };
+        let project = ProjectData {
+            name: "ampwrap".to_string(),
+            sequence: seq,
+            length: 100,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            primers: vec![
+                Primer {
+                    id: "fp".to_string(),
+                    name: "fp".to_string(),
+                    r#type: "fwd".to_string(),
+                    primer_seq: "AAAAAAAAAAAAAAAAAAAA".to_string(),
+                    binding_sites: vec![site(1, 2, 22, "fp")],
+                },
+                Primer {
+                    id: "rp".to_string(),
+                    name: "rp".to_string(),
+                    r#type: "rev".to_string(),
+                    primer_seq: "TTTTTTTTTTTTTTTTTTTT".to_string(),
+                    binding_sites: vec![site(-1, 95, 5, "rp")],
+                },
+            ],
+            ..Default::default()
+        };
+        let spec = RegionSpec {
+            fwd_primer: Some("fp".to_string()),
+            rev_primer: Some("rp".to_string()),
+            ..Default::default()
+        };
+        let (pieces, _, _) = resolve_export_region(&project, &spec).expect("resolves");
+        assert_eq!(pieces, vec![(2, 99), (0, 4)], "amplicon must wrap the origin");
+    }
+
+    #[tokio::test]
+    async fn add_alignment_compact_slims_history_and_focuses_new_diffs() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: "aln_test".to_string(),
+                name: "r1".to_string(),
+                bases: Some(template[50..150].to_string()),
+                path: None,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+
+        // Second read with mismatches at 1-based 61 (outside focus) and 111
+        // (inside), added with compact + focus: the history entry must be
+        // stats-only (previously compact kept FULL details for history) and
+        // the new entry must be focus-filtered with outsideWindow
+        // (previously compact skipped the focus filter entirely).
+        let mut read2 = template[50..150].to_string();
+        for i in [10usize, 60] {
+            let orig = read2.as_bytes()[i];
+            let flipped = if orig == b'A' { b'C' } else { b'A' };
+            read2.replace_range(i..i + 1, &(flipped as char).to_string());
+        }
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: "aln_test".to_string(),
+                name: "r2".to_string(),
+                bases: Some(read2),
+                path: None,
+                compact: Some(true),
+                region: Some(SegParam { start: 100, end: 120 }),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        let hist = &v["alignments"][0];
+        assert!(hist.get("mismatchDetails").is_none(), "history stats-only: {hist}");
+        let new = &v["alignments"][1];
+        let det = new["mismatchDetails"].as_array().unwrap();
+        assert_eq!(det.len(), 1, "{new}");
+        assert_eq!(det[0]["pos"], 111, "{new}");
+        assert_eq!(new["outsideWindow"]["mismatches"], 1, "{new}");
+        assert!(new.get("orientedSequence").is_none(), "{new}");
+        assert_eq!(v["focus"]["start"], 100, "{v}");
+        assert!(v.get("regionView").is_none(), "compact suppresses regionView: {v}");
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_expected_old_checked_against_live_state() {
+        let original = edit_test_project().sequence[..2].to_string();
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 1,
+                end: 2,
+                replacement: Some("TT".to_string()),
+                expected_old: Some(original.clone()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        // A retry with the now-stale expected_old must fail, and
+        // currentContent must reflect the LIVE sequence (TT), proving the
+        // check re-reads the project instead of a stale snapshot.
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 1,
+                end: 2,
+                replacement: Some("GG".to_string()),
+                expected_old: Some(original),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert_eq!(out.0["currentContent"], "TT", "{}", out.0);
+        let pm = server.pm.read().await;
+        assert_eq!(
+            &pm.get_project_by_id("edit_test").unwrap().sequence[..2],
+            "TT",
+            "failed edit must not mutate"
+        );
+    }
+
+    #[tokio::test]
+    async fn optimize_cds_project_mode_rejects_output_path_and_rna() {
+        let mut p = dna_test_project();
+        p.features = vec![feature("f1", "cds", 10, 60, "+")];
+        let server = handler_with_project(p).await;
+        let err = match server
+            .optimize_cds(Parameters(OptimizeCdsRequest {
+                project_id: Some("feat".to_string()),
+                feature_id: Some("f1".to_string()),
+                species: "e_coli".to_string(),
+                output_path: Some("/tmp/libregene-should-not-write.gbk".to_string()),
+                ..Default::default()
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(v) => panic!("expected output_path rejection, got {}", v.0),
+        };
+        assert!(err.message.contains("output_path"), "{}", err.message);
+        assert!(!std::path::Path::new("/tmp/libregene-should-not-write.gbk").exists());
+
+        // RNA projects have no coding DNA to re-encode either.
+        let server = handler_with_project(rna_test_project()).await;
+        let err = match server
+            .optimize_cds(Parameters(OptimizeCdsRequest {
+                project_id: Some("rna".to_string()),
+                feature_id: Some("f1".to_string()),
+                species: "e_coli".to_string(),
+                ..Default::default()
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(v) => panic!("expected rna rejection, got {}", v.0),
+        };
+        assert!(err.message.contains("rna"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn design_primers_validates_segment_bounds() {
+        let server = handler_with_project(dna_test_project()).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: "feat".to_string(),
+                mode: "amplify".to_string(),
+                seg: Some(SegParam { start: 90, end: 120 }),
+                target_tm: 55.0,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("out of bounds"),
+            "{}",
+            out.0
+        );
+        // start > end on a LINEAR template is rejected.
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: "feat".to_string(),
+                mode: "amplify".to_string(),
+                seg: Some(SegParam { start: 90, end: 10 }),
+                target_tm: 55.0,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("wraps the origin"),
+            "{}",
+            out.0
+        );
+        // start > end on a CIRCULAR template wraps and designs fine.
+        let mut p = dna_test_project();
+        p.topology = "circular".to_string();
+        let server = handler_with_project(p).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: "feat".to_string(),
+                mode: "amplify".to_string(),
+                seg: Some(SegParam { start: 90, end: 10 }),
+                target_tm: 55.0,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert!(
+            out.0["groups"].as_array().is_some_and(|g| g.len() == 2),
+            "{}",
+            out.0
+        );
+    }
+
+    #[tokio::test]
+    async fn save_file_region_over_own_source_requires_overwrite() {
+        let (dir, path) = write_temp_gbk("save-region-self", "self.gbk");
+        let server = test_handler();
+        server
+            .open_project(Parameters(OpenProjectRequest {
+                path: path.to_string_lossy().into_owned(),
+            }))
+            .await
+            .unwrap();
+        let id = path.to_string_lossy().into_owned();
+        let full_len = {
+            let pm = server.pm.read().await;
+            pm.get_project_by_id(&id).unwrap().length
+        };
+        let req = || SaveFileRequest {
+            project_id: id.clone(),
+            path: id.clone(),
+            region: Some(RegionSpec {
+                start: Some(1),
+                end: Some(10),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let out = server.save_file(Parameters(req())).await.unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("overwrite: true"),
+            "{}",
+            out.0
+        );
+        let mut with_flag = req();
+        with_flag.overwrite = Some(true);
+        let out = server.save_file(Parameters(with_flag)).await.unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        let parsed = libregene_core::file_io::parse_file(&path).unwrap();
+        assert_eq!(parsed.sequence.len(), 10, "source file replaced by the fragment");
+        assert!(full_len > 10);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn set_feature_update_rejects_empty_name_and_notes() {
+        let mut p = dna_test_project();
+        p.features = vec![feature("f1", "gene", 0, 9, "+")];
+        let server = handler_with_project(p).await;
+        let out = server
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                feature_id: Some("f1".to_string()),
+                name: Some(String::new()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("empty"),
+            "{}",
+            out.0
+        );
+        let out = server
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                feature_id: Some("f1".to_string()),
+                notes: Some("n".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("not supported"),
+            "{}",
+            out.0
+        );
+        // The rejected updates left the feature untouched.
+        let pm = server.pm.read().await;
+        let f = &pm.get_project_by_id("feat").unwrap().features[0];
+        assert_eq!(f.name, "gene");
+        assert!(f.notes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn set_feature_segments_must_be_in_encoding_order() {
+        let server = handler_with_project(dna_test_project()).await;
+        // Two descending transitions can never be an origin wrap.
+        let err = match server
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("bad".to_string()),
+                ftype: Some("CDS".to_string()),
+                segments: Some(vec![
+                    FeatureSegmentSpec { start: 30, end: 40 },
+                    FeatureSegmentSpec { start: 20, end: 25 },
+                    FeatureSegmentSpec { start: 1, end: 10 },
+                ]),
+                ..Default::default()
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(v) => panic!("expected encoding-order rejection, got {}", v.0),
+        };
+        assert!(err.message.contains("encoding order"), "{}", err.message);
+
+        // A wrapping feature leads with its tail: accepted on circular.
+        let mut p = dna_test_project();
+        p.topology = "circular".to_string();
+        let server = handler_with_project(p).await;
+        let out = server
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("wrap".to_string()),
+                ftype: Some("CDS".to_string()),
+                segments: Some(vec![
+                    FeatureSegmentSpec { start: 91, end: 100 },
+                    FeatureSegmentSpec { start: 1, end: 10 },
+                ]),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+    }
+
+    #[tokio::test]
+    async fn primer_tools_validate_seq_and_type() {
+        let server = handler_with_project(dna_test_project()).await;
+        let out = server
+            .add_primer(Parameters(AddPrimerRequest {
+                project_id: "feat".to_string(),
+                name: "p1".to_string(),
+                r#type: "fwd".to_string(),
+                seq: "123 ---".to_string(),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("empty"),
+            "{}",
+            out.0
+        );
+        let out = server
+            .add_primer(Parameters(AddPrimerRequest {
+                project_id: "feat".to_string(),
+                name: "p1".to_string(),
+                r#type: "sideways".to_string(),
+                seq: "ACGTACGT".to_string(),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("fwd"),
+            "{}",
+            out.0
+        );
+        // check_primer_binding shares the validation.
+        let out = server
+            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+                project_id: "feat".to_string(),
+                primers: vec![PrimerInput {
+                    name: "x".to_string(),
+                    r#type: "bad".to_string(),
+                    seq: "ACGTACGT".to_string(),
+                }],
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
+        // Rejected primers were not persisted.
+        let pm = server.pm.read().await;
+        assert!(pm.get_project_by_id("feat").unwrap().primers.is_empty());
     }
 }

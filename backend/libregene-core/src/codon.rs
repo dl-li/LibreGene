@@ -187,7 +187,12 @@ pub fn extract_codons(
     }
     for &(s, e) in &segs {
         if s < 0 || e >= n {
-            return Err(format!("feature coordinate out of range: {s}..{e}"));
+            return Err(format!(
+                "feature coordinate {}..{} out of range (1-based inclusive; sequence length {})",
+                s + 1,
+                e + 1,
+                n
+            ));
         }
     }
 
