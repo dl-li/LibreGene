@@ -1659,10 +1659,10 @@ async fn do_design_primer_candidates(
 
     let tm_params = libregene_core::primer::thermodynamics::TmParams {
         na_conc: na_conc.unwrap_or(0.050),
-        mg_conc: mg_conc.unwrap_or(0.0015),
-        dntp_conc: dntp_conc.unwrap_or(0.0008),
-        tris_conc: tris_conc.unwrap_or(0.010),
-        primer_conc: primer_conc.unwrap_or(2e-7),
+        mg_conc: mg_conc.unwrap_or(0.0),
+        dntp_conc: dntp_conc.unwrap_or(0.0),
+        tris_conc: tris_conc.unwrap_or(0.0),
+        primer_conc: primer_conc.unwrap_or(2.5e-7),
     };
 
     let seg1 = seg.ok_or_else(|| "Segment required for primer design".to_string())?;
@@ -2395,10 +2395,10 @@ async fn compute_primer_alignment(
 
     let tm_params = libregene_core::primer::thermodynamics::TmParams {
         na_conc: na_conc.unwrap_or(0.050),
-        mg_conc: mg_conc.unwrap_or(0.0015),
-        dntp_conc: dntp_conc.unwrap_or(0.0008),
-        tris_conc: tris_conc.unwrap_or(0.010),
-        primer_conc: primer_conc.unwrap_or(2e-7),
+        mg_conc: mg_conc.unwrap_or(0.0),
+        dntp_conc: dntp_conc.unwrap_or(0.0),
+        tris_conc: tris_conc.unwrap_or(0.0),
+        primer_conc: primer_conc.unwrap_or(2.5e-7),
     };
 
     // Move heavy computation to blocking thread pool.
@@ -3234,10 +3234,10 @@ async fn compute_tm(
     }
     let params = libregene_core::primer::thermodynamics::TmParams {
         na_conc: na_conc.unwrap_or(0.050),
-        mg_conc: mg_conc.unwrap_or(0.0015),
-        dntp_conc: dntp_conc.unwrap_or(0.0008),
-        tris_conc: tris_conc.unwrap_or(0.010),
-        primer_conc: primer_conc.unwrap_or(2e-7),
+        mg_conc: mg_conc.unwrap_or(0.0),
+        dntp_conc: dntp_conc.unwrap_or(0.0),
+        tris_conc: tris_conc.unwrap_or(0.0),
+        primer_conc: primer_conc.unwrap_or(2.5e-7),
     };
     let tm = libregene_core::primer::thermodynamics::compute_tm_with_params(&seq, &params);
     Ok((tm * 10.0).round() / 10.0)
@@ -3749,8 +3749,10 @@ mod tests {
 
     #[tokio::test]
     async fn check_primer_binding_returns_all_sites_best_first() {
-        // "GATTACA" occurs twice in the template (linear): 0..7 and 7..14.
-        let tpl = "GATTACAGATTACA";
+        // "GATTACAGTC" occurs twice in the template (linear): 0..10 and 10..20.
+        // (10-mer — a 7-mer has negative Tm under the SnapGene-aligned defaults
+        // and would be filtered out by the tm threshold.)
+        let tpl = "GATTACAGTCGATTACAGTC";
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
         pm.write().await.open_project(
             "p1".to_string(),
@@ -3765,7 +3767,7 @@ mod tests {
             id: "f1".to_string(),
             name: "f1".to_string(),
             r#type: "fwd".to_string(),
-            primer_seq: "GATTACA".to_string(),
+            primer_seq: "GATTACAGTC".to_string(),
             binding_sites: Vec::new(),
         }];
         let out = do_check_primers_binding(&pm, "p1", primers).await.unwrap();
@@ -3798,7 +3800,7 @@ mod tests {
             .map(|s| s["templateStart"].as_i64().unwrap())
             .collect();
         assert_eq!(r0["site"]["templateStart"], sites[0]["templateStart"]);
-        assert!(starts.contains(&0) && starts.contains(&7));
+        assert!(starts.contains(&0) && starts.contains(&10));
         let tms: Vec<f64> = sites
             .iter()
             .map(|s| s["tm"].as_f64().unwrap())
