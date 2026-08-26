@@ -680,16 +680,29 @@ export default function App() {
   const activeAgentUnlocked = !!lockTargetId && agentTabs[lockTargetId] === false;
 
   // Agent-tab lock state is pushed from the backend (auto-relock on every MCP
-  // tool call targeting the bound project).
+  // tool call targeting the bound project). All windows listen: project
+  // windows drive their own edit lock from the same stream so a locked tab
+  // can't escape into an unguarded window.
   useEffect(() => {
-    if (windowInfo?.type !== 'main') return undefined;
+    if (!windowInfo) return undefined;
     const listener = listenAgentTabLock((payload) => {
       if (payload?.projectId) {
         setAgentTabs((prev) => ({ ...prev, [payload.projectId]: !!payload.locked }));
       }
     });
+    // Project windows don't receive the projects broadcast (main-window
+    // only), so seed the lock state of the bound project on mount.
+    if (windowInfo.type === 'project') {
+      getAgentTabState(windowInfo.projectId)
+        .then((state) => {
+          if (state && state.projectId) {
+            setAgentTabs((prev) => ({ ...prev, [state.projectId]: !!state.locked }));
+          }
+        })
+        .catch(() => {});
+    }
     return () => listener.close();
-  }, [windowInfo?.type]);
+  }, [windowInfo]);
 
   // Project windows get no project-list broadcasts, so resolve the bound
   // project's agent-tab state directly and keep it in sync via lock events.
@@ -717,10 +730,13 @@ export default function App() {
   // interactive (scroll/select/copy all work) and dirty-producing operations
   // are refused instead: ProjectWorkspace guards its own mutation handlers
   // before any optimistic update, and tauriApi rejects dirty-producing
-  // commands for direct callers (dialogs).
+  // commands for direct callers (dialogs). In project windows the bound
+  // project plays the same role as the active project in the main window.
+  const editLockTargetId = isProjectWindow ? windowInfo?.projectId : activeId;
+  const editLockAgentLocked = !!editLockTargetId && agentTabs[editLockTargetId] === true;
   useEffect(() => {
-    setAgentEditLock(activeAgentLocked);
-  }, [activeAgentLocked]);
+    setAgentEditLock(editLockAgentLocked);
+  }, [editLockAgentLocked]);
 
   const handleSetAgentLocked = useCallback((projectId, locked) => {
     setAgentTabLocked(projectId, locked).catch(() => {});
@@ -1133,7 +1149,7 @@ export default function App() {
                 hidden={false}
                 initialData={initialDataRef.current[windowInfo.projectId]}
                 topology="circular"
-                agentLocked={activeAgentLocked}
+                agentLocked={agentTabs[windowInfo.projectId] === true}
                 {...workspaceProps}
               />
             ) : projects.length > 0 ? (

@@ -918,15 +918,31 @@ async fn do_delete_project<R: Runtime>(
     };
     match outcome {
         Outcome::Closed => {
-            {
+            // Collect the window labels bound to this project, then drop the
+            // mappings. Keeping a window open after its project is deleted
+            // leaves a ghost webview whose commands would fail — and before
+            // the evicted-window fix, silently redirected to the MAIN
+            // window's active project, overwriting a different file.
+            let orphan_labels: Vec<String> = {
                 let mut wp = wp.write().await;
+                let labels: Vec<String> = wp
+                    .iter()
+                    .filter(|(_, v)| *v == &id)
+                    .map(|(k, _)| k.clone())
+                    .collect();
                 wp.retain(|_, v| v != &id);
-            }
+                labels
+            };
             {
                 let mut at = agent_tabs.write().await;
                 at.remove(&id);
             }
             broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+            for label in orphan_labels {
+                if let Some(win) = app_handle.get_webview_window(&label) {
+                    let _ = win.close();
+                }
+            }
             Ok(serde_json::json!({"status": "ok"}))
         }
         Outcome::Dirty => Ok(serde_json::json!({
@@ -1810,6 +1826,18 @@ async fn save_file(
 #[tauri::command]
 async fn write_text_file(path: String, contents: String) -> Result<serde_json::Value, String> {
     validate_user_path(&path, TEXT_EXPORT_EXTS)?;
+    // "Small payloads only" per the original intent — cap explicitly so a
+    // runaway caller can't push megabyte strings through IPC into disk.
+    const MAX_TEXT_EXPORT_BYTES: usize = 1024 * 1024;
+    if contents.len() > MAX_TEXT_EXPORT_BYTES {
+        return Ok(serde_json::json!({
+            "error": format!(
+                "Export too large ({} bytes > {}); this command is for small text payloads",
+                contents.len(),
+                MAX_TEXT_EXPORT_BYTES
+            )
+        }));
+    }
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"status": "ok"}))
 }
@@ -1832,6 +1860,31 @@ async fn update_sequence(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
     if let Some(features) = features {
+        // Feature coordinates arrive from the frontend (paste-merge, adjust)
+        // and serde only checks types — clamp to the NEW sequence length so a
+        // forged clipboard payload can't seed out-of-range spans that later
+        // panic coordinate consumers. Mirrors MCP set_feature's bounds gate.
+        let new_len = sequence.len() as i64;
+        let mut features = features;
+        features.retain(|f| {
+            let (lo, hi) = if f.segments.is_empty() {
+                (f.start, f.end)
+            } else {
+                (
+                    f.segments.iter().map(|s| s.start).min().unwrap_or(f.start),
+                    f.segments.iter().map(|s| s.end).max().unwrap_or(f.end),
+                )
+            };
+            hi >= 0 && lo < new_len
+        });
+        for f in features.iter_mut() {
+            f.start = f.start.clamp(0, new_len - 1);
+            f.end = f.end.clamp(0, new_len - 1);
+            for seg in f.segments.iter_mut() {
+                seg.start = seg.start.clamp(0, new_len - 1);
+                seg.end = seg.end.clamp(0, new_len - 1);
+            }
+        }
         let mut pm = state.pm.write().await;
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             p.features = features;
@@ -3197,6 +3250,34 @@ async fn open_in_new_window(
     };
     if !exists {
         return Ok(serde_json::json!({"error": "Project not found"}));
+    }
+
+    // A locked agent tab must not escape into an unguarded project window:
+    // project windows don't drive the frontend edit lock, so editing there
+    // would bypass the lock while the agent believes it owns the project.
+    {
+        let at = state.agent_tabs.read().await;
+        if let Some(meta) = at.get(&project_id) {
+            if meta.locked {
+                return Ok(serde_json::json!({
+                    "error": "Project is locked by an agent tab. Unlock it in the sidebar before opening in a new window."
+                }));
+            }
+        }
+    }
+
+    // Cap the number of simultaneous project windows (each is a full
+    // WebView; runaway opens exhaust resources).
+    const MAX_PROJECT_WINDOWS: usize = 8;
+    let open_count = app_handle
+        .webview_windows()
+        .keys()
+        .filter(|l| l.starts_with("project-"))
+        .count();
+    if open_count >= MAX_PROJECT_WINDOWS {
+        return Ok(serde_json::json!({
+            "error": format!("Too many project windows open ({}). Close one first.", MAX_PROJECT_WINDOWS)
+        }));
     }
 
     // Build a safe label for the new window (append timestamp for uniqueness)

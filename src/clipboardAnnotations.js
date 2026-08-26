@@ -139,12 +139,100 @@ export function metaMatchesText(meta, text, fallbackText) {
   return norm(text).length === meta.length;
 }
 
+const MAX_PASTE_FEATURES = 200;
+const MAX_PASTE_PRIMERS = 100;
+
+function isInteger(n) {
+  return Number.isInteger(n);
+}
+
+/// Strict shape/range validation for pasted annotation metadata.
+///
+/// The paste-event flavor (`application/x-libregene-annotations`) can be
+/// forged by any local process via the OS clipboard API — the `app` marker
+/// is just a string. Everything downstream (merge into the project,
+/// update_sequence) trusts this structure, so reject anything that isn't
+/// exactly the shape `collectAnnotations` produces: version 1, integer
+/// length, bounded arrays, integer segment pairs within [0, length).
+/// Anything else parses as "no annotations" and the paste proceeds as
+/// plain sequence text.
+function sanitizePastedMeta(meta) {
+  if (!meta || typeof meta !== 'object') return null;
+  if (meta.app !== 'libregene') return null;
+  if (meta.version !== 1) return null;
+  if (!isInteger(meta.length) || meta.length < 1 || meta.length > 100_000_000) return null;
+
+  const rawFeatures = Array.isArray(meta.features) ? meta.features : null;
+  const rawPrimers = Array.isArray(meta.primers) ? meta.primers : null;
+  if (!rawFeatures && !rawPrimers) return null;
+  if (rawFeatures && rawFeatures.length > MAX_PASTE_FEATURES) return null;
+  if (rawPrimers && rawPrimers.length > MAX_PASTE_PRIMERS) return null;
+
+  const str = (v, max) =>
+    typeof v === 'string' && v.length <= max ? v : null;
+
+  const features = [];
+  if (rawFeatures) {
+    for (const f of rawFeatures) {
+      if (!f || typeof f !== 'object') continue;
+      const name = str(f.name, 200);
+      if (!name) continue;
+      const segs = Array.isArray(f.segments) ? f.segments : [];
+      if (segs.length === 0 || segs.length > 64) continue;
+      const segments = [];
+      let ok = true;
+      for (const seg of segs) {
+        if (
+          !seg ||
+          !isInteger(seg.start) ||
+          !isInteger(seg.end) ||
+          seg.start < 0 ||
+          seg.end < seg.start ||
+          seg.end >= meta.length
+        ) {
+          ok = false;
+          break;
+        }
+        segments.push({ start: seg.start, end: seg.end });
+      }
+      if (!ok) continue;
+      features.push({
+        name,
+        ftype: str(f.ftype, 64) ?? 'misc_feature',
+        color: /^#[0-9a-fA-F]{3,8}$/.test(String(f.color)) ? f.color : null,
+        strand: ['+', '-', '.'].includes(f.strand) ? f.strand : '.',
+        notes: str(f.notes, 4000) ?? '',
+        segments,
+      });
+    }
+  }
+
+  const primers = [];
+  if (rawPrimers) {
+    for (const p of rawPrimers) {
+      if (!p || typeof p !== 'object') continue;
+      const name = str(p.name, 200);
+      if (!name) continue;
+      const seq = str(p.primerSeq, 500);
+      if (!seq || !/^[ACGTRYKMSWBDHVNacgtrykmswbdhvn]+$/.test(seq)) continue;
+      primers.push({
+        name,
+        type: p.type === 'rev' ? 'rev' : 'fwd',
+        primerSeq: seq,
+      });
+    }
+  }
+
+  if (features.length === 0 && primers.length === 0) return null;
+  return { app: 'libregene', version: 1, length: meta.length, features, primers };
+}
+
 export function parseMetaFromPasteEvent(e) {
   try {
     const raw = e.clipboardData?.getData('application/x-libregene-annotations');
     if (!raw) return null;
     const meta = JSON.parse(raw);
-    if (meta && meta.app === 'libregene') return meta;
+    return sanitizePastedMeta(meta);
   } catch {
     // ignore
   }
