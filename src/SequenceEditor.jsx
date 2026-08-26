@@ -315,6 +315,7 @@ const MapWatermark = React.memo(function MapWatermark({ length, features, topolo
   return (
     <div
       aria-hidden
+      className="[&_*]:pointer-events-none"
       style={{
         position: 'fixed',
         inset: 0,
