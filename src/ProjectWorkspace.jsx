@@ -317,7 +317,7 @@ export default function ProjectWorkspace({
   useEffect(() => {
     // Methylation/Dam/Dcm only applies to DNA; skip for rna/protein projects.
     if (hidden || !isDna) return;
-    if (agentLockedRef.current) return;
+    if (agentLocked) return;
     if (syncedMethKeyRef.current === methKey) return;
     if (backendStatus !== 'online' || !sequence) return;
     let cancelled = false;
@@ -337,7 +337,16 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [methKey, hidden, backendStatus, sequence, methylationSystems, methylationOverlap, isDna]);
+  }, [
+    methKey,
+    hidden,
+    backendStatus,
+    sequence,
+    methylationSystems,
+    methylationOverlap,
+    isDna,
+    agentLocked,
+  ]);
 
   // Report dirty state up to App (sidebar dots + title bar)
   useEffect(() => {
@@ -824,6 +833,7 @@ export default function ProjectWorkspace({
 
   const addAlignmentFiles = useCallback(
     async (paths) => {
+      if (agentLockedRef.current) return null;
       const gen = ++operationGenRef.current;
       const failed = [];
       let added = 0;

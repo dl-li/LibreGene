@@ -18,7 +18,7 @@ export function setAgentEditLock(locked) {
   agentEditLocked = !!locked;
 }
 const AGENT_LOCK_MSG =
-  'This project is controlled by an MCP agent. Unlock it from the top banner to edit.';
+  'This project is controlled by an MCP agent. Unlock it from the bottom bar to edit.';
 function assertEditable() {
   if (agentEditLocked) throw new Error(AGENT_LOCK_MSG);
 }

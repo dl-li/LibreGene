@@ -20,6 +20,7 @@ import {
   deleteProject,
   setWindowTitle,
   setMcpConfig,
+  getMcpConfig,
   listenDragDrop,
   isSequenceFilePath,
 } from './tauriApi';
@@ -124,7 +125,23 @@ export default function App() {
       // storage may be unavailable; config still applies in-memory
     }
     if (isTauri) {
-      setMcpConfig(Boolean(next.enabled), Number(next.port)).catch(() => {});
+      setMcpConfig(Boolean(next.enabled), Number(next.port))
+        .then(() => getMcpConfig())
+        .then((cfg) => {
+          // A failed bind flips enabled off server-side; adopt that truth.
+          if (!cfg) return;
+          const actual = { enabled: !!cfg.enabled, port: Number(cfg.port) };
+          if (actual.enabled === Boolean(next.enabled) && actual.port === Number(next.port)) {
+            return;
+          }
+          setMcpConfigState(actual);
+          try {
+            localStorage.setItem('mcpConfig', JSON.stringify(actual));
+          } catch {
+            // storage may be unavailable; config still applies in-memory
+          }
+        })
+        .catch(() => {});
     }
   }, []);
   const [backendStatus, setBackendStatus] = useState(isTauri ? 'online' : 'offline');
@@ -299,8 +316,9 @@ export default function App() {
 
   // Apply the persisted MCP config once on startup so the server reflects the
   // saved enable/port (the Rust side already started with the default config).
+  // Only the main window pushes config; project windows would just repeat it.
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || windowInfo?.type !== 'main') return;
     let cfg = { enabled: true, port: 8766 };
     try {
       cfg = JSON.parse(localStorage.getItem('mcpConfig')) || cfg;
@@ -308,7 +326,32 @@ export default function App() {
       /* ignore malformed stored config */
     }
     setMcpConfig(Boolean(cfg.enabled), Number(cfg.port)).catch(() => {});
-  }, []);
+  }, [windowInfo]);
+
+  // The MCP guide reflects the backend's real state: a failed bind flips
+  // enabled off server-side while localStorage still claims it is running.
+  useEffect(() => {
+    if (!mcpGuideOpen || !isTauri) return undefined;
+    let cancelled = false;
+    getMcpConfig()
+      .then((cfg) => {
+        if (cancelled || !cfg) return;
+        const actual = { enabled: !!cfg.enabled, port: Number(cfg.port) };
+        setMcpConfigState((prev) => {
+          if (prev.enabled === actual.enabled && prev.port === actual.port) return prev;
+          try {
+            localStorage.setItem('mcpConfig', JSON.stringify(actual));
+          } catch {
+            // storage may be unavailable; config still applies in-memory
+          }
+          return actual;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [mcpGuideOpen]);
 
   // Detect window type on mount
   useEffect(() => {
@@ -685,7 +728,13 @@ export default function App() {
     if (windowInfo?.type !== 'main') return undefined;
     const listener = listenAgentTabLock((payload) => {
       if (payload?.projectId) {
-        setAgentTabs((prev) => ({ ...prev, [payload.projectId]: !!payload.locked }));
+        // Ignore events for projects no longer in the list — writing them
+        // would leave stale entries until the next project-list merge.
+        setAgentTabs((prev) => {
+          if (!(payload.projectId in prev)) return prev;
+          if (prev[payload.projectId] === !!payload.locked) return prev;
+          return { ...prev, [payload.projectId]: !!payload.locked };
+        });
       }
     });
     return () => listener.close();
