@@ -127,10 +127,10 @@ export function locationStringTo0based(str) {
 
 export const DEFAULT_TM_PARAMS = {
   naConc: 0.05,
-  mgConc: 0.0015,
-  dntpConc: 0.0008,
-  trisConc: 0.01,
-  primerConc: 2e-7,
+  mgConc: 0,
+  dntpConc: 0,
+  trisConc: 0,
+  primerConc: 2.5e-7,
 };
 
 // Average isotopic residue masses (Da) of the 20 standard amino acids.

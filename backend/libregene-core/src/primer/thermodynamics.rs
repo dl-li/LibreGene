@@ -42,16 +42,16 @@ const DS_INIT: f64 = -4.1;
 const R: f64 = 1.9872;
 
 // ---------------------------------------------------------------------------
-// Default PCR conditions (standard 1× Taq buffer)
-// 50 mM KCl, 10 mM Tris-HCl (pH 8.3), 1.5 mM MgCl₂,
-// 0.2 mM each dNTP, 0.2 μM each primer.
+// Default conditions — aligned with SnapGene's Tm convention:
+// 50 mM Na⁺, no Mg²⁺/dNTPs/Tris, 0.25 μM primer.
+// https://support.snapgene.com/hc/en-us/articles/10242720294036
 // ---------------------------------------------------------------------------
 
-const DEFAULT_NA: f64 = 0.050;   // 50 mM monovalent (K⁺ from KCl)
-const DEFAULT_MG: f64 = 0.0015;  // 1.5 mM Mg²⁺
-const DEFAULT_DNTP: f64 = 0.0008; // 0.8 mM total dNTPs
-const DEFAULT_TRIS: f64 = 0.010;  // 10 mM Tris-HCl
-const DEFAULT_PRIMER_CONC: f64 = 2e-7; // 0.2 μM each primer
+const DEFAULT_NA: f64 = 0.050;   // 50 mM monovalent
+const DEFAULT_MG: f64 = 0.0;     // no Mg²⁺
+const DEFAULT_DNTP: f64 = 0.0;   // no dNTPs
+const DEFAULT_TRIS: f64 = 0.0;   // no Tris-HCl
+const DEFAULT_PRIMER_CONC: f64 = 2.5e-7; // 0.25 μM primer
 
 // ---------------------------------------------------------------------------
 // TmParams — configurable PCR conditions
@@ -62,13 +62,13 @@ const DEFAULT_PRIMER_CONC: f64 = 2e-7; // 0.2 μM each primer
 pub struct TmParams {
     /// Monovalent cation concentration in M (K⁺ + Na⁺). Default 0.050.
     pub na_conc: f64,
-    /// Mg²⁺ concentration in M. Default 0.0015.
+    /// Mg²⁺ concentration in M. Default 0.
     pub mg_conc: f64,
-    /// dNTP concentration in M (total). Default 0.0008.
+    /// dNTP concentration in M (total). Default 0.
     pub dntp_conc: f64,
-    /// Tris-HCl concentration in M. Default 0.010.
+    /// Tris-HCl concentration in M. Default 0.
     pub tris_conc: f64,
-    /// Primer concentration in M. Default 2e-7.
+    /// Primer concentration in M. Default 2.5e-7.
     pub primer_conc: f64,
 }
 
@@ -85,7 +85,7 @@ impl Default for TmParams {
 }
 
 impl TmParams {
-    /// Standard Taq buffer (as used by pydna tm_default).
+    /// Default conditions (SnapGene-aligned; see module docs).
     pub fn taq() -> Self {
         Self::default()
     }
@@ -430,9 +430,9 @@ mod tests {
 
     #[test]
     fn test_tm_short_nn() {
-        // 6-mer uses NN model.
+        // 6-mer uses NN model; with no Mg²⁺ (default) a 6-mer melts near 0°C.
         let tm = compute_tm("CGTACG");
-        assert!(tm > 5.0 && tm < 60.0, "Tm={tm} out of expected range");
+        assert!(tm > 0.0 && tm < 60.0, "Tm={tm} out of expected range");
     }
 
     #[test]
@@ -510,9 +510,19 @@ mod tests {
 
     #[test]
     fn test_na_equivalent() {
-        let eq = na_equivalent(&TmParams::default());
-        // mM: 40 + 75/2 + 120*sqrt(1.5-0.8) = 77.5 + 120*0.837 = 177.9 mM = 0.178 M
-        assert!(eq > 0.1 && eq < 0.3, "Na⁺_eq={eq} out of expected range");
+        // Explicit Taq-like buffer to exercise the Mg/dNTP/Tris terms.
+        let params = TmParams {
+            na_conc: 0.050,
+            mg_conc: 0.0015,
+            dntp_conc: 0.0008,
+            tris_conc: 0.010,
+            ..TmParams::default()
+        };
+        let eq = na_equivalent(&params);
+        // mM: 50 + 10/2 + 120*sqrt(1.5-0.8) = 55 + 120*0.837 = 155.4 mM = 0.155 M
+        assert!((eq - 0.1554).abs() < 0.001, "Na⁺_eq={eq}");
+        // Default (SnapGene conditions): pure 50 mM Na⁺.
+        assert_eq!(na_equivalent(&TmParams::default()), 0.050);
     }
 
     #[test]
@@ -521,6 +531,7 @@ mod tests {
         let params = TmParams {
             mg_conc: 0.0005,
             dntp_conc: 0.001,
+            tris_conc: 0.010,
             ..TmParams::default()
         };
         let eq = na_equivalent(&params);

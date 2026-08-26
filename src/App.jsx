@@ -171,10 +171,10 @@ export default function App() {
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
   const [tmParams, setTmParams] = useState({
     naConc: 0.05,
-    mgConc: 0.0015,
-    dntpConc: 0.0008,
-    trisConc: 0.01,
-    primerConc: 2e-7,
+    mgConc: 0,
+    dntpConc: 0,
+    trisConc: 0,
+    primerConc: 2.5e-7,
   });
   const [mcpConfig, setMcpConfigState] = useState(() => {
     try {
