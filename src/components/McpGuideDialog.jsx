@@ -73,6 +73,21 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
   };
   const enabled = Boolean(mcpConfig?.enabled);
   const port = mcpConfig?.port ?? 8766;
+  // Port edits stay local until blur/Enter; committing on every keystroke
+  // would restart the backend server per key and can strand it on a
+  // half-typed port (<1024 bind failures flip enabled off server-side).
+  const [portDraft, setPortDraft] = useState(String(port));
+  useEffect(() => {
+    setPortDraft(String(port));
+  }, [port]);
+  const commitPort = () => {
+    const v = parseInt(portDraft, 10);
+    if (!isNaN(v) && v >= 1 && v <= 65535) {
+      if (v !== port) onMcpConfigChange?.({ ...mcpConfig, port: v });
+    } else {
+      setPortDraft(String(port));
+    }
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid-cols-1 sm:max-w-lg max-h-[85vh] overflow-y-auto">
@@ -110,13 +125,12 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                 type="number"
                 min="1"
                 max="65535"
-                value={port}
+                value={portDraft}
                 disabled={!enabled}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  if (!isNaN(v) && v >= 1 && v <= 65535) {
-                    onMcpConfigChange?.({ ...mcpConfig, port: v });
-                  }
+                onChange={(e) => setPortDraft(e.target.value)}
+                onBlur={commitPort}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitPort();
                 }}
               />
             </div>
