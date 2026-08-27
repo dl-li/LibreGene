@@ -1890,6 +1890,33 @@ async fn update_sequence(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
     if let Some(features) = features {
+        // Feature coordinates arrive from the frontend (paste-merge, adjust)
+        // and serde only checks types — clamp to the NEW sequence length so a
+        // forged clipboard payload can't seed out-of-range spans that later
+        // panic coordinate consumers. Mirrors MCP set_feature's bounds gate.
+        let new_len = sequence.len() as i64;
+        let mut features = features;
+        features.retain(|f| {
+            let (lo, hi) = if f.segments.is_empty() {
+                (f.start, f.end)
+            } else {
+                (
+                    f.segments.iter().map(|s| s.start).min().unwrap_or(f.start),
+                    f.segments.iter().map(|s| s.end).max().unwrap_or(f.end),
+                )
+            };
+            hi >= 0 && lo < new_len
+        });
+        // clamp(0, -1) panics, so floor the upper bound for empty sequences.
+        let max_pos = (new_len - 1).max(0);
+        for f in features.iter_mut() {
+            f.start = f.start.clamp(0, max_pos);
+            f.end = f.end.clamp(0, max_pos);
+            for seg in f.segments.iter_mut() {
+                seg.start = seg.start.clamp(0, max_pos);
+                seg.end = seg.end.clamp(0, max_pos);
+            }
+        }
         let mut pm = state.pm.write().await;
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             p.features = features;

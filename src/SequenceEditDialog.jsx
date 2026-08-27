@@ -313,10 +313,10 @@ export default function SequenceEditDialog({
                   />
                   <label htmlFor="paste-annotations" className="cursor-pointer select-none">
                     Paste annotations:{' '}
-                    {clipboardMeta.features.length > 0 &&
+                    {(clipboardMeta.features?.length ?? 0) > 0 &&
                       `${clipboardMeta.features.length} feature${clipboardMeta.features.length !== 1 ? 's' : ''}`}
-                    {clipboardMeta.features.length > 0 && clipboardMeta.primers.length > 0 && ', '}
-                    {clipboardMeta.primers.length > 0 &&
+                    {(clipboardMeta.features?.length ?? 0) > 0 && (clipboardMeta.primers?.length ?? 0) > 0 && ', '}
+                    {(clipboardMeta.primers?.length ?? 0) > 0 &&
                       `${clipboardMeta.primers.length} primer${clipboardMeta.primers.length !== 1 ? 's' : ''}`}
                   </label>
                 </>

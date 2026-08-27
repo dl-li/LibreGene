@@ -1042,8 +1042,21 @@ export default function ProjectWorkspace({
       let mergedFeatures = adjustedFeatures;
       if (annotations && annotations.features && annotations.features.length > 0) {
         const insertAnchor = mode === 'insert' ? cursorIndex : selStart;
+        // Clamp the offset segments to the pasted span — mirrors the Rust
+        // transfer_features_for_insert clamping, so a forged clipboard meta
+        // can't push coordinates outside the insertion window.
+        const newLen = (result.sequence || '').replace(/\s/g, '').length;
         const existingNames = new Set(adjustedFeatures.map((f) => f.name));
-        const newFeats = annotations.features.map((af, i) => {
+        const newFeats = [];
+        annotations.features.forEach((af, i) => {
+          const segsIn = Array.isArray(af.segments) ? af.segments : [];
+          const segs = [];
+          for (const s of segsIn) {
+            const cs = Math.max(0, Math.min(s.start ?? 0, newLen - 1));
+            const ce = Math.max(0, Math.min(s.end ?? 0, newLen - 1));
+            if (cs <= ce) segs.push({ start: insertAnchor + cs, end: insertAnchor + ce });
+          }
+          if (segs.length === 0) return;
           let name = af.name;
           if (existingNames.has(name)) {
             let n = 2;
@@ -1051,11 +1064,7 @@ export default function ProjectWorkspace({
             name = `${name} (${n})`;
           }
           existingNames.add(name);
-          const segs = af.segments.map((s) => ({
-            start: insertAnchor + s.start,
-            end: insertAnchor + s.end,
-          }));
-          return {
+          newFeats.push({
             id: `feature_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`,
             name,
             ftype: af.ftype,
@@ -1066,7 +1075,7 @@ export default function ProjectWorkspace({
             start: segs[0].start,
             end: segs[segs.length - 1].end,
             segments: segs,
-          };
+          });
         });
         mergedFeatures = [...adjustedFeatures, ...newFeats];
       }
