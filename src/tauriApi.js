@@ -384,6 +384,14 @@ export async function computeTm(seq, tmParams = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// BLAST (NCBI URL API; results open in the system browser)
+// ---------------------------------------------------------------------------
+
+export async function blastSubmit(sequence, moleculeType) {
+  return tauriInvoke('blast_submit', { sequence, moleculeType });
+}
+
+// ---------------------------------------------------------------------------
 // MCP server settings
 // ---------------------------------------------------------------------------
 
