@@ -4,6 +4,11 @@ import { LoaderCircle } from 'lucide-react';
 import FornaView from './FornaView';
 
 const MAX_INTERACTIVE_NT = 1500;
+// foldSeq is a synchronous main-thread WASM call (Zuker DP, O(n³) time /
+// O(n²) memory). A multi-kb RNA freezes the whole webview — including any
+// agent tabs sharing the process — and tens of kb can OOM it. Cap the fold
+// itself; anything longer should go to an external tool.
+const MAX_FOLD_NT = 3000;
 
 function countPairs(db) {
   return db.split('').filter((c) => c === ')').length;
@@ -16,6 +21,14 @@ export default function RnaFoldDialog({ open, onOpenChange, sequence }) {
 
   useEffect(() => {
     if (!open || !sequence) return;
+    if (sequence.length > MAX_FOLD_NT) {
+      setResult(null);
+      setError(
+        `Sequence too long to fold in-app (${sequence.length} nt > ${MAX_FOLD_NT} nt). ` +
+          'Folding runs on the UI thread and would freeze the app; use an external tool for long RNAs.',
+      );
+      return;
+    }
     setBusy(true);
     setError('');
     // Lazy-load the ~130 kB wasm bundle only when the dialog opens.
