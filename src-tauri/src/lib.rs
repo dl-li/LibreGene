@@ -1884,6 +1884,18 @@ async fn save_file(
 #[tauri::command]
 async fn write_text_file(path: String, contents: String) -> Result<serde_json::Value, String> {
     validate_user_path(&path, TEXT_EXPORT_EXTS)?;
+    // "Small payloads only" per the original intent — cap explicitly so a
+    // runaway caller can't push megabyte strings through IPC into disk.
+    const MAX_TEXT_EXPORT_BYTES: usize = 1024 * 1024;
+    if contents.len() > MAX_TEXT_EXPORT_BYTES {
+        return Ok(serde_json::json!({
+            "error": format!(
+                "Export too large ({} bytes > {}); this command is for small text payloads",
+                contents.len(),
+                MAX_TEXT_EXPORT_BYTES
+            )
+        }));
+    }
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"status": "ok"}))
 }
@@ -2995,6 +3007,10 @@ async fn add_alignment(
     app_handle: AppHandle,
     path: String,
 ) -> Result<serde_json::Value, String> {
+    // The drag-and-drop importer and the multi-file dialog both funnel here,
+    // and the frontend extension filter is not a trust boundary — align with
+    // the MCP-side add_alignment, which validates every path.
+    validate_user_path(&path, SEQ_EXTS)?;
     let project_id = match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
@@ -3286,6 +3302,35 @@ async fn open_in_new_window(
     };
     if !exists {
         return Ok(serde_json::json!({"error": "Project not found"}));
+    }
+
+    // A locked agent tab must not escape into a project window: project
+    // windows do honor the edit lock, but splitting the project across
+    // windows while the agent believes it owns it is confusing — make the
+    // user unlock explicitly first.
+    {
+        let at = state.agent_tabs.read().await;
+        if let Some(meta) = at.get(&project_id) {
+            if meta.locked {
+                return Ok(serde_json::json!({
+                    "error": "Project is locked by an agent tab. Unlock it in the sidebar before opening in a new window."
+                }));
+            }
+        }
+    }
+
+    // Cap the number of simultaneous project windows (each is a full
+    // WebView; runaway opens exhaust resources).
+    const MAX_PROJECT_WINDOWS: usize = 8;
+    let open_count = app_handle
+        .webview_windows()
+        .keys()
+        .filter(|l| l.starts_with("project-"))
+        .count();
+    if open_count >= MAX_PROJECT_WINDOWS {
+        return Ok(serde_json::json!({
+            "error": format!("Too many project windows open ({}). Close one first.", MAX_PROJECT_WINDOWS)
+        }));
     }
 
     // Build a safe label for the new window (append timestamp for uniqueness)
