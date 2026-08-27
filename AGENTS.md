@@ -85,7 +85,7 @@ LibreGene/
 
 - 主窗口 label `"main"`（不在 `window_projects`）；项目窗口 `"project-{safe_id}-{timestamp}"`（注册在 `window_projects`）。MCP Agent 不再开独立窗口：MCP `open_project` 打开文件时把项目绑定为**主窗口侧边栏里的 Agent 标签**（`AppState.agent_tabs`，按 project_id 索引，记录 locked；项目留在主窗口列表并带 `agentLocked: bool|null` 字段）
 - 项目窗口经 `resolve_project_id()` 按 label 查项目（映射未命中=项目被驱逐，返回错误提示 reload，绝不回退主窗口 active）；`broadcast_project()` 只广播主窗口可见项目
-- 窗口创建统一走 `spawn_project_window()`（仅项目窗口）；`do_delete_project` 清理 `agent_tabs` 条目（不再有关闭窗口逻辑）
+- 窗口创建统一走 `spawn_project_window()`（仅项目窗口）；`do_delete_project` 清理 `agent_tabs` 条目并关闭绑定到被删项目的项目窗口（防幽灵 webview）
 
 ## 仍有改进空间（非 Bug）
 

@@ -954,15 +954,31 @@ async fn do_delete_project<R: Runtime>(
     };
     match outcome {
         Outcome::Closed => {
-            {
+            // Collect the window labels bound to this project, then drop the
+            // mappings. Keeping a window open after its project is deleted
+            // leaves a ghost webview whose commands would fail — and before
+            // the evicted-window fix, silently redirected to the MAIN
+            // window's active project, overwriting a different file.
+            let orphan_labels: Vec<String> = {
                 let mut wp = wp.write().await;
+                let labels: Vec<String> = wp
+                    .iter()
+                    .filter(|(_, v)| *v == &id)
+                    .map(|(k, _)| k.clone())
+                    .collect();
                 wp.retain(|_, v| v != &id);
-            }
+                labels
+            };
             {
                 let mut at = agent_tabs.write().await;
                 at.remove(&id);
             }
             broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+            for label in orphan_labels {
+                if let Some(win) = app_handle.get_webview_window(&label) {
+                    let _ = win.close();
+                }
+            }
             Ok(serde_json::json!({"status": "ok"}))
         }
         Outcome::Dirty => Ok(serde_json::json!({
