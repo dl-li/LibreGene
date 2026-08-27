@@ -3580,6 +3580,39 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let new_region = self.digest_region(&id, Some(new_win), true).await;
 
         let (removed_json, clipped_json) = edit_impact_json(&impact);
+        // Equal-length replacements keep every feature (by design, for
+        // synonymous-substitution edits), but when the replacement CONTENT
+        // differs beyond case the covered features' annotations now describe
+        // different bases — and removed/clipped stay empty, so the agent
+        // would get no signal at all. Surface the covered feature names in
+        // that specific case (length-changing edits already report via
+        // removed/clipped).
+        let content_changed_features: Vec<String> = {
+            let old_span = &project.sequence[start as usize..=(end) as usize];
+            let equal_length_content_differs = !is_insertion
+                && old_span.len() == replacement.len()
+                && !old_span.eq_ignore_ascii_case(&replacement);
+            if equal_length_content_differs {
+                project
+                    .features
+                    .iter()
+                    .filter(|f| {
+                        let (fs, fe) = if f.segments.is_empty() {
+                            (f.start, f.end)
+                        } else {
+                            (
+                                f.segments.iter().map(|s| s.start).min().unwrap_or(f.start),
+                                f.segments.iter().map(|s| s.end).max().unwrap_or(f.end),
+                            )
+                        };
+                        fe >= start && fs <= end
+                    })
+                    .map(|f| f.name.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        };
         let action = if is_insertion {
             format!("Inserted {} {} before base {}", repl_len, unit, u_start)
         } else {
@@ -3610,6 +3643,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "removedFeatures": removed_json,
             "clippedFeatures": clipped_json,
         });
+        if !content_changed_features.is_empty() {
+            v["contentChangedFeatures"] = serde_json::json!(content_changed_features);
+        }
         if !transferred_feature_names.is_empty() {
             v["transferredFeatures"] = serde_json::json!(transferred_feature_names);
         }
@@ -7242,11 +7278,47 @@ mod tests {
         assert_eq!(v["ok"], true, "{}", v);
         assert_eq!(v["removedFeatures"], serde_json::json!([]), "{v}");
         assert_eq!(v["clippedFeatures"], serde_json::json!([]), "{v}");
+        // Content differs beyond case → the covered feature is surfaced in
+        // contentChangedFeatures so the agent knows the annotation now
+        // describes different bases.
+        assert_eq!(
+            v["contentChangedFeatures"],
+            serde_json::json!(["gene"]),
+            "equal-length replacement with different content must flag covered features: {v}"
+        );
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
         let f = p.features.iter().find(|f| f.name == "gene").unwrap();
         assert_eq!((f.start, f.end), (50, 100), "feature untouched");
         drop(pm);
+
+        // Case-only change (the uppercase normalization path): content is
+        // equivalent ignoring case → no contentChangedFeatures signal.
+        let server = handler_with_project(edit_test_project()).await;
+        let original = {
+            let pm = server.pm.read().await;
+            let p = pm.get_project_by_id("edit_test").unwrap();
+            p.sequence[60..70].to_string() // internal 60..=69 = 1-based 61..=70
+        };
+        let lower: String = original.to_ascii_lowercase();
+        if lower != original {
+            let out = server
+                .edit_sequence(Parameters(EditSequenceRequest {
+                    project_id: "edit_test".to_string(),
+                    start: 61,
+                    end: 70,
+                    replacement: Some(lower),
+                    ..Default::default()
+                }))
+                .await
+                .unwrap();
+            let v = out.0;
+            assert_eq!(v["ok"], true, "{}", v);
+            assert!(
+                v.get("contentChangedFeatures").is_none(),
+                "case-only normalization must not flag features: {v}"
+            );
+        }
 
         // A length-changing replacement fully covering the feature still
         // removes it (reported in removedFeatures).
