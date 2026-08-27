@@ -1,6 +1,6 @@
 [package]
 name = "LibreGene"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2021"
 description = "A desktop plasmid editor"
 authors = ["dl-li"]
