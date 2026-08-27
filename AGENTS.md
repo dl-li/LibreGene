@@ -40,7 +40,7 @@ LibreGene/
 │   ├── api.js / tauriApi.js    # HTTP/WS 客户端 / Tauri IPC 客户端
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
-│   ├── plugins/                # 静态插件注册表 index.js；含 alignment/orf/primerDesign/rnaFold/codonOptimization
+│   ├── plugins/                # 静态插件注册表 index.js；含 alignment/orf/primerDesign/rnaFold/codonOptimization/blast
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库（models/project、orf、search、codon、digest、enzyme/、primer/、file_io/）
 └── src-tauri/src/
@@ -107,7 +107,7 @@ list_codon_species, preview_codon_optimization, apply_codon_optimization, get_en
 add_alignment, add_alignment_seq, remove_alignment, set_methylation,
 get_projects, activate_project, delete_project, open_in_new_window, get_window_project_id, rekey_project,
 get_agent_tab_state, set_agent_tab_locked,
-compute_tm, get_mcp_config, set_mcp_config,
+compute_tm, blast_submit, get_mcp_config, set_mcp_config,
 activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, force_quit
 ```
 
@@ -165,6 +165,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态
 - **`add_alignment` 的 createdSites**：未实现；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注前端弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联打开**、**窗口内拖放文件**：纯前端/OS 集成
+- **BLAST 插件**（右键选区 → `blast_submit`，megablast/core_nt（DNA）或 blastp/nr（protein），提交后在系统浏览器打开官方结果页）：交互式外网操作，Agent 场景意义不大
 
 ## 核心模型约定
 

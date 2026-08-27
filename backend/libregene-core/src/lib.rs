@@ -1,5 +1,6 @@
 pub mod align;
 pub mod annotate;
+pub mod blast;
 pub mod codon;
 pub mod coords;
 pub mod digest;

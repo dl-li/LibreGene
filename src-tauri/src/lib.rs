@@ -3293,6 +3293,27 @@ async fn compute_tm(
     Ok((tm * 10.0).round() / 10.0)
 }
 
+/// Submit a sequence to NCBI BLAST (fixed preset per molecule type) and open
+/// the official results page in the system browser. Returns the results URL.
+#[tauri::command]
+async fn blast_submit(
+    app: tauri::AppHandle,
+    sequence: String,
+    molecule_type: String,
+) -> Result<String, String> {
+    let submission = tauri::async_runtime::spawn_blocking(move || {
+        libregene_core::blast::submit(&sequence, &molecule_type)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let url = libregene_core::blast::results_url(&submission.rid);
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(url)
+}
+
 /// Activate the decoration plugin's overlay titlebar, then show the window.
 /// Windows start hidden (visible: false) so native decorations never flash.
 #[cfg(target_os = "macos")]
@@ -3707,6 +3728,7 @@ pub fn run() {
             set_agent_tab_locked,
             rekey_project,
             compute_tm,
+            blast_submit,
             get_mcp_config,
             set_mcp_config,
             get_mcp_token,

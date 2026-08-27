@@ -26,7 +26,7 @@ import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
-import { computePrimerAlignment, computeTm } from './tauriApi';
+import { computePrimerAlignment, computeTm, blastSubmit } from './tauriApi';
 import { CircularMap, LinearMap } from './MapView';
 import { buildSearchResults } from './searchUtils';
 import { showContextMenu } from './contextMenu';
@@ -43,6 +43,7 @@ import {
   CopyPlus,
   CopyMinus,
   CopyX,
+  Globe,
   LockOpen,
   Pencil,
   Tag,
@@ -634,6 +635,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onManageAlignments,
   onOpenRnaFold,
   onEnzymeHoverChange,
+  blastEnabled = false,
   topology = 'linear',
   onOpenMyPrimers,
   onOpenPrimerOverview,
@@ -2183,6 +2185,28 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (text) navigator.clipboard.writeText(text).catch(() => {});
   }, []);
 
+  // Submit a sequence to NCBI BLAST (fixed preset per molecule type:
+  // megablast/core_nt for DNA, blastp/nr for protein); the official results
+  // page opens in the system browser once NCBI returns a RID.
+  const [blastBusy, setBlastBusy] = useState(false);
+  const submitBlast = useCallback(
+    (seq) => {
+      if (!seq || blastBusy) return;
+      setBlastBusy(true);
+      blastSubmit(seq, moleculeType)
+        .catch(async (err) => {
+          try {
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            message(String(err), { title: 'BLAST Search', kind: 'error' });
+          } catch {
+            console.error('BLAST submit error:', err);
+          }
+        })
+        .finally(() => setBlastBusy(false));
+    },
+    [blastBusy, moleculeType],
+  );
+
   // Select a feature as a text selection spanning its full extent (same as left-click)
   const selectFeature = useCallback(
     (f) => {
@@ -2245,6 +2269,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onSelect: () => writeClipboard(cds.trans.map((t) => t.aa).join('')),
         });
       }
+      if (blastEnabled) {
+        items.push({ type: 'separator' });
+        items.push({
+          icon: Globe,
+          label: blastBusy ? 'Submitting BLAST…' : 'BLAST Feature',
+          disabled: blastBusy,
+          onSelect: () => submitBlast(sense),
+        });
+      }
       if (!f.orf) {
         items.push({ type: 'separator' });
         items.push({
@@ -2258,7 +2291,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       showContextMenu(e.clientX, e.clientY, items);
     },
-    [cleanSeq, selectFeature, writeClipboard, features, primers],
+    [
+      cleanSeq,
+      selectFeature,
+      writeClipboard,
+      features,
+      primers,
+      blastEnabled,
+      blastBusy,
+      submitBlast,
+    ],
   );
 
   // Select a primer (same as left-click on its arrow, without starting a drag)
@@ -2334,6 +2376,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
     writeClipboard(fSeq + intervening + reverseComplement(rSeq));
   }, [selectedPrimerIds, enrichedPrimers, cleanSeq, writeClipboard, topology]);
 
+  // Submit the current text selection to NCBI BLAST.
+  const handleBlastSelection = useCallback(() => {
+    if (!hasSelection) return;
+    submitBlast(sliceRange(cleanSeq, selStart, selEnd));
+  }, [hasSelection, cleanSeq, selStart, selEnd, submitBlast]);
+
   // Generic right-click on the editor canvas: menu reflects the current selection.
   // Feature / primer elements attach their own menus and stopPropagation.
   const handleContextMenu = useCallback(
@@ -2371,6 +2419,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
             onSelect: () => copySelection('antisense'),
           });
         }
+        if (blastEnabled) {
+          items.push({ type: 'separator' });
+          items.push({
+            icon: Globe,
+            label: blastBusy ? 'Submitting BLAST…' : 'BLAST Selection',
+            disabled: blastBusy,
+            onSelect: handleBlastSelection,
+          });
+        }
       }
       showContextMenu(e.clientX, e.clientY, items);
     },
@@ -2384,6 +2441,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       copySelection,
       copyAmplimer,
       primerMenuItems,
+      blastEnabled,
+      blastBusy,
+      handleBlastSelection,
     ],
   );
 

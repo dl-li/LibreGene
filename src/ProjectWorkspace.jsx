@@ -1487,6 +1487,7 @@ export default function ProjectWorkspace({
                   ? undefined
                   : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
               }
+              blastEnabled={isTauri && (isDna || isProtein) && !disabledPlugins.includes('blast')}
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
               onOpenPrimerOverview={() => setPrimerOverviewOpen(true)}
