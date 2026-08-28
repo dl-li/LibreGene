@@ -1188,6 +1188,17 @@ fn resolve_enzyme_site(name: &str) -> Result<String, String> {
     }
 }
 
+/// Constant-time string equality for the bearer token, so a local caller
+/// cannot recover it byte by byte via timing. Length leaks are accepted (the
+/// token is a fixed-length random string).
+fn token_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 impl<R: Runtime> LibreGeneMcp<R> {
     pub fn new(
         app_handle: AppHandle<R>,
@@ -5437,7 +5448,15 @@ async fn serve_mcp<R: Runtime>(
                     .and_then(|h| h.to_str().ok())
                     // Read the shared token per request so a user-triggered
                     // regeneration takes effect without restarting the server.
-                    .map(|h| h.strip_prefix("Bearer ").map(|t| t == auth_token.lock().unwrap().as_str()).unwrap_or(false))
+                    // Compared in constant time; the lock tolerates poisoning
+                    // (a panicking request handler must not lock out auth).
+                    .map(|h| {
+                        h.strip_prefix("Bearer ")
+                            .map(|t| {
+                                token_eq(t, &auth_token.lock().unwrap_or_else(|e| e.into_inner()))
+                            })
+                            .unwrap_or(false)
+                    })
                     .unwrap_or(false);
                 if !(host_ok && bearer_ok) {
                     return jsonrpc_error_response(
