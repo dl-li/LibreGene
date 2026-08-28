@@ -4974,7 +4974,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         </text>
       </g>
     );
-  }, [hoveredIndex, isDragging, isTranslationDragging, charsPerLine, getSeqY, currentSelColor]);
+  }, [hoveredIndex, isDragging, isTranslationDragging, charsPerLine, getSeqY]);
 
   const renderedSelectionInfo = useMemo(() => {
     if (!isDragging || !hasSelection || cursorIndex === null) return null;
