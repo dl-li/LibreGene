@@ -312,11 +312,13 @@ fn unwrap_near(p: i64, anchor: i64, seq_len: i64) -> i64 {
 }
 
 /// Normalize a cut pair position to [0, seq_len) for circular sequences.
+/// Linear sequences clamp to [0, seq_len]: IIS-type enzymes (e.g. BbsI) can
+/// place a cut beyond the template end when the recognition site sits near it.
 fn normalize_pair(top: i64, bot: i64, is_circular: bool, seq_len: i64) -> CutPair {
     if !is_circular {
         return CutPair {
-            top_cut_index: top,
-            bot_cut_index: bot,
+            top_cut_index: top.clamp(0, seq_len),
+            bot_cut_index: bot.clamp(0, seq_len),
         };
     }
     let norm = |p: i64| -> i64 { ((p % seq_len) + seq_len) % seq_len };
@@ -617,6 +619,33 @@ mod tests {
     // -------------------------------------------------------------------------
     // Circular normalization tests
     // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_normalize_pair_linear_clamps_out_of_range() {
+        // IIS-type enzyme with recognition near the 5' end of a linear
+        // template: rec_start - fst3 goes negative and must clamp to 0
+        // instead of leaking a negative cut position downstream.
+        let pair = normalize_pair(-3, 1, false, 100);
+        assert_eq!(pair.top_cut_index, 0);
+        assert_eq!(pair.bot_cut_index, 1);
+        let pair = normalize_pair(98, 105, false, 100);
+        assert_eq!(pair.top_cut_index, 98);
+        assert_eq!(pair.bot_cut_index, 100);
+    }
+
+    #[test]
+    fn test_linear_bbsi_bottom_strand_near_5prime_clamped() {
+        let seq_len: i64 = 100;
+        let mut seq = vec![b'A'; seq_len as usize];
+        seq[3..9].copy_from_slice(b"GTCTTC"); // bottom-strand BbsI site at 3
+        let seq_str = String::from_utf8(seq.clone()).unwrap();
+
+        let result = process_enzyme(&bbsi_record(), &seq, &seq_str, false, seq_len, &None);
+        assert_eq!(result.len(), 1);
+        let e = &result[0];
+        assert_eq!(e.cut_pairs[0].top_cut_index, 0); // 3 - 6 = -3 → clamped
+        assert_eq!(e.cut_pairs[0].bot_cut_index, 1); // 3 + 6 - 8 = 1
+    }
 
     #[test]
     fn test_normalize_pair_linear() {
