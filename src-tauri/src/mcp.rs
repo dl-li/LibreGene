@@ -796,20 +796,30 @@ fn alignment_json_1based(
 
 /// Stats-only per-alignment JSON (no orientedSequence, no mismatch/deletion/
 /// insertion details) — used for every alignment EXCEPT the one just added,
-/// so multi-read responses stay small.
+/// so multi-read responses stay small. Counts only: the diff detail vectors
+/// are never serialized.
 fn alignment_stats_json_1based(
     a: &libregene_core::models::Alignment,
     template: &str,
-    tlen: i64,
-    circular: bool,
+    _tlen: i64,
+    _circular: bool,
 ) -> serde_json::Value {
-    let mut v = alignment_json_1based(a, template, tlen, circular, true);
-    if let Some(obj) = v.as_object_mut() {
-        obj.remove("mismatchDetails");
-        obj.remove("deletionDetails");
-        obj.remove("insertionDetails");
-    }
-    v
+    let diff = libregene_core::align::alignment_diff(a, template);
+    serde_json::json!({
+        "alignmentId": a.id,
+        "name": a.name,
+        "identity": a.identity,
+        "strand": a.strand,
+        "segmentCount": a.segments.len(),
+        "alignedLength": diff.aligned_length,
+        "mismatches": diff.mismatches.len(),
+        "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
+        "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
+        "coverage": a.segments.iter().map(|s| serde_json::json!({
+            "start": s.start + 1,
+            "end": s.end + 1,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 /// 1-based inclusive window membership, wrap-aware (s > e on circular
@@ -1219,11 +1229,34 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Clone the project's data out of the lock (and re-lock its agent tab).
     async fn resolve_project(&self, project_id: String) -> Result<(String, ProjectData), ErrorData> {
+        self.resolve_project_impl(project_id, false).await
+    }
+
+    /// Same as resolve_project but strips the enzyme list — the single
+    /// heaviest field on large plasmids — from the clone. Only for tools
+    /// that never render a digest or consult restriction sites.
+    async fn resolve_project_light(
+        &self,
+        project_id: String,
+    ) -> Result<(String, ProjectData), ErrorData> {
+        self.resolve_project_impl(project_id, true).await
+    }
+
+    async fn resolve_project_impl(
+        &self,
+        project_id: String,
+        strip_enzymes: bool,
+    ) -> Result<(String, ProjectData), ErrorData> {
         let project = {
             let pm = self.pm.read().await;
-            pm.get_project_by_id(&project_id).cloned().ok_or_else(|| {
+            let p = pm.get_project_by_id(&project_id).cloned().ok_or_else(|| {
                 ErrorData::invalid_params(format!("Project not found: {}", project_id), None)
-            })?
+            })?;
+            if strip_enzymes {
+                ProjectData { enzymes: Vec::new(), ..p }
+            } else {
+                p
+            }
         };
         crate::lock_agent_tab_for_project(&self.app_handle, &self.agent_tabs, &project_id).await;
         Ok((project_id, project))
@@ -1314,7 +1347,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Resolve the project and reject non-DNA projects for DNA-only tools.
     async fn require_dna_project(&self, project_id: String) -> Result<String, ErrorData> {
-        let (id, project) = self.resolve_project(project_id).await?;
+        let (id, project) = self.resolve_project_light(project_id).await?;
         if !project.is_dna() {
             return Err(ErrorData::invalid_params(
                 format!(
@@ -2420,7 +2453,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         &self,
         Parameters(request): Parameters<SequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let (id, project) = self.resolve_project(request.project_id).await?;
+        let (id, project) = self.resolve_project_light(request.project_id).await?;
         let window_active = request.start.is_some() || request.end.is_some();
         let coord_active = request.position.is_some()
             || request.feature_id.is_some()
@@ -2825,7 +2858,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         &self,
         Parameters(request): Parameters<ListPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let (id, project) = self.resolve_project(request.project_id).await?;
+        let (id, project) = self.resolve_project_light(request.project_id).await?;
         let tlen = project.length;
         let circular = project.topology == "circular";
         let primers: Vec<serde_json::Value> = project
@@ -3282,7 +3315,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         &self,
         Parameters(request): Parameters<EditSequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let (id, project) = self.resolve_project(request.project_id).await?;
+        let (id, project) = self.resolve_project_light(request.project_id).await?;
         self.require_agent_tab(&id).await?;
         let len = project.length;
         // Validate the raw 1-based inclusive inputs BEFORE any arithmetic on
