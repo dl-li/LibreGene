@@ -323,9 +323,10 @@ export default function ProjectWorkspace({
     let cancelled = false;
     (async () => {
       try {
-        await activateProject(projectIdRef.current);
-        const data = await setMethylation(methylationSystems, methylationOverlap);
-        if (cancelled) return;
+        const pid = projectIdRef.current;
+        await activateProject(pid);
+        const data = await setMethylation(methylationSystems, methylationOverlap, pid);
+        if (cancelled || projectIdRef.current !== pid) return;
         if (data && !data.error && data.enzymes) {
           setEnzymes(data.enzymes);
         }
