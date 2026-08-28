@@ -1015,25 +1015,19 @@ async fn do_add_features<R: Runtime>(
     project_id: &str,
     features: Vec<Feature>,
 ) -> Result<serde_json::Value, String> {
-    let mut feats: Vec<Feature> = pm
-        .read()
-        .await
-        .get_project_by_id(project_id)
-        .map(|p| p.features.clone())
-        .unwrap_or_default();
-
-    for feature in features {
-        if let Some(pos) = feats.iter().position(|f| f.id == feature.id) {
-            feats[pos] = feature;
-        } else {
-            feats.push(feature);
-        }
-    }
-
+    // Merge inside the write lock: cloning the feature list under a read
+    // lock and overwriting it in a later write lock would silently drop
+    // concurrent feature additions/removals landing between the two locks.
     {
         let mut pm = pm.write().await;
         if let Some(p) = pm.get_project_mut_by_id(project_id) {
-            p.features = feats;
+            for feature in features {
+                if let Some(pos) = p.features.iter().position(|f| f.id == feature.id) {
+                    p.features[pos] = feature;
+                } else {
+                    p.features.push(feature);
+                }
+            }
         }
         pm.mark_dirty(project_id);
     }
