@@ -854,10 +854,9 @@ export default function App() {
       }),
     [],
   );
-  const onToggleFeatureLabelsBelow = useCallback(
-    () =>
-      setFeatureLabelsBelow((v) => {
-        const next = !v;
+  const onFeatureLabelsBelowChange = useCallback(
+    (next) =>
+      setFeatureLabelsBelow(() => {
         try {
           localStorage.setItem('featureLabelsBelow', JSON.stringify(next));
         } catch {
@@ -892,11 +891,9 @@ export default function App() {
       showFeatures,
       onToggleFeatures,
       alwaysExpandFeatures,
-      onToggleAlwaysExpandFeatures,
       showPrimers,
       onTogglePrimers,
       featureLabelsBelow,
-      onToggleFeatureLabelsBelow,
       showEnzymes,
       onToggleEnzymes,
       enzymeFilter,
@@ -923,11 +920,9 @@ export default function App() {
       showFeatures,
       onToggleFeatures,
       alwaysExpandFeatures,
-      onToggleAlwaysExpandFeatures,
       showPrimers,
       onTogglePrimers,
       featureLabelsBelow,
-      onToggleFeatureLabelsBelow,
       showEnzymes,
       onToggleEnzymes,
       enzymeFilter,
@@ -1306,8 +1301,10 @@ export default function App() {
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
           focusSection={settingsFocus}
+          alwaysExpandFeatures={alwaysExpandFeatures}
+          onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
           featureLabelsBelow={featureLabelsBelow}
-          onToggleFeatureLabelsBelow={workspaceProps.onToggleFeatureLabelsBelow}
+          onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
           methylationSystems={methylationSystems}
           setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap}

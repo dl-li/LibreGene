@@ -607,7 +607,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
   showFeatures,
   onToggleFeatures,
   alwaysExpandFeatures = false,
-  onToggleAlwaysExpandFeatures,
   featureLabelsBelow = false,
   showOrfs,
   onToggleOrfs,
@@ -5345,8 +5344,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToLowercase={toLowercase}
           showFeatures={showFeatures}
           onToggleFeatures={onToggleFeatures}
-          alwaysExpandFeatures={alwaysExpandFeatures}
-          onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
           showOrfs={showOrfs}
           onToggleOrfs={onToggleOrfs}
           onCreateFeature={createFeature}

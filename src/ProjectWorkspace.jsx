@@ -61,7 +61,6 @@ export default function ProjectWorkspace({
   showFeatures,
   onToggleFeatures,
   alwaysExpandFeatures,
-  onToggleAlwaysExpandFeatures,
   showPrimers,
   onTogglePrimers,
   featureLabelsBelow,
@@ -1475,7 +1474,6 @@ export default function ProjectWorkspace({
               showFeatures={showFeatures}
               onToggleFeatures={onToggleFeatures}
               alwaysExpandFeatures={alwaysExpandFeatures}
-              onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
               featureLabelsBelow={featureLabelsBelow}
               showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}
               onToggleOrfs={

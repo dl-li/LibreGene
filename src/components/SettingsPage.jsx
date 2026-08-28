@@ -11,6 +11,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Settings } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
@@ -20,8 +27,10 @@ const SECTION_TITLE =
 export default function SettingsPage({
   open,
   onOpenChange,
+  alwaysExpandFeatures = false,
+  onToggleAlwaysExpandFeatures,
   featureLabelsBelow = false,
-  onToggleFeatureLabelsBelow,
+  onFeatureLabelsBelowChange,
   methylationSystems,
   setMethylationSystems,
   methylationOverlap,
@@ -61,24 +70,47 @@ export default function SettingsPage({
           {/* ── 特征显示 ── */}
           <div>
             <div className={SECTION_TITLE}>Features</div>
-            <div className="flex items-start gap-2">
-              <Checkbox
-                id="st-feature-labels-below"
-                className="mt-0.5"
-                checked={featureLabelsBelow}
-                onCheckedChange={() => onToggleFeatureLabelsBelow?.()}
-              />
-              <div className="flex flex-col">
-                <Label
-                  htmlFor="st-feature-labels-below"
-                  className="cursor-pointer text-sm font-normal"
-                >
-                  Show feature labels below the line
-                </Label>
-                <span className="text-xs text-muted-foreground">
-                  Place name labels under the feature line instead of on its left/right extension
-                </span>
+            <div className="space-y-3">
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="st-always-expand-features"
+                  className="mt-0.5"
+                  checked={alwaysExpandFeatures}
+                  onCheckedChange={() => onToggleAlwaysExpandFeatures?.()}
+                />
+                <div className="flex flex-col">
+                  <Label
+                    htmlFor="st-always-expand-features"
+                    className="cursor-pointer text-sm font-normal"
+                  >
+                    Always expand features
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    Keep features fully expanded without hovering over them
+                  </span>
+                </div>
               </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground shrink-0">
+                  Feature label position
+                </Label>
+                <Select
+                  value={featureLabelsBelow ? 'below' : 'side'}
+                  onValueChange={(v) => onFeatureLabelsBelowChange?.(v === 'below')}
+                >
+                  <SelectTrigger className="w-28 h-8 px-2 py-0 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="side">Side</SelectItem>
+                    <SelectItem value="below">Below</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="block text-xs text-muted-foreground">
+                Side places name labels on the feature line's left/right extension; Below places
+                them under the feature line
+              </span>
             </div>
           </div>
 
@@ -246,38 +278,42 @@ export default function SettingsPage({
             </div>
           </div>
 
-          <Separator />
+          {/* ── 插件（仅从侧边栏 Plugins 入口打开时显示） ── */}
+          {focusSection === 'plugins' && (
+            <>
+              <Separator />
 
-          {/* ── 插件 ── */}
-          <div ref={pluginsRef}>
-            <div className={SECTION_TITLE}>Plugins</div>
-            <div className="space-y-2">
-              {plugins.map((p) => (
-                <div key={p.id} className="flex items-start gap-2">
-                  <Checkbox
-                    id={`st-plugin-${p.id}`}
-                    className="mt-0.5"
-                    checked={!disabledPlugins.includes(p.id)}
-                    onCheckedChange={() => onTogglePlugin?.(p.id)}
-                  />
-                  <div className="flex flex-col">
-                    <Label
-                      htmlFor={`st-plugin-${p.id}`}
-                      className="cursor-pointer text-sm font-normal"
-                    >
-                      {p.name}
-                    </Label>
-                    {p.description && (
-                      <span className="text-xs text-muted-foreground">{p.description}</span>
-                    )}
-                  </div>
+              <div ref={pluginsRef}>
+                <div className={SECTION_TITLE}>Plugins</div>
+                <div className="space-y-2">
+                  {plugins.map((p) => (
+                    <div key={p.id} className="flex items-start gap-2">
+                      <Checkbox
+                        id={`st-plugin-${p.id}`}
+                        className="mt-0.5"
+                        checked={!disabledPlugins.includes(p.id)}
+                        onCheckedChange={() => onTogglePlugin?.(p.id)}
+                      />
+                      <div className="flex flex-col">
+                        <Label
+                          htmlFor={`st-plugin-${p.id}`}
+                          className="cursor-pointer text-sm font-normal"
+                        >
+                          {p.name}
+                        </Label>
+                        {p.description && (
+                          <span className="text-xs text-muted-foreground">{p.description}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {plugins.length === 0 && (
+                    <div className="text-sm text-muted-foreground">No plugins installed</div>
+                  )}
                 </div>
-              ))}
-              {plugins.length === 0 && (
-                <div className="text-sm text-muted-foreground">No plugins installed</div>
-              )}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
         <DialogFooter>
