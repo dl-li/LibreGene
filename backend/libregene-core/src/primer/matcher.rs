@@ -183,10 +183,14 @@ pub fn find_annealing_circular(
     doubled.extend_from_slice(template);
 
     let mut sites = find_annealing_positions(primer, &doubled, limit, use_complement);
+    // Dedup must happen after mod-normalization: the same physical site found
+    // once per lap has distinct doubled-template coordinates and survives the
+    // pre-normalization dedup inside find_annealing_positions.
     for s in &mut sites {
         s.template_start %= tlen;
     }
-    sites.retain(|s| s.template_start < tlen);
+    let mut seen = std::collections::HashSet::new();
+    sites.retain(|s| seen.insert(s.template_start));
     sites
 }
 
@@ -287,6 +291,19 @@ mod tests {
         let primer = b"ATGCATGC";
         let sites = find_annealing_circular(primer, template, 6, false);
         assert!(!sites.is_empty());
+    }
+
+    #[test]
+    fn test_circular_search_dedups_lap_duplicates() {
+        // The site at template position 1 is found once per lap on the doubled
+        // template (doubled starts 1 and 9) with identical footprint. After
+        // mod-normalization both hits map to template_start 1 and must
+        // collapse to a single site.
+        let template = b"GCTTGCAA";
+        let primer = b"CCTTGCAA";
+        let sites = find_annealing_circular(primer, template, 6, false);
+        assert_eq!(sites.len(), 1, "lap duplicates must be deduped, got {:?}", sites);
+        assert_eq!(sites[0].template_start, 1);
     }
 
     #[test]
