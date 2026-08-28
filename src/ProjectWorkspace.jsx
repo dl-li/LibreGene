@@ -954,6 +954,19 @@ export default function ProjectWorkspace({
             .filter(Boolean);
         };
 
+        if (ann.segments && ann.segments.length) {
+          // Derive start/end from adjusted segments so wrap-origin features
+          // (start > end, segments in join order) shift correctly.
+          const newSegments = adjustSegments(ann.segments);
+          if (!newSegments.length) return null;
+          return {
+            ...ann,
+            start: newSegments[0].start,
+            end: newSegments[newSegments.length - 1].end,
+            segments: newSegments,
+          };
+        }
+
         let newStart, newEnd;
         if (ann.end < editStart) {
           // entirely before – unchanged
@@ -971,9 +984,7 @@ export default function ProjectWorkspace({
 
         if (newStart > newEnd) return null;
 
-        const result = { ...ann, start: newStart, end: newEnd };
-        if (ann.segments) result.segments = adjustSegments(ann.segments);
-        return result;
+        return { ...ann, start: newStart, end: newEnd };
       })
       .filter(Boolean);
   }, []);
