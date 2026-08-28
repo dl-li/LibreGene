@@ -700,15 +700,28 @@ async fn do_save_file(
 ) -> Result<serde_json::Value, String> {
     let ext = validate_user_path(&path, CODON_OUTPUT_EXTS)?;
     let save_path = std::path::PathBuf::from(&path);
-    let project = {
-        let pm = pm.read().await;
-        pm.get_project_by_id(&project_id).cloned()
+    // Snapshot the project and clear its dirty flag in ONE write lock: any
+    // mutation landing after this point re-marks the project dirty, so a
+    // concurrent edit during the blocking write is never mistaken for saved
+    // (the written file wouldn't contain it). On write failure the previous
+    // dirty state is restored.
+    let (project, was_dirty) = {
+        let mut pm = pm.write().await;
+        let was_dirty = pm.is_dirty(&project_id);
+        let project = pm.get_project_by_id(&project_id).cloned();
+        if project.is_some() {
+            pm.mark_clean(&project_id);
+        }
+        (project, was_dirty)
     };
     match project {
         Some(ref p) => {
             // Protein projects cannot round-trip through the DNA GenBank
             // writer (amino-acid letters would corrupt the file) — force .gpt.
             if p.molecule_type == "protein" && ext != "gpt" {
+                if was_dirty {
+                    pm.write().await.mark_dirty(&project_id);
+                }
                 return Ok(serde_json::json!({
                     "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
                 }));
@@ -728,11 +741,14 @@ async fn do_save_file(
             match result {
                 Ok(()) => {
                     let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
-                    let mut pm = pm.write().await;
-                    pm.mark_clean(&project_id);
                     Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
                 }
-                Err(e) => Ok(serde_json::json!({"error": e.to_string()})),
+                Err(e) => {
+                    if was_dirty {
+                        pm.write().await.mark_dirty(&project_id);
+                    }
+                    Ok(serde_json::json!({"error": e.to_string()}))
+                }
             }
         }
         None => Ok(serde_json::json!({"error": "Project not found"})),
