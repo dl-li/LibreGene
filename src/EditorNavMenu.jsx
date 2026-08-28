@@ -94,8 +94,6 @@ export default function EditorNavMenu({
   onToLowercase,
   showFeatures,
   onToggleFeatures,
-  alwaysExpandFeatures,
-  onToggleAlwaysExpandFeatures,
   showOrfs,
   onToggleOrfs,
   onCreateFeature,
@@ -297,12 +295,6 @@ export default function EditorNavMenu({
             <DropdownMenuItem onSelect={onOpenDetectFeatures} disabled={!onOpenDetectFeatures}>
               <ScanSearch /> Detect Common Features
             </DropdownMenuItem>
-            <DropdownMenuCheckboxItem
-              checked={alwaysExpandFeatures}
-              onCheckedChange={onToggleAlwaysExpandFeatures}
-            >
-              Always Expand Feature
-            </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
