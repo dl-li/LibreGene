@@ -10,6 +10,44 @@ use crate::models::Feature;
 use crate::translate::translate_codon;
 use crate::utils::complement_char;
 
+/// Segment spans of `f`, falling back to (start, end) when unsegmented.
+fn spans_of(f: &Feature) -> impl Iterator<Item = (i64, i64)> + '_ {
+    let fallback = if f.segments.is_empty() {
+        Some((f.start, f.end))
+    } else {
+        None
+    };
+    f.segments.iter().map(|s| (s.start, s.end)).chain(fallback)
+}
+
+/// Feature length in bases (sum of segment spans).
+fn feature_len(f: &Feature) -> i64 {
+    spans_of(f).map(|(s, e)| (e - s + 1).max(0)).sum()
+}
+
+/// Zero-allocation iterator over the template positions covered by `f` in
+/// biological 5'→3' order.
+fn positions_iter(f: &Feature) -> impl Iterator<Item = i64> + '_ {
+    let minus = f.strand == "-";
+    let fallback = if f.segments.is_empty() {
+        Some((f.start, f.end))
+    } else {
+        None
+    };
+    let n = if fallback.is_some() { 1 } else { f.segments.len() };
+    (0..n).flat_map(move |k| {
+        let (start, end) = match fallback {
+            Some(se) => se,
+            None => {
+                let s = &f.segments[if minus { n - 1 - k } else { k }];
+                (s.start, s.end)
+            }
+        };
+        let len = (end - start + 1).max(0);
+        (0..len).map(move |j| if minus { end - j } else { start + j })
+    })
+}
+
 /// Hit metadata for a feature that contains a template position.
 #[derive(Debug, Clone)]
 pub struct FeatureHit {
@@ -46,22 +84,7 @@ pub struct TranslationHit {
 
 /// Return the template positions covered by `f` in biological 5'→3' order.
 pub fn positions_5to3(f: &Feature) -> Vec<i64> {
-    let segs: Vec<(i64, i64)> = if f.segments.is_empty() {
-        vec![(f.start, f.end)]
-    } else {
-        f.segments.iter().map(|s| (s.start, s.end)).collect()
-    };
-    let mut out = Vec::new();
-    if f.strand == "-" {
-        for (s, e) in segs.iter().rev() {
-            out.extend((*s..=*e).rev());
-        }
-    } else {
-        for (s, e) in &segs {
-            out.extend(*s..=*e);
-        }
-    }
-    out
+    positions_iter(f).collect()
 }
 
 /// Return every feature containing `pos` (0-based template coordinate) together
@@ -69,24 +92,16 @@ pub fn positions_5to3(f: &Feature) -> Vec<i64> {
 pub fn position_to_features(pos: i64, features: &[Feature]) -> Vec<FeatureHit> {
     features
         .iter()
-        .filter(|f| {
-            let spans: Vec<(i64, i64)> = if f.segments.is_empty() {
-                vec![(f.start, f.end)]
-            } else {
-                f.segments.iter().map(|s| (s.start, s.end)).collect()
-            };
-            spans.iter().any(|&(s, e)| pos >= s && pos <= e)
-        })
+        .filter(|f| spans_of(f).any(|(s, e)| pos >= s && pos <= e))
         .filter_map(|f| {
-            let positions = positions_5to3(f);
-            let offset = positions.iter().position(|&p| p == pos)? as i64 + 1;
+            let offset = positions_iter(f).position(|p| p == pos)? as i64 + 1;
             Some(FeatureHit {
                 feature_id: f.id.clone(),
                 name: f.name.clone(),
                 ftype: f.ftype.clone(),
                 strand: f.strand.clone(),
                 offset,
-                length: positions.len() as i64,
+                length: feature_len(f),
             })
         })
         .collect()
@@ -99,19 +114,21 @@ pub fn position_to_translations(pos: i64, seq: &str, features: &[Feature]) -> Ve
         .iter()
         .filter(|f| f.ftype.eq_ignore_ascii_case("cds") || f.ftype.eq_ignore_ascii_case("mrna"))
         .filter_map(|f| {
-            let positions = positions_5to3(f);
             // Feature coordinates come from the file and are not range-checked
             // at parse time; skip features whose coordinates fall outside the
             // sequence instead of indexing out of bounds.
-            if positions.iter().any(|&p| p < 0 || p >= bytes.len() as i64) {
+            if positions_iter(f).any(|p| p < 0 || p >= bytes.len() as i64) {
                 return None;
             }
-            let idx = positions.iter().position(|&p| p == pos)?;
+            let idx = positions_iter(f).position(|p| p == pos)?;
             let codon_idx = idx / 3;
-            if codon_idx * 3 + 2 >= positions.len() {
+            if codon_idx * 3 + 2 >= feature_len(f) as usize {
                 return None;
             }
-            let codon_positions = [positions[codon_idx * 3], positions[codon_idx * 3 + 1], positions[codon_idx * 3 + 2]];
+            let mut codon_positions = [0i64; 3];
+            for (i, cp) in codon_positions.iter_mut().enumerate() {
+                *cp = positions_iter(f).nth(codon_idx * 3 + i)?;
+            }
             let mut codon_bytes = [0u8; 3];
             for (i, &p) in codon_positions.iter().enumerate() {
                 let mut b = bytes[p as usize].to_ascii_uppercase();
