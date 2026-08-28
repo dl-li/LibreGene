@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   openFile,
   createProject,
@@ -838,17 +838,11 @@ export default function App() {
     paths.forEach((p) => openExternalPath(p));
   }, [dropConfirm, openExternalPath]);
 
-  const workspaceProps = {
-    backendStatus,
-    methylationSystems,
-    methylationOverlap,
-    primerSeedLength,
-    tmParams,
-    layoutParams,
-    showFeatures,
-    onToggleFeatures: () => setShowFeatures((v) => !v),
-    alwaysExpandFeatures,
-    onToggleAlwaysExpandFeatures: () =>
+  const onToggleFeatures = useCallback(() => setShowFeatures((v) => !v), []);
+  const onTogglePrimers = useCallback(() => setShowPrimers((v) => !v), []);
+  const onToggleEnzymes = useCallback(() => setShowEnzymes((v) => !v), []);
+  const onToggleAlwaysExpandFeatures = useCallback(
+    () =>
       setAlwaysExpandFeatures((v) => {
         const next = !v;
         try {
@@ -858,10 +852,10 @@ export default function App() {
         }
         return next;
       }),
-    showPrimers,
-    onTogglePrimers: () => setShowPrimers((v) => !v),
-    featureLabelsBelow,
-    onToggleFeatureLabelsBelow: () =>
+    [],
+  );
+  const onToggleFeatureLabelsBelow = useCallback(
+    () =>
       setFeatureLabelsBelow((v) => {
         const next = !v;
         try {
@@ -871,21 +865,10 @@ export default function App() {
         }
         return next;
       }),
-    showEnzymes,
-    onToggleEnzymes: () => setShowEnzymes((v) => !v),
-    enzymeFilter,
-    onEnzymeFilterChange: setEnzymeFilter,
-    disabledPlugins,
-    onDirtyChange,
-    registerHandle,
-    onProjectsSync,
-    onRekey,
-    myPrimers,
-    onMyPrimersChange: setMyPrimers,
-    myEnzymes,
-    onMyEnzymesChange: setMyEnzymes,
-    autoAddPrimers,
-    onToggleAutoAddPrimers: () =>
+    [],
+  );
+  const onToggleAutoAddPrimers = useCallback(
+    () =>
       setAutoAddPrimers((v) => {
         const next = !v;
         try {
@@ -895,7 +878,70 @@ export default function App() {
         }
         return next;
       }),
-  };
+    [],
+  );
+
+  const workspaceProps = useMemo(
+    () => ({
+      backendStatus,
+      methylationSystems,
+      methylationOverlap,
+      primerSeedLength,
+      tmParams,
+      layoutParams,
+      showFeatures,
+      onToggleFeatures,
+      alwaysExpandFeatures,
+      onToggleAlwaysExpandFeatures,
+      showPrimers,
+      onTogglePrimers,
+      featureLabelsBelow,
+      onToggleFeatureLabelsBelow,
+      showEnzymes,
+      onToggleEnzymes,
+      enzymeFilter,
+      onEnzymeFilterChange: setEnzymeFilter,
+      disabledPlugins,
+      onDirtyChange,
+      registerHandle,
+      onProjectsSync,
+      onRekey,
+      myPrimers,
+      onMyPrimersChange: setMyPrimers,
+      myEnzymes,
+      onMyEnzymesChange: setMyEnzymes,
+      autoAddPrimers,
+      onToggleAutoAddPrimers,
+    }),
+    [
+      backendStatus,
+      methylationSystems,
+      methylationOverlap,
+      primerSeedLength,
+      tmParams,
+      layoutParams,
+      showFeatures,
+      onToggleFeatures,
+      alwaysExpandFeatures,
+      onToggleAlwaysExpandFeatures,
+      showPrimers,
+      onTogglePrimers,
+      featureLabelsBelow,
+      onToggleFeatureLabelsBelow,
+      showEnzymes,
+      onToggleEnzymes,
+      enzymeFilter,
+      disabledPlugins,
+      onDirtyChange,
+      registerHandle,
+      onProjectsSync,
+      onRekey,
+      myPrimers,
+      myEnzymes,
+      autoAddPrimers,
+      onToggleAutoAddPrimers,
+    ],
+  );
 
   const sidebarContent = (
     <Sidebar
