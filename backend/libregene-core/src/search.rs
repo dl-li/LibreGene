@@ -143,6 +143,14 @@ fn scan_strand(seq: &str, pattern: &[u8], strand: &str, out: &mut Vec<SeqMatch>)
 /// A query that looks like a peptide (letters outside the nucleotide IUPAC
 /// alphabet) is expanded to degenerate IUPAC codons before scanning.
 pub fn find_seq_matches(seq: &str, query: &str) -> Vec<SeqMatch> {
+    let q = query.trim().to_ascii_uppercase();
+    // '*' expands to TRR which also covers TGG (Trp), so stop-codon
+    // positions are re-checked against the actual bases after scanning.
+    let stop_residues: Vec<usize> = q
+        .bytes()
+        .enumerate()
+        .filter_map(|(i, b)| (b == b'*').then_some(i))
+        .collect();
     let pattern = match normalize_peptide_query(query) {
         Some(p) => p,
         None => match normalize_query(query) {
@@ -160,7 +168,27 @@ pub fn find_seq_matches(seq: &str, query: &str) -> Vec<SeqMatch> {
     if rc.as_slice() != pattern_bytes {
         scan_strand(seq, &rc, "-", &mut out);
     }
+    if !stop_residues.is_empty() {
+        out.retain(|m| stop_codons_match(seq, m, &stop_residues));
+    }
     out
+}
+
+/// Check that every '*' residue of the peptide query maps to a real stop
+/// codon (TAA/TAG/TGA) at the hit, in the peptide's 5'→3' orientation.
+fn stop_codons_match(seq: &str, m: &SeqMatch, stop_residues: &[usize]) -> bool {
+    let hit = &seq.as_bytes()[m.start as usize..=m.end as usize];
+    let oriented;
+    let bases: &[u8] = if m.strand == "-" {
+        oriented = reverse_complement_iupac(hit);
+        &oriented
+    } else {
+        hit
+    };
+    stop_residues.iter().all(|&i| {
+        let codon = &bases[i * 3..i * 3 + 3];
+        matches!(codon, b"TAA" | b"TAG" | b"TGA")
+    })
 }
 
 #[cfg(test)]
@@ -350,6 +378,19 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn peptide_stop_does_not_match_trp() {
+        // TRR also covers TGG (Trp); stop queries must not hit it.
+        assert!(find_seq_matches("ATGG", "*").is_empty());
+        assert!(find_seq_matches("GGATGTGG", "M*").is_empty());
+        // CCA is the reverse complement of TGG.
+        assert!(find_seq_matches("GCCAG", "*").is_empty());
+        for stop in ["TAA", "TAG", "TGA"] {
+            let seq = format!("GGATG{}", stop);
+            assert_eq!(find_seq_matches(&seq, "M*").len(), 1, "{}", stop);
+        }
     }
 
     #[test]
