@@ -1125,8 +1125,12 @@ fn resolve_feature_span(
                         .to_string(),
                 );
             }
-            let s = out.iter().map(|x| x.start).min().unwrap_or(0);
-            let e = out.iter().map(|x| x.end).max().unwrap_or(0);
+            // Bounds come from the first segment's start and the last
+            // segment's end (segments are in encoding order), so an
+            // origin-wrapping feature keeps its `start > end` semantics
+            // instead of being flattened by min/max.
+            let s = out.first().unwrap().start;
+            let e = out.last().unwrap().end;
             Ok((out, s, e))
         }
         (Some(_), None, None) | (None, Some(_), None) => {
@@ -1349,8 +1353,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             // Clamp the +/-5 context window with saturating arithmetic so a
             // feature near an end (or a maliciously huge coordinate that slipped
             // past validation) can't underflow/overflow and panic the process.
-            let s = f.start.saturating_sub(5);
-            let e = (f.end.saturating_add(5)).min(project.length.saturating_sub(1));
+            // A wrapping feature (start > end) yields s > e, which
+            // project_digest interprets as an origin-wrapping region window
+            // on circular projects — the intended span.
+            let last = project.length.saturating_sub(1);
+            let s = f.start.saturating_sub(5).min(last);
+            let e = (f.end.saturating_add(5)).min(last);
             (project.clone(), s, e)
         };
         let opts = DigestOptions {
@@ -1374,16 +1382,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// resolve_feature_span only checks start<=end (no upper bound), so
     /// without this a caller could write a feature with end = i64::MAX and
     /// later panic downstream code that slices the sequence by these
-    /// coordinates. `start`/`end` are internal 0-based inclusive.
+    /// coordinates. `start`/`end` are internal 0-based inclusive; for a
+    /// wrapping feature start > end, so every segment end is checked too.
     async fn span_within_bounds(
         &self,
         project_id: &str,
+        segments: &[Segment],
         start: i64,
         end: i64,
     ) -> Result<(), String> {
         let pm = self.pm.read().await;
         let plen = pm.get_project_by_id(project_id).map(|p| p.length).unwrap_or(0);
-        if end >= plen {
+        let max_coord = segments
+            .iter()
+            .map(|s| s.end.max(s.start))
+            .max()
+            .unwrap_or(0)
+            .max(start)
+            .max(end);
+        if max_coord >= plen {
             return Err(format!(
                 "feature span {}..{} is out of range for project length {} (1-based inclusive)",
                 start + 1,
@@ -3729,7 +3746,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let new_span = if has_span {
                 let span = resolve_feature_span(request.start, request.end, request.segments)
                     .map_err(|e| ErrorData::invalid_params(e, None))?;
-                if let Err(e) = self.span_within_bounds(&id, span.1, span.2).await {
+                if let Err(e) = self.span_within_bounds(&id, &span.0, span.1, span.2).await {
                     return Ok(Json(fail_envelope(&id, e)));
                 }
                 Some(span)
@@ -3822,7 +3839,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if !matches!(strand.as_str(), "." | "+" | "-") {
             return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
         }
-        if let Err(e) = self.span_within_bounds(&id, start, end).await {
+        if let Err(e) = self.span_within_bounds(&id, &segments, start, end).await {
             return Ok(Json(fail_envelope(&id, e)));
         }
 
@@ -7789,6 +7806,64 @@ mod tests {
             ..Default::default()
         };
         assert!(server.set_feature(Parameters(req)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_feature_wrapping_segments_keep_join_order_bounds() {
+        let mut project = dna_test_project();
+        project.topology = "circular".to_string();
+        let server = handler_with_project(project).await;
+        // join(91..100, 1..10): bounds are first-segment start / last-segment
+        // end (0-based 90/9, start > end), not the min/max flattening.
+        let out = server
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("wrap".to_string()),
+                ftype: Some("CDS".to_string()),
+                segments: Some(vec![
+                    FeatureSegmentSpec { start: 91, end: 100 },
+                    FeatureSegmentSpec { start: 1, end: 10 },
+                ]),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("at join(91..100,1..10)"),
+            "{}",
+            out.0
+        );
+        {
+            let pm = server.pm.read().await;
+            let f = &pm.get_project_by_id("feat").unwrap().features[0];
+            assert_eq!((f.start, f.end), (90, 9));
+            assert_eq!(f.segments.len(), 2);
+            assert_eq!((f.segments[0].start, f.segments[0].end), (90, 99));
+            assert_eq!((f.segments[1].start, f.segments[1].end), (0, 9));
+        }
+
+        // A wrap window whose far segment exceeds the length is rejected even
+        // though the derived (small) end is in bounds.
+        let out = server
+            .set_feature(Parameters(SetFeatureRequest {
+                project_id: "feat".to_string(),
+                name: Some("wrap_oob".to_string()),
+                ftype: Some("CDS".to_string()),
+                segments: Some(vec![
+                    FeatureSegmentSpec { start: 91, end: 120 },
+                    FeatureSegmentSpec { start: 1, end: 10 },
+                ]),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("out of range"),
+            "{}",
+            out.0
+        );
     }
 
     // ------------------------------------------------------------------
