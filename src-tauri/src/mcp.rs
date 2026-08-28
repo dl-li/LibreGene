@@ -3458,6 +3458,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let Some(p) = pm.get_project_mut_by_id(&id) else {
                 return Ok(Json(fail_envelope(&id, "Project not found".to_string())));
             };
+            // The resolve-time bounds check ran against a snapshot; a
+            // concurrent edit may have shrunk the sequence since — re-check
+            // against the live sequence or the slices below would panic.
+            let live_len = p.sequence.len() as i64;
+            let out_of_bounds = if is_insertion { start > live_len } else { end >= live_len };
+            if out_of_bounds {
+                return Ok(Json(fail_envelope(
+                    &id,
+                    format!(
+                        "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                        u_start, u_end, live_len
+                    ),
+                )));
+            }
             let current: String = if is_insertion {
                 String::new()
             } else {
@@ -7214,6 +7228,33 @@ mod tests {
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
         assert_eq!(&p.sequence[10..12], "TT");
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_rechecks_bounds_against_live_sequence() {
+        // A stale `length` field simulates a live sequence that shrank after
+        // the resolve-time snapshot: the write-lock re-check must reject the
+        // edit instead of panicking on the slice.
+        let mut project = edit_test_project();
+        project.length = project.sequence.len() as i64 + 50;
+        let stale_len = project.length;
+        let server = handler_with_project(project).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: stale_len - 10,
+                end: stale_len,
+                replacement: Some("AA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], false);
+        assert!(
+            out.0["message"].as_str().unwrap().contains("out of bounds"),
+            "{}",
+            out.0
+        );
     }
 
     #[tokio::test]
