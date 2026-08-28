@@ -879,14 +879,15 @@ pub fn read_sequence_bases(project: &ProjectData, start: i64, end: i64) -> Resul
             count, unit, MAX_READ_BASES, unit
         ));
     }
-    let mut window = String::with_capacity(count as usize);
+    let bytes = project.sequence.as_bytes();
+    let mut window = Vec::with_capacity(count as usize);
     if s <= e {
-        window.push_str(&project.sequence[s as usize..=e as usize]);
+        window.extend_from_slice(&bytes[s as usize..=e as usize]);
     } else {
-        window.push_str(&project.sequence[s as usize..]);
-        window.push_str(&project.sequence[..=e as usize]);
+        window.extend_from_slice(&bytes[s as usize..]);
+        window.extend_from_slice(&bytes[..=e as usize]);
     }
-    Ok(window.to_ascii_uppercase())
+    Ok(String::from_utf8_lossy(&window).to_ascii_uppercase())
 }
 
 /// Bases in `[start, end]` with a coordinate ruler; circular wrap supported.
@@ -1433,6 +1434,25 @@ mod tests {
         assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "ACGTACGTAC");
         assert_eq!(read_sequence_bases(&p, 55, 4).unwrap(), "TACGTACGTA");
         assert!(read_sequence_bases(&p, 0, 100).is_err());
+    }
+
+    #[test]
+    fn read_sequence_bases_non_ascii_sequence_no_panic() {
+        // Sequences can carry multi-byte UTF-8 (e.g. from from_utf8_lossy in
+        // parsers); byte-based slicing must not panic on char boundaries.
+        let p = ProjectData {
+            name: "nonAscii".into(),
+            sequence: "ACGT\u{FFFD}ACGT".into(),
+            length: 9,
+            topology: "circular".into(),
+            ..Default::default()
+        };
+        let out = read_sequence_bases(&p, 0, 8).unwrap();
+        assert_eq!(out, "ACGT\u{FFFD}AC");
+        // Wrapped window splits a multi-byte char at the boundary; lossy
+        // decoding must replace the partial bytes instead of panicking.
+        let wrapped = read_sequence_bases(&p, 6, 2).unwrap();
+        assert!(!wrapped.is_empty());
     }
 
     #[test]
