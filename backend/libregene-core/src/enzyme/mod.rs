@@ -82,6 +82,7 @@ pub fn recompute(project: &mut ProjectData) {
             &project.sequence,
             &systems,
             project.methylation_overlap,
+            is_circular,
         );
     }
 
@@ -91,6 +92,7 @@ pub fn recompute(project: &mut ProjectData) {
 /// Re-apply methylation filtering only — avoids full enzyme search when only methylation changes.
 pub fn recompute_methylation_only(project: &mut ProjectData) {
     let systems = project.methylation_systems.clone();
+    let is_circular = project.topology == "circular";
     for enz in &mut project.enzymes {
         // Reset methylation state before re-applying
         enz.methylation_blocked = false;
@@ -103,6 +105,7 @@ pub fn recompute_methylation_only(project: &mut ProjectData) {
             &project.sequence,
             &systems,
             project.methylation_overlap,
+            is_circular,
         );
     }
 }

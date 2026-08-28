@@ -88,6 +88,7 @@ pub fn apply_methylation(
     template: &str,
     active_systems: &[String],
     overlap: i64,
+    is_circular: bool,
 ) {
     // Preserve the database-set methylation_required flag (e.g. DpnI).
     let initially_required = enzyme.methylation_required;
@@ -133,7 +134,13 @@ pub fn apply_methylation(
             let hi = rec_e + ov;
             let win_start = lo.saturating_sub(k - 1);
             let win_end = hi + k; // half-open
-            let window: Vec<u8> = if win_end.saturating_sub(win_start) >= tlen {
+            let window: Vec<u8> = if !is_circular {
+                // Linear templates have no wraparound — clamp the scan window
+                // to the template instead of pulling in the other end.
+                let start = win_start.min(tlen);
+                let end = win_end.min(tlen);
+                tpl.get(start..end).map(|w| w.to_vec()).unwrap_or_default()
+            } else if win_end.saturating_sub(win_start) >= tlen {
                 // Window spans the whole circle — wrapping would truncate it to
                 // one turn and skip targets; scan the entire template instead.
                 tpl.to_vec()
@@ -200,12 +207,34 @@ mod tests {
     }
 
     #[test]
+    fn test_linear_template_does_not_wrap_scan_window() {
+        // Linear 20 bp template: Dam target GATC at the 5' end [0, 3], sensitive
+        // enzyme rec site at the 3' end [15, 19]. The rec ± ov + k scan window
+        // extends past the end; a circular wrap would pull the 5' GATC into the
+        // window and falsely block the enzyme.
+        let mut enzyme = make_enzyme(15, 19, false, true);
+        let template = "GATCNNNNNNNNNNNNNNNN";
+        let active_systems: Vec<String> = vec!["dam".to_string()];
+
+        apply_methylation(&mut enzyme, template, &active_systems, 2, false);
+        assert!(
+            !enzyme.methylation_blocked,
+            "linear template must not wrap the methylation scan window into the 5' end"
+        );
+
+        // Same template treated as circular DOES see the 5' Dam site.
+        let mut enzyme = make_enzyme(15, 19, false, true);
+        apply_methylation(&mut enzyme, template, &active_systems, 2, true);
+        assert!(enzyme.methylation_blocked);
+    }
+
+    #[test]
     fn test_dpni_requires_dam_when_inactive() {
         let mut enzyme = make_enzyme(10, 13, true, false);
         let template = "NNNNNNNNNNGATCNNNN";
         let active_systems: Vec<String> = vec![];
 
-        apply_methylation(&mut enzyme, template, &active_systems, 2);
+        apply_methylation(&mut enzyme, template, &active_systems, 2, true);
 
         assert!(enzyme.methylation_required, "DpnI should require methylation when Dam is inactive");
         assert_eq!(enzyme.methyl_required_sources, vec!["Dam"]);
@@ -218,7 +247,7 @@ mod tests {
         let template = "NNNNNNNNNNGATCNNNN";
         let active_systems: Vec<String> = vec!["dam".to_string()];
 
-        apply_methylation(&mut enzyme, template, &active_systems, 2);
+        apply_methylation(&mut enzyme, template, &active_systems, 2, true);
 
         assert!(!enzyme.methylation_required);
         assert!(enzyme.methyl_required_sources.is_empty());
@@ -230,7 +259,7 @@ mod tests {
         let template = "NNNNNNNNGATCNNNNNN";
         let active_systems: Vec<String> = vec!["dam".to_string()];
 
-        apply_methylation(&mut enzyme, template, &active_systems, 2);
+        apply_methylation(&mut enzyme, template, &active_systems, 2, true);
 
         assert!(enzyme.methylation_blocked);
         assert_eq!(enzyme.methylation_sources, vec!["Dam"]);
@@ -253,7 +282,7 @@ mod tests {
         //                        ^^^^ GATC at [8,11], upstream of rec [10,17]
         let active_systems: Vec<String> = vec!["dam".to_string()];
 
-        apply_methylation(&mut enzyme, template, &active_systems, 2);
+        apply_methylation(&mut enzyme, template, &active_systems, 2, true);
 
         assert!(
             enzyme.methylation_blocked,
@@ -274,7 +303,7 @@ mod tests {
         let template = "NNNNNNGATC"; // Dam target GATC at [6, 10)
         let active_systems: Vec<String> = vec!["dam".to_string()];
 
-        apply_methylation(&mut enzyme, template, &active_systems, 4);
+        apply_methylation(&mut enzyme, template, &active_systems, 4, true);
 
         assert!(
             enzyme.methylation_blocked,
@@ -302,7 +331,7 @@ mod tests {
         let template = "TCNNNNNNNNGA"; // length 12: G@10, A@11, wraps to T@0, C@1 → GATC
         let active_systems: Vec<String> = vec![]; // Dam inactive
 
-        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+        apply_methylation(&mut enzyme, &template, &active_systems, 2, true);
 
         assert!(
             enzyme.methylation_required,
@@ -322,7 +351,7 @@ mod tests {
         let mut enzyme = make_enzyme(20, 27, false, true);
         let active_systems: Vec<String> = vec!["ecoki".to_string()];
 
-        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+        apply_methylation(&mut enzyme, &template, &active_systems, 2, true);
 
         assert!(
             enzyme.methylation_blocked,
@@ -340,7 +369,7 @@ mod tests {
         let mut enzyme = make_enzyme(20, 27, false, true);
         let active_systems: Vec<String> = vec!["ecoki".to_string()];
 
-        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+        apply_methylation(&mut enzyme, &template, &active_systems, 2, true);
 
         assert!(enzyme.methylation_blocked);
         assert_eq!(enzyme.methylation_sources, vec!["EcoKI"]);
@@ -354,7 +383,7 @@ mod tests {
         let mut enzyme = make_enzyme(20, 27, false, true);
         let active_systems: Vec<String> = vec!["dam".to_string()];
 
-        apply_methylation(&mut enzyme, &template, &active_systems, 2);
+        apply_methylation(&mut enzyme, &template, &active_systems, 2, true);
 
         assert!(!enzyme.methylation_blocked);
     }
