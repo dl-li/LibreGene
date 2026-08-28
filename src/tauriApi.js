@@ -278,9 +278,9 @@ export async function removeAlignment(alignmentId) {
 // Methylation
 // ---------------------------------------------------------------------------
 
-export async function setMethylation(systems, overlap = 2) {
+export async function setMethylation(systems, overlap = 2, projectId) {
   assertEditable();
-  return tauriInvoke('set_methylation', { systems, overlap });
+  return tauriInvoke('set_methylation', { systems, overlap, projectId });
 }
 
 export async function getEnzymeDatabase() {
