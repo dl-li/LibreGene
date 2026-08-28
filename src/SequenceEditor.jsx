@@ -2741,11 +2741,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // Sync featureInfoFeature when features update (e.g., after ftype change)
   useEffect(() => {
-    if (featureInfoFeature && features.length) {
-      const updated = features.find((f) => f.id === featureInfoFeature.id);
-      if (updated && updated !== featureInfoFeature) {
-        setFeatureInfoFeature(updated);
-      }
+    if (!featureInfoFeature) return;
+    const updated = features.find((f) => f.id === featureInfoFeature.id);
+    if (updated && updated !== featureInfoFeature) {
+      setFeatureInfoFeature(updated);
+    } else if (!updated) {
+      setFeatureInfoFeature(null);
     }
   }, [features, featureInfoFeature]);
 
