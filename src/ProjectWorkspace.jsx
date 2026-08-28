@@ -313,7 +313,7 @@ export default function ProjectWorkspace({
     () => methylationSystems.join(',') + '|' + methylationOverlap,
     [methylationSystems, methylationOverlap],
   );
-  const syncedMethKeyRef = useRef(initialData ? '' : methKey);
+  const syncedMethKeyRef = useRef('');
   useEffect(() => {
     // Methylation/Dam/Dcm only applies to DNA; skip for rna/protein projects.
     if (hidden || !isDna) return;
