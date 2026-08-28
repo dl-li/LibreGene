@@ -46,14 +46,15 @@ pub fn translate_codon(a: u8, b: u8, c: u8) -> char {
 /// features); a trailing incomplete codon is dropped, exactly like the
 /// frontend `buildCDSData`.
 pub fn translate_feature(seq: &str, f: &Feature) -> String {
-    let segs: Vec<Segment> = if f.segments.is_empty() {
-        vec![Segment {
-            start: f.start,
-            end: f.end,
-            color: None,
-        }]
+    let fallback = [Segment {
+        start: f.start,
+        end: f.end,
+        color: None,
+    }];
+    let segs: &[Segment] = if f.segments.is_empty() {
+        &fallback
     } else {
-        f.segments.clone()
+        &f.segments
     };
     let bytes = seq.as_bytes();
     let n = bytes.len() as i64;
@@ -68,7 +69,7 @@ pub fn translate_feature(seq: &str, f: &Feature) -> String {
             }
         }
     } else {
-        for seg in &segs {
+        for seg in segs {
             for j in seg.start..=seg.end {
                 if j >= 0 && j < n {
                     coding.push(bytes[j as usize]);
