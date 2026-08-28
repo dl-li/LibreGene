@@ -3146,10 +3146,17 @@ async fn set_methylation(
     app_handle: AppHandle,
     systems: Vec<String>,
     overlap: Option<i64>,
+    project_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
+    // An explicit projectId wins: the frontend reads the active project, then
+    // awaits this call — a project switch in between must not redirect the
+    // mutation. Fall back to the window's project for older callers.
+    let project_id = match project_id {
+        Some(id) => id,
+        None => match resolve_project_id(&state, webview_window.label()).await {
+            Ok(id) => id,
+            Err(e) => return Ok(serde_json::json!({"error": e})),
+        },
     };
 
     do_set_methylation(
