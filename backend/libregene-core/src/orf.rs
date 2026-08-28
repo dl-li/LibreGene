@@ -59,6 +59,22 @@ fn scan_strand(seq: &[u8], circular: bool, min_aa: usize) -> Vec<(usize, usize)>
     orfs
 }
 
+/// Segments for an ORF spanning more than one full revolution: the ORF covers
+/// the entire circle, so emit exactly one full-circle join anchored at `start`
+/// instead of dropping the middle laps.
+fn full_circle_segments(start: i64, tlen: usize, color: &str) -> Vec<Segment> {
+    let last = tlen as i64 - 1;
+    let c = || Some(color.to_string());
+    if start == 0 {
+        vec![Segment { start: 0, end: last, color: c() }]
+    } else {
+        vec![
+            Segment { start, end: last, color: c() },
+            Segment { start: 0, end: start - 1, color: c() },
+        ]
+    }
+}
+
 /// Find ORFs on both strands of `sequence`.
 ///
 /// `topology` is "circular" (default behavior) or "linear"; ORFs shorter than
@@ -107,6 +123,8 @@ pub fn find_orfs(sequence: &str, topology: &str, min_aa: usize) -> Vec<Feature> 
                 end: e as i64,
                 color: Some(ORF_FWD.into()),
             }]
+        } else if end - start + 1 > tlen {
+            full_circle_segments(s as i64, tlen, ORF_FWD)
         } else {
             vec![
                 Segment {
@@ -135,6 +153,8 @@ pub fn find_orfs(sequence: &str, topology: &str, min_aa: usize) -> Vec<Feature> 
                 end: ts as i64,
                 color: Some(ORF_REV.into()),
             }]
+        } else if end - start + 1 > tlen {
+            full_circle_segments(te as i64, tlen, ORF_REV)
         } else {
             vec![
                 Segment {
@@ -225,6 +245,31 @@ mod tests {
 
         // Linear scan never reaches the wrapping stop → no ORFs.
         assert!(find_orfs(seq, "linear", 2).is_empty());
+    }
+
+    #[test]
+    fn orf_longer_than_one_revolution_covers_full_circle() {
+        // 59 bp is not a multiple of 3, so reading frames shift between laps:
+        // the frame-1 ATG at position 1 finds no in-frame stop until the
+        // second lap, yielding an ORF of span 117 > tlen. The segments must
+        // cover the full circle exactly once instead of dropping middle laps.
+        let seq = "CATGCTGCTGGGCTTACGAGCCGTACACTGCCTCCATTGGTTCTTATTGCGTCGACTGA";
+        let tlen = seq.len() as i64; // 59
+        let features = find_orfs(seq, "circular", 10);
+        let f = features
+            .iter()
+            .find(|f| f.start == 1 && f.end == 58 && f.strand == "+")
+            .expect("multi-revolution ORF should be reported");
+        let span: i64 = f.segments.iter().map(|s| s.end - s.start + 1).sum();
+        assert_eq!(
+            span, tlen,
+            "ORF longer than one revolution must cover exactly the full circle, got {:?}",
+            segs(f)
+        );
+        assert_eq!(
+            segs(f),
+            vec![(1, 58, Some(ORF_FWD.into())), (0, 0, Some(ORF_FWD.into()))]
+        );
     }
 
     #[test]
