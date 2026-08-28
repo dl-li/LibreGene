@@ -157,7 +157,7 @@ export default function App() {
   const [agentTabs, setAgentTabs] = useState({}); // { [projectId]: locked }
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 'plugins' → open the settings dialog scrolled to the plugin section
+  // 'plugins' → open the dialog as the plugin management view (plugins only)
   const [settingsFocus, setSettingsFocus] = useState(null);
   const openSettings = (focus = null) => {
     setSettingsFocus(focus);
