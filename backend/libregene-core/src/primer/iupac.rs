@@ -211,7 +211,9 @@ pub fn pair_fraction(primer_base: u8, template_base: u8) -> f64 {
 pub fn iupac_compl_regex(base: u8) -> String {
     let comp = iupac_complement(base);
     if comp.is_empty() {
-        return String::new();
+        // Match base_to_regex's fallback: unknown base → wildcard, so the
+        // anchor pattern stays full-length in both search modes.
+        return ".".to_string();
     }
     if comp.len() == 1 {
         format!("{}", comp[0] as char)

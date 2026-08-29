@@ -449,18 +449,11 @@ pub fn unify_candidate_tm(
             if let Some(site) = best {
                 let al = align::anneal_len(sequence, topology, &cand.seq, site);
                 if al > 0 {
-                    // The binding engine computes Tm on the primer bases as
-                    // they appear along the template: fwd uses the primer's
-                    // 5'→3' orientation directly, rev uses the reverse
-                    // (template left→right) orientation because the primer
-                    // reads 3'→5' on the template. Match that exactly so
-                    // design_primers reports the same Tm as add_primer /
-                    // check_primer_binding.
-                    let duplex: String = if expected_strand == 1 {
-                        cand.seq[cand.seq.len() - al..].to_string()
-                    } else {
-                        cand.seq[cand.seq.len() - al..].chars().rev().collect()
-                    };
+                    // The binding engine computes Tm on the footprint in the
+                    // primer's own 5'→3' orientation for both strands (the NN
+                    // table is duplex-symmetric), so the anneal core is used
+                    // as-is. Matches add_primer / check_primer_binding.
+                    let duplex: String = cand.seq[cand.seq.len() - al..].to_string();
                     cand.anneal_len = al;
                     cand.tm = round1(compute_tm_with_params(&duplex, params));
                 }
