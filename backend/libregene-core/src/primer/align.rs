@@ -149,7 +149,12 @@ fn search_one_strand(
             continue;
         };
 
-        let matched_str = String::from_utf8_lossy(&footprint_bases).to_string();
+        // Tm uses the footprint in the primer's own 5'→3' orientation for BOTH
+        // strands: the NN table is duplex-symmetric (params(XY) == params of
+        // comp(Y)comp(X)), so Tm(F) == Tm(RC(F)), but Tm(rev(F)) differs —
+        // feeding the reversed (display-oriented) footprint would give the same
+        // physical site a different Tm per strand.
+        let matched_str = String::from_utf8_lossy(&primer_bytes[footprint_start..]).to_string();
         let tm = thermodynamics::compute_tm(&matched_str);
         let gc = thermodynamics::gc_content(&matched_str);
 
@@ -486,5 +491,48 @@ mod tests {
         let (aligned, mask) = template_coverage(template, "circular", primer, s);
         assert_eq!(aligned, "TACGTACGCTAGCTA");
         assert_eq!(mask, "|.|||||||||||||");
+    }
+
+    #[test]
+    fn test_binding_sites_symmetric_under_template_rc() {
+        // Aligning a primer against T vs against RC(T) must yield mirrored
+        // sites: flipped strand, mirrored coordinates, identical Tm / score /
+        // tail. The same physical duplex must not report two Tm values.
+        let template = "ATGCGGTACCTAGGCTAACGGTTCAGGCCATGGATCCGTAACGTTAGCCGGTAA";
+        let rct = crate::utils::reverse_complement(template);
+        let tlen = template.len() as i64;
+
+        for topology in ["linear", "circular"] {
+            for primer in [
+                template[10..30].to_string(),                    // exact 20-mer
+                format!("GGC{}", &template[10..28]),             // 5' tail
+                format!("{}R{}", &template[10..20], &template[21..30]), // IUPAC
+            ] {
+                let on_t = compute_binding_sites(template, &primer, "fwd", "P1", topology, 0.0);
+                let on_rc = compute_binding_sites(&rct, &primer, "fwd", "P1", topology, 0.0);
+                assert_eq!(on_t.len(), on_rc.len(), "{topology} primer {primer}");
+                for s in &on_t {
+                    let m_start = (tlen - s.template_end).rem_euclid(tlen);
+                    let m_end = (tlen - s.template_start).rem_euclid(tlen);
+                    let m = on_rc
+                        .iter()
+                        .find(|r| {
+                            r.strand == -s.strand
+                                && r.template_start == m_start
+                                && r.template_end == m_end
+                        })
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{topology} primer {primer}: no mirror for strand={} {}..{}",
+                                s.strand, s.template_start, s.template_end
+                            )
+                        });
+                    assert_eq!(m.tm, s.tm, "Tm must be identical under template RC");
+                    assert_eq!(m.match_score, s.match_score);
+                    assert_eq!(m.five_prime_tail, s.five_prime_tail);
+                    assert_eq!(m.has_3_prime_mismatch, s.has_3_prime_mismatch);
+                }
+            }
+        }
     }
 }
