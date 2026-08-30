@@ -154,6 +154,14 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Flatten installer artifacts
+        if: steps.version.outputs.exists == 'false'
+        # upload-artifact keeps the bundle/ directory structure (dmg/, msi/,
+        # ...); gh release create only accepts files, so flatten first.
+        run: |
+          mkdir assets
+          find release-assets -type f -exec mv {} assets/ \;
+
       - name: Create GitHub Release
         if: steps.version.outputs.exists == 'false'
         env:
@@ -163,8 +171,8 @@ jobs:
         run: |
           NOTES="release-notes/${TAG}.md"
           if [ -f "$NOTES" ]; then
-            gh release create "$TAG" release-assets/* --target "$SHA" --title "$TAG" --notes-file "$NOTES"
+            gh release create "$TAG" assets/* --target "$SHA" --title "$TAG" --notes-file "$NOTES"
           else
             echo "::warning::${NOTES} not found; using auto-generated notes"
-            gh release create "$TAG" release-assets/* --target "$SHA" --title "$TAG" --generate-notes
+            gh release create "$TAG" assets/* --target "$SHA" --title "$TAG" --generate-notes
           fi
