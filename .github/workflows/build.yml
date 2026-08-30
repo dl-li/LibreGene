@@ -117,3 +117,54 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
+
+  # Publish a GitHub Release when package.json's version maps to a tag
+  # that does not exist yet (push to master only). Release notes are
+  # hand-written in release-notes/v<version>.md; if that file is missing
+  # the release falls back to GitHub auto-generated notes.
+  release:
+    name: Release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version and check tag
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; skipping release"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download installer artifacts
+        if: steps.version.outputs.exists == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: libregene-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          NOTES="release-notes/${TAG}.md"
+          if [ -f "$NOTES" ]; then
+            gh release create "$TAG" release-assets/* --target "$SHA" --title "$TAG" --notes-file "$NOTES"
+          else
+            echo "::warning::${NOTES} not found; using auto-generated notes"
+            gh release create "$TAG" release-assets/* --target "$SHA" --title "$TAG" --generate-notes
+          fi
