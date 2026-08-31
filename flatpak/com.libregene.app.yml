@@ -1,0 +1,39 @@
+app-id: com.libregene.app
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: LibreGene
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --share=network # BLAST plugin + embedded MCP server
+  - --device=dri
+  - --filesystem=host # a plasmid editor must open/save files anywhere
+  - --talk-name=org.kde.StatusNotifierWatcher # system tray (when available)
+  - --own-name=com.libregene.app
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1 # avoid blank webview on some GPU drivers
+modules:
+  # The binary is prebuilt by CI; this module only installs it.
+  - name: libregene
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 LibreGene /app/bin/LibreGene
+      - install -Dm644 com.libregene.app.desktop /app/share/applications/com.libregene.app.desktop
+      - install -Dm644 icon-32.png /app/share/icons/hicolor/32x32/apps/com.libregene.app.png
+      - install -Dm644 icon-128.png /app/share/icons/hicolor/128x128/apps/com.libregene.app.png
+      - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.libregene.app.png
+    sources:
+      - type: file
+        path: ../src-tauri/target/release/LibreGene
+      - type: file
+        path: com.libregene.app.desktop
+      - type: file
+        path: ../src-tauri/icons/32x32.png
+        dest-filename: icon-32.png
+      - type: file
+        path: ../src-tauri/icons/128x128.png
+        dest-filename: icon-128.png
+      - type: file
+        path: ../src-tauri/icons/128x128@2x.png
+        dest-filename: icon-256.png

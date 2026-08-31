@@ -3778,7 +3778,12 @@ pub fn run() {
             // Start with the default config (enabled on MCP_PORT); the frontend
             // reconciles with the persisted localStorage config on mount.
             tauri::async_runtime::block_on(async move { mcp.apply().await });
-            setup_tray(app)?;
+            // Best-effort: Linux sessions without an appindicator service
+            // (e.g. Flatpak sandboxes lacking the library) get no tray icon
+            // instead of a failed startup.
+            if let Err(e) = setup_tray(app) {
+                eprintln!("system tray unavailable: {e}");
+            }
             // Cold-start file open (Windows/Linux: path passed in argv).
             queue_open_targets(
                 app.handle(),
