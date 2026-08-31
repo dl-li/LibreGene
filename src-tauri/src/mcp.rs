@@ -2302,12 +2302,17 @@ fn resolve_export_region(
             }
         }
         for &(s, e) in &pieces {
-            if s < 0 || e >= len {
+            // Same shape as the region-selector check above; feature
+            // coordinates come from parsed files, so every bound (including
+            // e < 0 from a crafted range and s >= len from a wrap split of an
+            // out-of-range start) must be rejected before the pieces are
+            // sliced. saturating_add: a rejected piece may hold the i64 seeds.
+            if s < 0 || e < 0 || s >= len || e >= len {
                 return Err(format!(
                     "feature {} coordinate {}..{} out of range for sequence of length {} (1-based inclusive)",
                     f.id,
-                    s + 1,
-                    e + 1,
+                    s.saturating_add(1),
+                    e.saturating_add(1),
                     len
                 ));
             }
@@ -10174,6 +10179,53 @@ mod tests {
         assert!(err.message.contains("minus strand"), "{err}");
         assert!(err.message.contains("DNA"), "{err}");
         assert!(!out_path.exists(), "no file written on refusal");
+    }
+
+    /// Crafted .dna files can smuggle below-one or sentinel coordinates into
+    /// features (the SnapGene parser drops them now, but projects saved by
+    /// older builds may already carry such data). Feature-mode export must
+    /// reject them instead of slicing out of range.
+    #[tokio::test]
+    async fn save_file_region_feature_with_out_of_range_segments_is_rejected() {
+        let seq = synthetic_dna(100, 13);
+        let mut poisoned = feature("neg", "poisoned", 4, 19, "+");
+        poisoned.segments = vec![
+            Segment { start: 4, end: -4, color: None },
+            Segment { start: 9, end: 19, color: None },
+        ];
+        let sentinel = feature("sent", "degenerate", i64::MAX, i64::MIN, "+");
+        let project = ProjectData {
+            name: "poison_test".to_string(),
+            sequence: seq,
+            length: 100,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![poisoned, sentinel],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        for fid in ["neg", "sent"] {
+            let out_path = std::env::temp_dir().join(format!(
+                "libregene-mcp-export-poison-{}-{}.gbk",
+                fid,
+                std::process::id()
+            ));
+            let err = server
+                .save_file(Parameters(SaveFileRequest {
+                    project_id: "poison_test".to_string(),
+                    path: out_path.to_string_lossy().into_owned(),
+                    region: Some(RegionSpec {
+                        feature_id: Some(fid.to_string()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }))
+                .await
+                .err()
+                .expect("out-of-range feature segments must be rejected, not sliced");
+            assert!(err.message.contains("out of range"), "{err}");
+            assert!(!out_path.exists(), "no file written on refusal");
+        }
     }
 
     /// DNA/RNA replacements must be IUPAC nucleotide bases; a protein file as

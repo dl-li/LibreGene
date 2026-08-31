@@ -287,6 +287,13 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
                     let mut seg_color = String::new();
                     for seg in &std_segs {
                         if let Some((s, e)) = parse_range_1based(&seg.range) {
+                            // 1-based ranges below 1 are corrupt data — storing
+                            // them verbatim would poison downstream coordinate
+                            // math (a crafted "-5--3" range yields a negative
+                            // end).
+                            if s < 1 || e < 1 {
+                                continue;
+                            }
                             let s0 = s - 1;
                             let e0 = e - 1;
                             parsed_segs.push(Segment {
@@ -301,9 +308,19 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
                             }
                         }
                     }
+                    if parsed_segs.is_empty() {
+                        // Every standard segment was unparseable or invalid:
+                        // the min/max seeds above would emit a start=MAX /
+                        // end=MIN feature. Skip it, like the single-segment
+                        // path skips an unparseable range.
+                        continue;
+                    }
                     (min_s, max_e, parsed_segs, seg_color)
                 } else if let Some(first) = std_segs.first() {
                     if let Some((s, e)) = parse_range_1based(&first.range) {
+                        if s < 1 || e < 1 {
+                            continue;
+                        }
                         let (s0, e0) = (s - 1, e - 1);
                         let seq_len = sequence.len() as i64;
                         if s0 > e0 && topology == "circular" && seq_len > 0 {
@@ -334,6 +351,9 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
                 } else if let Some(first) = sf.segments.first() {
                     // No standard segments — use overall first segment
                     if let Some((s, e)) = parse_range_1based(&first.range) {
+                        if s < 1 || e < 1 {
+                            continue;
+                        }
                         (
                             s - 1,
                             e - 1,
@@ -615,5 +635,57 @@ mod tests {
         let project = parse_snapgene(&test_data("BlueScribe-mEGFP.dna")).unwrap();
         assert_eq!(project.molecule_type, "dna");
         assert!(project.length > 3000);
+    }
+
+    /// Crafted-file hardening: ranges below 1 must never reach the stored
+    /// segments, and a feature whose standard segments are all unusable is
+    /// skipped instead of collapsing to the min/max seeds (start=MAX,
+    /// end=MIN).
+    #[test]
+    fn drops_below_one_ranges_and_skips_unusable_features() {
+        let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
+        let xml = br#"<Features>
+  <Feature name="poisoned" type="CDS">
+    <Segment range="5--3" type="standard"/>
+    <Segment range="10-20" type="standard"/>
+  </Feature>
+  <Feature name="degenerate" type="CDS">
+    <Segment range="xx-yy" type="standard"/>
+    <Segment range="aa-bb" type="standard"/>
+  </Feature>
+  <Feature name="neg1" type="CDS">
+    <Segment range="-5--1" type="standard"/>
+  </Feature>
+</Features>"#;
+        let mut buf = vec![0x09];
+        buf.extend_from_slice(&14u32.to_be_bytes());
+        buf.extend_from_slice(b"SnapGene");
+        buf.extend_from_slice(&1u16.to_be_bytes()); // molecule kind: DNA
+        buf.extend_from_slice(&1u16.to_be_bytes()); // file ver
+        buf.extend_from_slice(&1u16.to_be_bytes()); // export ver
+        buf.push(0u8); // sequence block
+        buf.extend_from_slice(&(seq.len() as u32).to_be_bytes());
+        buf.extend_from_slice(seq);
+        buf.push(10u8); // features block
+        buf.extend_from_slice(&(xml.len() as u32).to_be_bytes());
+        buf.extend_from_slice(xml);
+        let path = std::env::temp_dir()
+            .join(format!("libregene_negrange_{}.dna", std::process::id()));
+        std::fs::write(&path, &buf).unwrap();
+        let p = parse_snapgene(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        let poisoned = p.features.iter().find(|f| f.name == "poisoned").unwrap();
+        assert_eq!(poisoned.segments.len(), 1, "below-one segment dropped");
+        assert_eq!((poisoned.segments[0].start, poisoned.segments[0].end), (9, 19));
+        assert_eq!((poisoned.start, poisoned.end), (9, 19));
+        assert!(
+            !p.features.iter().any(|f| f.name == "degenerate"),
+            "feature whose standard segments are all unparseable is skipped"
+        );
+        assert!(
+            !p.features.iter().any(|f| f.name == "neg1"),
+            "single below-one range skips the feature"
+        );
     }
 }
