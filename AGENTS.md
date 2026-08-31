@@ -32,7 +32,7 @@ npx shadcn add <component>
 
 ## Release 流程
 
-push 到 master 时，CI（`.github/workflows/build.yml` 的 `release` job）检查 `package.json` 的 version 对应 tag `v<version>` 是否已存在；不存在则自动创建 GitHub Release 并附三平台安装包。发布步骤：
+push 到 master 时，CI（`.github/workflows/build.yml` 的 `release` job）检查 `package.json` 的 version 对应 tag `v<version>` 是否已存在；不存在则自动创建 GitHub Release 并附各平台安装包：macOS（dmg/app.tar.gz）、Windows（msi/nsis）、Linux（仅 Flatpak，amd64 + aarch64 两个包；manifest 在 `flatpak/`，不再产出 deb/AppImage）。发布步骤：
 
 1. bump `package.json` 的 version（`tauri.conf.json` 的 version 引用它，无需另改）
 2. 手写 `release-notes/v<version>.md` 作为 release note（缺失时 CI 回退为 GitHub 自动生成 notes）

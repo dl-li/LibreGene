@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LibreGene
+Comment=A desktop plasmid editor
+Exec=LibreGene
+Icon=com.libregene.app
+Categories=Science;Education;
+Terminal=false
