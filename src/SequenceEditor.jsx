@@ -1986,6 +1986,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
         hoveredIndexRef.current = idx;
         setHoveredIndex(idx);
       }
+      // Same trigger range as the base-number badge: hovering any base of a
+      // codon (not just the feature block) shows the AA number.
+      let nextCodon = null;
+      if (idx !== null) {
+        for (const [featureId, cds] of Object.entries(cdsFeatureDataRef.current)) {
+          const codon = cds.codonMap.get(idx);
+          if (codon !== undefined) {
+            nextCodon = { featureId, codonIndex: codon };
+            break;
+          }
+        }
+      }
+      setHoveredCodon((prev) =>
+        prev?.featureId === nextCodon?.featureId && prev?.codonIndex === nextCodon?.codonIndex
+          ? prev
+          : nextCodon,
+      );
     },
     [clientToCharIndex],
   );
@@ -1993,6 +2010,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const handleSvgMouseLeave = useCallback(() => {
     hoveredIndexRef.current = null;
     setHoveredIndex(null);
+    setHoveredCodon(null);
   }, []);
 
   useEffect(() => {
