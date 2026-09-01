@@ -410,9 +410,11 @@ fn find_recognition_sites(
             if map.contains_key(&record.site) {
                 continue;
             }
-            let fwd_pat = search::iupac_to_regex(&record.site);
+            // Case-insensitive: GenBank ORIGIN case is preserved on load
+            // (lowercase may carry semantics such as UTR).
+            let fwd_pat = format!("(?i){}", search::iupac_to_regex(&record.site));
             let rc_site = search::iupac_complement(&record.site);
-            let rc_pat = search::iupac_to_regex(&rc_site);
+            let rc_pat = format!("(?i){}", search::iupac_to_regex(&rc_site));
             if let (Ok(fwd_re), Ok(rc_re)) =
                 (regex::bytes::Regex::new(&fwd_pat), regex::bytes::Regex::new(&rc_pat))
             {
