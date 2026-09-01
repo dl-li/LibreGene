@@ -187,7 +187,9 @@ fn stop_codons_match(seq: &str, m: &SeqMatch, stop_residues: &[usize]) -> bool {
     };
     stop_residues.iter().all(|&i| {
         let codon = &bases[i * 3..i * 3 + 3];
-        matches!(codon, b"TAA" | b"TAG" | b"TGA")
+        codon.eq_ignore_ascii_case(b"TAA")
+            || codon.eq_ignore_ascii_case(b"TAG")
+            || codon.eq_ignore_ascii_case(b"TGA")
     })
 }
 
