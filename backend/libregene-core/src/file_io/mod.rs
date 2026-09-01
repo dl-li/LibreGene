@@ -197,8 +197,7 @@ mod tests {
         assert_eq!(parsed.sequence, "acguacguacgu");
         std::fs::remove_file(&gbk_path).ok();
 
-        // DNA is uppercased on open (enzyme regex / frontend complement
-        // expect uppercase); T is kept.
+        // DNA files keep their T.
         let dna_path = write_temp(
             "gbk",
             "LOCUS       testdna                 12 bp DNA     linear   SYN 01-JAN-2000\n\
@@ -206,7 +205,7 @@ mod tests {
         );
         let parsed = parse_file(&dna_path).unwrap();
         assert_eq!(parsed.molecule_type, "dna");
-        assert_eq!(parsed.sequence, "ACGTACGTACGT");
+        assert_eq!(parsed.sequence, "acgtacgtacgt");
         std::fs::remove_file(&dna_path).ok();
     }
 }
