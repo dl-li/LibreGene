@@ -163,14 +163,6 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         "dna".to_string()
     };
 
-    // GenBank ORIGIN lines are conventionally lowercase; DNA downstream
-    // consumers (enzyme regex, frontend complement) expect uppercase.
-    let sequence = if molecule_type == "dna" {
-        sequence.to_uppercase()
-    } else {
-        sequence
-    };
-
     let mut features: Vec<Feature> = Vec::new();
     let mut primers: Vec<Primer> = Vec::new();
     let mut alignment_reads: Vec<(String, String)> = Vec::new();
