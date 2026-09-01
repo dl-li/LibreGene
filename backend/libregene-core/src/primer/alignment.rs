@@ -131,7 +131,9 @@ fn find_kmer_seeds(query: &[u8], template: &[u8], k: usize) -> Vec<usize> {
 
     let mut hits: Vec<usize> = Vec::new();
     for i in 0..=template.len().saturating_sub(k) {
-        if seeds.contains(&template[i..i + k].to_vec()) {
+        // Seeds are expanded uppercase; fold the template window so a
+        // lowercase (case-preserving) template still seeds.
+        if seeds.contains(&template[i..i + k].to_ascii_uppercase()) {
             hits.push(i);
         }
     }
