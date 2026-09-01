@@ -25,7 +25,15 @@ const CACHE_PRUNE = 300;
 export const getX = (col) => startX + col * cw;
 
 export const complement = (c) =>
-  c === 'A' ? 'T' : c === 'T' ? 'A' : c === 'G' ? 'C' : c === 'C' ? 'G' : c;
+  c === 'A' ? 'T'
+  : c === 'T' ? 'A'
+  : c === 'G' ? 'C'
+  : c === 'C' ? 'G'
+  : c === 'a' ? 't'
+  : c === 't' ? 'a'
+  : c === 'g' ? 'c'
+  : c === 'c' ? 'g'
+  : c;
 
 export const measureWidth = (text, font) => {
   if (!_ctx) return text.length * 8;
