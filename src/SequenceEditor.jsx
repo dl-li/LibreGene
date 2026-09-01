@@ -304,6 +304,9 @@ const complementStr = (s) =>
     .join('');
 const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 
+// Extra vertical gap between alignment lanes and the feature tracks below.
+const ALIGN_FEAT_GAP = 10;
+
 // ---------------------------------------------------------------------------
 // MapWatermark — non-interactive plasmid map rendered as a faint overlay on
 // top of the editor (toggled from the Map dialog footer). Lives outside the
@@ -1735,7 +1738,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 t * pp.trackGap +
                 extra +
                 featOff +
-                alignLaneInfo.counts[r] * lp.featTrackHeight,
+                alignLaneInfo.counts[r] * lp.featTrackHeight +
+                (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0),
             );
           }
         }
@@ -1763,7 +1767,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // Features: below sequence (shifted down by alignment lanes)
       const nAlign = alignLaneInfo.counts[r];
       if (nAlign > 0) {
-        be = Math.max(be, lp.featBaseOffset + nAlign * lp.featTrackHeight + lp.featLabelPad);
+        be = Math.max(
+          be,
+          lp.featBaseOffset + nAlign * lp.featTrackHeight + ALIGN_FEAT_GAP + lp.featLabelPad,
+        );
       }
       const rowFeats = featuresByRow[r];
       if (rowFeats) {
@@ -1773,6 +1780,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             be,
             lp.featBaseOffset +
               (t + nAlign) * lp.featTrackHeight +
+              (nAlign > 0 ? ALIGN_FEAT_GAP : 0) +
               lp.featLabelPad +
               (featureLabelsBelow && !f.orf ? lp.featLabelBelowExtra : 0),
           );
@@ -3191,7 +3199,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const sy = getSeqY(v.row);
             const rowTo =
               (((featureRowTracks[f.id] || {})[v.row] || 0) + alignLaneInfo.counts[v.row]) *
-              lp.featTrackHeight;
+                lp.featTrackHeight +
+              (alignLaneInfo.counts[v.row] > 0 ? ALIGN_FEAT_GAP : 0);
             const y = sy + lp.featBaseOffset + rowTo;
             const isGap = v.type === 'gap';
 
@@ -3356,9 +3365,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
               );
               if (!cov) return [];
               const sy = getSeqY(r);
-              const rowTo =
-                (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
-                lp.featTrackHeight;
+               const rowTo =
+                 (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
+                   lp.featTrackHeight +
+                 (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
               const y = sy + lp.featBaseOffset + rowTo;
               const isCodonHovered =
                 hoveredCodon?.featureId === f.id && hoveredCodon?.codonIndex === t.codonIndex;
@@ -3472,7 +3482,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const sy = getSeqY(vs.row);
         const rowTo =
           (((featureRowTracks[f.id] || {})[vs.row] || 0) + alignLaneInfo.counts[vs.row]) *
-          lp.featTrackHeight;
+            lp.featTrackHeight +
+          (alignLaneInfo.counts[vs.row] > 0 ? ALIGN_FEAT_GAP : 0);
         const y = sy + lp.featBaseOffset + rowTo;
         const textProps = {
           y: featureLabelsBelow ? y + 17 : y + 4,
@@ -3867,7 +3878,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const sy = getSeqY(seg.row);
             const featOff =
               (isFwd ? 0 : (revPrimerFeatOffsets[p.id] || {})[seg.row] || 0) +
-              (isFwd ? 0 : alignLaneInfo.counts[seg.row] * lp.featTrackHeight);
+              (isFwd
+                ? 0
+                : alignLaneInfo.counts[seg.row] > 0
+                  ? alignLaneInfo.counts[seg.row] * lp.featTrackHeight + ALIGN_FEAT_GAP
+                  : 0);
             const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.trackGap + featOff;
             const matchY =
               (isFwd ? sy - pp.fwdMatchY : sy + pp.revMatchY) + (isFwd ? -trackOff : trackOff);
