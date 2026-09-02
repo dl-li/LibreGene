@@ -1,0 +1,53 @@
+=====================================================
+LibreGene for macOS
+安装说明 / Installation Instructions
+=====================================================
+
+【中文】
+
+LibreGene 是免费开源软件，未购买 Apple 开发者证书，
+因此首次打开时 macOS 会拦截，按以下任一方法放行即可。
+
+第一步：将 LibreGene.app 拖入「应用程序」(Applications) 文件夹。
+
+第二步（二选一）：
+
+方法一（命令行）：
+  打开「终端」，运行：
+    xattr -cr /Applications/LibreGene.app
+  然后正常双击启动。
+
+方法二（图形界面）：
+  首次双击会提示"无法打开，因为无法验证开发者"，点「好」。
+  打开「系统设置 → 隐私与安全性」，下滚到「安全性」一节，
+  点击 LibreGene 提示旁的「仍要打开」，确认即可。
+
+放行一次后永久生效。每次更新新版本后需重新执行一次第二步。
+
+-----------------------------------------------------
+
+[English]
+
+LibreGene is free and open-source, and is not signed with an
+Apple Developer certificate, so macOS blocks it on first launch.
+Use either method below to allow it.
+
+Step 1: Drag LibreGene.app into the Applications folder.
+
+Step 2 (choose one):
+
+Method A (command line):
+  Open Terminal and run:
+    xattr -cr /Applications/LibreGene.app
+  Then launch the app normally.
+
+Method B (GUI):
+  On first launch macOS shows "cannot be opened because the
+  developer cannot be verified" — click OK.
+  Open System Settings → Privacy & Security, scroll to the
+  Security section, click "Open Anyway" next to LibreGene,
+  and confirm.
+
+You only need to do this once per version.
+
+https://github.com/dl-li/LibreGene
