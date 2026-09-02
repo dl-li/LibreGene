@@ -116,6 +116,21 @@ jobs:
           # behind restricted networks locally.
           args: ${{ matrix.tauriArgs }}
 
+      - name: Inject README into macOS dmg
+        # Tauri dmg config has no "extra files" option, so repack the
+        # (compressed, read-only) dmg: convert to read-write, mount,
+        # copy the install instructions, convert back.
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg)
+          hdiutil convert "$DMG" -format UDRW -o /tmp/libregene-rw.dmg
+          hdiutil attach -readwrite -noverify -mountpoint /tmp/dmg-mnt /tmp/libregene-rw.dmg
+          cp "macos-dmg/请先读我 READ ME FIRST.txt" /tmp/dmg-mnt/
+          hdiutil detach /tmp/dmg-mnt
+          hdiutil convert /tmp/libregene-rw.dmg -format UDZO -imagekey zlib-level=9 -o /tmp/libregene-final.dmg
+          mv /tmp/libregene-final.dmg "$DMG"
+
       - name: Package Flatpak (Linux)
         if: runner.os == 'Linux'
         env:
