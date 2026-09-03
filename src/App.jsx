@@ -454,12 +454,19 @@ export default function App() {
     return () => listener.close();
   }, [windowInfo]);
 
-  // Title: filename of the active project, or the app name
-  const activeTitle = activeId
-    ? activeId.split('/').pop().split('\\').pop()
-    : windowInfo && windowInfo.type !== 'main'
-      ? windowInfo.projectId.split('/').pop().split('\\').pop()
-      : 'LibreGene';
+  // Extract filename from path
+  const fileName = (p) => {
+    const s = (p.name || p.id || '').replace(/\\/g, '/');
+    return s.split('/').pop() || s;
+  };
+
+  // Title: display name of the active project (the list name carries the
+  // entered name for unsaved `untitled-*` projects), or the app name
+  const titleSourceId =
+    activeId || (windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : null);
+  const activeTitle = titleSourceId
+    ? fileName(projects.find((p) => p.id === titleSourceId) || { id: titleSourceId })
+    : 'LibreGene';
   const titleId = windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : activeId;
   const activeDirty = titleId ? dirtyById[titleId] === true : false;
   useEffect(() => {
@@ -728,12 +735,6 @@ export default function App() {
       console.error('open in new window error:', e);
     }
   }, []);
-
-  // Extract filename from path
-  const fileName = (p) => {
-    const s = (p.name || p.id || '').replace(/\\/g, '/');
-    return s.split('/').pop() || s;
-  };
 
   // Recent group is collapsible (default collapsed); already-open files are hidden from it
   const [recentOpen, setRecentOpen] = useState(false);
