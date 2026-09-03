@@ -3,7 +3,7 @@
 基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注、序列比对、插件系统。默认输出增强型 GenBank 文件（含颜色和引物注释）。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
-**已在 macOS 和 Windows 上测试过，Linux 尚未验证。**
+**已在 macOS、Windows、Linux（Fedora aarch64, Wayland）上测试过。**
 
 ## 技术栈
 
@@ -29,6 +29,22 @@ cd src-tauri && cargo build                         # 构建 Tauri 后端（须�
 
 npx shadcn add <component>
 ```
+
+## Linux 调试（SSH 远程虚拟机）
+
+被要求"在 Linux 上启动调试"时，按以下步骤操作（目标机为 Fedora aarch64 虚拟机，SSH 已通）：
+
+1. **同步代码**：`rsync -az --exclude=node_modules --exclude=target --exclude=dist --exclude=.git ./ user@host:LibreGene/`（首次还需在虚拟机装系统依赖 webkit2gtk4.1-devel 等 + rustup，并 `npm install`）
+2. **启动**（必须强制 Wayland 后端，否则自定义标题栏激活失败出现双标题栏）：
+
+   ```bash
+   ssh user@host 'cd ~/LibreGene && . ~/.cargo/env && \
+     XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 GDK_BACKEND=wayland \
+     nohup npx tauri dev > tauri-dev.log 2>&1 &'
+   ```
+
+3. **后续改动**：前端改动重新 rsync 后 Vite 热更新即生效；`src-tauri` 改动自动重编；`backend/libregene-core` 改动需 `touch src-tauri/src/*.rs` 触发
+4. 远程 kill 进程时 `pkill -f` 的模式别写成会匹配到自己 SSH 命令行的字符串（会误杀自身 shell）
 
 ## Release 流程
 
