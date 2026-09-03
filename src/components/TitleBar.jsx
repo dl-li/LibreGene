@@ -2,31 +2,38 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '@/tauriApi';
 
-export default function TitleBar({ title, dirty = false }) {
-  // When the custom decoration can't activate (e.g. Linux/X11), the native
-  // titlebar stays; hide our own bar so the two don't stack.
+// Only Linux ever keeps the native titlebar as a fallback (e.g. X11 sessions,
+// where the decoration plugin requires Wayland). On macOS/Windows the custom
+// overlay is expected to work, so the bar always renders there — a spurious
+// activation error (or a remount re-invoke) must not hide it.
+const isLinux = typeof navigator !== 'undefined' && /Linux/i.test(navigator.platform);
+
+export default function TitleBar({ title, dirty = false, onFallback }) {
+  // When the custom decoration can't activate on Linux, the native titlebar
+  // stays; hide our own bar so the two don't stack.
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
     if (!isTauri) return undefined;
-    invoke('activate_custom_titlebar').catch(() => {
+    const fallback = () => {
       invoke('restore_native_titlebar').catch(() => {});
-      setHidden(true);
-    });
+      if (isLinux) {
+        setHidden(true);
+        onFallback?.();
+      }
+    };
+    invoke('activate_custom_titlebar').catch(fallback);
 
     // If activation hangs or the plugin never marks its root element, fall back
     const timer = setTimeout(() => {
       const active = document.querySelector(
         '[data-tauri-plugin-decoration-root][data-tauri-plugin-decoration-active]',
       );
-      if (!active) {
-        invoke('restore_native_titlebar').catch(() => {});
-        setHidden(true);
-      }
+      if (!active) fallback();
     }, 5000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [onFallback]);
 
   if (hidden) return null;
 
