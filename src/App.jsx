@@ -82,6 +82,25 @@ import {
 import { getMyPrimers } from './myPrimers';
 import { getMyEnzymes } from './myEnzymes';
 
+// Valid values for the persisted enzyme filter (ENZYME_FILTER_OPTIONS in
+// EditorNavMenu.jsx plus the dynamic 'myEnzymes' entry).
+const ENZYME_FILTER_VALUES = new Set([
+  'all',
+  'unique+twice',
+  'unique',
+  'unique6',
+  'twice',
+  'blunt',
+  'overhang5',
+  'overhang3',
+  'iis',
+  'rec4',
+  'rec5',
+  'rec6',
+  'rec8p',
+  'myEnzymes',
+]);
+
 export default function App() {
   const [disabledPlugins, setDisabledPlugins] = useState(() => {
     try {
@@ -182,7 +201,14 @@ export default function App() {
     }
   });
   const [showEnzymes, setShowEnzymes] = useState(true);
-  const [enzymeFilter, setEnzymeFilter] = useState('unique+twice');
+  const [enzymeFilter, setEnzymeFilter] = useState(() => {
+    try {
+      const v = localStorage.getItem('enzymeFilter');
+      return v && ENZYME_FILTER_VALUES.has(v) ? v : 'unique+twice';
+    } catch {
+      return 'unique+twice';
+    }
+  });
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
@@ -880,6 +906,16 @@ export default function App() {
     [],
   );
 
+  const onEnzymeFilterChange = useCallback((next) => {
+    if (!ENZYME_FILTER_VALUES.has(next)) return;
+    setEnzymeFilter(next);
+    try {
+      localStorage.setItem('enzymeFilter', JSON.stringify(next));
+    } catch {
+      // storage may be unavailable; selection still applies in-memory
+    }
+  }, []);
+
   const workspaceProps = useMemo(
     () => ({
       backendStatus,
@@ -897,7 +933,7 @@ export default function App() {
       showEnzymes,
       onToggleEnzymes,
       enzymeFilter,
-      onEnzymeFilterChange: setEnzymeFilter,
+      onEnzymeFilterChange,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
@@ -926,6 +962,7 @@ export default function App() {
       showEnzymes,
       onToggleEnzymes,
       enzymeFilter,
+      onEnzymeFilterChange,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
