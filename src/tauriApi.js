@@ -740,3 +740,29 @@ export function listenMapWatermark(callback) {
     },
   };
 }
+
+/** Broadcast the fold-watermark toggle so other windows sync immediately. */
+export function emitFoldWatermark(value) {
+  if (!isTauri) return;
+  (async () => {
+    if (!emit) {
+      const mod = await import('@tauri-apps/api/event');
+      emit = mod.emit;
+    }
+    await emit('fold-watermark-changed', value);
+  })().catch(() => {});
+}
+
+/** Listen for fold-watermark toggles broadcast from other windows. */
+export function listenFoldWatermark(callback) {
+  let closed = false;
+  const ready = tauriListen('fold-watermark-changed', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}

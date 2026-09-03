@@ -22,6 +22,8 @@ import { cn } from '@/lib/utils';
 import { annotateSequenceText } from './tauriApi';
 import { locationString1based } from './editorConstants';
 import { CircularMap, LinearMap } from './MapView';
+import FornaView from './plugins/rnaFold/FornaView';
+import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
 
 const EMPTY_ARRAY = [];
 const NOOP = () => {};
@@ -76,6 +78,11 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
   const validation = useMemo(() => validateSequence(molType, parsed), [molType, parsed]);
   const effectiveSeq = validation.sequence;
   const unit = molType === 'protein' ? 'aa' : molType === 'rna' ? 'nt' : 'bp';
+  const isRna = molType === 'rna';
+
+  // RNA: the right panel shows a live folding preview (auto-annotation is
+  // DNA/protein-only), debounced like the annotation below.
+  const fold = useRnaFold(effectiveSeq, open && isRna && validation.valid && !!effectiveSeq);
 
   useEffect(() => {
     if (open) {
@@ -96,7 +103,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
   // Debounced live annotation on a valid sequence.
   useEffect(() => {
     if (!open) return;
-    if (!validation.valid || !effectiveSeq) {
+    if (!validation.valid || !effectiveSeq || isRna) {
       reqRef.current++;
       setItems(EMPTY_ARRAY);
       setLoading(false);
@@ -296,32 +303,78 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
           <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-muted/20">
             <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Detected Features
+                {isRna ? 'RNA Folding' : 'Detected Features'}
               </span>
-              <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
-                {[
-                  { value: 'map', label: 'Map', Icon: MapIcon },
-                  { value: 'table', label: 'Table', Icon: TableIcon },
-                ].map(({ value, label, Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setViewMode(value)}
-                    className={cn(
-                      'flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
-                      viewMode === value
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    <Icon className="size-3" />
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {!isRna && (
+                <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+                  {[
+                    { value: 'map', label: 'Map', Icon: MapIcon },
+                    { value: 'table', label: 'Table', Icon: TableIcon },
+                  ].map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setViewMode(value)}
+                      className={cn(
+                        'flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                        viewMode === value
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="size-3" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              {loading ? (
+              {isRna ? (
+                fold.busy ? (
+                  <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+                    <LoaderCircle className="size-4 animate-spin" />
+                    Folding {effectiveSeq.length} nt…
+                  </div>
+                ) : fold.error ? (
+                  <div className="flex items-center justify-center gap-2 py-12 text-sm text-red-600">
+                    <AlertTriangle className="size-4" />
+                    <span>{fold.error}</span>
+                  </div>
+                ) : !fold.result ? (
+                  <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
+                    <ScanSearch className="size-5 opacity-50" />
+                    <span>Enter a sequence to fold</span>
+                  </div>
+                ) : (
+                  <div className="flex min-h-full flex-col p-3">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 pb-2 text-xs">
+                      <span>
+                        MFE{' '}
+                        <span className="font-mono font-semibold">
+                          {fold.result.mfe.toFixed(2)}
+                        </span>{' '}
+                        kcal/mol
+                      </span>
+                      <span className="text-muted-foreground">
+                        {countPairs(fold.result.structure)} base pairs / {effectiveSeq.length} nt
+                      </span>
+                    </div>
+                    {effectiveSeq.length <= MAX_INTERACTIVE_NT ? (
+                      <FornaView
+                        sequence={effectiveSeq}
+                        structure={fold.result.structure}
+                        height={380}
+                      />
+                    ) : (
+                      <p className="py-4 text-center text-xs text-muted-foreground">
+                        Sequence too long for interactive layout ({effectiveSeq.length} nt &gt;{' '}
+                        {MAX_INTERACTIVE_NT} nt).
+                      </p>
+                    )}
+                  </div>
+                )
+              ) : loading ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
                   <LoaderCircle className="size-4 animate-spin" />
                   Detecting common features…

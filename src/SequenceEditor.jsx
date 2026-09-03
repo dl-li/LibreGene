@@ -28,6 +28,8 @@ import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm, blastSubmit } from './tauriApi';
 import { CircularMap, LinearMap } from './MapView';
+import FornaView from './plugins/rnaFold/FornaView';
+import useRnaFold, { MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
 import { buildSearchResults } from './searchUtils';
 import { showContextMenu } from './contextMenu';
 import {
@@ -358,6 +360,44 @@ const MapWatermark = React.memo(function MapWatermark({ length, features, topolo
 });
 
 // ---------------------------------------------------------------------------
+// FoldWatermark — non-interactive RNA secondary structure rendered as a faint
+// overlay (toggled from the RNA Folding dialog footer; mutually exclusive
+// with the map watermark). Same fixed-overlay rationale as MapWatermark.
+// ---------------------------------------------------------------------------
+const FoldWatermark = React.memo(function FoldWatermark({ sequence }) {
+  const { result } = useRnaFold(sequence, !!sequence && sequence.length <= MAX_INTERACTIVE_NT);
+  // Sized to the viewport (the overlay is fixed and centered; forna re-fits
+  // via its own resize handling).
+  const [vp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  if (!sequence || !result) return null;
+  return (
+    <div
+      aria-hidden
+      className="[&_*]:pointer-events-none"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{ width: Math.round(vp.w * 0.85), opacity: 0.1 }}>
+        <FornaView
+          sequence={sequence}
+          structure={result.structure}
+          height={Math.round(vp.h * 0.8)}
+          settleMs={4000}
+          interactive={false}
+        />
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // SelectionLengthBadge — top-right badge showing "xx bp" for the current
 // selection (text / enzyme / primer / amplimer).  The second line shows GC%
 // for nucleic acids or the peptide molecular weight (kDa) for proteins.
@@ -627,6 +667,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   alignmentEnabled = true,
   primerDesignEnabled = true,
   mapWatermark = false,
+  foldWatermark = false,
   mapName = '',
   showAlignments = true,
   onToggleAlignments,
@@ -3365,10 +3406,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
               );
               if (!cov) return [];
               const sy = getSeqY(r);
-               const rowTo =
-                 (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
-                   lp.featTrackHeight +
-                 (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
+              const rowTo =
+                (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
+                  lp.featTrackHeight +
+                (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
               const y = sy + lp.featBaseOffset + rowTo;
               const isCodonHovered =
                 hoveredCodon?.featureId === f.id && hoveredCodon?.codonIndex === t.codonIndex;
@@ -5304,6 +5345,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           sel={selStart != null && selEnd != null ? { start: selStart, end: selEnd } : null}
         />
       )}
+      {foldWatermark && <FoldWatermark sequence={cleanSeq} />}
       {designPick ? (
         <div
           style={{

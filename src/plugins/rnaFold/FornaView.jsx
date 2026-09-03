@@ -17,6 +17,7 @@ const SCOPED_CSS = `
 .forna-view text { pointer-events: none; }
 .forna-view text.node-label { font-size: 10.5px; font-weight: bold; font-family: 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgb(100,100,100); dominant-baseline: central; transform: translateY(-2.5px); }
 .forna-view .transparent { fill: transparent; stroke-width: 0; stroke-opacity: 0; opacity: 0; visibility: hidden; }
+.forna-view :focus { outline: none; }
 `;
 
 let viewCounter = 0;
@@ -51,7 +52,13 @@ function loadFornac() {
   return scriptPromise;
 }
 
-export default function FornaView({ sequence, structure, height = 520 }) {
+export default function FornaView({
+  sequence,
+  structure,
+  height = 520,
+  settleMs,
+  interactive = true,
+}) {
   const hostRef = useRef(null);
 
   useEffect(() => {
@@ -59,9 +66,14 @@ export default function FornaView({ sequence, structure, height = 520 }) {
     const host = hostRef.current;
     let disposed = false;
     let container = null;
+    let settleTimer = null;
 
     loadFornac().then((fornac) => {
       if (disposed) return;
+      // fornac's constructor calls .focus() on the container (keyboard brush
+      // support) — that steals keyboard focus from whatever the user was
+      // doing (and shows a focus ring until the next interaction).
+      const prevFocus = document.activeElement;
       host.innerHTML = '';
       const div = document.createElement('div');
       div.id = `rna-fold-view-${++viewCounter}`;
@@ -70,14 +82,42 @@ export default function FornaView({ sequence, structure, height = 520 }) {
       host.appendChild(div);
       container = new fornac.FornaContainer(`#${div.id}`, {
         applyForce: true,
-        allowPanningAndZooming: true,
+        allowPanningAndZooming: interactive,
         initialSize: [div.clientWidth || 800, height],
+        // Non-interactive (watermark) views must NOT re-fit on window
+        // resize: setSize() reads a 0×0 size while the view is hidden and
+        // re-centers the graph, which scrambles its position.
+        resizeSvgOnResize: interactive,
       });
-      container.addRNA(structure, { sequence });
+      // Uppercase: forna's nucleotide color scale is keyed on A/C/G/U/T.
+      container.addRNA(structure, { sequence: sequence.toUpperCase() });
+      if (host.contains(document.activeElement)) {
+        if (prevFocus && typeof prevFocus.focus === 'function' && document.contains(prevFocus)) {
+          // preventScroll: plain focus() would scroll containers (the
+          // editor!) to reveal the element, shifting content sideways.
+          prevFocus.focus({ preventScroll: true });
+        } else {
+          document.activeElement.blur();
+        }
+      }
+      // Watermark use: stop the force layout once it settles instead of
+      // simulating forever in the background. The initial layout is already
+      // well-placed on the (large) canvas — don't re-fit/re-center it, any
+      // centerView call visibly shifts the graph.
+      if (settleMs) {
+        settleTimer = setTimeout(() => {
+          try {
+            container?.force?.stop();
+          } catch {
+            // fornac internals may already be torn down
+          }
+        }, settleMs);
+      }
     });
 
     return () => {
       disposed = true;
+      if (settleTimer) clearTimeout(settleTimer);
       try {
         container?.force?.stop();
       } catch {
@@ -85,7 +125,7 @@ export default function FornaView({ sequence, structure, height = 520 }) {
       }
       host.innerHTML = '';
     };
-  }, [sequence, structure, height]);
+  }, [sequence, structure, height, settleMs, interactive]);
 
   return (
     <div className="forna-view">
