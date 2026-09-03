@@ -28,6 +28,8 @@ import {
   setAgentTabLocked,
   emitMapWatermark,
   listenMapWatermark,
+  emitFoldWatermark,
+  listenFoldWatermark,
   isTauri,
 } from './tauriApi';
 import { plugins } from './plugins';
@@ -123,6 +125,15 @@ export default function ProjectWorkspace({
       return false;
     }
   });
+  // RNA folding watermark (RNA projects only); mutually exclusive with the
+  // map watermark. Same persistence/broadcast pattern as mapWatermark.
+  const [foldWatermark, setFoldWatermark] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('foldWatermark')) || false;
+    } catch {
+      return false;
+    }
+  });
   const toggleMapWatermark = useCallback(() => {
     setMapWatermark((v) => {
       const next = !v;
@@ -132,6 +143,38 @@ export default function ProjectWorkspace({
         // storage may be unavailable; toggle still applies in-memory
       }
       emitMapWatermark(next);
+      if (next) {
+        // Watermarks are mutually exclusive — turn the fold watermark off.
+        setFoldWatermark(false);
+        try {
+          localStorage.setItem('foldWatermark', 'false');
+        } catch {
+          // ignore
+        }
+        emitFoldWatermark(false);
+      }
+      return next;
+    });
+  }, []);
+  const toggleFoldWatermark = useCallback(() => {
+    setFoldWatermark((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('foldWatermark', JSON.stringify(next));
+      } catch {
+        // storage may be unavailable; toggle still applies in-memory
+      }
+      emitFoldWatermark(next);
+      if (next) {
+        // Watermarks are mutually exclusive — turn the map watermark off.
+        setMapWatermark(false);
+        try {
+          localStorage.setItem('mapWatermark', 'false');
+        } catch {
+          // ignore
+        }
+        emitMapWatermark(false);
+      }
       return next;
     });
   }, []);
@@ -140,18 +183,21 @@ export default function ProjectWorkspace({
   // Both fire only in *other* documents — no feedback loop.
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key !== 'mapWatermark' || e.newValue == null) return;
+      if (e.newValue == null) return;
       try {
-        setMapWatermark(JSON.parse(e.newValue));
+        if (e.key === 'mapWatermark') setMapWatermark(JSON.parse(e.newValue));
+        if (e.key === 'foldWatermark') setFoldWatermark(JSON.parse(e.newValue));
       } catch {
         // ignore malformed values
       }
     };
     window.addEventListener('storage', onStorage);
     const listener = listenMapWatermark((v) => setMapWatermark(!!v));
+    const foldListener = listenFoldWatermark((v) => setFoldWatermark(!!v));
     return () => {
       window.removeEventListener('storage', onStorage);
       listener.close();
+      foldListener.close();
     };
   }, []);
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
@@ -1493,6 +1539,15 @@ export default function ProjectWorkspace({
               alignmentEnabled={alignmentEnabled}
               primerDesignEnabled={primerDesignEnabled}
               mapWatermark={mapWatermark}
+              foldWatermark={
+                // Hidden workspaces stay mounted (display:none) — don't fold
+                // or render a watermark for them; a forna layout created
+                // while hidden gets a degenerate 0-size canvas.
+                !hidden &&
+                moleculeType === 'rna' &&
+                !disabledPlugins.includes('rnaFold') &&
+                foldWatermark
+              }
               mapName={mapName}
               showAlignments={showAlignments}
               onToggleAlignments={() => setShowAlignments((v) => !v)}
@@ -1622,6 +1677,8 @@ export default function ProjectWorkspace({
               onRemoveAlignment={handleRemoveAlignment}
               features={features}
               onProjectChanged={refreshProject}
+              watermark={foldWatermark}
+              onToggleWatermark={toggleFoldWatermark}
             />
           );
         })}
