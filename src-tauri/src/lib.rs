@@ -726,7 +726,20 @@ async fn do_save_file(
                     "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
                 }));
             }
-            let p = p.clone();
+            // Save As semantics: when the target path differs from the
+            // project id (first save of an `untitled-*` project, or an
+            // explicit new name in the save dialog), the chosen file stem
+            // becomes the project name so it lands in the LOCUS field.
+            // Direct saves to the same path keep the existing name.
+            let new_name = if project_id != path {
+                save_path.file_stem().map(|s| s.to_string_lossy().into_owned())
+            } else {
+                None
+            };
+            let mut p = p.clone();
+            if let Some(ref n) = new_name {
+                p.name = n.clone();
+            }
             let write_path = save_path.clone();
             let write_ext = ext.clone();
             let result = tokio::task::spawn_blocking(move || {
@@ -740,6 +753,11 @@ async fn do_save_file(
             .map_err(|e| format!("task join error: {}", e))?;
             match result {
                 Ok(()) => {
+                    if let Some(n) = new_name {
+                        if let Some(live) = pm.write().await.get_project_mut_by_id(&project_id) {
+                            live.name = n;
+                        }
+                    }
                     let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
                     Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
                 }
@@ -3961,6 +3979,63 @@ mod tests {
         assert!(validate_user_path("out.fasta", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.ab1", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.txt", CODON_OUTPUT_EXTS).is_err());
+    }
+
+    #[tokio::test]
+    async fn save_as_adopts_chosen_file_stem_as_locus() {
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.open_project(
+            "untitled-1".to_string(),
+            ProjectData {
+                name: "Untitled".to_string(),
+                sequence: "GATTACAGTCGATTACAGTC".to_string(),
+                length: 20,
+                topology: "circular".to_string(),
+                ..Default::default()
+            },
+        ).unwrap();
+        let dir = std::env::temp_dir().join(format!("libregene-saveas-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("My Plasmid.gbk");
+        let out = do_save_file(&pm, "untitled-1".to_string(), path.to_str().unwrap().to_string())
+            .await
+            .unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        // In-memory name adopted the chosen stem.
+        assert_eq!(
+            pm.read().await.get_project_by_id("untitled-1").unwrap().name,
+            "My Plasmid"
+        );
+        // LOCUS carries it (spaces → underscores).
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first_line = text.lines().next().unwrap_or("");
+        assert!(first_line.starts_with("LOCUS"), "{first_line}");
+        assert!(first_line.contains("My_Plasmid"), "{first_line}");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn direct_save_keeps_existing_locus_name() {
+        let path = std::env::temp_dir()
+            .join(format!("libregene-directsave-{}.gbk", std::process::id()));
+        let id = path.to_str().unwrap().to_string();
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.open_project(
+            id.clone(),
+            ProjectData {
+                name: "OriginalLocus".to_string(),
+                sequence: "GATTACAGTCGATTACAGTC".to_string(),
+                length: 20,
+                topology: "linear".to_string(),
+                ..Default::default()
+            },
+        ).unwrap();
+        let out = do_save_file(&pm, id.clone(), id.clone()).await.unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first_line = text.lines().next().unwrap_or("");
+        assert!(first_line.contains("OriginalLocus"), "{first_line}");
+        std::fs::remove_file(&path).ok();
     }
 
     #[tokio::test]
