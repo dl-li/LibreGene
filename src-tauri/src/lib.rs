@@ -3650,6 +3650,29 @@ fn mcp_status_text(enabled: bool, port: u16) -> String {
     }
 }
 
+/// The tray-icon crate panics (not Err) when neither appindicator shared
+/// library is present — common in Flatpak sandboxes and minimal sessions.
+/// Probe with dlopen first so those sessions skip the tray instead of
+/// crashing at startup.
+#[cfg(target_os = "linux")]
+fn appindicator_available() -> bool {
+    use std::ffi::CString;
+    for name in [
+        "libayatana-appindicator3.so.1",
+        "libappindicator3.so.1",
+        "libayatana-appindicator3.so",
+        "libappindicator3.so",
+    ] {
+        let Ok(c) = CString::new(name) else { continue };
+        let handle = unsafe { libc::dlopen(c.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
+        if !handle.is_null() {
+            unsafe { libc::dlclose(handle) };
+            return true;
+        }
+    }
+    false
+}
+
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -3736,9 +3759,13 @@ pub fn run() {
         }))
         // Close-to-tray: closing the main window only hides it, keeping the
         // process (and the MCP server) alive. Project windows close normally.
+        // Without a tray icon there is no way to bring a hidden window back,
+        // so in that case let the window close normally.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+                if window.label() == "main"
+                    && window.app_handle().tray_by_id("main-tray").is_some()
+                {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -3780,9 +3807,16 @@ pub fn run() {
             tauri::async_runtime::block_on(async move { mcp.apply().await });
             // Best-effort: Linux sessions without an appindicator service
             // (e.g. Flatpak sandboxes lacking the library) get no tray icon
-            // instead of a failed startup.
-            if let Err(e) = setup_tray(app) {
-                eprintln!("system tray unavailable: {e}");
+            // instead of a failed startup. The tray-icon crate panics when
+            // the shared library is missing, so probe before calling in.
+            #[cfg(target_os = "linux")]
+            let indicator_ok = appindicator_available();
+            #[cfg(not(target_os = "linux"))]
+            let indicator_ok = true;
+            if indicator_ok {
+                if let Err(e) = setup_tray(app) {
+                    eprintln!("system tray unavailable: {e}");
+                }
             }
             // Cold-start file open (Windows/Linux: path passed in argv).
             queue_open_targets(
