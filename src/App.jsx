@@ -164,6 +164,10 @@ export default function App() {
     }
   }, []);
   const [backendStatus, setBackendStatus] = useState(isTauri ? 'online' : 'offline');
+  // True when the decoration plugin can't take over the titlebar (Linux/X11)
+  // and TitleBar hides itself; the sidebar must drop its reserved top padding.
+  const [titleBarFallback, setTitleBarFallback] = useState(false);
+  const handleTitleBarFallback = useCallback(() => setTitleBarFallback(true), []);
 
   // Multi-project state
   const [projects, setProjects] = useState([]);
@@ -979,7 +983,7 @@ export default function App() {
     <Sidebar
       collapsible="icon"
       variant="sidebar"
-      className="pt-10 transition-[width] duration-300 ease-out"
+      className={`${titleBarFallback ? '' : 'pt-10 '}transition-[width] duration-300 ease-out`}
     >
       <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-2.5 pb-2 pt-1.5">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
@@ -1219,7 +1223,7 @@ export default function App() {
     <TooltipProvider>
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
-          <TitleBar title={activeTitle} dirty={activeDirty} />
+          <TitleBar title={activeTitle} dirty={activeDirty} onFallback={handleTitleBarFallback} />
           {/* Locked agent tab: the bottom nav menu is replaced by a
               teal-outlined control pill (SequenceEditor), which also blocks
               nav-level misoperation. The workspace itself stays interactive —
