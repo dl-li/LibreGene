@@ -1,12 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '@/tauriApi';
 
 export default function TitleBar({ title, dirty = false }) {
+  // When the custom decoration can't activate (e.g. Linux/X11), the native
+  // titlebar stays; hide our own bar so the two don't stack.
+  const [hidden, setHidden] = useState(false);
+
   useEffect(() => {
     if (!isTauri) return undefined;
     invoke('activate_custom_titlebar').catch(() => {
       invoke('restore_native_titlebar').catch(() => {});
+      setHidden(true);
     });
 
     // If activation hangs or the plugin never marks its root element, fall back
@@ -16,11 +21,14 @@ export default function TitleBar({ title, dirty = false }) {
       );
       if (!active) {
         invoke('restore_native_titlebar').catch(() => {});
+        setHidden(true);
       }
     }, 5000);
 
     return () => clearTimeout(timer);
   }, []);
+
+  if (hidden) return null;
 
   return (
     <header
