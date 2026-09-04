@@ -480,14 +480,39 @@ async fn do_open_file(
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     path: String,
+    record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
     validate_user_path(&path, SEQ_EXTS)?;
-    let id = path.clone();
+    let id = match record_index {
+        // A split multi-record FASTA opens each record as its own project; the
+        // project id must differ from the file path and from sibling records.
+        Some(i) => format!("{}#record-{}", path, i),
+        None => path.clone(),
+    };
     let path_buf = std::path::PathBuf::from(&path);
 
     let result =
         tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
-            let mut project = file_io::parse_file(&path_buf).map_err(|e| e.to_string())?;
+            let mut project = match record_index {
+                Some(i) => {
+                    let ext = path_buf
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let molecule_type = if ext == "faa" { "protein" } else { "dna" };
+                    let records = file_io::fasta::parse_fasta_all_with_molecule_type(
+                        &path_buf,
+                        molecule_type,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    records
+                        .into_iter()
+                        .nth(i)
+                        .ok_or_else(|| format!("record index {} out of range", i))?
+                }
+                None => file_io::parse_file(&path_buf).map_err(|e| e.to_string())?,
+            };
             enzyme::recompute(&mut project);
             primer::recompute(&mut project);
             Ok(project)
@@ -726,7 +751,20 @@ async fn do_save_file(
                     "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
                 }));
             }
-            let p = p.clone();
+            // Save As semantics: when the target path differs from the
+            // project id (first save of an `untitled-*` project, or an
+            // explicit new name in the save dialog), the chosen file stem
+            // becomes the project name so it lands in the LOCUS field.
+            // Direct saves to the same path keep the existing name.
+            let new_name = if project_id != path {
+                save_path.file_stem().map(|s| s.to_string_lossy().into_owned())
+            } else {
+                None
+            };
+            let mut p = p.clone();
+            if let Some(ref n) = new_name {
+                p.name = n.clone();
+            }
             let write_path = save_path.clone();
             let write_ext = ext.clone();
             let result = tokio::task::spawn_blocking(move || {
@@ -740,6 +778,11 @@ async fn do_save_file(
             .map_err(|e| format!("task join error: {}", e))?;
             match result {
                 Ok(()) => {
+                    if let Some(n) = new_name {
+                        if let Some(live) = pm.write().await.get_project_mut_by_id(&project_id) {
+                            live.name = n;
+                        }
+                    }
                     let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
                     Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
                 }
@@ -1835,8 +1878,43 @@ async fn get_project(
 async fn open_file(
     state: State<'_, AppState>,
     path: String,
+    record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
-    do_open_file(&state.pm, &state.window_projects, &state.agent_tabs, path).await
+    do_open_file(&state.pm, &state.window_projects, &state.agent_tabs, path, record_index).await
+}
+
+/// Lightweight scan of a FASTA file's records (name + length only) so the
+/// frontend can offer to split a multi-record file into separate projects
+/// before opening it.
+#[tauri::command]
+async fn peek_fasta_records(path: String) -> Result<serde_json::Value, String> {
+    let ext = validate_user_path(&path, SEQ_EXTS)?;
+    if !matches!(
+        ext.as_str(),
+        "fasta" | "fa" | "fna" | "fas" | "ffn" | "fsa" | "faa" | "frn" | "seq"
+    ) {
+        return Ok(serde_json::json!({"records": []}));
+    }
+    let path_buf = std::path::PathBuf::from(&path);
+    let molecule_type = if ext == "faa" { "protein" } else { "dna" };
+    let result = tokio::task::spawn_blocking(move || {
+        file_io::fasta::parse_fasta_all_with_molecule_type(&path_buf, molecule_type)
+            .map(|records| {
+                records
+                    .into_iter()
+                    .map(|r| {
+                    serde_json::json!({"name": r.name, "length": r.length, "moleculeType": r.molecule_type})
+                })
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+    match result {
+        Ok(records) => Ok(serde_json::json!({"records": records})),
+        Err(e) => Ok(serde_json::json!({"error": e})),
+    }
 }
 
 /// Drain OS-opened file paths queued before the frontend was ready (cold
@@ -2705,27 +2783,32 @@ fn compute_primer_alignment_sync(
                 })
             };
             if sw_ok.is_none() {
-                results.push(serde_json::json!({
-                    "tm": (c.est_tm * 10.0).round() / 10.0,
-                    "strand": if c.is_rev { -1 } else { 1 },
-                    "start": (tp - c.footprint_len + 1) as i64,
-                    "end": tp as i64 + 1,
-                    "alignment": null,
-                }));
+                results.push(fallback_site_json(c, tp));
             }
         } else {
-            results.push(serde_json::json!({
-                "tm": (c.est_tm * 10.0).round() / 10.0,
-                "strand": if c.is_rev { -1 } else { 1 },
-                "start": (tp - c.footprint_len + 1) as i64,
-                "end": tp as i64 + 1,
-                "alignment": null,
-            }));
+            results.push(fallback_site_json(c, tp));
         }
     }
 
     let current = results.remove(0);
     Ok(serde_json::json!({ "current": current, "alternatives": results }))
+}
+
+/// Coordinates for a candidate when no SW alignment is available. Forward
+/// footprints end at `tp_3prime`; reverse footprints start there.
+fn fallback_site_json(c: &BindingSiteCandidate, tp: usize) -> serde_json::Value {
+    let (start, end) = if c.is_rev {
+        (tp as i64, (tp + c.footprint_len) as i64)
+    } else {
+        ((tp + 1 - c.footprint_len) as i64, tp as i64 + 1)
+    };
+    serde_json::json!({
+        "tm": (c.est_tm * 10.0).round() / 10.0,
+        "strand": if c.is_rev { -1 } else { 1 },
+        "start": start,
+        "end": end,
+        "alignment": null,
+    })
 }
 
 enum SearchMode { Forward, Reverse }
@@ -3829,6 +3912,7 @@ pub fn run() {
             get_project,
             get_project_by_id,
             open_file,
+            peek_fasta_records,
             take_pending_opens,
             create_project,
             save_file,
@@ -3914,6 +3998,27 @@ pub fn run() {
 mod tests {
     use super::*;
 
+
+
+    #[test]
+    fn primer_alignment_rev_tail_at_circular_end() {
+        // Regression: a reverse primer whose binding site ends at the very end
+        // of a circular template and carries a non-matching 5' tail must still
+        // produce an alignment (the tail overhang stays unaligned).
+        let template: &str = "GCCACCATGGATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCGGAGCAATCACAGGTGAGCAAAAAA";
+        let primer = "ccgctcgagTTTTTTGCTCACCTGTGATTGCTCC";
+        let tm = libregene_core::primer::thermodynamics::TmParams {
+            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+        };
+        let res = compute_primer_alignment_sync(template, true, "TIGR3-XhoI-R", primer, None, &tm)
+            .expect("alignment computation failed");
+        let cur = &res["current"];
+        assert_eq!(cur["strand"], serde_json::json!(-1));
+        let aln = cur["alignment"].as_str().expect("alignment text missing");
+        assert!(aln.contains("3' <"), "expected reverse-primer arrows:\n{}", aln);
+        assert!(aln.contains("GGAGCAATCACAGGTGAGCAAAAAA"), "template line:\n{}", aln);
+    }
+
     #[test]
     fn validate_path_accepts_normal_sequence_file() {
         assert_eq!(validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(), "gbk");
@@ -3961,6 +4066,63 @@ mod tests {
         assert!(validate_user_path("out.fasta", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.ab1", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.txt", CODON_OUTPUT_EXTS).is_err());
+    }
+
+    #[tokio::test]
+    async fn save_as_adopts_chosen_file_stem_as_locus() {
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.open_project(
+            "untitled-1".to_string(),
+            ProjectData {
+                name: "Untitled".to_string(),
+                sequence: "GATTACAGTCGATTACAGTC".to_string(),
+                length: 20,
+                topology: "circular".to_string(),
+                ..Default::default()
+            },
+        ).unwrap();
+        let dir = std::env::temp_dir().join(format!("libregene-saveas-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("My Plasmid.gbk");
+        let out = do_save_file(&pm, "untitled-1".to_string(), path.to_str().unwrap().to_string())
+            .await
+            .unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        // In-memory name adopted the chosen stem.
+        assert_eq!(
+            pm.read().await.get_project_by_id("untitled-1").unwrap().name,
+            "My Plasmid"
+        );
+        // LOCUS carries it (spaces → underscores).
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first_line = text.lines().next().unwrap_or("");
+        assert!(first_line.starts_with("LOCUS"), "{first_line}");
+        assert!(first_line.contains("My_Plasmid"), "{first_line}");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn direct_save_keeps_existing_locus_name() {
+        let path = std::env::temp_dir()
+            .join(format!("libregene-directsave-{}.gbk", std::process::id()));
+        let id = path.to_str().unwrap().to_string();
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.open_project(
+            id.clone(),
+            ProjectData {
+                name: "OriginalLocus".to_string(),
+                sequence: "GATTACAGTCGATTACAGTC".to_string(),
+                length: 20,
+                topology: "linear".to_string(),
+                ..Default::default()
+            },
+        ).unwrap();
+        let out = do_save_file(&pm, id.clone(), id.clone()).await.unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first_line = text.lines().next().unwrap_or("");
+        assert!(first_line.contains("OriginalLocus"), "{first_line}");
+        std::fs::remove_file(&path).ok();
     }
 
     #[tokio::test]

@@ -268,3 +268,34 @@ input[type='radio']:not(:disabled) {
   --sidebar-border: hsl(240 3.7% 15.9%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
+
+/* tauri-plugin-decoration Windows controls: default 10px Segoe MDL2 glyphs are too faint */
+[data-tauri-plugin-decoration-root]
+  [data-tauri-decoration-platform='windows']
+  [data-tauri-decoration-control] {
+  font-size: 13px !important;
+  color: #000 !important;
+}
+
+[data-tauri-plugin-decoration-root]
+  [data-tauri-decoration-platform='windows']
+  [data-tauri-decoration-control='close']:hover,
+[data-tauri-plugin-decoration-root]
+  [data-tauri-decoration-platform='windows']
+  [data-tauri-decoration-control='close'][data-tauri-decoration-hover] {
+  color: #fff !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-tauri-plugin-decoration-root]
+    [data-tauri-decoration-platform='windows']
+    [data-tauri-decoration-control] {
+    color: #fff !important;
+  }
+
+  [data-tauri-plugin-decoration-root]
+    [data-tauri-decoration-platform='windows']
+    [data-tauri-decoration-control='close']:hover {
+    color: #fff !important;
+  }
+}

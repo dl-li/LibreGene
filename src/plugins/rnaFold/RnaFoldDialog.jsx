@@ -1,52 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useMemo } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { LoaderCircle } from 'lucide-react';
 import FornaView from './FornaView';
+import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from './useRnaFold';
 
-const MAX_INTERACTIVE_NT = 1500;
-// foldSeq is a synchronous main-thread WASM call (Zuker DP, O(n³) time /
-// O(n²) memory). A multi-kb RNA freezes the whole webview — including any
-// agent tabs sharing the process — and tens of kb can OOM it. Cap the fold
-// itself; anything longer should go to an external tool.
-const MAX_FOLD_NT = 3000;
-
-function countPairs(db) {
-  return db.split('').filter((c) => c === ')').length;
-}
-
-export default function RnaFoldDialog({ open, onOpenChange, sequence }) {
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open || !sequence) return;
-    if (sequence.length > MAX_FOLD_NT) {
-      setResult(null);
-      setError(
-        `Sequence too long to fold in-app (${sequence.length} nt > ${MAX_FOLD_NT} nt). ` +
-          'Folding runs on the UI thread and would freeze the app; use an external tool for long RNAs.',
-      );
-      return;
-    }
-    setBusy(true);
-    setError('');
-    // Lazy-load the ~130 kB wasm bundle only when the dialog opens.
-    // ribossfold-wasm is CommonJS; the pre-bundled ESM only has a default export.
-    import('ribossfold-wasm')
-      .then((m) => (m.fold ?? m.default.fold)(sequence))
-      .then(setResult)
-      .catch((e) => setError(String(e?.message || e)))
-      .finally(() => setBusy(false));
-  }, [open, sequence]);
+export default function RnaFoldDialog({
+  open,
+  onOpenChange,
+  sequence,
+  fileName,
+  watermark = false,
+  onToggleWatermark,
+}) {
+  const { result, error, busy } = useRnaFold(sequence, open);
 
   const pairCount = useMemo(() => (result ? countPairs(result.structure) : 0), [result]);
+  const canWatermark = !!result && sequence.length <= MAX_INTERACTIVE_NT;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>RNA Secondary Structure</DialogTitle>
+          <DialogTitle>RNA Secondary Structure{fileName ? ` — ${fileName}` : ''}</DialogTitle>
         </DialogHeader>
 
         {busy && (
@@ -84,6 +65,36 @@ export default function RnaFoldDialog({ open, onOpenChange, sequence }) {
             </div>
           </>
         )}
+
+        <DialogFooter className="sm:justify-start">
+          <button
+            role="switch"
+            aria-checked={watermark}
+            disabled={!canWatermark}
+            onClick={() => onToggleWatermark?.()}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:hover:text-muted-foreground"
+            title={
+              canWatermark
+                ? 'Show the folding as a watermark behind the sequence editor'
+                : sequence.length > MAX_INTERACTIVE_NT
+                  ? `Sequence too long for the background layout (> ${MAX_INTERACTIVE_NT} nt)`
+                  : 'Fold the sequence first'
+            }
+          >
+            <span
+              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                watermark ? 'bg-primary' : 'bg-input'
+              }`}
+            >
+              <span
+                className={`inline-block size-3 rounded-full bg-background shadow transition-transform ${
+                  watermark ? 'translate-x-3.5' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+            <span>Show as Background</span>
+          </button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

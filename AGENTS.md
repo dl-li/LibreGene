@@ -3,7 +3,7 @@
 基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注、序列比对、插件系统。默认输出增强型 GenBank 文件（含颜色和引物注释）。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
-**已在 macOS 和 Windows 上测试过，Linux 尚未验证。**
+**已在 macOS、Windows、Linux（Fedora aarch64, Wayland）上测试过。**
 
 ## 技术栈
 
@@ -30,6 +30,22 @@ cd src-tauri && cargo build                         # 构建 Tauri 后端（须�
 npx shadcn add <component>
 ```
 
+## Linux 调试（SSH 远程虚拟机）
+
+被要求"在 Linux 上启动调试"时，按以下步骤操作（目标机为 Fedora aarch64 虚拟机，SSH 已通）：
+
+1. **同步代码**：`rsync -az --exclude=node_modules --exclude=target --exclude=dist --exclude=.git ./ user@host:LibreGene/`（首次还需在虚拟机装系统依赖 webkit2gtk4.1-devel 等 + rustup，并 `npm install`）
+2. **启动**（必须强制 Wayland 后端，否则自定义标题栏激活失败出现双标题栏）：
+
+   ```bash
+   ssh user@host 'cd ~/LibreGene && . ~/.cargo/env && \
+     XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 GDK_BACKEND=wayland \
+     nohup npx tauri dev > tauri-dev.log 2>&1 &'
+   ```
+
+3. **后续改动**：前端改动重新 rsync 后 Vite 热更新即生效；`src-tauri` 改动自动重编；`backend/libregene-core` 改动需 `touch src-tauri/src/*.rs` 触发
+4. 远程 kill 进程时 `pkill -f` 的模式别写成会匹配到自己 SSH 命令行的字符串（会误杀自身 shell）
+
 ## Release 流程
 
 push 到 master 时，CI（`.github/workflows/build.yml` 的 `release` job）检查 `package.json` 的 version 对应 tag `v<version>` 是否已存在；不存在则自动创建 GitHub Release 并附各平台安装包：macOS（dmg/app.tar.gz）、Windows（msi/nsis）、Linux（仅 Flatpak，amd64 + aarch64 两个包；manifest 在 `flatpak/`，不再产出 deb/AppImage）。发布步骤：
@@ -48,7 +64,7 @@ LibreGene/
 │   ├── api.js / tauriApi.js    # HTTP/WS 客户端 / Tauri IPC 客户端
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
-│   ├── plugins/                # 静态插件注册表 index.js；含 alignment/orf/primerDesign/rnaFold/codonOptimization/blast
+│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/codonOptimization/blast
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库（models/project、orf、search、codon、digest、enzyme/、primer/、file_io/）
 └── src-tauri/src/
@@ -63,6 +79,8 @@ LibreGene/
 - **尽量不写注释**——代码本身表意清晰；必要时写简短注释说明 Why。
 - 先读后改；改完必须编译/构建验证：前端 `npx vite build`，后端 `cargo test -p libregene-core --lib`，Rust 改动另跑 `cd src-tauri && cargo build`（backend workspace 根跑 `cargo build -p LibreGene` 会报 package 不匹配）。
 - **tauri dev 只监听 `src-tauri/`**：改 `backend/libregene-core` 不会触发重编译，需 `touch src-tauri/src/*.rs` 手动触发。
+- **禁止擅自用 MCP server（127.0.0.1:8766）驱动运行中的应用做测试/复现**，除非用户明确要求。
+- **禁止擅自截屏/录屏**（`screencapture`、窗口捕获、读取屏幕内容等），除非用户明确要求。
 
 ### Bug 修复流程
 
@@ -105,7 +123,7 @@ LibreGene/
 ### Tauri Commands
 
 ```
-get_project, get_project_by_id, open_file, take_pending_opens, create_project, save_file, write_text_file,
+get_project, get_project_by_id, open_file, peek_fasta_records, take_pending_opens, create_project, save_file, write_text_file,
 update_sequence, set_roi, clear_roi,
 get_features, add_feature, delete_feature, update_feature_ftype/color/name/strand/location,
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
@@ -151,7 +169,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 - **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
-- **质粒图视图 / Map 水印**、**选区 badge 分子量**：纯渲染
+- **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none}，Tauri 广播同步；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
 - **Agent 标签解锁按钮/导航控制条**：纯前端；锁定状态后端持有，MCP 不暴露
 - **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态

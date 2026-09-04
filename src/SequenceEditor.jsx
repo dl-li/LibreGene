@@ -28,6 +28,8 @@ import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm, blastSubmit } from './tauriApi';
 import { CircularMap, LinearMap } from './MapView';
+import FornaView from './plugins/rnaFold/FornaView';
+import useRnaFold, { MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
 import { buildSearchResults } from './searchUtils';
 import { showContextMenu } from './contextMenu';
 import {
@@ -39,11 +41,13 @@ import {
 import {
   AlertTriangle,
   Bot,
+  Check,
   Copy,
   CopyPlus,
   CopyMinus,
   CopyX,
   Globe,
+  Image,
   LockOpen,
   Pencil,
   Tag,
@@ -358,6 +362,56 @@ const MapWatermark = React.memo(function MapWatermark({ length, features, topolo
 });
 
 // ---------------------------------------------------------------------------
+// FoldWatermark — non-interactive RNA secondary structure rendered as a faint
+// overlay (toggled from the RNA Folding dialog footer; mutually exclusive
+// with the map watermark). Same fixed-overlay rationale as MapWatermark.
+// Selected bases are highlighted: dark-brown circle, letter in bgColor.
+// ---------------------------------------------------------------------------
+const FoldWatermark = React.memo(function FoldWatermark({ sequence, selStart, selEnd }) {
+  const { result } = useRnaFold(sequence, !!sequence && sequence.length <= MAX_INTERACTIVE_NT);
+  // Sized to the viewport (the overlay is fixed and centered; forna re-fits
+  // via its own resize handling).
+  const [vp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  const selRanges = useMemo(() => {
+    if (selStart == null || selEnd == null) return null;
+    if (selStart <= selEnd) return [[selStart, selEnd]];
+    // Circular wrap-around selection: highlight both arms.
+    return [
+      [selStart, sequence.length - 1],
+      [0, selEnd],
+    ];
+  }, [selStart, selEnd, sequence.length]);
+  if (!sequence || !result) return null;
+  return (
+    <div
+      aria-hidden
+      className="[&_*]:pointer-events-none"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{ width: Math.round(vp.w * 0.85), opacity: 0.1 }}>
+        <FornaView
+          sequence={sequence}
+          structure={result.structure}
+          height={Math.round(vp.h * 0.8)}
+          settleMs={4000}
+          interactive={false}
+          selectionRanges={selRanges}
+          selectionTextColor={bgColor}
+        />
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // SelectionLengthBadge — top-right badge showing "xx bp" for the current
 // selection (text / enzyme / primer / amplimer).  The second line shows GC%
 // for nucleic acids or the peptide molecular weight (kDa) for proteins.
@@ -627,6 +681,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
   alignmentEnabled = true,
   primerDesignEnabled = true,
   mapWatermark = false,
+  foldWatermark = false,
+  background = 'none',
+  backgroundOptions = [],
+  onBackgroundChange,
   mapName = '',
   showAlignments = true,
   onToggleAlignments,
@@ -636,6 +694,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onAddAlignmentText,
   onManageAlignments,
   onOpenRnaFold,
+  onOpenMapView,
   onEnzymeHoverChange,
   blastEnabled = false,
   topology = 'linear',
@@ -1398,9 +1457,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const segs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
             segs.forEach((m, mi) => {
               // 5' tail extends left of matchStart (fwd) / right of matchEnd (rev)
-              const vs = isFwd && mi === 0 ? m.start - ml : m.start;
-              const ve = !isFwd && mi === segs.length - 1 ? m.end + ml : m.end;
-              if (ve < rs || vs > re) return;
+              const rawVs = isFwd && mi === 0 ? m.start - ml : m.start;
+              const rawVe = !isFwd && mi === segs.length - 1 ? m.end + ml : m.end;
+              if (rawVe < rs || rawVs > re) return;
+              // 1nt judgment buffer on the 3' (arrow-tip) side so two abutting
+              // primers don't share a track and bleed into each other
+              const vs = !isFwd && mi === 0 ? rawVs - 1 : rawVs;
+              const ve = isFwd && mi === segs.length - 1 ? rawVe + 1 : rawVe;
               if (!pTracks[p.id]) pTracks[p.id] = {};
               let placed = false;
               for (let i = 0; i < rowTracks.length; i++) {
@@ -1504,7 +1567,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const psegs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
         revFeatOff[p.id] = {};
         psegs.forEach((m, mi) => {
-          const vs = m.start,
+          // 1nt buffer on the 3' (arrow-tip) side: an abutting feature still
+          // counts as overlapping, so the primer drops below its track
+          const vs = mi === 0 ? m.start - 1 : m.start,
             ve = mi === psegs.length - 1 ? m.end + ml : m.end;
           for (const f of resultFeatures) {
             for (const fseg of f.segments) {
@@ -2454,6 +2519,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
           });
         }
       }
+      if (backgroundOptions.length > 0 && onBackgroundChange) {
+        if (items.length) items.push({ type: 'separator' });
+        items.push({
+          icon: Image,
+          label: 'Background',
+          children: backgroundOptions.map((opt) => ({
+            icon: background === opt.value ? Check : undefined,
+            label: opt.label,
+            onSelect: () => onBackgroundChange(opt.value),
+          })),
+        });
+      }
       showContextMenu(e.clientX, e.clientY, items);
     },
     [
@@ -2469,6 +2546,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       blastEnabled,
       blastBusy,
       handleBlastSelection,
+      background,
+      backgroundOptions,
+      onBackgroundChange,
     ],
   );
 
@@ -3365,10 +3445,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
               );
               if (!cov) return [];
               const sy = getSeqY(r);
-               const rowTo =
-                 (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
-                   lp.featTrackHeight +
-                 (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
+              const rowTo =
+                (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
+                  lp.featTrackHeight +
+                (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
               const y = sy + lp.featBaseOffset + rowTo;
               const isCodonHovered =
                 hoveredCodon?.featureId === f.id && hoveredCodon?.codonIndex === t.codonIndex;
@@ -5304,6 +5384,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
           sel={selStart != null && selEnd != null ? { start: selStart, end: selEnd } : null}
         />
       )}
+      {foldWatermark && (
+        <FoldWatermark
+          sequence={cleanSeq}
+          selStart={selectionMode === 'text' ? selStart : null}
+          selEnd={selectionMode === 'text' ? selEnd : null}
+        />
+      )}
       {designPick ? (
         <div
           style={{
@@ -5400,6 +5487,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onAddAlignmentText={onAddAlignmentText}
           onManageAlignments={onManageAlignments}
           onOpenRnaFold={onOpenRnaFold}
+          onOpenMapView={onOpenMapView}
           onPrimerDesign={handlePrimerDesign}
           primerDesignEnabled={primerDesignEnabled}
           onOpenMyPrimers={onOpenMyPrimers}
