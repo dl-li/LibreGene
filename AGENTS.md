@@ -80,6 +80,7 @@ LibreGene/
 - 先读后改；改完必须编译/构建验证：前端 `npx vite build`，后端 `cargo test -p libregene-core --lib`，Rust 改动另跑 `cd src-tauri && cargo build`（backend workspace 根跑 `cargo build -p LibreGene` 会报 package 不匹配）。
 - **tauri dev 只监听 `src-tauri/`**：改 `backend/libregene-core` 不会触发重编译，需 `touch src-tauri/src/*.rs` 手动触发。
 - **禁止擅自用 MCP server（127.0.0.1:8766）驱动运行中的应用做测试/复现**，除非用户明确要求。
+- **禁止擅自截屏/录屏**（`screencapture`、窗口捕获、读取屏幕内容等），除非用户明确要求。
 
 ### Bug 修复流程
 
