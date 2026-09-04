@@ -26,10 +26,8 @@ import {
   openAlignmentFileDialog,
   listenProjectUpdates,
   setAgentTabLocked,
-  emitMapWatermark,
-  listenMapWatermark,
-  emitFoldWatermark,
-  listenFoldWatermark,
+  emitEditorBackground,
+  listenEditorBackground,
   isTauri,
 } from './tauriApi';
 import { plugins } from './plugins';
@@ -107,6 +105,16 @@ export default function ProjectWorkspace({
   const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
   const primerDesignEnabled = isDna && !disabledPlugins.includes('primerDesign');
   const mapEnabled = !disabledPlugins.includes('map');
+  // Background (watermark) choices offered in the editor context menu for the
+  // current molecule type; a single choice means nothing to switch.
+  const backgroundOptions = useMemo(() => {
+    const opts = [];
+    if ((moleculeType === 'dna' || moleculeType === 'rna') && mapEnabled)
+      opts.push({ value: 'map', label: 'Map' });
+    if (moleculeType === 'rna' && !disabledPlugins.includes('rnaFold'))
+      opts.push({ value: 'folding', label: 'Folding' });
+    return opts.length ? [{ value: 'none', label: 'None' }, ...opts] : [];
+  }, [moleculeType, mapEnabled, disabledPlugins]);
 
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
   const [detectFeaturesOpen, setDetectFeaturesOpen] = useState(false);
@@ -118,87 +126,58 @@ export default function ProjectWorkspace({
   const openPrimerEditorRef = useRef(null);
   const openFeatureEditorRef = useRef(null);
   const [mapViewOpen, setMapViewOpen] = useState(false);
-  // Global persistent toggle (shared across projects, survives restart)
-  const [mapWatermark, setMapWatermark] = useState(() => {
+  // Editor background (watermark) per molecule type, persisted globally and
+  // shared across projects of the same type: dna → none|map, rna →
+  // none|folding, protein → none.
+  const [backgrounds, setBackgrounds] = useState(() => {
+    const fallback = { dna: 'none', rna: 'none', protein: 'none' };
     try {
-      return JSON.parse(localStorage.getItem('mapWatermark')) || false;
+      const stored = JSON.parse(localStorage.getItem('editorBackground'));
+      if (stored && typeof stored === 'object') return { ...fallback, ...stored };
+      // Migrate the legacy global watermark toggles.
+      const migrated = { ...fallback };
+      if (JSON.parse(localStorage.getItem('mapWatermark'))) migrated.dna = 'map';
+      if (JSON.parse(localStorage.getItem('foldWatermark'))) migrated.rna = 'folding';
+      localStorage.setItem('editorBackground', JSON.stringify(migrated));
+      localStorage.removeItem('mapWatermark');
+      localStorage.removeItem('foldWatermark');
+      return migrated;
     } catch {
-      return false;
+      return fallback;
     }
   });
-  // RNA folding watermark (RNA projects only); mutually exclusive with the
-  // map watermark. Same persistence/broadcast pattern as mapWatermark.
-  const [foldWatermark, setFoldWatermark] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('foldWatermark')) || false;
-    } catch {
-      return false;
-    }
-  });
-  const toggleMapWatermark = useCallback(() => {
-    setMapWatermark((v) => {
-      const next = !v;
+  const setEditorBackground = useCallback((type, value) => {
+    setBackgrounds((prev) => {
+      const next = { ...prev, [type]: value };
       try {
-        localStorage.setItem('mapWatermark', JSON.stringify(next));
+        localStorage.setItem('editorBackground', JSON.stringify(next));
       } catch {
         // storage may be unavailable; toggle still applies in-memory
       }
-      emitMapWatermark(next);
-      if (next) {
-        // Watermarks are mutually exclusive — turn the fold watermark off.
-        setFoldWatermark(false);
-        try {
-          localStorage.setItem('foldWatermark', 'false');
-        } catch {
-          // ignore
-        }
-        emitFoldWatermark(false);
-      }
+      emitEditorBackground(next);
       return next;
     });
   }, []);
-  const toggleFoldWatermark = useCallback(() => {
-    setFoldWatermark((v) => {
-      const next = !v;
-      try {
-        localStorage.setItem('foldWatermark', JSON.stringify(next));
-      } catch {
-        // storage may be unavailable; toggle still applies in-memory
-      }
-      emitFoldWatermark(next);
-      if (next) {
-        // Watermarks are mutually exclusive — turn the map watermark off.
-        setMapWatermark(false);
-        try {
-          localStorage.setItem('mapWatermark', 'false');
-        } catch {
-          // ignore
-        }
-        emitMapWatermark(false);
-      }
-      return next;
-    });
-  }, []);
+  const background = backgrounds[moleculeType] || 'none';
   // storage events don't propagate between Tauri webview windows, so sync
   // via a Tauri broadcast; keep the storage listener as a browser fallback.
   // Both fire only in *other* documents — no feedback loop.
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.newValue == null) return;
+      if (e.key !== 'editorBackground' || e.newValue == null) return;
       try {
-        if (e.key === 'mapWatermark') setMapWatermark(JSON.parse(e.newValue));
-        if (e.key === 'foldWatermark') setFoldWatermark(JSON.parse(e.newValue));
+        setBackgrounds((prev) => ({ ...prev, ...JSON.parse(e.newValue) }));
       } catch {
         // ignore malformed values
       }
     };
     window.addEventListener('storage', onStorage);
-    const listener = listenMapWatermark((v) => setMapWatermark(!!v));
-    const foldListener = listenFoldWatermark((v) => setFoldWatermark(!!v));
+    const listener = listenEditorBackground((v) => {
+      if (v && typeof v === 'object') setBackgrounds((prev) => ({ ...prev, ...v }));
+    });
     return () => {
       window.removeEventListener('storage', onStorage);
       listener.close();
-      foldListener.close();
     };
   }, []);
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
@@ -1538,13 +1517,10 @@ export default function ProjectWorkspace({
               alignments={alignments}
               alignmentEnabled={alignmentEnabled}
               primerDesignEnabled={primerDesignEnabled}
-              mapWatermark={mapEnabled && mapWatermark}
-              onToggleMapWatermark={mapEnabled ? toggleMapWatermark : undefined}
-              onToggleFoldWatermark={
-                moleculeType === 'rna' && !disabledPlugins.includes('rnaFold')
-                  ? toggleFoldWatermark
-                  : undefined
-              }
+              mapWatermark={mapEnabled && background === 'map'}
+              background={background}
+              backgroundOptions={backgroundOptions}
+              onBackgroundChange={(v) => setEditorBackground(moleculeType, v)}
               foldWatermark={
                 // Hidden workspaces stay mounted (display:none) — don't fold
                 // or render a watermark for them; a forna layout created
@@ -1552,7 +1528,7 @@ export default function ProjectWorkspace({
                 !hidden &&
                 moleculeType === 'rna' &&
                 !disabledPlugins.includes('rnaFold') &&
-                foldWatermark
+                background === 'folding'
               }
               mapName={mapName}
               showAlignments={showAlignments}
@@ -1609,8 +1585,10 @@ export default function ProjectWorkspace({
             onClear={handleMapClear}
             onFeatureOpen={(f) => openFeatureEditorRef.current?.(f)}
             moleculeType={moleculeType}
-            watermark={mapWatermark}
-            onToggleWatermark={toggleMapWatermark}
+            watermark={background === 'map'}
+            onToggleWatermark={() =>
+              setEditorBackground(moleculeType, background === 'map' ? 'none' : 'map')
+            }
           />
         </>
       ) : null}
@@ -1685,8 +1663,10 @@ export default function ProjectWorkspace({
               onRemoveAlignment={handleRemoveAlignment}
               features={features}
               onProjectChanged={refreshProject}
-              watermark={foldWatermark}
-              onToggleWatermark={toggleFoldWatermark}
+              watermark={background === 'folding'}
+              onToggleWatermark={() =>
+                setEditorBackground(moleculeType, background === 'folding' ? 'none' : 'folding')
+              }
             />
           );
         })}

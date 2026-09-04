@@ -724,48 +724,22 @@ export function listenDragDrop(callback) {
   };
 }
 
-/** Broadcast the map-watermark toggle so other windows sync immediately. */
-export function emitMapWatermark(value) {
+/** Broadcast the per-molecule-type editor background map so other windows sync immediately. */
+export function emitEditorBackground(backgrounds) {
   if (!isTauri) return;
   (async () => {
     if (!emit) {
       const mod = await import('@tauri-apps/api/event');
       emit = mod.emit;
     }
-    await emit('map-watermark-changed', value);
+    await emit('editor-background-changed', backgrounds);
   })().catch(() => {});
 }
 
-/** Listen for map-watermark toggles broadcast from other windows. */
-export function listenMapWatermark(callback) {
+/** Listen for editor-background changes broadcast from other windows. */
+export function listenEditorBackground(callback) {
   let closed = false;
-  const ready = tauriListen('map-watermark-changed', (event) => {
-    if (!closed) callback(event.payload);
-  });
-  return {
-    close: () => {
-      closed = true;
-      ready.then((fn) => fn()).catch(() => {});
-    },
-  };
-}
-
-/** Broadcast the fold-watermark toggle so other windows sync immediately. */
-export function emitFoldWatermark(value) {
-  if (!isTauri) return;
-  (async () => {
-    if (!emit) {
-      const mod = await import('@tauri-apps/api/event');
-      emit = mod.emit;
-    }
-    await emit('fold-watermark-changed', value);
-  })().catch(() => {});
-}
-
-/** Listen for fold-watermark toggles broadcast from other windows. */
-export function listenFoldWatermark(callback) {
-  let closed = false;
-  const ready = tauriListen('fold-watermark-changed', (event) => {
+  const ready = tauriListen('editor-background-changed', (event) => {
     if (!closed) callback(event.payload);
   });
   return {

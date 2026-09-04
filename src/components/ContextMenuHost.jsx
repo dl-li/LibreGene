@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { RotateCw, TriangleAlert } from 'lucide-react';
+import { RotateCw, TriangleAlert, ChevronRight } from 'lucide-react';
 import { CONTEXT_MENU_EVENT } from '@/contextMenu';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -78,6 +78,35 @@ export default function ContextMenuHost() {
   if (items.length) items.push({ type: 'separator' });
   if (menu) items.push(RELOAD_ITEM);
 
+  const itemClass = (item) =>
+    cn(
+      'flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4 [&_svg]:shrink-0',
+      item.bold && 'font-bold',
+      item.danger && 'text-destructive',
+    );
+  // Flyout opens to the left when the menu is close to the right viewport edge.
+  const flipSub = menu ? menu.x > window.innerWidth - 400 : false;
+
+  const renderLeaf = (item, i, keyPrefix = '') => (
+    <button
+      key={`${keyPrefix}${i}`}
+      type="button"
+      disabled={item.disabled}
+      className={itemClass(item)}
+      onClick={() => {
+        close();
+        if (item.reload) {
+          setConfirmReload(true);
+          return;
+        }
+        item.onSelect?.();
+      }}
+    >
+      {item.icon && <item.icon />}
+      <span>{item.label}</span>
+    </button>
+  );
+
   return (
     <>
       {menu && (
@@ -94,28 +123,30 @@ export default function ContextMenuHost() {
           {items.map((item, i) =>
             item.type === 'separator' ? (
               <div key={i} className="-mx-1 my-1 h-px bg-border/60" />
+            ) : item.children ? (
+              <div key={i} className="group relative">
+                <button type="button" disabled={item.disabled} className={itemClass(item)}>
+                  {item.icon && <item.icon />}
+                  <span>{item.label}</span>
+                  <ChevronRight className="ml-auto" />
+                </button>
+                <div
+                  className={cn(
+                    'absolute top-0 z-10 hidden min-w-36 rounded-lg border border-border/60 bg-popover p-1 shadow-lg group-hover:block',
+                    flipSub ? 'right-full' : 'left-full',
+                  )}
+                >
+                  {item.children.map((child, j) =>
+                    child.type === 'separator' ? (
+                      <div key={j} className="-mx-1 my-1 h-px bg-border/60" />
+                    ) : (
+                      renderLeaf(child, j, 'sub-')
+                    ),
+                  )}
+                </div>
+              </div>
             ) : (
-              <button
-                key={i}
-                type="button"
-                disabled={item.disabled}
-                className={cn(
-                  'flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4 [&_svg]:shrink-0',
-                  item.bold && 'font-bold',
-                  item.danger && 'text-destructive',
-                )}
-                onClick={() => {
-                  close();
-                  if (item.reload) {
-                    setConfirmReload(true);
-                    return;
-                  }
-                  item.onSelect?.();
-                }}
-              >
-                {item.icon && <item.icon />}
-                <span>{item.label}</span>
-              </button>
+              renderLeaf(item, i)
             ),
           )}
         </div>
@@ -134,11 +165,7 @@ export default function ContextMenuHost() {
               <Button variant="outline" size="sm" onClick={() => setConfirmReload(false)}>
                 Cancel
               </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => window.location.reload()}
-              >
+              <Button variant="destructive" size="sm" onClick={() => window.location.reload()}>
                 Reload
               </Button>
             </div>

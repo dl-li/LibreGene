@@ -47,6 +47,7 @@ import {
   CopyMinus,
   CopyX,
   Globe,
+  Image,
   LockOpen,
   Pencil,
   Tag,
@@ -681,8 +682,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   primerDesignEnabled = true,
   mapWatermark = false,
   foldWatermark = false,
-  onToggleMapWatermark,
-  onToggleFoldWatermark,
+  background = 'none',
+  backgroundOptions = [],
+  onBackgroundChange,
   mapName = '',
   showAlignments = true,
   onToggleAlignments,
@@ -2517,37 +2519,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
           });
         }
       }
-      if (onToggleMapWatermark || onToggleFoldWatermark) {
+      if (backgroundOptions.length > 0 && onBackgroundChange) {
         if (items.length) items.push({ type: 'separator' });
-        const bgItems = [
-          {
-            icon: !mapWatermark && !foldWatermark ? Check : undefined,
-            label: 'Background: None',
-            onSelect: () => {
-              if (mapWatermark) onToggleMapWatermark?.();
-              if (foldWatermark) onToggleFoldWatermark?.();
-            },
-          },
-        ];
-        if (onToggleMapWatermark) {
-          bgItems.push({
-            icon: mapWatermark ? Check : undefined,
-            label: 'Background: Map',
-            onSelect: () => {
-              if (!mapWatermark) onToggleMapWatermark();
-            },
-          });
-        }
-        if (onToggleFoldWatermark) {
-          bgItems.push({
-            icon: foldWatermark ? Check : undefined,
-            label: 'Background: Folding',
-            onSelect: () => {
-              if (!foldWatermark) onToggleFoldWatermark();
-            },
-          });
-        }
-        items.push(...bgItems);
+        items.push({
+          icon: Image,
+          label: 'Background',
+          children: backgroundOptions.map((opt) => ({
+            icon: background === opt.value ? Check : undefined,
+            label: opt.label,
+            onSelect: () => onBackgroundChange(opt.value),
+          })),
+        });
       }
       showContextMenu(e.clientX, e.clientY, items);
     },
@@ -2564,10 +2546,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       blastEnabled,
       blastBusy,
       handleBlastSelection,
-      mapWatermark,
-      foldWatermark,
-      onToggleMapWatermark,
-      onToggleFoldWatermark,
+      background,
+      backgroundOptions,
+      onBackgroundChange,
     ],
   );
 

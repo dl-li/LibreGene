@@ -169,7 +169,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 - **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
-- **质粒图视图 / Map 水印 / RNA 折叠水印**（foldWatermark 与 mapWatermark 互斥，localStorage + Tauri 广播同步）、**选区 badge 分子量**：纯渲染
+- **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none}，Tauri 广播同步；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
 - **Agent 标签解锁按钮/导航控制条**：纯前端；锁定状态后端持有，MCP 不暴露
 - **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态
