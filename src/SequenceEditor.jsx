@@ -1439,9 +1439,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const segs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
             segs.forEach((m, mi) => {
               // 5' tail extends left of matchStart (fwd) / right of matchEnd (rev)
-              const vs = isFwd && mi === 0 ? m.start - ml : m.start;
-              const ve = !isFwd && mi === segs.length - 1 ? m.end + ml : m.end;
-              if (ve < rs || vs > re) return;
+              const rawVs = isFwd && mi === 0 ? m.start - ml : m.start;
+              const rawVe = !isFwd && mi === segs.length - 1 ? m.end + ml : m.end;
+              if (rawVe < rs || rawVs > re) return;
+              // 1nt judgment buffer on the 3' (arrow-tip) side so two abutting
+              // primers don't share a track and bleed into each other
+              const vs = !isFwd && mi === 0 ? rawVs - 1 : rawVs;
+              const ve = isFwd && mi === segs.length - 1 ? rawVe + 1 : rawVe;
               if (!pTracks[p.id]) pTracks[p.id] = {};
               let placed = false;
               for (let i = 0; i < rowTracks.length; i++) {
