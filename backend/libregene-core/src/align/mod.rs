@@ -30,11 +30,42 @@ pub enum AlignReject {
     LowIdentity { identity: f64, span: usize },
 }
 
+/// Traceback-matrix cell budget for a full-template Smith–Waterman run.
+/// Above this, alignment goes through seed-and-extend instead. 16M cells
+/// keeps debug builds responsive (~0.5 s) while small plasmid × Sanger-read
+/// cases stay on the exact full-matrix path.
+const FULL_SW_CELL_CAP: u64 = 16_000_000;
+/// Cell budget for the banded SW around a seeded diagonal. Caps the band
+/// width for long reads so the banded pass stays fast in debug builds.
+const MAX_BANDED_CELLS: usize = 8_000_000;
+/// Exact-match anchor length for seed-and-extend.
+const SEED_K: usize = 15;
+/// Seeds more frequent than this are treated as repetitive and ignored.
+const MAX_SEED_HITS: usize = 100;
+
 fn matches_base(a: u8, b: u8) -> bool {
     a == b && matches!(a, b'A' | b'C' | b'G' | b'T')
 }
 
+/// 2-bit encode a k-mer; `None` if any base is not ACGT.
+fn encode_kmer(s: &[u8]) -> Option<u64> {
+    let mut v = 0u64;
+    for &b in s {
+        let bits = match b {
+            b'A' => 0,
+            b'C' => 1,
+            b'G' => 2,
+            b'T' => 3,
+            _ => return None,
+        };
+        v = (v << 2) | bits;
+    }
+    Some(v)
+}
+
 struct SwResult {
+    /// Best local score (from the DP).
+    score: i32,
     /// Aligned template chars ('-' = gap in template), 5'→3'.
     t_aln: Vec<u8>,
     /// Aligned read chars ('-' = gap in read), 5'→3'.
@@ -125,11 +156,223 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
     r_aln.reverse();
 
     Some(SwResult {
+        score: best,
         t_aln,
         r_aln,
         t_start: j,
         t_end: bj - 1,
     })
+}
+
+/// Dispatch: full-matrix SW when the traceback matrix fits the cell budget,
+/// otherwise seed-and-extend (exact k-mer anchors → windowed SW).
+fn sw_dispatch(t: &[u8], r: &[u8]) -> Option<SwResult> {
+    let cells = (t.len() as u64 + 1) * (r.len() as u64 + 1);
+    if cells <= FULL_SW_CELL_CAP {
+        smith_waterman(t, r)
+    } else {
+        smith_waterman_seeded(t, r)
+    }
+}
+
+/// Banded Smith–Waterman around diagonal `diag` (template_pos − read_pos):
+/// only cells with |j − (i + diag)| ≤ band are computed, everything else
+/// floors to 0. Returns the best in-band alignment plus an `edge` flag;
+/// `edge = true` means the best cell or its traceback runs along the band
+/// boundary, so the true optimum may lie outside the band and the caller
+/// should widen (windowed full SW) instead of trusting this result.
+fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<SwResult>, bool) {
+    let n = t.len();
+    let m = r.len();
+    let width = 2 * band + 1;
+    let lo_of = |i: usize| ((diag + i as i64 - band as i64).max(1)) as usize;
+    let hi_of = |i: usize| ((diag + i as i64 + band as i64).clamp(0, n as i64)) as usize;
+
+    // prev/cur are indexed by absolute template column; only the band
+    // window [lo, hi] is written per row and the left fringe is zeroed, so
+    // out-of-band reads always see 0 (the window shifts right by ≤ 1/row).
+    let mut trace = vec![0u8; width * (m + 1)];
+    let mut prev = vec![0i32; n + 1];
+    let mut cur = vec![0i32; n + 1];
+    let mut best = 0i32;
+    let (mut bi, mut bj) = (0usize, 0usize);
+    let mut edge = false;
+
+    for i in 1..=m {
+        let lo = lo_of(i);
+        let hi = hi_of(i);
+        if lo > hi {
+            continue;
+        }
+        cur[lo - 1] = 0;
+        for j in lo..=hi {
+            let s = if matches_base(r[i - 1], t[j - 1]) { MATCH } else { MISMATCH };
+            let diag_s = prev[j - 1] + s;
+            let up = prev[j] + GAP;
+            let left = cur[j - 1] + GAP;
+            let mut v = 0i32;
+            let mut dir = 0u8;
+            if diag_s > v {
+                v = diag_s;
+                dir = 1;
+            }
+            if up > v {
+                v = up;
+                dir = 2;
+            }
+            if left > v {
+                v = left;
+                dir = 3;
+            }
+            cur[j] = v;
+            trace[i * width + (j - lo)] = dir;
+            if v > best {
+                best = v;
+                bi = i;
+                bj = j;
+            }
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+
+    if best <= 0 {
+        return (None, true);
+    }
+
+    let mut t_aln = Vec::new();
+    let mut r_aln = Vec::new();
+    let (mut i, mut j) = (bi, bj);
+    while i > 0 && j > 0 {
+        let lo = lo_of(i);
+        let c = j.wrapping_sub(lo);
+        if c >= width {
+            edge = true;
+            break;
+        }
+        if c == 0 || c == width - 1 {
+            edge = true;
+        }
+        match trace[i * width + c] {
+            1 => {
+                t_aln.push(t[j - 1]);
+                r_aln.push(r[i - 1]);
+                i -= 1;
+                j -= 1;
+            }
+            2 => {
+                t_aln.push(b'-');
+                r_aln.push(r[i - 1]);
+                i -= 1;
+            }
+            3 => {
+                t_aln.push(t[j - 1]);
+                r_aln.push(b'-');
+                j -= 1;
+            }
+            _ => break,
+        }
+    }
+    // Best cell sitting on the band boundary is also untrusted.
+    if (bj as i64 - (diag + bi as i64)).abs() as usize >= band {
+        edge = true;
+    }
+    t_aln.reverse();
+    r_aln.reverse();
+
+    (
+        Some(SwResult {
+            score: best,
+            t_aln,
+            r_aln,
+            t_start: j,
+            t_end: bj - 1,
+        }),
+        edge,
+    )
+}
+
+/// Seed-and-extend for matrices too large for a full traceback: index
+/// template k-mers, vote on the implied diagonal (template_pos − read_pos),
+/// then run banded SW around the top diagonals, widening to a read-length
+/// windowed full SW when the band is too narrow (indels shift the diagonal
+/// mid-read). Returns `None` when no anchor exists (divergent read).
+fn smith_waterman_seeded(t: &[u8], r: &[u8]) -> Option<SwResult> {
+    use std::collections::HashMap;
+    let n = t.len();
+    let m = r.len();
+    if n < SEED_K || m < SEED_K {
+        return None;
+    }
+
+    let mut index: HashMap<u64, Vec<u32>> = HashMap::with_capacity(n / 2);
+    for j in 0..=(n - SEED_K) {
+        if let Some(k) = encode_kmer(&t[j..j + SEED_K]) {
+            index.entry(k).or_default().push(j as u32);
+        }
+    }
+
+    let mut votes: HashMap<i64, u32> = HashMap::new();
+    for i in 0..=(m - SEED_K) {
+        if let Some(kmer) = encode_kmer(&r[i..i + SEED_K]) {
+            if let Some(positions) = index.get(&kmer) {
+                if positions.len() > MAX_SEED_HITS {
+                    continue;
+                }
+                for &p in positions {
+                    *votes.entry(p as i64 - i as i64).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    // Deterministic order: vote count desc, then diagonal asc (ties are
+    // common on repetitive templates; HashMap iteration order is not stable).
+    let mut diagonals: Vec<(i64, u32)> = votes.into_iter().collect();
+    diagonals.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    let band = ((m / 8) + 64).min((MAX_BANDED_CELLS / (2 * m + 1)).max(64));
+    // Good enough that no other diagonal is worth trying (≈ ≥90% identity).
+    let good_enough = MATCH * m as i32 * 9 / 10;
+    let mut best: Option<SwResult> = None;
+    let mut tried: Vec<i64> = Vec::new();
+    let mut edged: Vec<i64> = Vec::new();
+    for (diag, _) in diagonals.iter().take(8) {
+        // Diagonals within one band of a tried one cover the same cells.
+        if tried.iter().any(|d| (d - diag).abs() <= band as i64) {
+            continue;
+        }
+        tried.push(*diag);
+        let (res, edge) = smith_waterman_banded(t, r, *diag, band);
+        match (res, edge) {
+            (Some(sw), false) => {
+                if sw.score >= good_enough {
+                    return Some(sw);
+                }
+                if best.as_ref().map_or(true, |b| sw.score > b.score) {
+                    best = Some(sw);
+                }
+            }
+            (Some(_), true) | (None, true) => edged.push(*diag),
+            (None, false) => {}
+        }
+    }
+    if let Some(sw) = best {
+        return Some(sw);
+    }
+
+    // Every anchored diagonal hit the band edge (or none scored): widen to a
+    // windowed full SW. The margin must absorb the indel-driven diagonal shift.
+    let margin = (m / 4 + 32) as i64;
+    for diag in edged.into_iter().take(3) {
+        let start = (diag - margin).max(0) as usize;
+        let end = ((diag + m as i64 + margin).min(n as i64)).max(start as i64) as usize;
+        if let Some(mut sw) = smith_waterman(&t[start..end], r) {
+            sw.t_start += start;
+            sw.t_end += start;
+            return Some(sw);
+        }
+    }
+    None
 }
 
 /// Build the render-oriented [`Alignment`] from a traceback, or the reason
@@ -294,7 +537,7 @@ pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<
     }
 
     let t2 = if circular { format!("{}{}", t, t) } else { t };
-    let fwd = smith_waterman(t2.as_bytes(), r.as_bytes())
+    let fwd = sw_dispatch(t2.as_bytes(), r.as_bytes())
         .ok_or(AlignReject::NoSignificantAlignment)
         .and_then(|f| build_alignment(&f, r.clone(), "+", read.len(), tlen));
     if let Ok(ref a) = fwd {
@@ -304,7 +547,7 @@ pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<
     }
 
     let rc = crate::utils::reverse_complement(&r);
-    let rev = smith_waterman(t2.as_bytes(), rc.as_bytes())
+    let rev = sw_dispatch(t2.as_bytes(), rc.as_bytes())
         .ok_or(AlignReject::NoSignificantAlignment)
         .and_then(|v| build_alignment(&v, rc, "-", read.len(), tlen));
 
@@ -531,5 +774,77 @@ mod tests {
             diff.aligned_length,
             aln.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>()
         );
+    }
+
+    // Long-template tests force the seed-and-extend path (matrix over the
+    // full-SW cell cap) and must stay fast.
+
+    #[test]
+    fn test_long_template_anchored() {
+        let t = make_template(100_000, 101);
+        // 3 kb read from mid-template with 3 substitutions, a 4 bp deletion
+        // and a 3 bp insertion.
+        let mut read: Vec<u8> = t[40_000..43_000].bytes().collect();
+        for (i, b) in [(100, b'C'), (1_500, b'A'), (2_900, b'G')] {
+            if read[i] == b {
+                read[i] = b'T';
+            } else {
+                read[i] = b;
+            }
+        }
+        read.drain(2_000..2_004); // 4 bp deletion
+        read.splice(500..500, b"TTT".iter().copied()); // 3 bp insertion
+        let read = String::from_utf8(read).unwrap();
+
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.strand, "+");
+        assert_eq!(aln.segments.len(), 1);
+        assert_eq!(aln.segments[0].start, 40_000);
+        assert_eq!(aln.segments[0].end, 42_999);
+        assert!(aln.identity >= 0.99, "identity {}", aln.identity);
+        let diff = alignment_diff(&aln, &t);
+        assert_eq!(diff.mismatches.len(), 3);
+        // The 4 bp deletion sits in an A run and may be split by tie-breaking;
+        // assert the total rather than the grouping.
+        assert_eq!(diff.deletions.iter().map(|d| d.length).sum::<usize>(), 4);
+        assert_eq!(diff.insertions.len(), 1);
+        assert_eq!(diff.insertions[0].bases, "TTT");
+    }
+
+    #[test]
+    fn test_long_template_reverse_complement() {
+        let t = make_template(100_000, 103);
+        let read = crate::utils::reverse_complement(&t[50_000..53_000]);
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.strand, "-");
+        assert_eq!(aln.seq, t[50_000..53_000]);
+        assert_eq!(aln.segments.len(), 1);
+        assert_eq!(aln.segments[0].start, 50_000);
+        assert_eq!(aln.segments[0].end, 52_999);
+        assert!((aln.identity - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_long_template_circular_wrap() {
+        let t = make_template(60_000, 107);
+        // 3 kb read straddling the origin: last 1500 bp + first 1500 bp.
+        let read = format!("{}{}", &t[58_500..60_000], &t[0..1_500]);
+        let aln = align_read(&t, &read, true).unwrap();
+        assert_eq!(aln.segments.len(), 2);
+        assert_eq!(aln.segments[0].start, 58_500);
+        assert_eq!(aln.segments[0].end, 59_999);
+        assert_eq!(aln.segments[0].chars, t[58_500..60_000]);
+        assert_eq!(aln.segments[1].start, 0);
+        assert_eq!(aln.segments[1].end, 1_499);
+        assert_eq!(aln.segments[1].chars, t[0..1_500]);
+        assert!((aln.identity - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_long_template_divergent_read() {
+        let t = make_template(100_000, 109);
+        let read = make_template(3_000, 113);
+        assert!(align_read(&t, &read, false).is_none());
+        assert!(align_read_checked(&t, &read, false).is_err());
     }
 }
