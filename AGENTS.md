@@ -64,7 +64,7 @@ LibreGene/
 │   ├── api.js / tauriApi.js    # HTTP/WS 客户端 / Tauri IPC 客户端
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
-│   ├── plugins/                # 静态插件注册表 index.js；含 alignment/orf/primerDesign/rnaFold/codonOptimization/blast
+│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/codonOptimization/blast
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库（models/project、orf、search、codon、digest、enzyme/、primer/、file_io/）
 └── src-tauri/src/
