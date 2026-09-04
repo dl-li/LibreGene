@@ -1063,25 +1063,25 @@ export default function App() {
           <span className="text-[10px] leading-tight text-muted-foreground">Plasmid Editor</span>
         </div>
       </SidebarHeader>
+      <SidebarGroup>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={handleOpenFile} tooltip="Open File">
+                <FolderOpen className="size-4" />
+                <span>Open File…</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
+                <FilePlus2 className="size-4" />
+                <span>New File…</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={handleOpenFile} tooltip="Open File">
-                  <FolderOpen className="size-4" />
-                  <span>Open File…</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
-                  <FilePlus2 className="size-4" />
-                  <span>New File…</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
         {visibleRecent.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
           <Collapsible open={recentOpen} onOpenChange={setRecentOpen}>
             <SidebarGroup className="pt-0">
@@ -1207,7 +1207,9 @@ export default function App() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        <SidebarGroup className="mt-auto">
+      </SidebarContent>
+      <SidebarFooter className="p-0">
+        <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
               {visiblePlugins.flatMap((plugin) =>
@@ -1269,7 +1271,7 @@ export default function App() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-      </SidebarContent>
+      </SidebarFooter>
     </Sidebar>
   );
 
