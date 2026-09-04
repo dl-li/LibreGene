@@ -94,8 +94,17 @@ export async function getProject(filter = 'unique', cpl = 60) {
   return tauriInvoke('get_project', { enzymeFilter: filter, cpl });
 }
 
-export async function openFile(path) {
-  return tauriInvoke('open_file', { path });
+export async function openFile(path, recordIndex) {
+  return tauriInvoke('open_file', { path, recordIndex: recordIndex ?? null });
+}
+
+/**
+ * Scan a FASTA file's records (name + length) without opening it, so the
+ * caller can offer to split a multi-record file into separate projects.
+ * Returns `{ records: [{name, length}] }` (empty for non-FASTA extensions).
+ */
+export async function peekFastaRecords(path) {
+  return tauriInvoke('peek_fasta_records', { path });
 }
 
 /**
