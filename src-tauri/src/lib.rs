@@ -2723,27 +2723,32 @@ fn compute_primer_alignment_sync(
                 })
             };
             if sw_ok.is_none() {
-                results.push(serde_json::json!({
-                    "tm": (c.est_tm * 10.0).round() / 10.0,
-                    "strand": if c.is_rev { -1 } else { 1 },
-                    "start": (tp - c.footprint_len + 1) as i64,
-                    "end": tp as i64 + 1,
-                    "alignment": null,
-                }));
+                results.push(fallback_site_json(c, tp));
             }
         } else {
-            results.push(serde_json::json!({
-                "tm": (c.est_tm * 10.0).round() / 10.0,
-                "strand": if c.is_rev { -1 } else { 1 },
-                "start": (tp - c.footprint_len + 1) as i64,
-                "end": tp as i64 + 1,
-                "alignment": null,
-            }));
+            results.push(fallback_site_json(c, tp));
         }
     }
 
     let current = results.remove(0);
     Ok(serde_json::json!({ "current": current, "alternatives": results }))
+}
+
+/// Coordinates for a candidate when no SW alignment is available. Forward
+/// footprints end at `tp_3prime`; reverse footprints start there.
+fn fallback_site_json(c: &BindingSiteCandidate, tp: usize) -> serde_json::Value {
+    let (start, end) = if c.is_rev {
+        (tp as i64, (tp + c.footprint_len) as i64)
+    } else {
+        ((tp + 1 - c.footprint_len) as i64, tp as i64 + 1)
+    };
+    serde_json::json!({
+        "tm": (c.est_tm * 10.0).round() / 10.0,
+        "strand": if c.is_rev { -1 } else { 1 },
+        "start": start,
+        "end": end,
+        "alignment": null,
+    })
 }
 
 enum SearchMode { Forward, Reverse }
@@ -3931,6 +3936,27 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+
+    #[test]
+    fn primer_alignment_rev_tail_at_circular_end() {
+        // Regression: a reverse primer whose binding site ends at the very end
+        // of a circular template and carries a non-matching 5' tail must still
+        // produce an alignment (the tail overhang stays unaligned).
+        let template: &str = "GCCACCATGGATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCGGAGCAATCACAGGTGAGCAAAAAA";
+        let primer = "ccgctcgagTTTTTTGCTCACCTGTGATTGCTCC";
+        let tm = libregene_core::primer::thermodynamics::TmParams {
+            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+        };
+        let res = compute_primer_alignment_sync(template, true, "TIGR3-XhoI-R", primer, None, &tm)
+            .expect("alignment computation failed");
+        let cur = &res["current"];
+        assert_eq!(cur["strand"], serde_json::json!(-1));
+        let aln = cur["alignment"].as_str().expect("alignment text missing");
+        assert!(aln.contains("3' <"), "expected reverse-primer arrows:\n{}", aln);
+        assert!(aln.contains("GGAGCAATCACAGGTGAGCAAAAAA"), "template line:\n{}", aln);
+    }
 
     #[test]
     fn validate_path_accepts_normal_sequence_file() {
