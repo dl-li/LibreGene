@@ -119,10 +119,15 @@ fn search_one_strand(
         seen.insert(site.template_start);
 
         let t_start = site.template_start;
-        let t_end = if is_circular {
-            (t_start + site.footprint_len) % tlen
+        // template_end is 0-based exclusive; a site ending exactly on the last
+        // base keeps tlen (== 1-based inclusive end). Only a genuine overshoot
+        // wraps to a small residue — % tlen would wrongly map tlen → 0 and make
+        // the site look like it spans the whole circle.
+        let raw_end = t_start + site.footprint_len;
+        let t_end = if is_circular && raw_end > tlen {
+            raw_end - tlen
         } else {
-            t_start + site.footprint_len
+            raw_end
         };
 
         // Template region spanned by the footprint.
@@ -392,6 +397,28 @@ mod tests {
 
         let bad_sites = compute_binding_sites(template, bad_primer, "rev", "P1", "linear", 0.0);
         assert!(bad_sites.is_empty(), "primer with 3' mismatch should NOT bind");
+    }
+
+    #[test]
+    fn test_circular_site_ending_at_last_base_keeps_tlen_end() {
+        // Footprint ends exactly on the last template base: template_end is
+        // 0-based exclusive and must stay tlen (== 1-based inclusive end),
+        // not wrap to 0 via % tlen (which renders as a full-circle site).
+        let primer = "AAAACCCCGGGGTTTTACGT";
+        let rc = crate::utils::reverse_complement(primer);
+        let template = format!("TTGAC{}", rc);
+        let tlen = template.len() as i64;
+        let sites = compute_binding_sites(&template, primer, "rev", "P1", "circular", 0.0);
+        let s = sites.iter().find(|s| s.strand == -1).expect("rev site");
+        assert_eq!(s.template_start, 5);
+        assert_eq!(s.template_end, tlen);
+
+        // Same for a fwd primer matching the template end directly.
+        let fwd_template = format!("TTGAC{}", primer);
+        let sites = compute_binding_sites(&fwd_template, primer, "fwd", "P2", "circular", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.template_start, 5);
+        assert_eq!(s.template_end, tlen);
     }
 
     #[test]

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { cn } from '@/lib/utils';
 import {
   openFile,
+  peekFastaRecords,
   createProject,
   isTauri,
   openFileDialog,
@@ -29,12 +31,14 @@ import ProjectWorkspace from './ProjectWorkspace';
 import SettingsPage from './components/SettingsPage';
 import McpGuideDialog from './components/McpGuideDialog';
 import NewSequenceDialog from './NewSequenceDialog';
+import FastaSplitDialog from './FastaSplitDialog';
 import TitleBar from './components/TitleBar';
 import ContextMenuHost from './components/ContextMenuHost';
 import {
   SidebarProvider,
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -67,7 +71,6 @@ import {
   Puzzle,
   Bot,
   Lock,
-  Map as MapIcon,
   Clock,
 } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
@@ -164,6 +167,10 @@ export default function App() {
     }
   }, []);
   const [backendStatus, setBackendStatus] = useState(isTauri ? 'online' : 'offline');
+  // True when the decoration plugin can't take over the titlebar (Linux/X11)
+  // and TitleBar hides itself; the sidebar must drop its reserved top padding.
+  const [titleBarFallback, setTitleBarFallback] = useState(false);
+  const handleTitleBarFallback = useCallback(() => setTitleBarFallback(true), []);
 
   // Multi-project state
   const [projects, setProjects] = useState([]);
@@ -203,7 +210,7 @@ export default function App() {
   const [showEnzymes, setShowEnzymes] = useState(true);
   const [enzymeFilter, setEnzymeFilter] = useState(() => {
     try {
-      const v = localStorage.getItem('enzymeFilter');
+      const v = JSON.parse(localStorage.getItem('enzymeFilter'));
       return v && ENZYME_FILTER_VALUES.has(v) ? v : 'unique+twice';
     } catch {
       return 'unique+twice';
@@ -237,6 +244,8 @@ export default function App() {
   const [dropResult, setDropResult] = useState(null);
   // Per-file failures from the Open File dialog: [{ path, error }]
   const [openError, setOpenError] = useState(null);
+  // Multi-record FASTA pending split: { path, records: [{ name, length }] }
+  const [fastaSplit, setFastaSplit] = useState(null);
   // Tray Quit blocked by unsaved changes: array of dirty project ids
   const [quitRequest, setQuitRequest] = useState(null);
   const handlesRef = useRef({}); // { [projectId]: workspace imperative handle }
@@ -292,6 +301,26 @@ export default function App() {
   useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
+
+  // Scroll-edge fades for the sidebar list: show a fade-out at the top/bottom
+  // when there are more items hidden in that direction.
+  const sidebarContentRef = useRef(null);
+  const [sidebarScroll, setSidebarScroll] = useState({ up: false, down: false });
+  useEffect(() => {
+    const el = sidebarContentRef.current;
+    if (!el) return;
+    const update = () => {
+      setSidebarScroll({
+        up: el.scrollTop > 1,
+        down: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+      });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    for (const child of el.children) ro.observe(child);
+    return () => ro.disconnect();
+  }, [projects.length]);
 
   // Sidebar hover state
   const [sidebarHover, setSidebarHover] = useState(false);
@@ -450,12 +479,19 @@ export default function App() {
     return () => listener.close();
   }, [windowInfo]);
 
-  // Title: filename of the active project, or the app name
-  const activeTitle = activeId
-    ? activeId.split('/').pop().split('\\').pop()
-    : windowInfo && windowInfo.type !== 'main'
-      ? windowInfo.projectId.split('/').pop().split('\\').pop()
-      : 'LibreGene';
+  // Extract filename from path
+  const fileName = (p) => {
+    const s = (p.name || p.id || '').replace(/\\/g, '/');
+    return s.split('/').pop() || s;
+  };
+
+  // Title: display name of the active project (the list name carries the
+  // entered name for unsaved `untitled-*` projects), or the app name
+  const titleSourceId =
+    activeId || (windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : null);
+  const activeTitle = titleSourceId
+    ? fileName(projects.find((p) => p.id === titleSourceId) || { id: titleSourceId })
+    : 'LibreGene';
   const titleId = windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : activeId;
   const activeDirty = titleId ? dirtyById[titleId] === true : false;
   useEffect(() => {
@@ -527,12 +563,25 @@ export default function App() {
     const paths = await openFileDialog(lastDir || undefined);
     if (!paths || !paths.length) return;
     const failed = [];
+    let splitPending = null;
     for (const p of paths) {
       // Reopening an already-open path would replace the project and lose
       // unsaved edits — just activate it instead
       if (projects.some((pr) => pr.id === p)) {
         handleSwitchProject(p);
         continue;
+      }
+      // Multi-record FASTA: ask whether to split into separate projects.
+      // Only one such dialog per batch — later files fall back to the first
+      // record (historical behavior).
+      try {
+        const peek = await peekFastaRecords(p);
+        if (peek && peek.records && peek.records.length > 1 && !splitPending) {
+          splitPending = { path: p, records: peek.records };
+          continue;
+        }
+      } catch {
+        // Peek failure is not fatal — open normally below.
       }
       try {
         const data = await openFile(p);
@@ -549,7 +598,42 @@ export default function App() {
     }
     await refreshProjects();
     if (failed.length > 0) setOpenError(failed);
+    if (splitPending) setFastaSplit(splitPending);
   }, [projects, refreshProjects, handleSwitchProject]);
+
+  // FastaSplitDialog choice: 'split' opens every record as its own project
+  // (project id `<path>#record-<i>`), 'first' opens record 0 only, null = cancel.
+  const handleFastaSplitChoice = useCallback(
+    async (choice) => {
+      const target = fastaSplit;
+      setFastaSplit(null);
+      if (!target || !choice) return;
+      const indices = choice === 'split' ? target.records.map((_, i) => i) : [0];
+      const failed = [];
+      setRecentFiles(addRecentFile(target.path));
+      for (const i of indices) {
+        try {
+          const data = await openFile(target.path, i);
+          if (data && data.sequence) {
+            initialDataRef.current[`${target.path}#record-${i}`] = data;
+          } else {
+            failed.push({
+              path: `${fileNameOf(target.path)} (record ${i + 1})`,
+              error: data?.error || 'Not a readable sequence file',
+            });
+          }
+        } catch (e) {
+          failed.push({
+            path: `${fileNameOf(target.path)} (record ${i + 1})`,
+            error: e?.message || String(e),
+          });
+        }
+      }
+      await refreshProjects();
+      if (failed.length > 0) setOpenError(failed);
+    },
+    [fastaSplit, refreshProjects],
+  );
 
   // Create an in-memory project from the New Sequence dialog; hand the
   // response to the new workspace (same pattern as handleOpenFile).
@@ -724,12 +808,6 @@ export default function App() {
       console.error('open in new window error:', e);
     }
   }, []);
-
-  // Extract filename from path
-  const fileName = (p) => {
-    const s = (p.name || p.id || '').replace(/\\/g, '/');
-    return s.split('/').pop() || s;
-  };
 
   // Recent group is collapsible (default collapsed); already-open files are hidden from it
   const [recentOpen, setRecentOpen] = useState(false);
@@ -979,7 +1057,7 @@ export default function App() {
     <Sidebar
       collapsible="icon"
       variant="sidebar"
-      className="pt-10 transition-[width] duration-300 ease-out"
+      className={`${titleBarFallback ? '' : 'pt-10 '}transition-[width] duration-300 ease-out`}
     >
       <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-2.5 pb-2 pt-1.5">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
@@ -1005,122 +1083,158 @@ export default function App() {
           <span className="text-[10px] leading-tight text-muted-foreground">Plasmid Editor</span>
         </div>
       </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={handleOpenFile} tooltip="Open File">
-                  <FolderOpen className="size-4" />
-                  <span>Open File…</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
-                  <FilePlus2 className="size-4" />
-                  <span>New File…</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        {visibleRecent.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
-          <Collapsible open={recentOpen} onOpenChange={setRecentOpen}>
+      <SidebarGroup>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={handleOpenFile} tooltip="Open File">
+                <FolderOpen className="size-4" />
+                <span>Open File…</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
+                <FilePlus2 className="size-4" />
+                <span>New File…</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 top-0 z-10 h-7 bg-gradient-to-b from-sidebar from-30% to-transparent transition-opacity duration-200',
+            sidebarScroll.up ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 bottom-0 z-10 h-7 bg-gradient-to-t from-sidebar from-30% to-transparent transition-opacity duration-200',
+            sidebarScroll.down ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+        <SidebarContent
+          ref={sidebarContentRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setSidebarScroll({
+              up: el.scrollTop > 1,
+              down: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+            });
+          }}
+        >
+          {visibleRecent.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
+            <Collapsible open={recentOpen} onOpenChange={setRecentOpen}>
+              <SidebarGroup className="pt-0">
+                <CollapsibleTrigger asChild>
+                  <SidebarGroupLabel className="cursor-pointer select-none hover:text-sidebar-foreground">
+                    <Clock className="mr-1.5 size-3" />
+                    <span className="uppercase tracking-wider text-[10px] font-semibold">
+                      Recent
+                    </span>
+                    <ChevronDown
+                      className={`ml-auto size-3.5 shrink-0 transition-transform duration-200 ${recentOpen ? 'rotate-0' : '-rotate-90'}`}
+                    />
+                  </SidebarGroupLabel>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {visibleRecent.slice(0, 8).map((p) => {
+                        const name = fileNameOf(p);
+                        const Icon = getFileIcon(name);
+                        return (
+                          <SidebarMenuItem key={p}>
+                            <SidebarMenuButton
+                              onClick={() => handleOpenRecent(p)}
+                              tooltip={p}
+                              className="flex-1 min-w-0 pr-5"
+                            >
+                              <Icon className="size-4 shrink-0" />
+                              <span className="truncate">{name}</span>
+                            </SidebarMenuButton>
+                            <button
+                              type="button"
+                              aria-label="Remove from recent"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveRecent(p);
+                              }}
+                              title="Remove from recent"
+                              className="absolute right-2 top-1/2 hidden -translate-y-1/2 size-4 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </SidebarMenuItem>
+                        );
+                      })}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </CollapsibleContent>
+              </SidebarGroup>
+            </Collapsible>
+          )}
+          {projects.length > 0 && (
             <SidebarGroup className="pt-0">
-              <CollapsibleTrigger asChild>
-                <SidebarGroupLabel className="cursor-pointer select-none hover:text-sidebar-foreground">
-                  <Clock className="mr-1.5 size-3" />
-                  <span className="uppercase tracking-wider text-[10px] font-semibold">Recent</span>
-                  <ChevronDown
-                    className={`ml-auto size-3.5 shrink-0 transition-transform duration-200 ${recentOpen ? 'rotate-0' : '-rotate-90'}`}
-                  />
-                </SidebarGroupLabel>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {visibleRecent.slice(0, 8).map((p) => {
-                      const name = fileNameOf(p);
-                      const Icon = getFileIcon(name);
-                      return (
-                        <SidebarMenuItem key={p}>
-                          <SidebarMenuButton
-                            onClick={() => handleOpenRecent(p)}
-                            tooltip={p}
-                            className="flex-1 min-w-0 pr-5"
-                          >
-                            <Icon className="size-4 shrink-0" />
-                            <span className="truncate">{name}</span>
-                          </SidebarMenuButton>
+              <SidebarGroupLabel>
+                <span className="uppercase tracking-wider text-[10px] font-semibold">Opened</span>
+                <span className="ml-1.5 rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-sidebar-accent-foreground">
+                  {projects.length}
+                </span>
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {projects.map((p) => {
+                    const isActiveProject = p.id === activeId;
+                    const isProjectDirty = dirtyById[p.id] === true;
+                    const name = fileName(p);
+                    const Icon = getFileIcon(name);
+                    return (
+                      <SidebarMenuItem key={p.id}>
+                        {isActiveProject && (
+                          <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
+                        )}
+                        <SidebarMenuButton
+                          onClick={() => handleSwitchProject(p.id)}
+                          isActive={isActiveProject}
+                          tooltip={name}
+                          className={`flex-1 min-w-0 ${
+                            !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
+                          }`}
+                        >
+                          <Icon className="size-4 shrink-0" />
+                          <span className="truncate">{name}</span>
+                        </SidebarMenuButton>
+                        {isProjectDirty && (
+                          <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
+                        )}
+                        {!windowInfo || windowInfo.type !== 'project' ? (
+                          <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden">
+                            <button
+                              className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenInNewWindow(p.id);
+                              }}
+                              title="Open in new window"
+                            >
+                              <ExternalLink className="size-3" />
+                            </button>
+                            <button
+                              className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCloseProject(p.id);
+                              }}
+                              title="Close"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </div>
+                        ) : (
                           <button
-                            type="button"
-                            aria-label="Remove from recent"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveRecent(p);
-                            }}
-                            title="Remove from recent"
-                            className="absolute right-2 top-1/2 hidden -translate-y-1/2 size-4 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex"
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </SidebarMenuItem>
-                      );
-                    })}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </CollapsibleContent>
-            </SidebarGroup>
-          </Collapsible>
-        )}
-        {projects.length > 0 && (
-          <SidebarGroup className="pt-0">
-            <SidebarGroupLabel>
-              <span className="uppercase tracking-wider text-[10px] font-semibold">Opened</span>
-              <span className="ml-1.5 rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-sidebar-accent-foreground">
-                {projects.length}
-              </span>
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {projects.map((p) => {
-                  const isActiveProject = p.id === activeId;
-                  const isProjectDirty = dirtyById[p.id] === true;
-                  const name = fileName(p);
-                  const Icon = getFileIcon(name);
-                  return (
-                    <SidebarMenuItem key={p.id}>
-                      {isActiveProject && (
-                        <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
-                      )}
-                      <SidebarMenuButton
-                        onClick={() => handleSwitchProject(p.id)}
-                        isActive={isActiveProject}
-                        tooltip={name}
-                        className={`flex-1 min-w-0 ${
-                          !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
-                        }`}
-                      >
-                        <Icon className="size-4 shrink-0" />
-                        <span className="truncate">{name}</span>
-                      </SidebarMenuButton>
-                      {isProjectDirty && (
-                        <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
-                      )}
-                      {!windowInfo || windowInfo.type !== 'project' ? (
-                        <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden">
-                          <button
-                            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenInNewWindow(p.id);
-                            }}
-                            title="Open in new window"
-                          >
-                            <ExternalLink className="size-3" />
-                          </button>
-                          <button
-                            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
+                            className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCloseProject(p.id);
@@ -1129,27 +1243,18 @@ export default function App() {
                           >
                             <X className="size-3" />
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCloseProject(p.id);
-                          }}
-                          title="Close"
-                        >
-                          <X className="size-3" />
-                        </button>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-        <SidebarGroup className="mt-auto">
+                        )}
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+        </SidebarContent>
+      </div>
+      <SidebarFooter className="p-0">
+        <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
               {visiblePlugins.flatMap((plugin) =>
@@ -1168,16 +1273,6 @@ export default function App() {
                   </SidebarMenuItem>
                 )),
               )}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => handlesRef.current[sidebarTargetId]?.openMapView()}
-                  tooltip="Plasmid Map"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <MapIcon className="size-4" />
-                  <span>Map</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => setMcpGuideOpen(true)}
@@ -1211,7 +1306,7 @@ export default function App() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-      </SidebarContent>
+      </SidebarFooter>
     </Sidebar>
   );
 
@@ -1219,7 +1314,7 @@ export default function App() {
     <TooltipProvider>
       <SidebarProvider open={sidebarHover} style={{ '--sidebar-width': '14rem' }}>
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
-          <TitleBar title={activeTitle} dirty={activeDirty} />
+          <TitleBar title={activeTitle} dirty={activeDirty} onFallback={handleTitleBarFallback} />
           {/* Locked agent tab: the bottom nav menu is replaced by a
               teal-outlined control pill (SequenceEditor), which also blocks
               nav-level misoperation. The workspace itself stays interactive —
@@ -1507,6 +1602,8 @@ export default function App() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* --- Multi-record FASTA: split into separate projects? --- */}
+        <FastaSplitDialog target={fastaSplit} onChoice={handleFastaSplitChoice} />
         {/* --- Tray Quit: unsaved-changes confirmation --- */}
         <Dialog
           open={!!quitRequest}

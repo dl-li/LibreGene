@@ -685,13 +685,20 @@ fn align_first_base_constrained_impl(
         }
     }
 
-    // Find best score: query RIGHT end is free (5' side), so only dp[n][*].
+    // Find best score: query RIGHT end is free (the original primer's 5' tail
+    // may be a non-matching overhang), and the template right end is free too,
+    // so any cell with i >= 1 may end the alignment (the constrained first
+    // base must participate).
+    let mut best_i = n;
     let mut best_j = m;
     let mut best_score = dp[n][m];
-    for j in 0..=m {
-        if dp[n][j] > best_score {
-            best_score = dp[n][j];
-            best_j = j;
+    for i in 1..=n {
+        for j in 1..=m {
+            if dp[i][j] > best_score {
+                best_score = dp[i][j];
+                best_i = i;
+                best_j = j;
+            }
         }
     }
 
@@ -701,7 +708,7 @@ fn align_first_base_constrained_impl(
 
     // Traceback.
     let mut ops: Vec<AlignedPair> = Vec::new();
-    let (mut i, mut j) = (n, best_j);
+    let (mut i, mut j) = (best_i, best_j);
 
     while i > 0 || j > 0 {
         if i > 0 && j > 0 {
@@ -756,7 +763,7 @@ fn align_first_base_constrained_impl(
 
     let primer_start = i;
     let template_start = j;
-    let primer_end = n;
+    let primer_end = best_i;
     let template_end = best_j;
 
     let last_3prime = ops.iter().rev().find_map(|p| {
@@ -915,5 +922,21 @@ mod tests {
     fn test_kmer_seeds() {
         let seeds = find_kmer_seeds(b"ATGCAT", b"NNATGCATNN", 6);
         assert_eq!(seeds, vec![2]);
+    }
+
+    #[test]
+    fn test_first_base_constrained_free_right_tail() {
+        // Reverse-primer style: query = reversed primer, first base (original
+        // 3' end) constrained. The 5' tail "GAGCTCGCC" does not complement the
+        // template past the binding site and must be left unaligned instead of
+        // sinking the whole alignment below zero.
+        let query = b"CCTCGTTAGTGTCCACTCGTTTTTTGAGCTCGCC";
+        let template = b"NNNNGGAGCAATCACAGGTGAGCAAAAAAGCCACCATGGNNNN";
+        let result = align_first_base_constrained_rev(query, template)
+            .expect("tail overhang must not fail the alignment");
+        assert_eq!(result.primer_start, 0, "first base constrained");
+        assert!(result.primer_end < query.len(), "non-matching tail excluded");
+        let matches = result.ops.iter().filter(|p| p.op == Op::Match).count();
+        assert_eq!(matches, 25);
     }
 }

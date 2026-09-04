@@ -94,8 +94,17 @@ export async function getProject(filter = 'unique', cpl = 60) {
   return tauriInvoke('get_project', { enzymeFilter: filter, cpl });
 }
 
-export async function openFile(path) {
-  return tauriInvoke('open_file', { path });
+export async function openFile(path, recordIndex) {
+  return tauriInvoke('open_file', { path, recordIndex: recordIndex ?? null });
+}
+
+/**
+ * Scan a FASTA file's records (name + length) without opening it, so the
+ * caller can offer to split a multi-record file into separate projects.
+ * Returns `{ records: [{name, length}] }` (empty for non-FASTA extensions).
+ */
+export async function peekFastaRecords(path) {
+  return tauriInvoke('peek_fasta_records', { path });
 }
 
 /**
@@ -715,22 +724,22 @@ export function listenDragDrop(callback) {
   };
 }
 
-/** Broadcast the map-watermark toggle so other windows sync immediately. */
-export function emitMapWatermark(value) {
+/** Broadcast the per-molecule-type editor background map so other windows sync immediately. */
+export function emitEditorBackground(backgrounds) {
   if (!isTauri) return;
   (async () => {
     if (!emit) {
       const mod = await import('@tauri-apps/api/event');
       emit = mod.emit;
     }
-    await emit('map-watermark-changed', value);
+    await emit('editor-background-changed', backgrounds);
   })().catch(() => {});
 }
 
-/** Listen for map-watermark toggles broadcast from other windows. */
-export function listenMapWatermark(callback) {
+/** Listen for editor-background changes broadcast from other windows. */
+export function listenEditorBackground(callback) {
   let closed = false;
-  const ready = tauriListen('map-watermark-changed', (event) => {
+  const ready = tauriListen('editor-background-changed', (event) => {
     if (!closed) callback(event.payload);
   });
   return {
