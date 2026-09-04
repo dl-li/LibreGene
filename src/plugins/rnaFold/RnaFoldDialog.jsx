@@ -14,6 +14,7 @@ export default function RnaFoldDialog({
   open,
   onOpenChange,
   sequence,
+  fileName,
   watermark = false,
   onToggleWatermark,
 }) {
@@ -26,7 +27,7 @@ export default function RnaFoldDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>RNA Secondary Structure</DialogTitle>
+          <DialogTitle>RNA Secondary Structure{fileName ? ` — ${fileName}` : ''}</DialogTitle>
         </DialogHeader>
 
         {busy && (

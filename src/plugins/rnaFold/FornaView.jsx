@@ -23,6 +23,43 @@ const SCOPED_CSS = `
 let viewCounter = 0;
 let scriptPromise = null;
 
+// Toggle selection highlight on already-rendered nodes without rebuilding the
+// graph. fornac binds each nucleotide's 1-based position as `num="n<N>"` on
+// the g.gnode (number-label nodes carry num=-1 and are skipped). fornac colors
+// nucleotide circles via INLINE style.fill, so the original value is stashed
+// in dataset and restored on deselect — clearing to '' would fall back to the
+// scoped CSS white and wipe the sequence colors.
+function applySelectionHighlight(host, ranges, fill, textColor) {
+  if (!host) return;
+  const active = Array.isArray(ranges) && ranges.length > 0;
+  host.querySelectorAll('g.gnode').forEach((g) => {
+    const circle = g.querySelector('circle[node_type="nucleotide"]');
+    if (!circle) return;
+    const numAttr = g.getAttribute('num') || '';
+    const num = parseInt(numAttr.replace(/^n/, ''), 10);
+    const inSel =
+      active && !Number.isNaN(num) && ranges.some(([s, e]) => num >= s + 1 && num <= e + 1);
+    const text = g.querySelector('text.node-label');
+    if (inSel) {
+      if (circle.dataset.origFill === undefined) circle.dataset.origFill = circle.style.fill;
+      circle.style.fill = fill;
+      if (text) {
+        if (text.dataset.origFill === undefined) text.dataset.origFill = text.style.fill;
+        text.style.fill = textColor;
+      }
+    } else {
+      if (circle.dataset.origFill !== undefined) {
+        circle.style.fill = circle.dataset.origFill;
+        delete circle.dataset.origFill;
+      }
+      if (text && text.dataset.origFill !== undefined) {
+        text.style.fill = text.dataset.origFill;
+        delete text.dataset.origFill;
+      }
+    }
+  });
+}
+
 // fornac is a 2016-era UMD bundle whose default-export interop breaks under
 // Vite's dev pre-bundling (TDZ on `default`). Load it as a classic script
 // instead: with no CJS/AMD environment present it sets `window.fornac`.
@@ -58,8 +95,13 @@ export default function FornaView({
   height = 520,
   settleMs,
   interactive = true,
+  selectionRanges = null, // [[start, end], ...] 0-based inclusive
+  selectionFill = '#5d4037',
+  selectionTextColor = '#fdfbf7',
 }) {
   const hostRef = useRef(null);
+  const selRef = useRef(null);
+  selRef.current = { ranges: selectionRanges, fill: selectionFill, textColor: selectionTextColor };
 
   useEffect(() => {
     if (!sequence || !structure) return undefined;
@@ -91,6 +133,8 @@ export default function FornaView({
       });
       // Uppercase: forna's nucleotide color scale is keyed on A/C/G/U/T.
       container.addRNA(structure, { sequence: sequence.toUpperCase() });
+      const sel = selRef.current;
+      applySelectionHighlight(div, sel?.ranges, sel?.fill, sel?.textColor);
       if (host.contains(document.activeElement)) {
         if (prevFocus && typeof prevFocus.focus === 'function' && document.contains(prevFocus)) {
           // preventScroll: plain focus() would scroll containers (the
@@ -126,6 +170,11 @@ export default function FornaView({
       host.innerHTML = '';
     };
   }, [sequence, structure, height, settleMs, interactive]);
+
+  // Selection changes must not rebuild the graph — just restyle the nodes.
+  useEffect(() => {
+    applySelectionHighlight(hostRef.current, selectionRanges, selectionFill, selectionTextColor);
+  }, [selectionRanges, selectionFill, selectionTextColor]);
 
   return (
     <div className="forna-view">
