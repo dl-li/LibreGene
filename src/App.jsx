@@ -210,7 +210,7 @@ export default function App() {
   const [showEnzymes, setShowEnzymes] = useState(true);
   const [enzymeFilter, setEnzymeFilter] = useState(() => {
     try {
-      const v = localStorage.getItem('enzymeFilter');
+      const v = JSON.parse(localStorage.getItem('enzymeFilter'));
       return v && ENZYME_FILTER_VALUES.has(v) ? v : 'unique+twice';
     } catch {
       return 'unique+twice';
