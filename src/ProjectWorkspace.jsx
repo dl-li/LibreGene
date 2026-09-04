@@ -1672,6 +1672,7 @@ export default function ProjectWorkspace({
                 }))
               }
               sequence={sequence}
+              fileName={mapName}
               alignments={alignments}
               onAddAlignment={handleAddAlignment}
               onRemoveAlignment={handleRemoveAlignment}
