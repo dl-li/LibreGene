@@ -1545,7 +1545,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const psegs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
         revFeatOff[p.id] = {};
         psegs.forEach((m, mi) => {
-          const vs = m.start,
+          // 1nt buffer on the 3' (arrow-tip) side: an abutting feature still
+          // counts as overlapping, so the primer drops below its track
+          const vs = mi === 0 ? m.start - 1 : m.start,
             ve = mi === psegs.length - 1 ? m.end + ml : m.end;
           for (const f of resultFeatures) {
             for (const fseg of f.segments) {
