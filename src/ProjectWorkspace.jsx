@@ -106,6 +106,7 @@ export default function ProjectWorkspace({
   const [alignTextOpen, setAlignTextOpen] = useState(false);
   const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
   const primerDesignEnabled = isDna && !disabledPlugins.includes('primerDesign');
+  const mapEnabled = !disabledPlugins.includes('map');
 
   const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
   const [detectFeaturesOpen, setDetectFeaturesOpen] = useState(false);
@@ -1418,7 +1419,6 @@ export default function ProjectWorkspace({
       openPluginDialog: (key) => {
         setPluginDialogs((prev) => ({ ...prev, [key]: true }));
       },
-      openMapView: () => setMapViewOpen(true),
       openPrimerOverview: () => setPrimerOverviewOpen(true),
       moleculeType,
       alignmentEnabled,
@@ -1538,7 +1538,13 @@ export default function ProjectWorkspace({
               alignments={alignments}
               alignmentEnabled={alignmentEnabled}
               primerDesignEnabled={primerDesignEnabled}
-              mapWatermark={mapWatermark}
+              mapWatermark={mapEnabled && mapWatermark}
+              onToggleMapWatermark={mapEnabled ? toggleMapWatermark : undefined}
+              onToggleFoldWatermark={
+                moleculeType === 'rna' && !disabledPlugins.includes('rnaFold')
+                  ? toggleFoldWatermark
+                  : undefined
+              }
               foldWatermark={
                 // Hidden workspaces stay mounted (display:none) — don't fold
                 // or render a watermark for them; a forna layout created
@@ -1561,6 +1567,7 @@ export default function ProjectWorkspace({
                   ? undefined
                   : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
               }
+              onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
               blastEnabled={isTauri && (isDna || isProtein) && !disabledPlugins.includes('blast')}
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
@@ -1591,7 +1598,7 @@ export default function ProjectWorkspace({
           )}
 
           <MapView
-            open={mapViewOpen}
+            open={mapEnabled && mapViewOpen}
             onOpenChange={setMapViewOpen}
             sequenceLength={sequence.length}
             features={displayFeatures}

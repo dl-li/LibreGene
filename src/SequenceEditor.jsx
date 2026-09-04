@@ -41,6 +41,7 @@ import {
 import {
   AlertTriangle,
   Bot,
+  Check,
   Copy,
   CopyPlus,
   CopyMinus,
@@ -680,6 +681,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   primerDesignEnabled = true,
   mapWatermark = false,
   foldWatermark = false,
+  onToggleMapWatermark,
+  onToggleFoldWatermark,
   mapName = '',
   showAlignments = true,
   onToggleAlignments,
@@ -689,6 +692,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onAddAlignmentText,
   onManageAlignments,
   onOpenRnaFold,
+  onOpenMapView,
   onEnzymeHoverChange,
   blastEnabled = false,
   topology = 'linear',
@@ -2513,6 +2517,38 @@ const SequenceEditor = React.memo(function SequenceEditor({
           });
         }
       }
+      if (onToggleMapWatermark || onToggleFoldWatermark) {
+        if (items.length) items.push({ type: 'separator' });
+        const bgItems = [
+          {
+            icon: !mapWatermark && !foldWatermark ? Check : undefined,
+            label: 'Background: None',
+            onSelect: () => {
+              if (mapWatermark) onToggleMapWatermark?.();
+              if (foldWatermark) onToggleFoldWatermark?.();
+            },
+          },
+        ];
+        if (onToggleMapWatermark) {
+          bgItems.push({
+            icon: mapWatermark ? Check : undefined,
+            label: 'Background: Map',
+            onSelect: () => {
+              if (!mapWatermark) onToggleMapWatermark();
+            },
+          });
+        }
+        if (onToggleFoldWatermark) {
+          bgItems.push({
+            icon: foldWatermark ? Check : undefined,
+            label: 'Background: Folding',
+            onSelect: () => {
+              if (!foldWatermark) onToggleFoldWatermark();
+            },
+          });
+        }
+        items.push(...bgItems);
+      }
       showContextMenu(e.clientX, e.clientY, items);
     },
     [
@@ -2528,6 +2564,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       blastEnabled,
       blastBusy,
       handleBlastSelection,
+      mapWatermark,
+      foldWatermark,
+      onToggleMapWatermark,
+      onToggleFoldWatermark,
     ],
   );
 
@@ -5466,6 +5506,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onAddAlignmentText={onAddAlignmentText}
           onManageAlignments={onManageAlignments}
           onOpenRnaFold={onOpenRnaFold}
+          onOpenMapView={onOpenMapView}
           onPrimerDesign={handlePrimerDesign}
           primerDesignEnabled={primerDesignEnabled}
           onOpenMyPrimers={onOpenMyPrimers}
