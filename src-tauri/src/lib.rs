@@ -480,14 +480,39 @@ async fn do_open_file(
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     path: String,
+    record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
     validate_user_path(&path, SEQ_EXTS)?;
-    let id = path.clone();
+    let id = match record_index {
+        // A split multi-record FASTA opens each record as its own project; the
+        // project id must differ from the file path and from sibling records.
+        Some(i) => format!("{}#record-{}", path, i),
+        None => path.clone(),
+    };
     let path_buf = std::path::PathBuf::from(&path);
 
     let result =
         tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
-            let mut project = file_io::parse_file(&path_buf).map_err(|e| e.to_string())?;
+            let mut project = match record_index {
+                Some(i) => {
+                    let ext = path_buf
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let molecule_type = if ext == "faa" { "protein" } else { "dna" };
+                    let records = file_io::fasta::parse_fasta_all_with_molecule_type(
+                        &path_buf,
+                        molecule_type,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    records
+                        .into_iter()
+                        .nth(i)
+                        .ok_or_else(|| format!("record index {} out of range", i))?
+                }
+                None => file_io::parse_file(&path_buf).map_err(|e| e.to_string())?,
+            };
             enzyme::recompute(&mut project);
             primer::recompute(&mut project);
             Ok(project)
@@ -1853,8 +1878,43 @@ async fn get_project(
 async fn open_file(
     state: State<'_, AppState>,
     path: String,
+    record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
-    do_open_file(&state.pm, &state.window_projects, &state.agent_tabs, path).await
+    do_open_file(&state.pm, &state.window_projects, &state.agent_tabs, path, record_index).await
+}
+
+/// Lightweight scan of a FASTA file's records (name + length only) so the
+/// frontend can offer to split a multi-record file into separate projects
+/// before opening it.
+#[tauri::command]
+async fn peek_fasta_records(path: String) -> Result<serde_json::Value, String> {
+    let ext = validate_user_path(&path, SEQ_EXTS)?;
+    if !matches!(
+        ext.as_str(),
+        "fasta" | "fa" | "fna" | "fas" | "ffn" | "fsa" | "faa" | "frn" | "seq"
+    ) {
+        return Ok(serde_json::json!({"records": []}));
+    }
+    let path_buf = std::path::PathBuf::from(&path);
+    let molecule_type = if ext == "faa" { "protein" } else { "dna" };
+    let result = tokio::task::spawn_blocking(move || {
+        file_io::fasta::parse_fasta_all_with_molecule_type(&path_buf, molecule_type)
+            .map(|records| {
+                records
+                    .into_iter()
+                    .map(|r| {
+                    serde_json::json!({"name": r.name, "length": r.length, "moleculeType": r.molecule_type})
+                })
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+    match result {
+        Ok(records) => Ok(serde_json::json!({"records": records})),
+        Err(e) => Ok(serde_json::json!({"error": e})),
+    }
 }
 
 /// Drain OS-opened file paths queued before the frontend was ready (cold
@@ -3852,6 +3912,7 @@ pub fn run() {
             get_project,
             get_project_by_id,
             open_file,
+            peek_fasta_records,
             take_pending_opens,
             create_project,
             save_file,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   openFile,
+  peekFastaRecords,
   createProject,
   isTauri,
   openFileDialog,
@@ -29,12 +30,14 @@ import ProjectWorkspace from './ProjectWorkspace';
 import SettingsPage from './components/SettingsPage';
 import McpGuideDialog from './components/McpGuideDialog';
 import NewSequenceDialog from './NewSequenceDialog';
+import FastaSplitDialog from './FastaSplitDialog';
 import TitleBar from './components/TitleBar';
 import ContextMenuHost from './components/ContextMenuHost';
 import {
   SidebarProvider,
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -241,6 +244,8 @@ export default function App() {
   const [dropResult, setDropResult] = useState(null);
   // Per-file failures from the Open File dialog: [{ path, error }]
   const [openError, setOpenError] = useState(null);
+  // Multi-record FASTA pending split: { path, records: [{ name, length }] }
+  const [fastaSplit, setFastaSplit] = useState(null);
   // Tray Quit blocked by unsaved changes: array of dirty project ids
   const [quitRequest, setQuitRequest] = useState(null);
   const handlesRef = useRef({}); // { [projectId]: workspace imperative handle }
@@ -538,12 +543,25 @@ export default function App() {
     const paths = await openFileDialog(lastDir || undefined);
     if (!paths || !paths.length) return;
     const failed = [];
+    let splitPending = null;
     for (const p of paths) {
       // Reopening an already-open path would replace the project and lose
       // unsaved edits — just activate it instead
       if (projects.some((pr) => pr.id === p)) {
         handleSwitchProject(p);
         continue;
+      }
+      // Multi-record FASTA: ask whether to split into separate projects.
+      // Only one such dialog per batch — later files fall back to the first
+      // record (historical behavior).
+      try {
+        const peek = await peekFastaRecords(p);
+        if (peek && peek.records && peek.records.length > 1 && !splitPending) {
+          splitPending = { path: p, records: peek.records };
+          continue;
+        }
+      } catch {
+        // Peek failure is not fatal — open normally below.
       }
       try {
         const data = await openFile(p);
@@ -560,7 +578,42 @@ export default function App() {
     }
     await refreshProjects();
     if (failed.length > 0) setOpenError(failed);
+    if (splitPending) setFastaSplit(splitPending);
   }, [projects, refreshProjects, handleSwitchProject]);
+
+  // FastaSplitDialog choice: 'split' opens every record as its own project
+  // (project id `<path>#record-<i>`), 'first' opens record 0 only, null = cancel.
+  const handleFastaSplitChoice = useCallback(
+    async (choice) => {
+      const target = fastaSplit;
+      setFastaSplit(null);
+      if (!target || !choice) return;
+      const indices = choice === 'split' ? target.records.map((_, i) => i) : [0];
+      const failed = [];
+      setRecentFiles(addRecentFile(target.path));
+      for (const i of indices) {
+        try {
+          const data = await openFile(target.path, i);
+          if (data && data.sequence) {
+            initialDataRef.current[`${target.path}#record-${i}`] = data;
+          } else {
+            failed.push({
+              path: `${fileNameOf(target.path)} (record ${i + 1})`,
+              error: data?.error || 'Not a readable sequence file',
+            });
+          }
+        } catch (e) {
+          failed.push({
+            path: `${fileNameOf(target.path)} (record ${i + 1})`,
+            error: e?.message || String(e),
+          });
+        }
+      }
+      await refreshProjects();
+      if (failed.length > 0) setOpenError(failed);
+    },
+    [fastaSplit, refreshProjects],
+  );
 
   // Create an in-memory project from the New Sequence dialog; hand the
   // response to the new workspace (same pattern as handleOpenFile).
@@ -1512,6 +1565,8 @@ export default function App() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* --- Multi-record FASTA: split into separate projects? --- */}
+        <FastaSplitDialog target={fastaSplit} onChoice={handleFastaSplitChoice} />
         {/* --- Tray Quit: unsaved-changes confirmation --- */}
         <Dialog
           open={!!quitRequest}

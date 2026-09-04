@@ -122,7 +122,7 @@ LibreGene/
 ### Tauri Commands
 
 ```
-get_project, get_project_by_id, open_file, take_pending_opens, create_project, save_file, write_text_file,
+get_project, get_project_by_id, open_file, peek_fasta_records, take_pending_opens, create_project, save_file, write_text_file,
 update_sequence, set_roi, clear_roi,
 get_features, add_feature, delete_feature, update_feature_ftype/color/name/strand/location,
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
