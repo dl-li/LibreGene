@@ -27,6 +27,7 @@ import {
   ArrowDownWideNarrow,
   ScanSearch,
   AudioWaveform,
+  Map as MapIcon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -118,6 +119,7 @@ export default function EditorNavMenu({
   onAddAlignmentText,
   onManageAlignments,
   onOpenRnaFold,
+  onOpenMapView,
   onPrimerDesign,
   primerDesignEnabled = true,
   onOpenPrimerOverview,
@@ -457,6 +459,19 @@ export default function EditorNavMenu({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+
+        {/* Plasmid Map: top-level button (plugin can be disabled) */}
+        {onOpenMapView && (
+          <button
+            type="button"
+            onClick={onOpenMapView}
+            title="Plasmid map"
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95"
+          >
+            <MapIcon className="size-4" />
+            <span>Map</span>
+          </button>
         )}
 
         {/* RNA Folding: top-level button, RNA projects only (plugin can be disabled) */}
