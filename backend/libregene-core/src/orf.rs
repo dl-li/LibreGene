@@ -45,14 +45,13 @@ fn scan_strand(seq: &[u8], circular: bool, min_aa: usize) -> Vec<(usize, usize)>
                 if orf_start < 0 {
                     orf_start = p as i64;
                 }
-            } else if codon == *b"TAA" || codon == *b"TAG" || codon == *b"TGA" {
-                if orf_start >= 0 {
+            } else if (codon == *b"TAA" || codon == *b"TAG" || codon == *b"TGA")
+                && orf_start >= 0 {
                     if (p as i64 - orf_start) / 3 >= min_aa as i64 && orf_start < tlen as i64 {
                         orfs.push((orf_start as usize, p + 2));
                     }
                     orf_start = -1;
                 }
-            }
             p += 3;
         }
     }

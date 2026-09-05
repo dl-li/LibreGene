@@ -65,8 +65,8 @@ fn is_ecoki_site_rc(seq: &[u8]) -> bool {
 /// Find a methylation target site anywhere within `window`.
 fn find_site_in_window(window: &[u8], sys: &str) -> bool {
     match sys {
-        "dam"   => window.windows(4).any(|w| is_dam_site(w)),
-        "dcm"   => window.windows(5).any(|w| is_dcm_site(w)),
+        "dam"   => window.windows(4).any(is_dam_site),
+        "dcm"   => window.windows(5).any(is_dcm_site),
         "ecoki" => window.windows(13).any(|w| is_ecoki_site(w) || is_ecoki_site_rc(w)),
         _ => false,
     }

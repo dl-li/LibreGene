@@ -294,7 +294,7 @@ pub fn write_gpt(project: &ProjectData, path: &Path) -> io::Result<()> {
 
     let len = project.sequence.len() as i64;
     out.push_str(&format!("     source          {}..{}\n", 1, len));
-    out.push_str(&format!("                     /organism=\"unspecified\"\n"));
+    out.push_str(&"                     /organism=\"unspecified\"\n".to_string());
 
     for f in &project.features {
         serialize_feature_gpt(f, &mut out);
