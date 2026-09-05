@@ -19,6 +19,9 @@ use super::thermodynamics::TmParams;
 /// Lines 1 (template name) and 5 (primer name) are centred over the sequence.
 /// Position numbers appear on line 2.  Match chars on line 3.  Arrow indicators
 /// on line 4.  The frontend applies colours per line index.
+///
+/// `template_len` is the full template length for circular templates (position
+/// numbers wrap modulo it); pass 0 for linear templates.
 pub fn format_alignment_text(
     primer_seq: &[u8],
     template_region: &[u8],
@@ -27,6 +30,7 @@ pub fn format_alignment_text(
     primer_name: &str,
     window_offset: usize,
     is_rev: bool,
+    template_len: usize,
 ) -> String {
     let primer_upper: Vec<u8> = primer_seq.to_vec(); // preserve original case
 
@@ -120,7 +124,12 @@ pub fn format_alignment_text(
 
     // 1-based display offsets covering the extended template span
     let tstart = window_offset + result.template_start - left_ext + 1;
-    let tend = window_offset + result.template_end + right_ext;
+    let tend_raw = window_offset + result.template_end + right_ext;
+    let tend = if template_len > 0 && tend_raw > template_len {
+        (tend_raw - 1) % template_len + 1
+    } else {
+        tend_raw
+    };
 
     let tstart_str = tstart.to_string();
     let tend_str = tend.to_string();
@@ -218,7 +227,7 @@ mod tests {
         let primer = b"AGTTGTGTTCAAGCATATTTGCTGAGCGA";
         let template = b"NNNNNAGTTGTGTTCAAGCATATTTGCTGAGCGANNNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false);
+        let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false, 0);
 
         assert!(text.contains("AGTTGTGTTCAAGCATATTTGCTGAGCGA"));
         assert!(text.contains("|||||||||||||||||||||||||||"));
@@ -233,7 +242,7 @@ mod tests {
         let primer = b"ATGCATGCAAAA";
         let template = b"NNNNATGCATTCAAAANNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false);
+        let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false, 0);
 
         assert!(text.contains("ATGCAT"));
         assert!(text.lines().nth(2).unwrap().contains(" "), "expected a space in match line for mismatch");
@@ -245,7 +254,7 @@ mod tests {
         let primer = b"ATGCATGC";
         let template = b"NNNNNNNNATGCATGCNNNNNNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 8, false);
+        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 8, false, 0);
 
         assert!(text.contains("Tpl"));
         assert!(text.contains("Fwd"));
@@ -257,7 +266,7 @@ mod tests {
         let primer = b"ATGCATGC";
         let template = b"NNNNNNNNATGCATGCNNNNNNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Tpl", "Rev", 8, true);
+        let text = format_alignment_text(primer, template, &result, "Tpl", "Rev", 8, true, 0);
 
         // Line 4 (index 3) is the primer arrow line.
         let primer_line = text.lines().nth(3).unwrap();
@@ -284,7 +293,7 @@ mod tests {
         let template = b"NNNNGGAGCAATCACAGGTGAGCAAAAAAGCCACCATGGNNNN";
         let result = crate::primer::alignment::align_first_base_constrained_rev(query, template)
             .unwrap();
-        let text = format_alignment_text(query, template, &result, "Tpl", "Rev", 0, true);
+        let text = format_alignment_text(query, template, &result, "Tpl", "Rev", 0, true, 0);
         let primer_line = text.lines().nth(3).unwrap();
         assert!(
             primer_line.contains("GAGCTCGCC"),
@@ -307,7 +316,7 @@ mod tests {
         let primer = b"GGGGGGATGCATGC";
         let template = b"ATGCATGC";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false);
+        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false, 0);
         let primer_line = text.lines().nth(3).unwrap();
         assert!(
             primer_line.contains("GGGGGGATGCATGC"),
@@ -315,5 +324,27 @@ mod tests {
             text
         );
         println!("\n=== Fwd tail overhang ===\n{}", text);
+    }
+
+    #[test]
+    fn test_format_circular_position_wrap() {
+        // Circular template: the displayed end position wraps modulo the
+        // template length instead of running past it.
+        let primer = b"ATGCATGC";
+        let template = b"ATGCATGCNNNN";
+        let result = align(primer, template).unwrap();
+        // Window starts at 3120 (0-based) of a 3125-bp circular template; raw
+        // end would be 3120 + 8 = 3128 > 3125, wrapping to 3.
+        let text =
+            format_alignment_text(primer, template, &result, "Tpl", "Rev", 3120, true, 3125);
+        let template_line = text.lines().nth(1).unwrap();
+        assert!(template_line.contains("3121"), "start position:\n{}", text);
+        assert!(
+            template_line.trim_end().ends_with('3'),
+            "end position must wrap to 3:\n{}",
+            text
+        );
+        assert!(!text.contains("3128"), "unwrapped position leaked:\n{}", text);
+        println!("\n=== Circular wrap ===\n{}", text);
     }
 }
