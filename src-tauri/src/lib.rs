@@ -1353,6 +1353,55 @@ async fn do_set_methylation<R: Runtime>(
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
+/// Toggle a DNA project's topology (circular <-> linear) and recompute
+/// topology-dependent data (enzymes, primer binding sites, translations).
+async fn do_set_topology<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    topology: &str,
+) -> Result<serde_json::Value, String> {
+    let topology = topology.trim().to_ascii_lowercase();
+    if topology != "circular" && topology != "linear" {
+        return Err(format!("invalid topology: {}", topology));
+    }
+
+    {
+        let mut pm = pm.write().await;
+        match pm.get_project_mut_by_id(project_id) {
+            Some(p) if p.molecule_type != "dna" => {
+                return Ok(serde_json::json!({"error": "topology toggle is DNA-only"}));
+            }
+            Some(p) => {
+                p.topology = topology;
+                pm.mark_dirty(project_id);
+            }
+            None => return Ok(serde_json::json!({"error": "project not found"})),
+        }
+    }
+
+    recompute_after_sequence_change(app_handle, pm, wp, agent_tabs, source, project_id).await?;
+
+    let result = {
+        let pm = pm.read().await;
+        let params = ProjectParams {
+            enzyme_filter: Some("all".to_string()),
+            row_start: None,
+            row_end: None,
+            cpl: None,
+        };
+        pm.get_project_by_id(project_id)
+            .map(|p| filter_project(p, &params))
+            .unwrap_or(serde_json::json!({"error": "Project not found after topology change"}))
+    };
+    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
+}
+
 /// Human-readable rejection reason for a failed read alignment. The prefix is
 /// kept stable so callers can detect the family (`starts_with`).
 fn alignment_reject_message(r: libregene_core::align::AlignReject) -> String {
@@ -3257,6 +3306,34 @@ async fn set_methylation(
     .await
 }
 
+#[tauri::command]
+async fn set_topology(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    topology: String,
+    project_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let project_id = match project_id {
+        Some(id) => id,
+        None => match resolve_project_id(&state, webview_window.label()).await {
+            Ok(id) => id,
+            Err(e) => return Ok(serde_json::json!({"error": e})),
+        },
+    };
+
+    do_set_topology(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        &state.agent_tabs,
+        Some(webview_window.label()),
+        &project_id,
+        &topology,
+    )
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — multi-project management
 // ---------------------------------------------------------------------------
@@ -3922,6 +3999,7 @@ pub fn run() {
             update_sequence,
             set_roi,
             clear_roi,
+            set_topology,
             get_features,
             add_feature,
             delete_feature,

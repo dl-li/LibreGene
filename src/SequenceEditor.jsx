@@ -698,6 +698,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onEnzymeHoverChange,
   blastEnabled = false,
   topology = 'linear',
+  onToggleTopology,
   onOpenMyPrimers,
   onOpenPrimerOverview,
   onOpenDetectFeatures,
@@ -5503,6 +5504,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onOpenEnzymeDatabase={onOpenEnzymeDatabase}
           myEnzymes={myEnzymes}
           topology={topology}
+          onToggleTopology={onToggleTopology}
           moleculeType={moleculeType}
         />
       )}
