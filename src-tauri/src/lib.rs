@@ -2754,6 +2754,7 @@ fn compute_primer_alignment_sync(
                     let text = libregene_core::primer::display::format_alignment_text(
                         &orig_rev_bytes, &template_region, &result,
                         "Template", primer_name, win_start, true,
+                        if is_circular { tlen } else { 0 },
                     );
                     let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(&rev_bytes, &result, tm_params);
                     results.push(serde_json::json!({
@@ -2771,6 +2772,7 @@ fn compute_primer_alignment_sync(
                     let text = libregene_core::primer::display::format_alignment_text(
                         orig_bytes, &template_region, &result,
                         "Template", primer_name, win_start, false,
+                        if is_circular { tlen } else { 0 },
                     );
                     let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(primer_bytes, &result, tm_params);
                     results.push(serde_json::json!({
