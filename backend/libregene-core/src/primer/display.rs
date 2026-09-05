@@ -41,8 +41,37 @@ pub fn format_alignment_text(
         .map(|&b| b as char)
         .collect();
 
+    // Splice the overhangs back in, extending the template display so the
+    // region facing each tail is shown too (paired bases marked with '|').
+    let pair_fn = |p: u8, t: u8| {
+        if is_rev {
+            crate::primer::iupac::bases_pair(p, t)
+        } else {
+            crate::primer::iupac::bases_overlap(p, t)
+        }
+    };
+    let tpl_b = |p: usize| template_region[p].to_ascii_uppercase() as char;
+
+    let left_ext = left_tail.len().min(result.template_start);
+    let right_ext = right_tail
+        .len()
+        .min(template_region.len().saturating_sub(result.template_end));
+
     let mut template_aln = String::new();
     let mut match_aln = String::new();
+    // Left flank: pad where the tail has no template opposite, then template
+    // bases before the aligned block facing the rest of the tail (the tail's
+    // rightmost base sits opposite template_start - 1).
+    for _ in left_ext..left_tail.len() {
+        template_aln.push(' ');
+        match_aln.push(' ');
+    }
+    for k in (0..left_ext).rev() {
+        let t = template_region[result.template_start - 1 - k];
+        let p = primer_upper[result.primer_start - 1 - k];
+        template_aln.push(tpl_b(result.template_start - 1 - k));
+        match_aln.push(if pair_fn(p, t) { '|' } else { ' ' });
+    }
     let mut primer_aln = String::new();
 
     for pair in &result.ops {
@@ -74,25 +103,24 @@ pub fn format_alignment_text(
         }
     }
 
-    // Splice the overhangs back in: template/match lines pad with spaces.
-    let seq_len = template_aln.len() + left_tail.len() + right_tail.len();
-    template_aln = format!(
-        "{:>l$}{}{:<r$}",
-        "", template_aln, "",
-        l = left_tail.len(),
-        r = right_tail.len(),
-    );
-    match_aln = format!(
-        "{:>l$}{}{:<r$}",
-        "", match_aln, "",
-        l = left_tail.len(),
-        r = right_tail.len(),
-    );
+    // Right flank: template bases after the aligned block facing the right
+    // tail, then pad where the tail has no template opposite.
+    for k in 0..right_ext {
+        let t = template_region[result.template_end + k];
+        let p = primer_upper[result.primer_end + k];
+        template_aln.push(tpl_b(result.template_end + k));
+        match_aln.push(if pair_fn(p, t) { '|' } else { ' ' });
+    }
+    for _ in right_ext..right_tail.len() {
+        template_aln.push(' ');
+        match_aln.push(' ');
+    }
     primer_aln = format!("{}{}{}", left_tail, primer_aln, right_tail);
+    let seq_len = primer_aln.len();
 
-    // 1-based display offsets
-    let tstart = window_offset + result.template_start + 1;
-    let tend = window_offset + result.template_end;
+    // 1-based display offsets covering the extended template span
+    let tstart = window_offset + result.template_start - left_ext + 1;
+    let tend = window_offset + result.template_end + right_ext;
 
     let tstart_str = tstart.to_string();
     let tend_str = tend.to_string();
@@ -263,11 +291,11 @@ mod tests {
             "tail overhang must appear in primer line:\n{}",
             text
         );
-        // Template line is padded with spaces where the tail overhangs.
+        // The template region facing the tail must be shown, not left blank.
         let template_line = text.lines().nth(1).unwrap();
         assert!(
-            template_line.len() >= primer_line.len() - "< 5'".len() - 1,
-            "template line must span the overhang:\n{}",
+            template_line.contains("GCCACCATG"),
+            "template line must extend under the tail:\n{}",
             text
         );
         println!("\n=== Rev tail overhang ===\n{}", text);
