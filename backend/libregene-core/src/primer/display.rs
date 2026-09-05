@@ -45,8 +45,11 @@ pub fn format_alignment_text(
         .map(|&b| b as char)
         .collect();
 
-    // Splice the overhangs back in, extending the template display so the
-    // region facing each tail is shown too (paired bases marked with '|').
+    // Splice the overhangs back in. For circular templates the template
+    // display extends under each tail (the window wraps the origin, so there
+    // is always template opposite); linear fragments leave the tail's
+    // opposite side blank.
+    let circular = template_len > 0;
     let pair_fn = |p: u8, t: u8| {
         if is_rev {
             crate::primer::iupac::bases_pair(p, t)
@@ -56,10 +59,18 @@ pub fn format_alignment_text(
     };
     let tpl_b = |p: usize| template_region[p].to_ascii_uppercase() as char;
 
-    let left_ext = left_tail.len().min(result.template_start);
-    let right_ext = right_tail
-        .len()
-        .min(template_region.len().saturating_sub(result.template_end));
+    let left_ext = if circular {
+        left_tail.len().min(result.template_start)
+    } else {
+        0
+    };
+    let right_ext = if circular {
+        right_tail
+            .len()
+            .min(template_region.len().saturating_sub(result.template_end))
+    } else {
+        0
+    };
 
     let mut template_aln = String::new();
     let mut match_aln = String::new();
@@ -293,18 +304,29 @@ mod tests {
         let template = b"NNNNGGAGCAATCACAGGTGAGCAAAAAAGCCACCATGGNNNN";
         let result = crate::primer::alignment::align_first_base_constrained_rev(query, template)
             .unwrap();
-        let text = format_alignment_text(query, template, &result, "Tpl", "Rev", 0, true, 0);
+
+        // Circular: the template line extends under the tail.
+        let text =
+            format_alignment_text(query, template, &result, "Tpl", "Rev", 0, true, template.len());
         let primer_line = text.lines().nth(3).unwrap();
         assert!(
             primer_line.contains("GAGCTCGCC"),
             "tail overhang must appear in primer line:\n{}",
             text
         );
-        // The template region facing the tail must be shown, not left blank.
         let template_line = text.lines().nth(1).unwrap();
         assert!(
             template_line.contains("GCCACCATG"),
             "template line must extend under the tail:\n{}",
+            text
+        );
+
+        // Linear: the side opposite the tail stays blank.
+        let text = format_alignment_text(query, template, &result, "Tpl", "Rev", 0, true, 0);
+        let template_line = text.lines().nth(1).unwrap();
+        assert!(
+            !template_line.contains("GCCACCATG"),
+            "linear template line must not extend under the tail:\n{}",
             text
         );
         println!("\n=== Rev tail overhang ===\n{}", text);
@@ -312,10 +334,20 @@ mod tests {
 
     #[test]
     fn test_format_fwd_tail_overhang() {
-        // Forward primer whose 5' tail hangs off the template left edge.
+        // Forward primer with a 5' tail; template has upstream N bases.
         let primer = b"GGGGGGATGCATGC";
-        let template = b"ATGCATGC";
-        let result = align(primer, template).unwrap();
+        let template = b"NNNNNNATGCATGC";
+        let result = crate::primer::alignment::align_3prime_constrained(primer, template).unwrap();
+        let text =
+            format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false, template.len());
+        let template_line = text.lines().nth(1).unwrap();
+        assert!(
+            template_line.contains("NNNNNNATGCATGC"),
+            "template line must extend under the tail:\n{}",
+            text
+        );
+
+        // Linear: the tail's opposite side stays blank.
         let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false, 0);
         let primer_line = text.lines().nth(3).unwrap();
         assert!(
