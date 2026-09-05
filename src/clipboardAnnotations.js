@@ -168,8 +168,7 @@ function sanitizePastedMeta(meta) {
   if (rawFeatures && rawFeatures.length > MAX_PASTE_FEATURES) return null;
   if (rawPrimers && rawPrimers.length > MAX_PASTE_PRIMERS) return null;
 
-  const str = (v, max) =>
-    typeof v === 'string' && v.length <= max ? v : null;
+  const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : null);
 
   const features = [];
   if (rawFeatures) {
