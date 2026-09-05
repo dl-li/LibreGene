@@ -4017,6 +4017,11 @@ mod tests {
         let aln = cur["alignment"].as_str().expect("alignment text missing");
         assert!(aln.contains("3' <"), "expected reverse-primer arrows:\n{}", aln);
         assert!(aln.contains("GGAGCAATCACAGGTGAGCAAAAAA"), "template line:\n{}", aln);
+        assert!(
+            aln.contains("gagctcgcc"),
+            "non-matching 5' tail must be visible as an overhang:\n{}",
+            aln
+        );
     }
 
     #[test]

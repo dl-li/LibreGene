@@ -30,6 +30,17 @@ pub fn format_alignment_text(
 ) -> String {
     let primer_upper: Vec<u8> = primer_seq.to_vec(); // preserve original case
 
+    // Unaligned primer ends (free end-gaps: 5' tails / overhangs) are outside
+    // `result.ops`; show them as overhangs flanking the aligned block.
+    let left_tail: String = primer_upper[..result.primer_start]
+        .iter()
+        .map(|&b| b as char)
+        .collect();
+    let right_tail: String = primer_upper[result.primer_end..]
+        .iter()
+        .map(|&b| b as char)
+        .collect();
+
     let mut template_aln = String::new();
     let mut match_aln = String::new();
     let mut primer_aln = String::new();
@@ -63,13 +74,28 @@ pub fn format_alignment_text(
         }
     }
 
+    // Splice the overhangs back in: template/match lines pad with spaces.
+    let seq_len = template_aln.len() + left_tail.len() + right_tail.len();
+    template_aln = format!(
+        "{:>l$}{}{:<r$}",
+        "", template_aln, "",
+        l = left_tail.len(),
+        r = right_tail.len(),
+    );
+    match_aln = format!(
+        "{:>l$}{}{:<r$}",
+        "", match_aln, "",
+        l = left_tail.len(),
+        r = right_tail.len(),
+    );
+    primer_aln = format!("{}{}{}", left_tail, primer_aln, right_tail);
+
     // 1-based display offsets
     let tstart = window_offset + result.template_start + 1;
     let tend = window_offset + result.template_end;
 
     let tstart_str = tstart.to_string();
     let tend_str = tend.to_string();
-    let seq_len = template_aln.len();
 
     // Position-number column width (dynamic to the actual digits).
     let pos_w = tstart_str.len().max(tend_str.len()).max(1);
@@ -220,5 +246,46 @@ mod tests {
         let name_line = text.lines().nth(4).unwrap();
         assert!(name_line.contains("Rev"), "expected Rev on the name line");
         println!("\n=== Rev direction ===\n{}", text);
+    }
+
+    #[test]
+    fn test_format_rev_tail_overhang() {
+        // Reverse primer with a non-matching 5' tail: the tail must still be
+        // visible as an overhang at the right (5') end of the primer line.
+        let query = b"CCTCGTTAGTGTCCACTCGTTTTTTGAGCTCGCC";
+        let template = b"NNNNGGAGCAATCACAGGTGAGCAAAAAAGCCACCATGGNNNN";
+        let result = crate::primer::alignment::align_first_base_constrained_rev(query, template)
+            .unwrap();
+        let text = format_alignment_text(query, template, &result, "Tpl", "Rev", 0, true);
+        let primer_line = text.lines().nth(3).unwrap();
+        assert!(
+            primer_line.contains("GAGCTCGCC"),
+            "tail overhang must appear in primer line:\n{}",
+            text
+        );
+        // Template line is padded with spaces where the tail overhangs.
+        let template_line = text.lines().nth(1).unwrap();
+        assert!(
+            template_line.len() >= primer_line.len() - "< 5'".len() - 1,
+            "template line must span the overhang:\n{}",
+            text
+        );
+        println!("\n=== Rev tail overhang ===\n{}", text);
+    }
+
+    #[test]
+    fn test_format_fwd_tail_overhang() {
+        // Forward primer whose 5' tail hangs off the template left edge.
+        let primer = b"GGGGGGATGCATGC";
+        let template = b"ATGCATGC";
+        let result = align(primer, template).unwrap();
+        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false);
+        let primer_line = text.lines().nth(3).unwrap();
+        assert!(
+            primer_line.contains("GGGGGGATGCATGC"),
+            "5' tail must appear in primer line:\n{}",
+            text
+        );
+        println!("\n=== Fwd tail overhang ===\n{}", text);
     }
 }
