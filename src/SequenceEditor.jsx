@@ -2025,7 +2025,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
       translationDragRef.current = null;
       setIsTranslationDragging(false);
       const idx = clientToSeqIndex(e.clientX, e.clientY);
-      if (idx === null) return;
+      if (idx === null) {
+        // Clicked blank space inside the canvas: drop any selection/cursor.
+        setSelStart(null);
+        setSelEnd(null);
+        setCursorIndex(null);
+        clearCursorTimer();
+        return;
+      }
       if (e.shiftKey && cursorIndex !== null) {
         // Shift+click: select from cursor to click position
         const s = Math.min(cursorIndex, idx);
@@ -5657,6 +5664,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
       <div
         ref={containerRef}
         onContextMenu={handleContextMenu}
+        onMouseDown={(e) => {
+          // Blank margins outside the SVG: drop any selection/cursor. Clicks
+          // inside the SVG are handled by handleSvgMouseDown (target = svg).
+          if (e.button !== 0) return;
+          const t = e.target;
+          if (t === e.currentTarget || t.parentElement === e.currentTarget) {
+            setSelStart(null);
+            setSelEnd(null);
+            setCursorIndex(null);
+            clearCursorTimer();
+          }
+        }}
         style={{
           backgroundColor: bgColor,
           width: '100%',
