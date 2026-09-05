@@ -38,7 +38,10 @@ describe('recentFiles (localStorage persistence)', () => {
     expect(getLastOpenedFile()).toBe('/b/b.dna');
 
     addRecentFile('/a/a.gbk');
-    expect(getRecentFiles()).toEqual(['/a/a.gbk', '/b/b.dna'], 're-opening moves it to front, no dupes');
+    expect(getRecentFiles()).toEqual(
+      ['/a/a.gbk', '/b/b.dna'],
+      're-opening moves it to front, no dupes',
+    );
   });
 
   it('caps the list at 10 entries', () => {
