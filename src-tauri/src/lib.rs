@@ -216,7 +216,7 @@ fn filter_main_window_projects(
 ) -> (Vec<serde_json::Value>, Option<String>) {
     let filtered: Vec<_> = projects
         .into_iter()
-        .filter(|p| p["id"].as_str().map_or(true, |id| !excluded.contains(id)))
+        .filter(|p| p["id"].as_str().is_none_or(|id| !excluded.contains(id)))
         .collect();
     let active = active_id.filter(|id| !excluded.contains(id.as_str()))
         .or_else(|| {
@@ -1735,9 +1735,9 @@ pub(crate) fn codon_optimize(
         let piece = &new_coding[off..off + len];
         if minus {
             let rc = libregene_core::utils::reverse_complement(piece);
-            bytes[s as usize..=e as usize].copy_from_slice(rc.as_bytes());
+            bytes[s..=e].copy_from_slice(rc.as_bytes());
         } else {
-            bytes[s as usize..=e as usize].copy_from_slice(piece.as_bytes());
+            bytes[s..=e].copy_from_slice(piece.as_bytes());
         }
         off += len;
     }
@@ -2723,7 +2723,7 @@ fn compute_primer_alignment_sync(
             let tp_3prime = if is_rev { seed_tstart } else { seed_tstart + seed_len - 1 };
 
             if candidates.iter().any(|c| {
-                let d = if c.tp_3prime > tp_3prime { c.tp_3prime - tp_3prime } else { tp_3prime - c.tp_3prime };
+                let d = c.tp_3prime.abs_diff(tp_3prime);
                 d <= 3
             }) { continue; }
 

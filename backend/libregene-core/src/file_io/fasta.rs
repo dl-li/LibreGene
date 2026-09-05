@@ -44,7 +44,6 @@ pub fn parse_fasta_all_with_molecule_type(
 
         if trimmed.starts_with('>') {
             let name = trimmed[1..]
-                .trim()
                 .split_whitespace()
                 .next()
                 .unwrap_or("")

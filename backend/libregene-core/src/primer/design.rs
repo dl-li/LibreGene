@@ -738,7 +738,7 @@ pub fn analyze_mutagenesis(
             // CDS maps to consecutive coding offsets; it covers complete
             // codons when its length is a multiple of 3 and its first coding
             // offset sits on a codon boundary.
-            if template.len() % 3 == 0 {
+            if template.len().is_multiple_of(3) {
                 let seg_offsets: Vec<usize> = (seg.start..=seg.end)
                     .filter_map(|p| pos_of.iter().position(|&x| x == p))
                     .collect();

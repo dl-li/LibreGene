@@ -523,7 +523,7 @@ fn clean_coding_sequence(seq: &str) -> Result<String, String> {
             ));
         }
     }
-    if cleaned.len() % 3 != 0 {
+    if !cleaned.len().is_multiple_of(3) {
         return Err(format!(
             "sequence length {} not divisible by 3 (expected a complete coding sequence)",
             cleaned.len()
