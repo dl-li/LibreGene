@@ -124,7 +124,7 @@ LibreGene/
 
 ```
 get_project, get_project_by_id, open_file, peek_fasta_records, take_pending_opens, create_project, save_file, write_text_file,
-update_sequence, set_roi, clear_roi,
+update_sequence, set_roi, clear_roi, set_topology,
 get_features, add_feature, delete_feature, update_feature_ftype/color/name/strand/location,
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
 design_primer_candidates, find_orfs, search_sequence, annotate_features, annotate_sequence,
@@ -176,6 +176,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **`add_alignment` 的 createdSites**：未实现；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联/窗口拖放打开**：纯前端/OS 集成
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
+- **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
 
 ## 核心模型约定
 

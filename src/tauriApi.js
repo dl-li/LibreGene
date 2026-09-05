@@ -292,6 +292,11 @@ export async function setMethylation(systems, overlap = 2, projectId) {
   return tauriInvoke('set_methylation', { systems, overlap, projectId });
 }
 
+export async function setTopology(topology, projectId) {
+  assertEditable();
+  return tauriInvoke('set_topology', { topology, projectId });
+}
+
 export async function getEnzymeDatabase() {
   return tauriInvoke('get_enzyme_database');
 }

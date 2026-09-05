@@ -28,6 +28,8 @@ import {
   ScanSearch,
   AudioWaveform,
   Map as MapIcon,
+  Circle,
+  Minus,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -134,6 +136,7 @@ export default function EditorNavMenu({
   onOpenEnzymeDatabase,
   myEnzymes = [],
   topology,
+  onToggleTopology,
   moleculeType = 'dna',
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -274,6 +277,22 @@ export default function EditorNavMenu({
             <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToLowercase}>
               <CaseLower /> To Lowercase
             </DropdownMenuItem>
+            {isDna && onToggleTopology && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onToggleTopology}>
+                  {topology === 'circular' ? (
+                    <>
+                      <Minus /> Linearize
+                    </>
+                  ) : (
+                    <>
+                      <Circle /> Circularize
+                    </>
+                  )}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -519,13 +538,11 @@ export default function EditorNavMenu({
           />
           {query && (
             <span className="mr-0.5 flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
-              {shortNucQuery ? (
-                'Enter at least 3 bases'
-              ) : navTotal > 0 ? (
-                `${navIndex + 1}/${navTotal}`
-              ) : (
-                '0/0'
-              )}
+              {shortNucQuery
+                ? 'Enter at least 3 bases'
+                : navTotal > 0
+                  ? `${navIndex + 1}/${navTotal}`
+                  : '0/0'}
               <button
                 type="button"
                 aria-label="Previous match"
