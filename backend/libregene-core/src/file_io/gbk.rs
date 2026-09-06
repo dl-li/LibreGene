@@ -165,7 +165,8 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let mut features: Vec<Feature> = Vec::new();
     let mut primers: Vec<Primer> = Vec::new();
-    let mut alignment_reads: Vec<(String, String)> = Vec::new();
+    // (name, read sequence, optional source .ab1 path for the chromatogram)
+    let mut alignment_reads: Vec<(String, String, Option<String>)> = Vec::new();
     let mut lab_host = String::new();
 
     for f in &seq.features {
@@ -189,7 +190,12 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
                     .to_string();
                 // GenBank writer line-wraps qualifier values; rejoin.
                 let cleaned: String = aseq.chars().filter(|c| c.is_ascii_alphabetic()).collect();
-                alignment_reads.push((name, cleaned));
+                let trace_path = f
+                    .qualifier_values("libregene_trace_file")
+                    .next()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                alignment_reads.push((name, cleaned, trace_path));
                 continue;
             }
         }
@@ -351,12 +357,13 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     // Re-run the alignment so segments/identity match the current sequence.
     let mut alignments = Vec::new();
-    for (name, read) in &alignment_reads {
+    for (name, read, trace_path) in &alignment_reads {
         if let Some(mut aln) =
             crate::align::align_read(&sequence, read, topology == "circular")
         {
             aln.name = name.clone();
             aln.id = crate::align::next_alignment_id(&alignments);
+            aln.trace_path = trace_path.clone();
             alignments.push(aln);
         }
     }
@@ -559,14 +566,18 @@ fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq) {
         };
         let loc = Location::Range((start, Before(false)), (end + 1, After(false)));
 
+        let mut qualifiers = vec![
+            (Cow::Borrowed("label"), Some(a.name.clone())),
+            (Cow::Borrowed("libregene_align_strand"), Some(a.strand.clone())),
+            (Cow::Borrowed("libregene_align_seq"), Some(a.seq.clone())),
+        ];
+        if let Some(path) = &a.trace_path {
+            qualifiers.push((Cow::Borrowed("libregene_trace_file"), Some(path.clone())));
+        }
         record.features.push(GbFeature {
             kind: Cow::Borrowed("misc_feature"),
             location: loc,
-            qualifiers: vec![
-                (Cow::Borrowed("label"), Some(a.name.clone())),
-                (Cow::Borrowed("libregene_align_strand"), Some(a.strand.clone())),
-                (Cow::Borrowed("libregene_align_seq"), Some(a.seq.clone())),
-            ],
+            qualifiers,
         });
     }
 }

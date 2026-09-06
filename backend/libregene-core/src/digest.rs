@@ -971,6 +971,7 @@ mod tests {
             lab_host: String::new(),
             sequence: "ACGT".repeat(15),
             length: 60,
+            trace_path: None,
             topology: "circular".to_string(),
             molecule_type: "dna".to_string(),
             features: vec![
@@ -1444,6 +1445,7 @@ mod tests {
             name: "nonAscii".into(),
             sequence: "ACGT\u{FFFD}ACGT".into(),
             length: 9,
+            trace_path: None,
             topology: "circular".into(),
             ..Default::default()
         };
@@ -1482,6 +1484,7 @@ mod tests {
             name: "big".into(),
             sequence: "ACGT".repeat(30),
             length: 120,
+            trace_path: None,
             topology: "linear".into(),
             ..Default::default()
         };
@@ -1511,6 +1514,7 @@ mod tests {
             name: "big".into(),
             sequence: "ACGT".repeat(30),
             length: 120,
+            trace_path: None,
             topology: "circular".into(),
             ..Default::default()
         };
@@ -1532,6 +1536,7 @@ mod tests {
             name: "lin".into(),
             sequence: "ACGT".repeat(10),
             length: 40,
+            trace_path: None,
             topology: "linear".into(),
             ..Default::default()
         };
@@ -1569,6 +1574,7 @@ mod tests {
             }],
             insertions: Vec::new(),
             seq: String::new(),
+            trace_path: None,
         });
         p.alignments.push(crate::models::Alignment {
             id: "aln-2".into(),
@@ -1590,6 +1596,7 @@ mod tests {
             ],
             insertions: Vec::new(),
             seq: String::new(),
+            trace_path: None,
         });
         let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
         assert!(out.contains("ALIGNMENTS (1-based, inclusive):\n"));
@@ -1635,6 +1642,7 @@ mod tests {
                 bases: "GG".into(),
             }],
             seq: String::new(),
+            trace_path: None,
         });
         p
     }
@@ -1691,6 +1699,7 @@ mod tests {
             ],
             insertions: Vec::new(),
             seq: String::new(),
+            trace_path: None,
         });
 
         // Wrapping window 55..4 covers both diffs; aln-1 (10..29) stays out.
@@ -1752,6 +1761,7 @@ mod tests {
             ],
             insertions: Vec::new(),
             seq: String::new(),
+            trace_path: None,
         });
         // Wrapping window 55..4: position 55 is uncovered, columns 56..59 and
         // 0..4 are covered (deletions at 58,59,0,1; mismatch at 2).
@@ -1783,6 +1793,7 @@ mod tests {
             }],
             insertions: Vec::new(),
             seq: String::new(),
+            trace_path: None,
         });
         let out = project_digest(&p, &DigestOptions::default(), Some((0, 500))).unwrap();
         assert!(
@@ -1867,6 +1878,7 @@ mod tests {
                 }],
                 insertions: Vec::new(),
                 seq: String::new(),
+                trace_path: None,
             });
         }
         let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
@@ -1988,6 +2000,7 @@ mod tests {
             name: "pUC19".into(),
             sequence: seq,
             length: 2686,
+            trace_path: None,
             topology: "circular".into(),
             ..Default::default()
         };

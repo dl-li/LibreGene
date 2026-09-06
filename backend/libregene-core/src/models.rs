@@ -272,6 +272,25 @@ fn default_recognition_strand() -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Chromatogram (AB1 trace data) — model ported from GenePad
+// (https://github.com/GenePad), provided by the GenePad team /
+// https://github.com/Masterchiefm.
+// ---------------------------------------------------------------------------
+
+/// Raw Sanger trace channels plus the peak position (trace sample index) of
+/// each called base. Traces are sampled per channel; `peak_locations[i]`
+/// points at the peak of base `i` of the called sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Chromatogram {
+    pub trace_a: Vec<i16>,
+    pub trace_c: Vec<i16>,
+    pub trace_g: Vec<i16>,
+    pub trace_t: Vec<i16>,
+    pub peak_locations: Vec<i32>,
+}
+
+// ---------------------------------------------------------------------------
 // Alignment (read aligned against the project's main sequence)
 // ---------------------------------------------------------------------------
 
@@ -311,6 +330,11 @@ pub struct Alignment {
     pub insertions: Vec<AlignInsertion>,
     /// Read sequence as oriented for display (rev-comp when strand is "-").
     pub seq: String,
+    /// Source .ab1 path when the read carries trace data; the frontend loads
+    /// the chromatogram lazily from this file (traces stay out of every
+    /// project serialization).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_path: Option<String>,
 }
 
 /// A single mismatched column: template position (0-based inclusive) and the
@@ -396,6 +420,10 @@ pub struct ProjectData {
     /// current region-of-interest; serialized as [start, end] array or omitted when None
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi: Option<(i64, i64)>,
+    /// Source .ab1 path when the project was opened from a trace file; the
+    /// frontend loads the chromatogram lazily from this file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_path: Option<String>,
 }
 
 fn default_topology() -> String {

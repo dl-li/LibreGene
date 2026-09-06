@@ -4177,6 +4177,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         };
 
+        let mut trace_path: Option<String> = None;
         let seq = match (request.bases, request.path) {
             (Some(_), Some(_)) => {
                 return Ok(Json(fail_envelope(
@@ -4192,9 +4193,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             (Some(bases), None) => bases,
             (None, Some(path)) => {
-                crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
+                let ext = crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
                     ErrorData::invalid_params(format!("invalid path: {}", e), None)
                 })?;
+                if ext == "ab1" {
+                    trace_path = Some(path.clone());
+                }
                 let parsed = tokio::task::spawn_blocking(move || {
                     libregene_core::file_io::parse_file(std::path::Path::new(&path))
                 })
@@ -4224,6 +4228,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &id,
             request.name,
             seq,
+            trace_path,
         )
         .await
         {
@@ -8397,6 +8402,7 @@ mod tests {
                 .collect(),
             insertions: Vec::new(),
             seq: String::new(),
+            trace_path: None,
         };
         // Single segment: no gap.
         assert_eq!(uncovered_between_segments(&aln(vec![(10, 29, "x")]), 60, false), 0);

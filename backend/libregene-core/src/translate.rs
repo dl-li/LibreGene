@@ -198,6 +198,7 @@ mod tests {
             methylation_systems: Vec::new(),
             methylation_overlap: 0,
             roi: None,
+            trace_path: None,
         };
         refresh_feature_translations(&mut p);
         assert_eq!(p.features[0].translation, "MVS");
@@ -227,6 +228,7 @@ mod tests {
             methylation_systems: Vec::new(),
             methylation_overlap: 0,
             roi: None,
+            trace_path: None,
         };
         refresh_feature_translations(&mut p);
         assert_eq!(p.features[0].translation, "keep");

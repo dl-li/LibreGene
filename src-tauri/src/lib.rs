@@ -373,6 +373,7 @@ fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::
         "methylation_systems": &project.methylation_systems,
         "methylation_overlap": project.methylation_overlap,
         "roi": &project.roi,
+        "tracePath": &project.trace_path,
         "enzymeCount": project.enzymes.len(),
         "enzymeFilter": filter,
         "enzymes": &enzymes,
@@ -863,6 +864,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
             methylation_systems: p.methylation_systems.clone(),
             methylation_overlap: p.methylation_overlap,
             roi: p.roi,
+            trace_path: p.trace_path.clone(),
         })
     };
 
@@ -1458,6 +1460,7 @@ async fn do_add_alignment_seq<R: Runtime>(
     project_id: &str,
     name: String,
     seq: String,
+    trace_path: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let project_clone = {
         let pm = pm.read().await;
@@ -1489,6 +1492,7 @@ async fn do_add_alignment_seq<R: Runtime>(
             name.trim().to_string()
         };
         aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+        aln.trace_path = trace_path;
         p.alignments.push(aln);
         Ok(p)
     })
@@ -3154,7 +3158,7 @@ async fn add_alignment(
     // The drag-and-drop importer and the multi-file dialog both funnel here,
     // and the frontend extension filter is not a trust boundary — align with
     // the MCP-side add_alignment, which validates every path.
-    validate_user_path(&path, SEQ_EXTS)?;
+    let ext = validate_user_path(&path, SEQ_EXTS)?;
     let project_id = match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
@@ -3188,6 +3192,9 @@ async fn add_alignment(
             .map_err(alignment_reject_message)?;
         aln.name = name;
         aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+        if ext == "ab1" {
+            aln.trace_path = Some(path.clone());
+        }
         p.alignments.push(aln);
         Ok(p)
     })
@@ -3241,6 +3248,7 @@ async fn add_alignment_seq(
         &project_id,
         name,
         seq,
+        None,
     )
     .await
 }
@@ -3267,6 +3275,22 @@ async fn remove_alignment(
         alignment_id,
     )
     .await
+}
+
+/// Load the chromatogram (trace channels + peak positions) of an .ab1 file.
+/// Traces are fetched lazily by the frontend and never travel inside the
+/// project payload — a single read is ~100 KB of sample data.
+/// Chromatogram model/parsing ported from GenePad (https://github.com/GenePad),
+/// provided by the GenePad team / https://github.com/Masterchiefm.
+#[tauri::command]
+async fn get_chromatogram(path: String) -> Result<libregene_core::models::Chromatogram, String> {
+    validate_user_path(&path, &["ab1"])?;
+    tokio::task::spawn_blocking(move || {
+        let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+        libregene_core::file_io::ab1::extract_chromatogram(&data).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?
 }
 
 // ---------------------------------------------------------------------------
@@ -4026,6 +4050,7 @@ pub fn run() {
             add_alignment,
             add_alignment_seq,
             remove_alignment,
+            get_chromatogram,
             set_methylation,
             get_projects,
             activate_project,
@@ -4565,6 +4590,7 @@ mod tests {
                 "p1",
                 "r1".to_string(),
                 read.clone(),
+                None,
             ),
             do_add_alignment_seq(
                 app.handle(),
@@ -4575,6 +4601,7 @@ mod tests {
                 "p1",
                 "r2".to_string(),
                 read.clone(),
+                None,
             ),
         );
         a.unwrap();

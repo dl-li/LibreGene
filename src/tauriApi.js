@@ -283,6 +283,15 @@ export async function removeAlignment(alignmentId) {
   return tauriInvoke('remove_alignment', { alignmentId });
 }
 
+/**
+ * Load the chromatogram (trace channels + peak locations) of an .ab1 file.
+ * Traces are fetched lazily per source path and cached frontend-side — they
+ * never travel inside the project payload.
+ */
+export async function getChromatogram(path) {
+  return tauriInvoke('get_chromatogram', { path });
+}
+
 // ---------------------------------------------------------------------------
 // Methylation
 // ---------------------------------------------------------------------------

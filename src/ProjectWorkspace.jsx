@@ -24,6 +24,7 @@ import {
   addAlignment,
   addAlignmentSeq,
   removeAlignment,
+  getChromatogram,
   openAlignmentFileDialog,
   listenProjectUpdates,
   setAgentTabLocked,
@@ -34,6 +35,7 @@ import {
 import { plugins } from './plugins';
 import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
 import { createEditHistory } from './editHistory';
+import { orientChromatogram } from './chromatogram';
 import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
 import MapView from './MapView';
@@ -91,6 +93,8 @@ export default function ProjectWorkspace({
   const [primers, setPrimers] = useState(initialData?.primers || EMPTY_ARRAY);
   const [alignments, setAlignments] = useState(initialData?.alignments || EMPTY_ARRAY);
   const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
+  // Source .ab1 path when the project itself was opened from a trace file.
+  const [tracePath, setTracePath] = useState(initialData?.tracePath || null);
   // Live topology: project windows receive a constant prop, so mirror it into
   // state and refresh from broadcasts / the toggle command response.
   const [topologyLive, setTopologyLive] = useState(initialData?.topology || topology);
@@ -270,6 +274,7 @@ export default function ProjectWorkspace({
           setAlignments(data.alignments || EMPTY_ARRAY);
           setMoleculeType(data.moleculeType || 'dna');
           setTopologyLive(data.topology || 'circular');
+          setTracePath(data.tracePath || null);
           editHistoryRef.current.reset({
             sequence: data.sequence,
             features: data.features || EMPTY_ARRAY,
@@ -324,6 +329,7 @@ export default function ProjectWorkspace({
         setAlignments(data.alignments || EMPTY_ARRAY);
         setMoleculeType(data.moleculeType || 'dna');
         setTopologyLive(data.topology || 'circular');
+        setTracePath(data.tracePath || null);
         editHistoryRef.current.reset({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
@@ -446,10 +452,62 @@ export default function ProjectWorkspace({
     return m;
   }, [enzymes]);
 
+  // Chromatogram traces are loaded lazily per source .ab1 path and cached in
+  // a ref (raw payloads are big; they must not re-render on every fetch).
+  // chromVersion bumps when a new trace lands so the derived maps recompute.
+  // Lazy-load scheme adapted from GenePad (https://github.com/GenePad),
+  // provided by the GenePad team / https://github.com/Masterchiefm.
+  const chromRawRef = useRef(new Map());
+  const [chromVersion, setChromVersion] = useState(0);
+  const neededTracePaths = useMemo(() => {
+    const paths = new Set();
+    if (tracePath) paths.add(tracePath);
+    for (const al of alignments) {
+      if (al.tracePath) paths.add(al.tracePath);
+    }
+    return [...paths];
+  }, [tracePath, alignments]);
+  useEffect(() => {
+    // StrictMode double-runs effects in dev: the in-flight marker must not
+    // gate the result away, and resolved data is written unconditionally
+    // (the ref survives effect re-runs, and a state bump after unmount is a
+    // harmless no-op), otherwise the trace would never land.
+    for (const path of neededTracePaths) {
+      if (chromRawRef.current.has(path)) continue;
+      chromRawRef.current.set(path, null); // in-flight marker
+      getChromatogram(path)
+        .then((chrom) => {
+          if (!chrom) return;
+          chromRawRef.current.set(path, chrom);
+          setChromVersion((v) => v + 1);
+        })
+        .catch((e) => {
+          console.error('chromatogram load error:', e);
+          chromRawRef.current.delete(path);
+        });
+    }
+  }, [neededTracePaths]);
+  const mainChromatogram = useMemo(() => {
+    if (!tracePath) return null;
+    return chromRawRef.current.get(tracePath) || null;
+  }, [tracePath, chromVersion]);
+  const alignmentChromatograms = useMemo(() => {
+    const out = {};
+    for (const al of alignments) {
+      if (!al.tracePath) continue;
+      const raw = chromRawRef.current.get(al.tracePath);
+      if (raw) out[al.id] = orientChromatogram(raw, al.strand);
+    }
+    return out;
+  }, [alignments, chromVersion]);
+
   const displayEnzymes = useMemo(() => {
     // Enzymes only exist for DNA; rna/protein render sequence + features only.
     if (!isDna) return EMPTY_ARRAY;
     if (!showEnzymes) return EMPTY_ARRAY;
+    // Trace view (project opened from .ab1): cut-site markers and labels
+    // clutter the chromatogram bands — hide them for the trace's project.
+    if (mainChromatogram) return EMPTY_ARRAY;
     const all = enzymes || [];
     if (enzymeFilter === 'all') return all;
     if (enzymeFilter === 'myEnzymes') {
@@ -489,7 +547,7 @@ export default function ProjectWorkspace({
     if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
     if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
     return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes, isDna]);
+  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes, isDna, mainChromatogram]);
 
   const handleSelectionChange = useCallback(
     (sel) => {
@@ -1552,6 +1610,8 @@ export default function ProjectWorkspace({
               alignmentCacheRef={alignmentCacheRef}
               alignmentTracks={visibleAlignments}
               alignments={alignments}
+              chromatogram={isDna ? mainChromatogram : null}
+              alignmentChromatograms={alignmentChromatograms}
               alignmentEnabled={alignmentEnabled}
               primerDesignEnabled={primerDesignEnabled}
               mapWatermark={mapEnabled && background === 'map'}
