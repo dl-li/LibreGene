@@ -50,6 +50,7 @@ const EMPTY_ARRAY = [];
 
 export default function ProjectWorkspace({
   projectId,
+  projectName,
   hidden,
   initialData,
   topology = 'circular',
@@ -1331,9 +1332,13 @@ export default function ProjectWorkspace({
 
     // Protein projects export as protein GenBank (.gpt); DNA/RNA as .gbk.
     const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
-    const rawName = projectIdRef.current
-      ? projectIdRef.current.split('/').pop().split('\\').pop()
-      : 'sequence.gbk';
+    const pid = projectIdRef.current || '';
+    // Unsaved in-memory projects (id `untitled-*`) have no path — prefill the
+    // save dialog with the name the user entered in the New Sequence dialog.
+    const rawName =
+      pid.startsWith('untitled-') || !pid
+        ? projectName || 'sequence'
+        : pid.split('/').pop().split('\\').pop();
     const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
     const path = await saveFileDialog(defaultName, defaultExt);
     if (!path) return; // User cancelled
@@ -1355,7 +1360,7 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('save as error:', e);
     }
-  }, [onRekey, sequence, moleculeType]);
+  }, [onRekey, sequence, moleculeType, projectName]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
