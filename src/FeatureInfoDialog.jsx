@@ -504,11 +504,7 @@ export default function FeatureInfoDialog({
               <Button variant="outline" size="sm" onClick={handleCancel}>
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                onClick={handleCreateApply}
-                disabled={!createLoc.trim()}
-              >
+              <Button size="sm" onClick={handleCreateApply} disabled={!createLoc.trim()}>
                 Create Feature
               </Button>
             </div>
