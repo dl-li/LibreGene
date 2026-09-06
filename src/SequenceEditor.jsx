@@ -1397,25 +1397,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const bottomTracks = [];
 
       if (normFeatures.length > 0) {
-        const sorted = [...normFeatures]
-          .filter((f, i, arr) => {
-            if (f.orf) return true;
-            const fa = f.segments.flatMap((s) => [s.start, s.end]);
-            return (
-              arr.findIndex((x) => {
-                if (x.orf) return false;
-                const xa = x.segments.flatMap((s) => [s.start, s.end]);
-                return fa.length === xa.length && fa.every((v, j) => v === xa[j]);
-              }) === i
-            );
-          })
-          .sort((a, b) => {
-            // ORFs get lowest track priority (bottom-most)
-            if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
-            const la = a.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
-            const lb = b.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
-            return lb - la || a.segments[0].start - b.segments[0].start;
-          });
+        const sorted = [...normFeatures].sort((a, b) => {
+          // ORFs get lowest track priority (bottom-most)
+          if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
+          const la = a.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
+          const lb = b.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
+          return lb - la || a.segments[0].start - b.segments[0].start;
+        });
         for (const f of sorted) {
           const allStarts = f.segments.map((s) => s.start);
           const allEnds = f.segments.map((s) => s.end);
