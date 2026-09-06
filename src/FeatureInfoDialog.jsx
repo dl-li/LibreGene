@@ -507,7 +507,7 @@ export default function FeatureInfoDialog({
               <Button
                 size="sm"
                 onClick={handleCreateApply}
-                disabled={!createLoc.trim() || !!nameConflict}
+                disabled={!createLoc.trim()}
               >
                 Create Feature
               </Button>
