@@ -7,6 +7,7 @@ import {
   saveFile,
   saveFileDialog,
   setMethylation,
+  setTopology,
   activateProject,
   updateFeatureFtype,
   updateFeatureColor,
@@ -49,6 +50,7 @@ const EMPTY_ARRAY = [];
 
 export default function ProjectWorkspace({
   projectId,
+  projectName,
   hidden,
   initialData,
   topology = 'circular',
@@ -89,6 +91,12 @@ export default function ProjectWorkspace({
   const [primers, setPrimers] = useState(initialData?.primers || EMPTY_ARRAY);
   const [alignments, setAlignments] = useState(initialData?.alignments || EMPTY_ARRAY);
   const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
+  // Live topology: project windows receive a constant prop, so mirror it into
+  // state and refresh from broadcasts / the toggle command response.
+  const [topologyLive, setTopologyLive] = useState(initialData?.topology || topology);
+  useEffect(() => {
+    setTopologyLive((cur) => (cur === topology ? cur : topology));
+  }, [topology]);
   // Primers/enzymes/ORFs/alignments are DNA-only features; rna/protein projects
   // render single-strand sequence + features only.
   const isDna = moleculeType === 'dna';
@@ -261,6 +269,7 @@ export default function ProjectWorkspace({
           setPrimers(data.primers || EMPTY_ARRAY);
           setAlignments(data.alignments || EMPTY_ARRAY);
           setMoleculeType(data.moleculeType || 'dna');
+          setTopologyLive(data.topology || 'circular');
           editHistoryRef.current.reset({
             sequence: data.sequence,
             features: data.features || EMPTY_ARRAY,
@@ -314,6 +323,7 @@ export default function ProjectWorkspace({
         setPrimers(data.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
         setMoleculeType(data.moleculeType || 'dna');
+        setTopologyLive(data.topology || 'circular');
         editHistoryRef.current.reset({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
@@ -402,7 +412,7 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [orfEnabled, backendStatus, sequence, topology, hidden]);
+  }, [orfEnabled, backendStatus, sequence, topologyLive, hidden]);
   const editorFeatures = useMemo(
     () => [...(showFeatures ? features : EMPTY_ARRAY), ...orfFeatures],
     [showFeatures, features, orfFeatures],
@@ -646,6 +656,29 @@ export default function ProjectWorkspace({
     },
     [pushHistory, onProjectsSync],
   );
+
+  const handleToggleTopology = useCallback(async () => {
+    if (agentLockedRef.current) return;
+    const next = topologyLive === 'circular' ? 'linear' : 'circular';
+    const gen = ++operationGenRef.current;
+    try {
+      const data = await setTopology(next, projectIdRef.current);
+      if (operationGenRef.current !== gen) return;
+      if (data && !data.error) {
+        // Enzymes/primer binding sites/feature translations are
+        // topology-dependent; the response carries the recomputed values.
+        if (data.features) setFeatures(data.features);
+        if (data.primers) setPrimers(data.primers);
+        if (data.enzymes) setEnzymes(data.enzymes);
+        setTopologyLive(data.topology || next);
+        setIsDirty(true);
+        // Topology itself flows down from App's project list.
+        if (data.projects) onProjectsSync(data.projects);
+      }
+    } catch (e) {
+      console.error('topology toggle error:', e);
+    }
+  }, [topologyLive, onProjectsSync]);
 
   // --- My Primers library actions ---
   const handleAddPrimerToMyPrimers = useCallback(
@@ -1299,9 +1332,13 @@ export default function ProjectWorkspace({
 
     // Protein projects export as protein GenBank (.gpt); DNA/RNA as .gbk.
     const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
-    const rawName = projectIdRef.current
-      ? projectIdRef.current.split('/').pop().split('\\').pop()
-      : 'sequence.gbk';
+    const pid = projectIdRef.current || '';
+    // Unsaved in-memory projects (id `untitled-*`) have no path — prefill the
+    // save dialog with the name the user entered in the New Sequence dialog.
+    const rawName =
+      pid.startsWith('untitled-') || !pid
+        ? projectName || 'sequence'
+        : pid.split('/').pop().split('\\').pop();
     const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
     const path = await saveFileDialog(defaultName, defaultExt);
     if (!path) return; // User cancelled
@@ -1323,7 +1360,7 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('save as error:', e);
     }
-  }, [onRekey, sequence, moleculeType]);
+  }, [onRekey, sequence, moleculeType, projectName]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -1558,7 +1595,8 @@ export default function ProjectWorkspace({
               autoAddPrimers={autoAddPrimers}
               onToggleAutoAddPrimers={onToggleAutoAddPrimers}
               myEnzymes={myEnzymes}
-              topology={topology}
+              topology={topologyLive}
+              onToggleTopology={handleToggleTopology}
               moleculeType={moleculeType}
               agentLocked={agentLocked}
               onUnlockAgent={handleUnlockAgent}
@@ -1578,7 +1616,7 @@ export default function ProjectWorkspace({
             onOpenChange={setMapViewOpen}
             sequenceLength={sequence.length}
             features={displayFeatures}
-            topology={topology}
+            topology={topologyLive}
             name={mapName}
             selection={liveSelection}
             onSelect={handleMapSelect}

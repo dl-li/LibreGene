@@ -273,7 +273,7 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
         }
     }
     // Best cell sitting on the band boundary is also untrusted.
-    if (bj as i64 - (diag + bi as i64)).abs() as usize >= band {
+    if (bj as i64 - (diag + bi as i64)).unsigned_abs() as usize >= band {
         edge = true;
     }
     t_aln.reverse();
@@ -348,7 +348,7 @@ fn smith_waterman_seeded(t: &[u8], r: &[u8]) -> Option<SwResult> {
                 if sw.score >= good_enough {
                     return Some(sw);
                 }
-                if best.as_ref().map_or(true, |b| sw.score > b.score) {
+                if best.as_ref().is_none_or(|b| sw.score > b.score) {
                     best = Some(sw);
                 }
             }
@@ -425,7 +425,7 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
         }
         let split = segments
             .last()
-            .map_or(false, |s: &AlignSegment| mapped <= s.end);
+            .is_some_and(|s: &AlignSegment| mapped <= s.end);
         if split || segments.is_empty() {
             segments.push(AlignSegment {
                 start: mapped,
@@ -476,7 +476,7 @@ pub fn alignment_diff(a: &Alignment, template: &str) -> AlignmentDiff {
                 deletions.push(deletion_at(tbytes, rs, pos - 1));
             }
             let tb = tbytes.get(pos).copied();
-            if tb.map_or(true, |t| t.to_ascii_uppercase() != ch) {
+            if tb.is_none_or(|t| t.to_ascii_uppercase() != ch) {
                 mismatches.push(AlignMismatch {
                     pos,
                     template_base: tb.map_or_else(String::new, |b| (b as char).to_string()),

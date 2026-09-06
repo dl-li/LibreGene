@@ -26,7 +26,8 @@ import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
-import { computePrimerAlignment, computeTm, blastSubmit } from './tauriApi';
+import { computePrimerAlignment, computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
+import { getRelatedEnzymes } from './enzymeRelated';
 import { CircularMap, LinearMap } from './MapView';
 import FornaView from './plugins/rnaFold/FornaView';
 import useRnaFold, { MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
@@ -50,6 +51,7 @@ import {
   Image,
   LockOpen,
   Pencil,
+  Scissors,
   Tag,
 } from 'lucide-react';
 
@@ -698,6 +700,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onEnzymeHoverChange,
   blastEnabled = false,
   topology = 'linear',
+  onToggleTopology,
   onOpenMyPrimers,
   onOpenPrimerOverview,
   onOpenDetectFeatures,
@@ -804,6 +807,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const tmSeqRef = useRef(null); // latest selection seq a Tm was scheduled for
   const dragRef = useRef({ startIdx: null, active: false });
   const isDraggingRef = useRef(false);
+  const autoScrollRef = useRef({ clientX: 0, clientY: 0 });
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const hoveredIndexRef = useRef(null);
   const cursorTimerRef = useRef(null);
@@ -1393,25 +1397,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const bottomTracks = [];
 
       if (normFeatures.length > 0) {
-        const sorted = [...normFeatures]
-          .filter((f, i, arr) => {
-            if (f.orf) return true;
-            const fa = f.segments.flatMap((s) => [s.start, s.end]);
-            return (
-              arr.findIndex((x) => {
-                if (x.orf) return false;
-                const xa = x.segments.flatMap((s) => [s.start, s.end]);
-                return fa.length === xa.length && fa.every((v, j) => v === xa[j]);
-              }) === i
-            );
-          })
-          .sort((a, b) => {
-            // ORFs get lowest track priority (bottom-most)
-            if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
-            const la = a.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
-            const lb = b.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
-            return lb - la || a.segments[0].start - b.segments[0].start;
-          });
+        const sorted = [...normFeatures].sort((a, b) => {
+          // ORFs get lowest track priority (bottom-most)
+          if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
+          const la = a.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
+          const lb = b.segments.reduce((s, seg) => s + seg.end - seg.start, 0);
+          return lb - la || a.segments[0].start - b.segments[0].start;
+        });
         for (const f of sorted) {
           const allStarts = f.segments.map((s) => s.start);
           const allEnds = f.segments.map((s) => s.end);
@@ -2021,7 +2013,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
       translationDragRef.current = null;
       setIsTranslationDragging(false);
       const idx = clientToSeqIndex(e.clientX, e.clientY);
-      if (idx === null) return;
+      if (idx === null) {
+        // Clicked blank space inside the canvas: drop any selection/cursor.
+        setSelStart(null);
+        setSelEnd(null);
+        setCursorIndex(null);
+        clearCursorTimer();
+        return;
+      }
       if (e.shiftKey && cursorIndex !== null) {
         // Shift+click: select from cursor to click position
         const s = Math.min(cursorIndex, idx);
@@ -2086,10 +2085,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
     setHoveredCodon(null);
   }, []);
 
-  useEffect(() => {
-    const onMove = (e) => {
+  const updateSeqDragSelection = useCallback(
+    (clientX, clientY) => {
       if (dragRef.current.startIdx === null) return;
-      const idx = clientToSeqIndex(e.clientX, e.clientY);
+      const idx = clientToSeqIndex(clientX, clientY);
       if (idx === null) return;
       const dist = Math.abs(idx - dragRef.current.startIdx);
       if (dist > 0) {
@@ -2101,10 +2100,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
         setCursorIndex(idx);
         resetCursorTimer();
       }
-    };
+    },
+    [clientToSeqIndex, resetCursorTimer],
+  );
+
+  useEffect(() => {
+    const onMove = (e) => updateSeqDragSelection(e.clientX, e.clientY);
     window.addEventListener('mousemove', onMove);
     return () => window.removeEventListener('mousemove', onMove);
-  }, [clientToSeqIndex, resetCursorTimer]);
+  }, [updateSeqDragSelection]);
 
   useEffect(() => {
     const onUp = () => {
@@ -2443,6 +2447,84 @@ const SequenceEditor = React.memo(function SequenceEditor({
       ]);
     },
     [selectPrimer, primerMenuItems, enrichedPrimers],
+  );
+
+  const enzymeDbRef = useRef(null); // null = not loaded, [] = load failed/empty
+  const loadEnzymeDb = useCallback(async () => {
+    if (enzymeDbRef.current) return enzymeDbRef.current;
+    try {
+      const data = await getEnzymeDatabase();
+      enzymeDbRef.current = Array.isArray(data) ? data : [];
+    } catch {
+      enzymeDbRef.current = [];
+    }
+    return enzymeDbRef.current;
+  }, []);
+
+  const selectEnzymeSite = useCallback(
+    (enzyme, entryId) => {
+      // Sites wrapping the origin of a circular sequence (recEnd beyond the
+      // sequence length) fall back to the display window.
+      const recWraps = enzyme.recStart == null || enzyme.recEnd >= cleanSeq.length;
+      setSelStart(recWraps ? enzyme.displayStart : enzyme.recStart);
+      setSelEnd(recWraps ? enzyme.displayEnd : enzyme.recEnd);
+      setCursorIndex(null);
+      setIsEnzymeSelection(true);
+      setSelectedEnzymeIds([entryId ?? enzyme.id]);
+      clearCursorTimer();
+    },
+    [cleanSeq, clearCursorTimer],
+  );
+
+  const openEnzymeMenu = useCallback(
+    async (e, l) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const enzyme = enzymes.find((x) => x.id === l.groupId);
+      if (enzyme) selectEnzymeSite(enzyme, l.id);
+      const items = [
+        { icon: CopyPlus, label: 'Copy (+) Strand', onSelect: () => copySelection('sense') },
+      ];
+      if (isDna) {
+        items.push({
+          icon: CopyMinus,
+          label: 'Copy (−) Strand',
+          onSelect: () => copySelection('antisense'),
+        });
+      }
+      const db = await loadEnzymeDb();
+      const related = db.length
+        ? getRelatedEnzymes(l.name, [...new Set(enzymes.map((x) => x.name))], db)
+        : null;
+      if (related) {
+        const nameItems = (names) =>
+          names.length
+            ? names.map((n) => ({
+                label: n,
+                onSelect: () => {
+                  const target = enzymes.find((x) => x.name === n);
+                  if (target) selectEnzymeSite(target);
+                },
+              }))
+            : [{ label: 'None', disabled: true }];
+        items.push(
+          { type: 'separator' },
+          {
+            icon: Scissors,
+            label: 'Related Enzymes',
+            children: [
+              { label: 'Isocaudomers', disabled: true },
+              ...nameItems(related.isocaudomers),
+              { type: 'separator' },
+              { label: 'Isoschizomers', disabled: true },
+              ...nameItems(related.isoschizomers),
+            ],
+          },
+        );
+      }
+      showContextMenu(e.clientX, e.clientY, items);
+    },
+    [enzymes, isDna, copySelection, loadEnzymeDb, selectEnzymeSite],
   );
 
   const copyAmplimer = useCallback(() => {
@@ -3180,8 +3262,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // --- translation (codon) drag effect ---
   // Placed after cdsFeatureData so the dependency array can reference it.
-  useEffect(() => {
-    const onMove = (e) => {
+  const updateTranslationDrag = useCallback(
+    (clientX, clientY) => {
       const drag = translationDragRef.current;
       if (!drag || !svgRef.current) return;
       const cds = cdsFeatureData[drag.featureId];
@@ -3190,8 +3272,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // Compute row/col directly from SVG geometry so dragging works over the
       // feature bar and not only over the sequence text.
       const pt = svgRef.current.createSVGPoint();
-      pt.x = e.clientX;
-      pt.y = e.clientY;
+      pt.x = clientX;
+      pt.y = clientY;
       const ctm = svgRef.current.getScreenCTM();
       if (!ctm) return;
       const svgPt = pt.matrixTransform(ctm.inverse());
@@ -3214,10 +3296,68 @@ const SequenceEditor = React.memo(function SequenceEditor({
         if (!prev || prev.featureId !== drag.featureId) return prev;
         return { featureId: drag.featureId, startCodon: drag.startCodon, endCodon: clamped };
       });
-    };
+    },
+    [cdsFeatureData, charsPerLine, rowAtSvgY],
+  );
+
+  useEffect(() => {
+    const onMove = (e) => updateTranslationDrag(e.clientX, e.clientY);
     window.addEventListener('mousemove', onMove);
     return () => window.removeEventListener('mousemove', onMove);
-  }, [cdsFeatureData, charsPerLine, rowAtSvgY]);
+  }, [updateTranslationDrag]);
+
+  // --- auto-scroll while dragging near the top/bottom viewport edge ---
+  // mousemove stops firing once the pointer leaves the window or the content
+  // scrolls under a stationary pointer, so a rAF loop keeps scrolling and
+  // re-evaluates the drag selection from the last stored pointer position.
+  useEffect(() => {
+    const EDGE = 48;
+    const MIN_SPEED = 2;
+    const MAX_SPEED = 20;
+    let rafId = null;
+    const anyDragActive = () =>
+      dragRef.current.startIdx !== null ||
+      isPrimerDraggingRef.current ||
+      enzymeDragRef.current?.active ||
+      translationDragRef.current !== null;
+    const tick = () => {
+      rafId = null;
+      if (!anyDragActive()) return;
+      const { clientX, clientY } = autoScrollRef.current;
+      const scroller = scrollContainerRef?.current;
+      const rect = scroller
+        ? scroller.getBoundingClientRect()
+        : { top: 0, bottom: window.innerHeight };
+      let delta = 0;
+      if (clientY < rect.top + EDGE) {
+        const t = Math.min(1, (rect.top + EDGE - clientY) / EDGE);
+        delta = -(MIN_SPEED + (MAX_SPEED - MIN_SPEED) * t);
+      } else if (clientY > rect.bottom - EDGE) {
+        const t = Math.min(1, (clientY - (rect.bottom - EDGE)) / EDGE);
+        delta = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * t;
+      }
+      if (delta !== 0) {
+        if (scroller) scroller.scrollTop += delta;
+        else window.scrollBy(0, delta);
+        // Scrolling moves content under a stationary pointer without firing
+        // mousemove, so re-run the drag selection from the stored position.
+        // Primer/enzyme pair drags rely on mouseenter as elements move under
+        // the pointer and need no explicit recompute here.
+        if (dragRef.current.startIdx !== null) updateSeqDragSelection(clientX, clientY);
+        else if (translationDragRef.current) updateTranslationDrag(clientX, clientY);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    const onMove = (e) => {
+      autoScrollRef.current = { clientX: e.clientX, clientY: e.clientY };
+      if (rafId === null && anyDragActive()) rafId = requestAnimationFrame(tick);
+    };
+    window.addEventListener('mousemove', onMove, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
+  }, [scrollContainerRef, updateSeqDragSelection, updateTranslationDrag]);
 
   const renderedFeatures = useMemo(() => {
     if (!visibleFeatures.length) return null;
@@ -4443,6 +4583,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       return (
         <g
           key={l.id}
+          onContextMenu={(e) => openEnzymeMenu(e, l)}
           onMouseEnter={() => {
             if (enzymeDragRef.current?.active) {
               // Regular enzyme can't drag to cut-twice enzyme
@@ -4650,6 +4791,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     isEnzymeSelection,
     clearCursorTimer,
     cleanSeq,
+    openEnzymeMenu,
   ]);
 
   const renderedEnzymeOverlay = useMemo(() => {
@@ -5503,12 +5645,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onOpenEnzymeDatabase={onOpenEnzymeDatabase}
           myEnzymes={myEnzymes}
           topology={topology}
+          onToggleTopology={onToggleTopology}
           moleculeType={moleculeType}
         />
       )}
       <div
         ref={containerRef}
         onContextMenu={handleContextMenu}
+        onMouseDown={(e) => {
+          // Blank margins outside the SVG: drop any selection/cursor. Clicks
+          // inside the SVG are handled by handleSvgMouseDown (target = svg).
+          if (e.button !== 0) return;
+          const t = e.target;
+          if (t === e.currentTarget || t.parentElement === e.currentTarget) {
+            setSelStart(null);
+            setSelEnd(null);
+            setCursorIndex(null);
+            clearCursorTimer();
+          }
+        }}
         style={{
           backgroundColor: bgColor,
           width: '100%',

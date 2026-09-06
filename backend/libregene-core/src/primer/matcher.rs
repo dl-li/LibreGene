@@ -106,7 +106,7 @@ pub fn find_annealing_positions(
 
     let tlen = template.len();
 
-    for m in re.find_iter(&template_str) {
+    for m in re.find_iter(template_str) {
         let anchor_start = m.start();
         let anchor_end = m.end(); // anchor_start + limit
 

@@ -76,7 +76,7 @@ pub fn iupac_to_regex(site: &str) -> String {
     let mut pat = String::with_capacity(site.len() * 3);
     for c in site.chars() {
         match c {
-            'N' => pat.push_str("."),
+            'N' => pat.push('.'),
             'R' => pat.push_str("[AG]"),
             'Y' => pat.push_str("[CT]"),
             'W' => pat.push_str("[AT]"),

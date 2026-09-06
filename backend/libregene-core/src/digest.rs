@@ -574,7 +574,7 @@ pub fn project_digest(
         .iter()
         .filter(|f| feature_matches_filter(f, opts.feature_filter.as_deref()))
         .filter(|f| {
-            region.map_or(true, |(s, e)| feature_in_region(f, s, e, circular))
+            region.is_none_or(|(s, e)| feature_in_region(f, s, e, circular))
         })
         .collect();
     out.push_str("FEATURES (1-based, inclusive):\n");
@@ -584,8 +584,8 @@ pub fn project_digest(
                 out.push_str(&feature_line(f));
                 out.push('\n');
             }
-            let _ = write!(out, 
-                "        ... and {} more features (narrow with feature_filter)\n",
+            let _ = writeln!(out, 
+                "        ... and {} more features (narrow with feature_filter)",
                 features.len() - max
             );
         }
@@ -629,7 +629,7 @@ pub fn project_digest(
         }
         for s in &p.binding_sites {
             let covered = (s.template_start, s.template_end - 1);
-            if region.map_or(true, |(rs, re)| {
+            if region.is_none_or(|(rs, re)| {
                 seg_in_range(covered.0, covered.1, rs, re, circular)
             }) {
                 site_lines.push(primer_site_line(s, p));
@@ -644,8 +644,8 @@ pub fn project_digest(
             out.push('\n');
         }
         if !unbound.is_empty() {
-            let _ = write!(out, 
-                "Primers without binding sites: {}\n",
+            let _ = writeln!(out, 
+                "Primers without binding sites: {}",
                 unbound.join(", ")
             );
         }
@@ -659,7 +659,7 @@ pub fn project_digest(
         .alignments
         .iter()
         .filter(|a| {
-            region.map_or(true, |(s, e)| alignment_in_region(a, s, e, circular))
+            region.is_none_or(|(s, e)| alignment_in_region(a, s, e, circular))
         })
         .collect();
     if !alignments.is_empty() {
@@ -733,16 +733,16 @@ pub fn project_digest(
             }
             section.push('\n');
             for m in mismatches {
-                let _ = write!(section, 
-                    "          mismatch at {}: {} > {}\n",
+                let _ = writeln!(section, 
+                    "          mismatch at {}: {} > {}",
                     m.pos + 1,
                     m.template_base,
                     m.read_base
                 );
             }
             for d in deletions {
-                let _ = write!(section, 
-                    "          deletion at {}: {} bp ({})\n",
+                let _ = writeln!(section, 
+                    "          deletion at {}: {} bp ({})",
                     d.pos + 1,
                     d.length,
                     d.bases
@@ -750,8 +750,8 @@ pub fn project_digest(
             }
             for i in insertions {
                 let (a1, b1) = cut_flanks(i.pos as i64, project.length, circular);
-                let _ = write!(section, 
-                    "          insertion between {} and {}: {} ({} bp)\n",
+                let _ = writeln!(section, 
+                    "          insertion between {} and {}: {} ({} bp)",
                     a1, b1, i.bases, i.length
                 );
             }
@@ -789,22 +789,22 @@ pub fn project_digest(
                 let multi = multi_names.len() + others;
                 if opts.compact_enzymes {
                     if !unique.is_empty() || multi > 0 {
-                        let _ = write!(out, 
-                            "ENZYMES (compact): {} single-cut, {} multi-cut (cuts shown as N^N+1, 1-based)\n",
+                        let _ = writeln!(out, 
+                            "ENZYMES (compact): {} single-cut, {} multi-cut (cuts shown as N^N+1, 1-based)",
                             unique.len(),
                             multi
                         );
                     }
                 } else if opts.compact_cutters {
                     if !unique.is_empty() {
-                        let _ = write!(out, 
-                            "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)\n",
+                        let _ = writeln!(out, 
+                            "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)",
                             unique.len()
                         );
                     }
                     if multi > 0 {
-                        let _ = write!(out, 
-                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
+                        let _ = writeln!(out, 
+                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)",
                             multi
                         );
                     }
@@ -812,8 +812,8 @@ pub fn project_digest(
                     if !unique.is_empty() {
                         out.push_str("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for e in unique {
-                            let _ = write!(out, 
-                                "        {:<10} {:<28} {:<10} {}\n",
+                            let _ = writeln!(out, 
+                                "        {:<10} {:<28} {:<10} {}",
                                 e.name,
                                 cuts_desc(e, project.length, circular),
                                 e.rec_seq,
@@ -822,8 +822,8 @@ pub fn project_digest(
                         }
                     }
                     if multi > 0 {
-                        let _ = write!(out, 
-                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)\n",
+                        let _ = writeln!(out, 
+                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)",
                             multi
                         );
                     }
@@ -837,15 +837,15 @@ pub fn project_digest(
                     .collect();
                 if !in_region.is_empty() {
                     if opts.compact_enzymes {
-                        let _ = write!(out, 
-                            "ENZYMES CUTTING IN REGION (compact): {} cuts (cuts shown as N^N+1, 1-based)\n",
+                        let _ = writeln!(out, 
+                            "ENZYMES CUTTING IN REGION (compact): {} cuts (cuts shown as N^N+1, 1-based)",
                             in_region.len()
                         );
                     } else {
                         out.push_str("ENZYMES CUTTING IN REGION (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for en in in_region {
-                            let _ = write!(out, 
-                                "        {:<10} {}   {}\n",
+                            let _ = writeln!(out, 
+                                "        {:<10} {}   {}",
                                 en.name,
                                 cuts_desc(en, project.length, circular),
                                 cut_type_label(&en.cut_type)
@@ -917,8 +917,8 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
 
     let mut out = String::new();
     let unit = unit_for(&project.molecule_type);
-    let _ = write!(out, 
-        "COORDS: 1-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})\n",
+    let _ = writeln!(out, 
+        "COORDS: 1-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})",
         s + 1,
         e + 1,
         count,

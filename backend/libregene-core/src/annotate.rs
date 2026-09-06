@@ -681,14 +681,14 @@ fn prot_hit_to_nt(h: ProtHit, frame: usize, strand: i8, n: usize) -> RawHit {
 fn match_features(query: &[u8], circular: bool) -> Vec<RawHit> {
     let d = db();
     let doubled: Vec<u8> = if circular {
-        [&query[..], &query[..]].concat()
+        [query, query].concat()
     } else {
         query.to_vec()
     };
     let mut hits = Vec::new();
     for (fi, f) in d.features.iter().enumerate() {
         let len = f.fwd.len();
-        if len >= MIN_HIT_LENGTH && len <= SHORT_MAX {
+        if (MIN_HIT_LENGTH..=SHORT_MAX).contains(&len) {
             scan_short(fi, &f.fwd, &doubled, 1, &mut hits);
             scan_short(fi, &f.rc, &doubled, -1, &mut hits);
         }
