@@ -137,9 +137,7 @@ export default function SequenceEditDialog({
   // DNA 序列混入 U / RNA 序列混入 T 时提醒，并提供一键转换（保持大小写）
   const wrongBase =
     moleculeType === 'dna' ? ['U', 'T'] : moleculeType === 'rna' ? ['T', 'U'] : null;
-  const wrongCount = wrongBase
-    ? (cleaned.match(new RegExp(wrongBase[0], 'gi')) || []).length
-    : 0;
+  const wrongCount = wrongBase ? (cleaned.match(new RegExp(wrongBase[0], 'gi')) || []).length : 0;
   const convertWrongBase = () => {
     if (!wrongBase) return;
     const [from, to] = wrongBase;
@@ -315,7 +313,9 @@ export default function SequenceEditDialog({
                     Paste annotations:{' '}
                     {(clipboardMeta.features?.length ?? 0) > 0 &&
                       `${clipboardMeta.features.length} feature${clipboardMeta.features.length !== 1 ? 's' : ''}`}
-                    {(clipboardMeta.features?.length ?? 0) > 0 && (clipboardMeta.primers?.length ?? 0) > 0 && ', '}
+                    {(clipboardMeta.features?.length ?? 0) > 0 &&
+                      (clipboardMeta.primers?.length ?? 0) > 0 &&
+                      ', '}
                     {(clipboardMeta.primers?.length ?? 0) > 0 &&
                       `${clipboardMeta.primers.length} primer${clipboardMeta.primers.length !== 1 ? 's' : ''}`}
                   </label>

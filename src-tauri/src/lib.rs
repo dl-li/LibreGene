@@ -216,7 +216,7 @@ fn filter_main_window_projects(
 ) -> (Vec<serde_json::Value>, Option<String>) {
     let filtered: Vec<_> = projects
         .into_iter()
-        .filter(|p| p["id"].as_str().map_or(true, |id| !excluded.contains(id)))
+        .filter(|p| p["id"].as_str().is_none_or(|id| !excluded.contains(id)))
         .collect();
     let active = active_id.filter(|id| !excluded.contains(id.as_str()))
         .or_else(|| {
@@ -1353,6 +1353,55 @@ async fn do_set_methylation<R: Runtime>(
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
+/// Toggle a DNA project's topology (circular <-> linear) and recompute
+/// topology-dependent data (enzymes, primer binding sites, translations).
+async fn do_set_topology<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    topology: &str,
+) -> Result<serde_json::Value, String> {
+    let topology = topology.trim().to_ascii_lowercase();
+    if topology != "circular" && topology != "linear" {
+        return Err(format!("invalid topology: {}", topology));
+    }
+
+    {
+        let mut pm = pm.write().await;
+        match pm.get_project_mut_by_id(project_id) {
+            Some(p) if p.molecule_type != "dna" => {
+                return Ok(serde_json::json!({"error": "topology toggle is DNA-only"}));
+            }
+            Some(p) => {
+                p.topology = topology;
+                pm.mark_dirty(project_id);
+            }
+            None => return Ok(serde_json::json!({"error": "project not found"})),
+        }
+    }
+
+    recompute_after_sequence_change(app_handle, pm, wp, agent_tabs, source, project_id).await?;
+
+    let result = {
+        let pm = pm.read().await;
+        let params = ProjectParams {
+            enzyme_filter: Some("all".to_string()),
+            row_start: None,
+            row_end: None,
+            cpl: None,
+        };
+        pm.get_project_by_id(project_id)
+            .map(|p| filter_project(p, &params))
+            .unwrap_or(serde_json::json!({"error": "Project not found after topology change"}))
+    };
+    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
+}
+
 /// Human-readable rejection reason for a failed read alignment. The prefix is
 /// kept stable so callers can detect the family (`starts_with`).
 fn alignment_reject_message(r: libregene_core::align::AlignReject) -> String {
@@ -1686,9 +1735,9 @@ pub(crate) fn codon_optimize(
         let piece = &new_coding[off..off + len];
         if minus {
             let rc = libregene_core::utils::reverse_complement(piece);
-            bytes[s as usize..=e as usize].copy_from_slice(rc.as_bytes());
+            bytes[s..=e].copy_from_slice(rc.as_bytes());
         } else {
-            bytes[s as usize..=e as usize].copy_from_slice(piece.as_bytes());
+            bytes[s..=e].copy_from_slice(piece.as_bytes());
         }
         off += len;
     }
@@ -2674,7 +2723,7 @@ fn compute_primer_alignment_sync(
             let tp_3prime = if is_rev { seed_tstart } else { seed_tstart + seed_len - 1 };
 
             if candidates.iter().any(|c| {
-                let d = if c.tp_3prime > tp_3prime { c.tp_3prime - tp_3prime } else { tp_3prime - c.tp_3prime };
+                let d = c.tp_3prime.abs_diff(tp_3prime);
                 d <= 3
             }) { continue; }
 
@@ -2754,6 +2803,7 @@ fn compute_primer_alignment_sync(
                     let text = libregene_core::primer::display::format_alignment_text(
                         &orig_rev_bytes, &template_region, &result,
                         "Template", primer_name, win_start, true,
+                        if is_circular { tlen } else { 0 },
                     );
                     let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(&rev_bytes, &result, tm_params);
                     results.push(serde_json::json!({
@@ -2771,6 +2821,7 @@ fn compute_primer_alignment_sync(
                     let text = libregene_core::primer::display::format_alignment_text(
                         orig_bytes, &template_region, &result,
                         "Template", primer_name, win_start, false,
+                        if is_circular { tlen } else { 0 },
                     );
                     let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(primer_bytes, &result, tm_params);
                     results.push(serde_json::json!({
@@ -3251,6 +3302,34 @@ async fn set_methylation(
         &project_id,
         systems,
         overlap,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn set_topology(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    topology: String,
+    project_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let project_id = match project_id {
+        Some(id) => id,
+        None => match resolve_project_id(&state, webview_window.label()).await {
+            Ok(id) => id,
+            Err(e) => return Ok(serde_json::json!({"error": e})),
+        },
+    };
+
+    do_set_topology(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        &state.agent_tabs,
+        Some(webview_window.label()),
+        &project_id,
+        &topology,
     )
     .await
 }
@@ -3920,6 +3999,7 @@ pub fn run() {
             update_sequence,
             set_roi,
             clear_roi,
+            set_topology,
             get_features,
             add_feature,
             delete_feature,
@@ -4017,6 +4097,11 @@ mod tests {
         let aln = cur["alignment"].as_str().expect("alignment text missing");
         assert!(aln.contains("3' <"), "expected reverse-primer arrows:\n{}", aln);
         assert!(aln.contains("GGAGCAATCACAGGTGAGCAAAAAA"), "template line:\n{}", aln);
+        assert!(
+            aln.contains("gagctcgcc"),
+            "non-matching 5' tail must be visible as an overhang:\n{}",
+            aln
+        );
     }
 
     #[test]

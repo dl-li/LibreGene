@@ -12,21 +12,21 @@
 /// Returns empty slice for unrecognised characters.
 pub fn iupac_expand(base: u8) -> &'static [u8] {
     match base {
-        b'A' | b'a' => &[b'A'],
-        b'C' | b'c' => &[b'C'],
-        b'G' | b'g' => &[b'G'],
-        b'T' | b't' | b'U' | b'u' => &[b'T'],
-        b'R' | b'r' => &[b'A', b'G'],
-        b'Y' | b'y' => &[b'C', b'T'],
-        b'S' | b's' => &[b'G', b'C'],
-        b'W' | b'w' => &[b'A', b'T'],
-        b'K' | b'k' => &[b'G', b'T'],
-        b'M' | b'm' => &[b'A', b'C'],
-        b'B' | b'b' => &[b'C', b'G', b'T'],
-        b'D' | b'd' => &[b'A', b'G', b'T'],
-        b'H' | b'h' => &[b'A', b'C', b'T'],
-        b'V' | b'v' => &[b'A', b'C', b'G'],
-        b'N' | b'n' => &[b'A', b'C', b'G', b'T'],
+        b'A' | b'a' => b"A",
+        b'C' | b'c' => b"C",
+        b'G' | b'g' => b"G",
+        b'T' | b't' | b'U' | b'u' => b"T",
+        b'R' | b'r' => b"AG",
+        b'Y' | b'y' => b"CT",
+        b'S' | b's' => b"GC",
+        b'W' | b'w' => b"AT",
+        b'K' | b'k' => b"GT",
+        b'M' | b'm' => b"AC",
+        b'B' | b'b' => b"CGT",
+        b'D' | b'd' => b"AGT",
+        b'H' | b'h' => b"ACT",
+        b'V' | b'v' => b"ACG",
+        b'N' | b'n' => b"ACGT",
         _ => &[],
     }
 }
@@ -35,21 +35,21 @@ pub fn iupac_expand(base: u8) -> &'static [u8] {
 /// The complement set is the IUPAC code for bases that pair with this one.
 pub fn iupac_complement(base: u8) -> &'static [u8] {
     match base {
-        b'A' | b'a' => &[b'T'],
-        b'C' | b'c' => &[b'G'],
-        b'G' | b'g' => &[b'C'],
-        b'T' | b't' | b'U' | b'u' => &[b'A'],
-        b'R' | b'r' => &[b'C', b'T'], // complement of A|G = T|C = Y
-        b'Y' | b'y' => &[b'A', b'G'], // complement of C|T = G|A = R
-        b'S' | b's' => &[b'G', b'C'], // complement of G|C = C|G = S
-        b'W' | b'w' => &[b'A', b'T'], // complement of A|T = T|A = W
-        b'K' | b'k' => &[b'A', b'C'], // complement of G|T = C|A = M
-        b'M' | b'm' => &[b'G', b'T'], // complement of A|C = T|G = K
-        b'B' | b'b' => &[b'A', b'C', b'G'], // complement of CGT = GCA = V
-        b'D' | b'd' => &[b'A', b'C', b'T'], // complement of AGT = TCA = H
-        b'H' | b'h' => &[b'A', b'G', b'T'], // complement of ACT = TGA = D
-        b'V' | b'v' => &[b'C', b'G', b'T'], // complement of ACG = TGC = B
-        b'N' | b'n' => &[b'A', b'C', b'G', b'T'],
+        b'A' | b'a' => b"T",
+        b'C' | b'c' => b"G",
+        b'G' | b'g' => b"C",
+        b'T' | b't' | b'U' | b'u' => b"A",
+        b'R' | b'r' => b"CT", // complement of A|G = T|C = Y
+        b'Y' | b'y' => b"AG", // complement of C|T = G|A = R
+        b'S' | b's' => b"GC", // complement of G|C = C|G = S
+        b'W' | b'w' => b"AT", // complement of A|T = T|A = W
+        b'K' | b'k' => b"AC", // complement of G|T = C|A = M
+        b'M' | b'm' => b"GT", // complement of A|C = T|G = K
+        b'B' | b'b' => b"ACG", // complement of CGT = GCA = V
+        b'D' | b'd' => b"ACT", // complement of AGT = TCA = H
+        b'H' | b'h' => b"AGT", // complement of ACT = TGA = D
+        b'V' | b'v' => b"CGT", // complement of ACG = TGC = B
+        b'N' | b'n' => b"ACGT",
         _ => &[],
     }
 }

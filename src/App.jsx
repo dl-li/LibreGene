@@ -1363,6 +1363,7 @@ export default function App() {
                 <ProjectWorkspace
                   key={keyFor(p.id)}
                   projectId={p.id}
+                  projectName={p.name}
                   hidden={p.id !== activeId}
                   initialData={initialDataRef.current[p.id]}
                   topology={p.topology || 'circular'}

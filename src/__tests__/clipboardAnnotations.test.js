@@ -21,7 +21,14 @@ function validMeta() {
           segments: [{ start: 10, end: 29 }],
         },
       ],
-      primers: [{ name: 'p1', type: 'fwd', primerSeq: 'ACGTACGTAC', bindingSites: [{ templateStart: 5, templateEnd: 15 }] }],
+      primers: [
+        {
+          name: 'p1',
+          type: 'fwd',
+          primerSeq: 'ACGTACGTAC',
+          bindingSites: [{ templateStart: 5, templateEnd: 15 }],
+        },
+      ],
     },
     0,
     99,
@@ -54,9 +61,7 @@ describe('parseMetaFromPasteEvent (forged-flavor hardening)', () => {
 
   it('rejects payload with no arrays', () => {
     expect(
-      parseMetaFromPasteEvent(
-        fakePasteEvent({ app: 'libregene', version: 1, length: 100 }),
-      ),
+      parseMetaFromPasteEvent(fakePasteEvent({ app: 'libregene', version: 1, length: 100 })),
     ).toBeNull();
   });
 

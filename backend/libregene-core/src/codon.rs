@@ -213,7 +213,7 @@ pub fn extract_codons(
         }
     }
 
-    if coding.len() % 3 != 0 {
+    if !coding.len().is_multiple_of(3) {
         return Err(format!("coding length {} not divisible by 3", coding.len()));
     }
 
@@ -855,7 +855,7 @@ fn mark_all(
     mark_homopolymer(seg, offset, params.max_homopolymer, marked, violations.as_deref_mut());
     mark_kmers(seg, offset, params.k, mult, marked, violations.as_deref_mut());
     mark_enzyme(seg, offset, &params.sites, marked, violations.as_deref_mut());
-    mark_gc(seg, offset, params.gc_window, marked, violations.as_deref_mut());
+    mark_gc(seg, offset, params.gc_window, marked, violations);
 }
 
 fn build_kmer_counts(dna: &[u8], k: usize) -> HashMap<String, usize> {

@@ -1045,7 +1045,7 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
         .map(|s| s.to_string())
         .or_else(|| {
             f.qualifier_values("note")
-                .filter_map(|n| parse_snapgene_primer_note(n))
+                .filter_map(parse_snapgene_primer_note)
                 .map(|(_, seq)| {
                     let (mism, mstr) = split_snapgene_primer_seq(&seq);
                     format!("{}{}", mism.to_lowercase(), mstr.to_uppercase())
