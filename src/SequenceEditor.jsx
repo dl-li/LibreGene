@@ -27,6 +27,7 @@ import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
+import { TRACE_CHANNELS, traceRangeMax, buildTracePath, buildColumnQueryMap } from './chromatogram';
 import { getRelatedEnzymes } from './enzymeRelated';
 import { CircularMap, LinearMap } from './MapView';
 import FornaView from './plugins/rnaFold/FornaView';
@@ -312,6 +313,11 @@ const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 
 // Extra vertical gap between alignment lanes and the feature tracks below.
 const ALIGN_FEAT_GAP = 10;
+
+// Chromatogram (ab1 trace) band geometry: band height and the gap between
+// stacked bands / to the next block below the sequence.
+const CHROM_TRACK_H = 46;
+const CHROM_GAP = 4;
 
 // ---------------------------------------------------------------------------
 // MapWatermark — non-interactive plasmid map rendered as a faint overlay on
@@ -680,6 +686,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
   alignmentCacheRef,
   alignmentTracks = [],
   alignments = [],
+  // Chromatogram of the project's own .ab1 source (rendered under the top
+  // strand) and per-alignment-id traces (rendered in extra lanes).
+  chromatogram = null,
+  alignmentChromatograms = {},
   alignmentEnabled = true,
   primerDesignEnabled = true,
   mapWatermark = false,
@@ -1298,20 +1308,31 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // Per-row compact lane assignment: an alignment only reserves a lane in
   // rows where it actually has sequence, so partial alignments leave no gaps.
+  // Alignments with loaded chromatograms additionally reserve a trace band
+  // lane below the text lanes; the project's own trace (ab1 source) reserves
+  // one band above them.
   const alignLaneInfo = useMemo(() => {
     const perRow = Array.from({ length: numRows }, () => new Map());
+    const chromPerRow = Array.from({ length: numRows }, () => new Map());
     alignmentTracks.forEach((al, ti) => {
+      const hasChrom = !!alignmentChromatograms[al.id];
       const rows = new Set();
       for (const seg of al.segments || []) {
         for (const v of sp(seg.start, seg.end)) rows.add(v.row);
       }
       for (const r of rows) {
-        if (r >= 0 && r < numRows && !perRow[r].has(ti)) perRow[r].set(ti, perRow[r].size);
+        if (r < 0 || r >= numRows) continue;
+        if (!perRow[r].has(ti)) perRow[r].set(ti, perRow[r].size);
+        if (hasChrom && !chromPerRow[r].has(ti)) chromPerRow[r].set(ti, chromPerRow[r].size);
       }
     });
     const counts = perRow.map((m) => m.size);
-    return { perRow, counts };
-  }, [alignmentTracks, numRows, sp]);
+    const chromCounts = chromPerRow.map((m) => m.size);
+    const mainChromH = chromatogram ? CHROM_TRACK_H + CHROM_GAP : 0;
+    // Extra below-sequence height contributed by chromatogram bands.
+    const chromBelow = chromCounts.map((n) => mainChromH + n * (CHROM_TRACK_H + CHROM_GAP));
+    return { perRow, counts, chromPerRow, chromCounts, mainChromH, chromBelow };
+  }, [alignmentTracks, numRows, sp, alignmentChromatograms, chromatogram]);
 
   // --- collision avoidance: features + primers ---
   // Normalize features and pre-compute colors once
@@ -1795,6 +1816,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 t * pp.trackGap +
                 extra +
                 featOff +
+                alignLaneInfo.chromBelow[r] +
                 alignLaneInfo.counts[r] * lp.featTrackHeight +
                 (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0),
             );
@@ -1821,12 +1843,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
         ae = Math.max(ae, enzBase + maxEnzLift);
       }
 
-      // Features: below sequence (shifted down by alignment lanes)
+      // Features: below sequence (shifted down by alignment lanes and any
+      // chromatogram bands)
       const nAlign = alignLaneInfo.counts[r];
-      if (nAlign > 0) {
+      const chromBelow = alignLaneInfo.chromBelow[r];
+      if (nAlign > 0 || chromBelow > 0) {
         be = Math.max(
           be,
-          lp.featBaseOffset + nAlign * lp.featTrackHeight + ALIGN_FEAT_GAP + lp.featLabelPad,
+          lp.featBaseOffset +
+            chromBelow +
+            nAlign * lp.featTrackHeight +
+            (nAlign > 0 ? ALIGN_FEAT_GAP : 0) +
+            lp.featLabelPad,
         );
       }
       const rowFeats = featuresByRow[r];
@@ -1836,6 +1864,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           be = Math.max(
             be,
             lp.featBaseOffset +
+              chromBelow +
               (t + nAlign) * lp.featTrackHeight +
               (nAlign > 0 ? ALIGN_FEAT_GAP : 0) +
               lp.featLabelPad +
@@ -3418,6 +3447,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const w = (v.colEnd - v.colStart + 1) * cw;
             const sy = getSeqY(v.row);
             const rowTo =
+              alignLaneInfo.chromBelow[v.row] +
               (((featureRowTracks[f.id] || {})[v.row] || 0) + alignLaneInfo.counts[v.row]) *
                 lp.featTrackHeight +
               (alignLaneInfo.counts[v.row] > 0 ? ALIGN_FEAT_GAP : 0);
@@ -3586,6 +3616,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               if (!cov) return [];
               const sy = getSeqY(r);
               const rowTo =
+                alignLaneInfo.chromBelow[r] +
                 (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
                   lp.featTrackHeight +
                 (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
@@ -3701,6 +3732,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const labelColor = vs.color;
         const sy = getSeqY(vs.row);
         const rowTo =
+          alignLaneInfo.chromBelow[vs.row] +
           (((featureRowTracks[f.id] || {})[vs.row] || 0) + alignLaneInfo.counts[vs.row]) *
             lp.featTrackHeight +
           (alignLaneInfo.counts[vs.row] > 0 ? ALIGN_FEAT_GAP : 0);
@@ -3859,7 +3891,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           if (v.row < vs || v.row > ve) continue;
           const sy = getSeqY(v.row);
           const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
-          const y = sy + lp.featBaseOffset + lane * lp.featTrackHeight + 8;
+          const y =
+            sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 8;
           const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
           const mismatches = [];
           chars.forEach((c, i) => {
@@ -4002,7 +4035,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           {Object.values(rowLabels).map((v) => {
             const sy = getSeqY(v.row);
             const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
-            const y = sy + lp.featBaseOffset + lane * lp.featTrackHeight + 8;
+            const y =
+              sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 8;
             const hKey = `${al.id}:${v.row}`;
             const hovered = truncated && hoverAlignLabel === hKey;
             const labelX = getX(v.colEnd + 1) + 8;
@@ -4048,6 +4082,107 @@ const SequenceEditor = React.memo(function SequenceEditor({
       );
     });
   }, [alignmentTracks, visibleRows, numRows, sp, getSeqY, lp, alignLaneInfo, hoverAlignLabel]);
+
+  // Chromatogram bands: the project's own trace directly under the top
+  // strand (ab1 source files), and one warped trace band per alignment
+  // with loaded trace data, placed below the alignment text lanes. Trace
+  // samples are interpolated between peak anchors so every base's peak sits
+  // on its own column; read gaps (deletions) break the polyline.
+  // Band rendering ported from GenePad (https://github.com/GenePad),
+  // provided by the GenePad team / https://github.com/Masterchiefm.
+  const renderedChromatograms = useMemo(() => {
+    const hasAlignChrom = alignmentTracks.some((al) => alignmentChromatograms[al.id]);
+    if (!chromatogram && !hasAlignChrom) return null;
+    const vs = Math.max(0, visibleRows.start - ROW_BUF);
+    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
+    const bands = [];
+
+    const renderBand = (key, chrom, anchors, y) => {
+      if (anchors.length === 0) return;
+      const peaks = chrom.peakLocations;
+      const p0 = Math.max(0, (peaks[anchors[0].q] ?? 0) - 14);
+      const p1 = (peaks[anchors[anchors.length - 1].q] ?? 0) + 14;
+      const maxVal = traceRangeMax(chrom, p0, p1);
+      if (maxVal <= 0) return;
+      const baseY = y + CHROM_TRACK_H - 4;
+      const scaleY = (CHROM_TRACK_H - 8) / maxVal;
+      bands.push(
+        <g key={key}>
+          <line
+            x1={anchors[0].x - cw / 2}
+            x2={anchors[anchors.length - 1].x + cw / 2}
+            y1={baseY}
+            y2={baseY}
+            stroke="#d6d3d1"
+            strokeWidth="1"
+          />
+          {TRACE_CHANNELS.map(([base, channelKey, color]) => (
+            <path
+              key={base}
+              d={buildTracePath(chrom, channelKey, anchors, baseY, scaleY)}
+              fill="none"
+              stroke={color}
+              strokeWidth="1"
+              strokeLinejoin="round"
+            />
+          ))}
+        </g>,
+      );
+    };
+
+    if (chromatogram) {
+      const peakCount = chromatogram.peakLocations.length;
+      for (let r = vs; r <= ve; r++) {
+        const rowStart = r * charsPerLine;
+        const rowEnd = Math.min(cleanSeq.length, (r + 1) * charsPerLine, peakCount) - 1;
+        if (rowEnd < rowStart) continue;
+        const anchors = [];
+        for (let pos = rowStart; pos <= rowEnd; pos++) {
+          anchors.push({ x: getX(pos - rowStart) + cw / 2, q: pos });
+        }
+        renderBand(`chrom-main-${r}`, chromatogram, anchors, getSeqY(r) + lp.featBaseOffset);
+      }
+    }
+
+    alignmentTracks.forEach((al, ti) => {
+      const chrom = alignmentChromatograms[al.id];
+      if (!chrom) return;
+      const colMap = buildColumnQueryMap(al);
+      const byRow = new Map();
+      for (const [pos, q] of colMap) {
+        const row = Math.floor(pos / charsPerLine);
+        if (row < vs || row > ve) continue;
+        if (!byRow.has(row)) byRow.set(row, []);
+        byRow.get(row).push({ x: getX(pos - row * charsPerLine) + cw / 2, q });
+      }
+      for (const [row, anchors] of byRow) {
+        anchors.sort((a, b) => a.x - b.x);
+        const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
+        const y =
+          getSeqY(row) +
+          lp.featBaseOffset +
+          alignLaneInfo.mainChromH +
+          alignLaneInfo.counts[row] * lp.featTrackHeight +
+          2 +
+          lane * (CHROM_TRACK_H + CHROM_GAP);
+        renderBand(`chrom-${al.id}-${row}`, chrom, anchors, y);
+      }
+    });
+
+    if (!bands.length) return null;
+    return <g style={{ pointerEvents: 'none' }}>{bands}</g>;
+  }, [
+    chromatogram,
+    alignmentTracks,
+    alignmentChromatograms,
+    visibleRows,
+    numRows,
+    charsPerLine,
+    cleanSeq.length,
+    getSeqY,
+    lp,
+    alignLaneInfo,
+  ]);
 
   const renderedPrimers = useMemo(() => {
     if (!visiblePrimers.length) return null;
@@ -4100,9 +4235,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
               (isFwd ? 0 : (revPrimerFeatOffsets[p.id] || {})[seg.row] || 0) +
               (isFwd
                 ? 0
-                : alignLaneInfo.counts[seg.row] > 0
-                  ? alignLaneInfo.counts[seg.row] * lp.featTrackHeight + ALIGN_FEAT_GAP
-                  : 0);
+                : alignLaneInfo.chromBelow[seg.row] +
+                  (alignLaneInfo.counts[seg.row] > 0
+                    ? alignLaneInfo.counts[seg.row] * lp.featTrackHeight + ALIGN_FEAT_GAP
+                    : 0));
             const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.trackGap + featOff;
             const matchY =
               (isFwd ? sy - pp.fwdMatchY : sy + pp.revMatchY) + (isFwd ? -trackOff : trackOff);
@@ -5700,6 +5836,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             {/* rna/protein are single-strand: no alignment/enzyme/primer layers */}
             {isDna && renderedAlignments}
             {isDna && renderedAlignmentLabels}
+            {isDna && renderedChromatograms}
             {renderedFeatures}
             {renderedFeatureLabels}
             {isDna && renderedEnzymes}

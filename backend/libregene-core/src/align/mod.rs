@@ -449,6 +449,7 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
         segments,
         insertions,
         seq: oriented_read,
+        trace_path: None,
     })
 }
 

@@ -63,6 +63,7 @@ LibreGene/
 │   ├── editorConstants.js      # 共享常量/工具（cw, getX, measureWidth, splitRange, location 字符串 helper）
 │   ├── api.js / tauriApi.js    # HTTP/WS 客户端 / Tauri IPC 客户端
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
+│   ├── chromatogram.js         # ab1 色谱：链取向（rev-comp 交换通道）、SVG 路径插值、比对列→read 序号映射
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
 │   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/codonOptimization/blast
 │   └── components/ui/          # shadcn UI 组件
@@ -129,7 +130,7 @@ get_features, add_feature, delete_feature, update_feature_ftype/color/name/stran
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
 design_primer_candidates, find_orfs, search_sequence, annotate_features, annotate_sequence,
 list_codon_species, preview_codon_optimization, apply_codon_optimization, get_enzyme_database,
-add_alignment, add_alignment_seq, remove_alignment, set_methylation,
+add_alignment, add_alignment_seq, remove_alignment, get_chromatogram, set_methylation,
 get_projects, activate_project, delete_project, open_in_new_window, get_window_project_id, rekey_project,
 get_agent_tab_state, set_agent_tab_locked,
 compute_tm, blast_submit, get_mcp_config, set_mcp_config,
@@ -177,6 +178,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **自动标注弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联/窗口拖放打开**：纯前端/OS 集成
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
+- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返
 
 ## 核心模型约定
 
