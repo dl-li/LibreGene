@@ -226,6 +226,7 @@ export function CircularMap({
   onClear,
   onFeatureOpen,
   bg = bgColor,
+  hideLabels = false,
 }) {
   const R = 150;
   const half = 9;
@@ -236,8 +237,8 @@ export function CircularMap({
   const [hoverId, setHoverId] = useState(null);
 
   const { labels, labelR, viewBox } = useMemo(
-    () => layoutCircularLabels(features, length, R, half),
-    [features, length],
+    () => layoutCircularLabels(hideLabels ? [] : features, length, R, half),
+    [features, length, hideLabels],
   );
   const cx = 0;
   const cy = 0;
@@ -506,6 +507,8 @@ export function LinearMap({
   onClear,
   onFeatureOpen,
   bg = bgColor,
+  hideLabels = false,
+  name,
 }) {
   const W = 640;
   const x0 = 24;
@@ -520,6 +523,7 @@ export function LinearMap({
 
   // label stagger to avoid overlap; x clamped so text stays inside the view
   const labelLevels = useMemo(() => {
+    if (hideLabels) return [];
     const sorted = features
       .map((f) => {
         // midpoint along the unwrapped span (origin-crossing features land on
@@ -539,11 +543,11 @@ export function LinearMap({
       levels.push({ ...item, lvl, cxp });
     }
     return levels;
-  }, [features, px, length]);
+  }, [features, px, length, hideLabels]);
 
   const maxLvl = labelLevels.reduce((m, l) => Math.max(m, l.lvl), 0);
-  const lineY = 74 + maxLvl * 16;
-  const H = lineY + 34;
+  const lineY = hideLabels ? 26 : 74 + maxLvl * 16;
+  const H = lineY + (name ? 52 : 34);
   const toPos = useCallback(
     (e) => {
       const rect = svgRef.current.getBoundingClientRect();
@@ -754,6 +758,21 @@ export function LinearMap({
           </g>
         );
       })}
+      {name && (
+        <text
+          x={(x0 + x1) / 2}
+          y={lineY + 32}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize="13"
+          fontWeight="bold"
+          fontFamily="TeX Gyre Heros"
+          fill="#222"
+          pointerEvents="none"
+        >
+          {name} · {length} bp
+        </text>
+      )}
     </svg>
   );
 }

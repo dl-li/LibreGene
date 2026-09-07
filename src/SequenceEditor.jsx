@@ -354,15 +354,18 @@ const MapWatermark = React.memo(function MapWatermark({ length, features, topolo
             onSelect={noop}
             onClear={noop}
             onFeatureOpen={noop}
+            hideLabels
           />
         ) : (
           <LinearMap
             length={length}
             features={features}
+            name={name}
             selection={sel}
             onSelect={noop}
             onClear={noop}
             onFeatureOpen={noop}
+            hideLabels
           />
         )}
       </div>
