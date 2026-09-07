@@ -95,6 +95,8 @@ export default function ProjectWorkspace({
   const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
   // Source .ab1 path when the project itself was opened from a trace file.
   const [tracePath, setTracePath] = useState(initialData?.tracePath || null);
+  // Alignment track whose chromatogram band is expanded (one at a time).
+  const [expandedChromAlnId, setExpandedChromAlnId] = useState(null);
   // Live topology: project windows receive a constant prop, so mirror it into
   // state and refresh from broadcasts / the toggle command response.
   const [topologyLive, setTopologyLive] = useState(initialData?.topology || topology);
@@ -492,14 +494,26 @@ export default function ProjectWorkspace({
     return chromRawRef.current.get(tracePath) || null;
   }, [tracePath, chromVersion]);
   const alignmentChromatograms = useMemo(() => {
+    // Alignment trace bands are opt-in (visual tidiness): only the track the
+    // user expanded via its label carries a chromatogram, one at a time.
     const out = {};
-    for (const al of alignments) {
-      if (!al.tracePath) continue;
-      const raw = chromRawRef.current.get(al.tracePath);
-      if (raw) out[al.id] = orientChromatogram(raw, al.strand);
-    }
+    if (!expandedChromAlnId) return out;
+    const al = alignments.find((a) => a.id === expandedChromAlnId);
+    if (!al?.tracePath) return out;
+    const raw = chromRawRef.current.get(al.tracePath);
+    if (raw) out[al.id] = orientChromatogram(raw, al.strand);
     return out;
+  }, [alignments, expandedChromAlnId, chromVersion]);
+  const alignmentTraceAvailable = useMemo(() => {
+    const s = new Set();
+    for (const al of alignments) {
+      if (al.tracePath && chromRawRef.current.get(al.tracePath)) s.add(al.id);
+    }
+    return s;
   }, [alignments, chromVersion]);
+  const toggleAlignmentChrom = useCallback((id) => {
+    setExpandedChromAlnId((cur) => (cur === id ? null : id));
+  }, []);
 
   const displayEnzymes = useMemo(() => {
     // Enzymes only exist for DNA; rna/protein render sequence + features only.
@@ -1013,6 +1027,8 @@ export default function ProjectWorkspace({
     setHiddenAlignIds((prev) =>
       prev.includes(alignmentId) ? prev.filter((x) => x !== alignmentId) : [...prev, alignmentId],
     );
+    // Hiding a track collapses its chromatogram band if it was expanded.
+    setExpandedChromAlnId((cur) => (cur === alignmentId ? null : cur));
   }, []);
 
   const visibleAlignments = useMemo(
@@ -1612,6 +1628,10 @@ export default function ProjectWorkspace({
               alignments={alignments}
               chromatogram={isDna ? mainChromatogram : null}
               alignmentChromatograms={alignmentChromatograms}
+              alignmentTraceAvailable={alignmentTraceAvailable}
+              expandedChromAlnId={expandedChromAlnId}
+              onToggleAlignmentChrom={toggleAlignmentChrom}
+              onHideAlignment={handleToggleAlignmentVisible}
               alignmentEnabled={alignmentEnabled}
               primerDesignEnabled={primerDesignEnabled}
               mapWatermark={mapEnabled && background === 'map'}

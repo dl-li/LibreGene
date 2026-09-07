@@ -48,6 +48,7 @@ import {
   CopyPlus,
   CopyMinus,
   CopyX,
+  EyeOff,
   Globe,
   Image,
   LockOpen,
@@ -690,6 +691,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // strand) and per-alignment-id traces (rendered in extra lanes).
   chromatogram = null,
   alignmentChromatograms = {},
+  // Alignment ids whose trace .ab1 path resolved (chromatogram toggleable),
+  // the one currently expanded (at most one at a time), and its toggler.
+  alignmentTraceAvailable,
+  expandedChromAlnId = null,
+  onToggleAlignmentChrom,
+  onHideAlignment,
   alignmentEnabled = true,
   primerDesignEnabled = true,
   mapWatermark = false,
@@ -4035,23 +4042,34 @@ const SequenceEditor = React.memo(function SequenceEditor({
           {Object.values(rowLabels).map((v) => {
             const sy = getSeqY(v.row);
             const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
+            // Labels sit a few px above the lane baseline to visually align
+            // with the alignment text track.
             const y =
-              sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 8;
+              sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 6.5;
             const hKey = `${al.id}:${v.row}`;
-            const hovered = truncated && hoverAlignLabel === hKey;
+            const labelHover = hoverAlignLabel === hKey;
+            const hovered = truncated && labelHover;
             const labelX = getX(v.colEnd + 1) + 8;
             const clipId = `align-label-clip-${al.id}-${v.row}`;
             const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
+            // Trace toggle: labels of alignments whose .ab1 resolved are
+            // underlined and clickable; the expanded track's label is inverted
+            // (rect in label color, text in bgColor).
+            const traceable = !!alignmentTraceAvailable?.has(al.id);
+            const expanded = al.id === expandedChromAlnId;
+            const labelText = hovered ? al.name : short;
+            const labelW = Math.min(featLabelW(labelText), LABEL_MAX_W);
             const textEl = (
               <text
                 x={labelX}
                 y={y}
                 textAnchor="start"
                 {...textProps}
+                fill={expanded ? bgColor : textProps.fill}
                 style={{
                   userSelect: 'none',
-                  pointerEvents: truncated ? 'auto' : 'none',
-                  cursor: truncated ? 'default' : undefined,
+                  pointerEvents: 'auto',
+                  textDecoration: traceable ? 'underline' : undefined,
                   ...(hovered
                     ? {
                         '--align-label-scroll': `-${scrollW}px`,
@@ -4059,14 +4077,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       }
                     : {}),
                 }}
-                onMouseEnter={truncated ? () => setHoverAlignLabel(hKey) : undefined}
-                onMouseLeave={truncated ? () => setHoverAlignLabel(null) : undefined}
+                onClick={
+                  traceable && onToggleAlignmentChrom
+                    ? () => onToggleAlignmentChrom(al.id)
+                    : undefined
+                }
               >
-                {hovered ? al.name : short}
+                {labelText}
               </text>
             );
             return (
-              <g key={v.row}>
+              <g
+                key={v.row}
+                style={{ cursor: traceable ? 'pointer' : 'default' }}
+                onMouseEnter={() => setHoverAlignLabel(hKey)}
+                onMouseLeave={() => setHoverAlignLabel(null)}
+              >
                 {truncated && (
                   <defs>
                     <clipPath id={clipId}>
@@ -4074,14 +4100,59 @@ const SequenceEditor = React.memo(function SequenceEditor({
                     </clipPath>
                   </defs>
                 )}
+                {expanded && (
+                  <rect
+                    x={labelX - 4}
+                    y={y - 12}
+                    width={labelW + 16}
+                    height={16}
+                    fill={textProps.fill}
+                  />
+                )}
+                {/* Invisible hit area bridging label and eye-off icon, so the
+                    icon stays reachable while the pointer moves toward it. */}
+                <rect
+                  x={labelX - 4}
+                  y={y - 12}
+                  width={labelW + (expanded ? 44 : 34)}
+                  height={16}
+                  fill="transparent"
+                />
                 {truncated ? <g clipPath={`url(#${clipId})`}>{textEl}</g> : textEl}
+                {labelHover && onHideAlignment && (
+                  <EyeOff
+                    x={labelX + labelW + (expanded ? 20 : 10)}
+                    y={y - 11}
+                    width={13}
+                    height={13}
+                    color={textProps.fill}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onHideAlignment(al.id);
+                    }}
+                  />
+                )}
               </g>
             );
           })}
         </g>
       );
     });
-  }, [alignmentTracks, visibleRows, numRows, sp, getSeqY, lp, alignLaneInfo, hoverAlignLabel]);
+  }, [
+    alignmentTracks,
+    visibleRows,
+    numRows,
+    sp,
+    getSeqY,
+    lp,
+    alignLaneInfo,
+    hoverAlignLabel,
+    alignmentTraceAvailable,
+    expandedChromAlnId,
+    onToggleAlignmentChrom,
+    onHideAlignment,
+  ]);
 
   // Chromatogram bands: the project's own trace directly under the top
   // strand (ab1 source files), and one warped trace band per alignment
