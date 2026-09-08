@@ -2787,10 +2787,13 @@ fn compute_primer_alignment_sync(
         } else {
             raw_start.max(0) as usize
         };
+        // Reverse primers extend to the right of tp_3prime (up to plen bases),
+        // so the window must cover that side too, or the alignment display
+        // runs out of template.
         let win_end = if is_circular {
-            tp + expansion
+            tp + expansion + plen
         } else {
-            (tp + expansion).min(tlen)
+            (tp + expansion + plen).min(tlen)
         };
 
         let template_region = if is_circular {
@@ -4127,6 +4130,25 @@ mod tests {
             "non-matching 5' tail must be visible as an overhang:\n{}",
             aln
         );
+    }
+
+    #[test]
+    fn primer_alignment_rev_window_covers_footprint_end() {
+        // Regression (MX5-R): a reverse primer annealing at the 3' end of a
+        // linear template — footprint extends right of tp_3prime up to the
+        // template end; the window must include those bases.
+        let template: &str = "AATTTCTACTAAGTGTAGATACCGCAGCAGCGCAGTTGCGCTCAATTTCTACTAAGTGTAGATATGCGAATGCTCTGGTCAAAGCAGCTT";
+        let primer = "AAGCTGCTTTGACCAGAGCATTCGCATATCTACACTTAGTAGAAATTGAGCGCAACTGCGCTGCTGCGGT";
+        let tm = libregene_core::primer::thermodynamics::TmParams {
+            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+        };
+        let res = compute_primer_alignment_sync(template, false, "MX5-R", primer, None, &tm)
+            .expect("alignment computation failed");
+        let cur = &res["current"];
+        assert_eq!(cur["strand"], serde_json::json!(-1));
+        assert_eq!(cur["end"], serde_json::json!(90));
+        let aln = cur["alignment"].as_str().expect("alignment text missing");
+        assert!(aln.contains("CAGCTT"), "template line must reach position 90:\n{}", aln);
     }
 
     #[test]
