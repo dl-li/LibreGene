@@ -4151,6 +4151,8 @@ mod tests {
         assert!(aln.contains("CAGCTT"), "template line must reach position 90:\n{}", aln);
     }
 
+
+
     #[test]
     fn validate_path_accepts_normal_sequence_file() {
         assert_eq!(validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(), "gbk");
