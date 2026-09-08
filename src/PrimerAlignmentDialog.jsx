@@ -330,6 +330,13 @@ export default function PrimerAlignmentDialog({
       <DialogContent
         className="max-h-[80vh] flex flex-col"
         style={{ maxWidth: dialogWidth, width: dialogWidth }}
+        onEscapeKeyDown={(e) => {
+          // First Esc dismisses only the discard-confirmation overlay.
+          if (confirmClose) {
+            e.preventDefault();
+            setConfirmClose(false);
+          }
+        }}
       >
         <DialogHeader>
           <DialogTitle>Primer</DialogTitle>
@@ -343,7 +350,10 @@ export default function PrimerAlignmentDialog({
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') setEditName(initialName);
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  setEditName(initialName);
+                }
               }}
               className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
               onClick={(e) => e.stopPropagation()}

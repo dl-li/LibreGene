@@ -438,6 +438,7 @@ export default function FeatureInfoDialog({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateApply();
                   else if (e.key === 'Escape') {
+                    e.stopPropagation();
                     setCreateName('New Feature');
                     e.target.blur();
                   }
@@ -552,6 +553,7 @@ export default function FeatureInfoDialog({
                 if (e.key === 'Enter') {
                   handleApply();
                 } else if (e.key === 'Escape') {
+                  e.stopPropagation();
                   setNameInput(feature.name);
                   setNameDirty(false);
                   e.target.blur();
@@ -613,6 +615,7 @@ export default function FeatureInfoDialog({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') submitLocation(locInput);
                     else if (e.key === 'Escape') {
+                      e.stopPropagation();
                       setEditingLoc(false);
                       setLocError('');
                     }
