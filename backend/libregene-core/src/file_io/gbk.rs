@@ -927,7 +927,8 @@ fn parse_snapgene_primer_note(note: &str) -> Option<(String, String)> {
             .strip_prefix("sequence:")
             .or_else(|| part.strip_prefix("sequence："))
         {
-            sequence = val.trim().to_string();
+            // Wrapped GenBank notes may embed newlines/spaces mid-sequence.
+            sequence = val.chars().filter(|c| !c.is_whitespace()).collect();
         }
     }
 
@@ -1053,7 +1054,7 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
     let primer_seq = f
         .qualifier_values("libregene_primer_seq")
         .next()
-        .map(|s| s.to_string())
+        .map(|s| s.chars().filter(|c| !c.is_whitespace()).collect())
         .or_else(|| {
             f.qualifier_values("note")
                 .filter_map(parse_snapgene_primer_note)
@@ -1214,6 +1215,18 @@ mod tests {
         let (color, seq) = parse_snapgene_primer_note(note).unwrap();
         assert_eq!(color, "#000000");
         assert_eq!(seq, "ggACTAGTgccaccATGGTGAGCAAGGGCGAG");
+    }
+
+    #[test]
+    fn test_parse_snapgene_primer_note_wrapped_sequence() {
+        // Regression: GenBank wraps long qualifier values across lines; the
+        // embedded newline must not survive into the primer sequence.
+        let note = "direction: LEFT; sequence:\nAAGCTGCTTTGACCAGAGCATTCGCATATCTACACTTAGTAGAAATTGAGCGCAACTG\nCGCTGCTGCGGT";
+        let (_, seq) = parse_snapgene_primer_note(note).unwrap();
+        assert_eq!(
+            seq,
+            "AAGCTGCTTTGACCAGAGCATTCGCATATCTACACTTAGTAGAAATTGAGCGCAACTGCGCTGCTGCGGT"
+        );
     }
 
     #[test]
