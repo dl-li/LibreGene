@@ -384,6 +384,8 @@ export default function FeatureInfoDialog({
   };
 
   const handleApply = async () => {
+    // A pending location edit must be applied or cancelled first.
+    if (editingLoc) return;
     if (nameDirty && onFeatureNameChange) {
       await onFeatureNameChange(feature.id, nameInput);
     }
@@ -632,6 +634,17 @@ export default function FeatureInfoDialog({
                 >
                   Apply
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => {
+                    setEditingLoc(false);
+                    setLocError('');
+                  }}
+                >
+                  Cancel
+                </Button>
               </div>
             ) : (
               <button
@@ -722,7 +735,7 @@ export default function FeatureInfoDialog({
             <Button variant="outline" size="sm" onClick={handleCancel}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleApply}>
+            <Button size="sm" onClick={handleApply} disabled={editingLoc}>
               Apply
             </Button>
           </div>
