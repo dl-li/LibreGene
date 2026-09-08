@@ -161,6 +161,19 @@ export default function EditorNavMenu({
     if (searchOpen) inputRef.current?.focus();
   }, [searchOpen]);
 
+  // Close the search bar with Esc even when focus has left the input.
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (e.target === inputRef.current) return; // handled by onSearchKeyDown
+      e.preventDefault();
+      setSearchOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [searchOpen]);
+
   useEffect(() => {
     if (!openSearchRef) return;
     openSearchRef.current = () => setSearchOpen(true);
