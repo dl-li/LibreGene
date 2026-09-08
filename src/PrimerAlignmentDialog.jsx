@@ -311,12 +311,13 @@ export default function PrimerAlignmentDialog({
 
   const dialogWidth = useMemo(() => {
     const maxVw = (typeof window !== 'undefined' ? window.innerWidth : 1400) * 0.92;
+    const minWidth = Math.min(860, maxVw);
     if (cur?.alignment) {
       const longest = cur.alignment.split('\n').reduce((max, l) => Math.max(max, l.length), 0);
-      return Math.max(420, Math.min(longest * 7.8 + 96, maxVw));
+      return Math.max(minWidth, Math.min(longest * 7.8 + 96, maxVw));
     }
     const estChars = 30 + (editSeq?.length || 20);
-    return Math.max(420, Math.min(estChars * 7.8 + 96, maxVw));
+    return Math.max(minWidth, Math.min(estChars * 7.8 + 96, maxVw));
   }, [cur?.alignment, editSeq?.length]);
 
   return (
