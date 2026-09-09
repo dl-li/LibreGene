@@ -28,6 +28,7 @@ import {
 } from './tauriApi';
 import { plugins } from './plugins';
 import ProjectWorkspace from './ProjectWorkspace';
+import ScrollingLabel from './ScrollingLabel';
 import SettingsPage from './components/SettingsPage';
 import McpGuideDialog from './components/McpGuideDialog';
 import NewSequenceDialog from './NewSequenceDialog';
@@ -175,6 +176,38 @@ export default function App() {
   // Multi-project state
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
+  const [projectOrder, setProjectOrder] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('projectOrder')) || [];
+    } catch {
+      return [];
+    }
+  });
+  const orderedProjects = useMemo(() => {
+    if (projectOrder.length === 0) return projects;
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    const ordered = [];
+    for (const id of projectOrder) {
+      const p = byId.get(id);
+      if (p) {
+        ordered.push(p);
+        byId.delete(id);
+      }
+    }
+    for (const p of projects) {
+      if (byId.has(p.id)) ordered.push(p);
+    }
+    return ordered;
+  }, [projects, projectOrder]);
+  const orderedProjectsRef = useRef(orderedProjects);
+  useEffect(() => {
+    orderedProjectsRef.current = orderedProjects;
+  }, [orderedProjects]);
+  const [dragTabId, setDragTabId] = useState(null);
+  const tabDragRef = useRef(null); // { id, dragging }
+  const tabDragTimerRef = useRef(null);
+  const tabItemRefs = useRef(new Map());
+  const suppressTabClickRef = useRef(false);
 
   // Multi-window: tracks whether this window is "main" or a "project" window
   const [windowInfo, setWindowInfo] = useState(null);
@@ -553,6 +586,72 @@ export default function App() {
         if (data && data.projects) setProjects(data.projects);
       })
       .catch((e) => console.error('activate project error:', e));
+  }, []);
+
+  const handleTabPointerDown = useCallback(
+    (e, id) => {
+      if (e.button !== 0 || windowInfo?.type === 'project') return;
+      tabDragRef.current = { id, dragging: false };
+      clearTimeout(tabDragTimerRef.current);
+      tabDragTimerRef.current = setTimeout(() => {
+        if (!tabDragRef.current || tabDragRef.current.id !== id) return;
+        tabDragRef.current.dragging = true;
+        setDragTabId(id);
+      }, 300);
+    },
+    [windowInfo],
+  );
+
+  useEffect(() => {
+    const moveDragTo = (targetIndex) => {
+      const drag = tabDragRef.current;
+      if (!drag) return;
+      const ids = orderedProjectsRef.current.map((p) => p.id);
+      const from = ids.indexOf(drag.id);
+      if (from < 0 || from === targetIndex) return;
+      const next = [...ids];
+      next.splice(from, 1);
+      next.splice(targetIndex, 0, drag.id);
+      setProjectOrder(next);
+      try {
+        localStorage.setItem('projectOrder', JSON.stringify(next));
+      } catch {
+        /* storage full */
+      }
+    };
+    const onPointerMove = (e) => {
+      const drag = tabDragRef.current;
+      if (!drag || !drag.dragging) return;
+      e.preventDefault();
+      const ids = orderedProjectsRef.current.map((p) => p.id);
+      let target = ids.length - 1;
+      for (let i = 0; i < ids.length; i++) {
+        const el = tabItemRefs.current.get(ids[i]);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) {
+          target = i;
+          break;
+        }
+      }
+      moveDragTo(target);
+    };
+    const endDrag = () => {
+      clearTimeout(tabDragTimerRef.current);
+      if (tabDragRef.current?.dragging) {
+        suppressTabClickRef.current = true;
+        setDragTabId(null);
+      }
+      tabDragRef.current = null;
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', endDrag);
+    };
   }, []);
 
   const handleOpenFile = useCallback(async () => {
@@ -1185,32 +1284,56 @@ export default function App() {
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {projects.map((p) => {
+                  {orderedProjects.map((p) => {
                     const isActiveProject = p.id === activeId;
                     const isProjectDirty = dirtyById[p.id] === true;
                     const name = fileName(p);
                     const Icon = getFileIcon(name);
+                    const isDragging = dragTabId === p.id;
                     return (
-                      <SidebarMenuItem key={p.id}>
+                      <SidebarMenuItem
+                        key={p.id}
+                        ref={(el) => {
+                          if (el) tabItemRefs.current.set(p.id, el);
+                          else tabItemRefs.current.delete(p.id);
+                        }}
+                        onPointerDown={(e) => handleTabPointerDown(e, p.id)}
+                        onContextMenu={(e) => {
+                          if (dragTabId) e.preventDefault();
+                        }}
+                        className={cn(isDragging && 'z-10 opacity-80 cursor-grabbing')}
+                        style={dragTabId ? { touchAction: 'none', userSelect: 'none' } : undefined}
+                      >
                         {isActiveProject && (
                           <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
                         )}
                         <SidebarMenuButton
-                          onClick={() => handleSwitchProject(p.id)}
+                          onClick={() => {
+                            if (suppressTabClickRef.current) {
+                              suppressTabClickRef.current = false;
+                              return;
+                            }
+                            handleSwitchProject(p.id);
+                          }}
                           isActive={isActiveProject}
                           tooltip={name}
-                          className={`flex-1 min-w-0 ${
-                            !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6'
-                          }`}
+                          className={cn(
+                            'flex-1 min-w-0 select-none',
+                            !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6',
+                            isDragging && 'bg-sidebar-accent ring-1 ring-sidebar-ring',
+                          )}
                         >
                           <Icon className="size-4 shrink-0" />
-                          <span className="truncate">{name}</span>
+                          <ScrollingLabel text={name} />
                         </SidebarMenuButton>
                         {isProjectDirty && (
                           <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
                         )}
                         {!windowInfo || windowInfo.type !== 'project' ? (
-                          <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden">
+                          <div
+                            className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
+                            onPointerDown={(e) => e.stopPropagation()}
+                          >
                             <button
                               className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
                               onClick={(e) => {
@@ -1235,6 +1358,7 @@ export default function App() {
                         ) : (
                           <button
                             className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCloseProject(p.id);
@@ -1359,7 +1483,7 @@ export default function App() {
                 {...workspaceProps}
               />
             ) : projects.length > 0 ? (
-              projects.map((p) => (
+              orderedProjects.map((p) => (
                 <ProjectWorkspace
                   key={keyFor(p.id)}
                   projectId={p.id}
