@@ -3690,7 +3690,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const renderedFeatureLabels = useMemo(() => {
     if (!visibleFeatures.length) return null;
     const seen = new Set();
-    return visibleFeatures.flatMap((f) => {
+    const labelsFor = (f) => {
       if (f.orf) return [];
       const isRev = f.strand === '-';
       const isFwd = f.strand === '+';
@@ -3870,7 +3870,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
           </g>
         );
       });
-    });
+    };
+    // Paint order = z-order: labels of the hovered feature render last so
+    // they are never occluded by other features' labels.
+    const rest = [];
+    const hovered = [];
+    for (const f of visibleFeatures) {
+      (hoveredFeature === f.id ? hovered : rest).push(...labelsFor(f));
+    }
+    return rest.concat(hovered);
   }, [
     visibleFeatures,
     hoveredFeature,
