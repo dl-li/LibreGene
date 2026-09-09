@@ -749,6 +749,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
   const featureLeaveRef = useRef(null);
+  // Feature whose range produced the current text selection (via feature
+  // click); enables two-stage Backspace: first deletes the feature, then the
+  // sequence. Guarded by exact selStart/selEnd equality at delete time.
+  const featureSelRef = useRef(null);
   const [featureInfoFeature, setFeatureInfoFeature] = useState(null); // for FeatureInfoDialog (edit mode)
   const [createFeatureLoc, setCreateFeatureLoc] = useState(null); // for FeatureInfoDialog (create mode, null=closed, string=location)
   const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog (edit mode)
@@ -2847,6 +2851,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
           !selWraps &&
           onEditRequest
         ) {
+          // Two-stage delete: if the selection came from a feature click, the
+          // first press deletes the feature itself, keeping the selection.
+          if (featureSelRef.current) {
+            const fs = featureSelRef.current;
+            const feat = features.find((x) => x.id === fs.id);
+            if (
+              feat &&
+              !feat.orf &&
+              onFeatureDelete &&
+              selStart === fs.selStart &&
+              selEnd === fs.selEnd
+            ) {
+              e.preventDefault();
+              onFeatureDelete(feat.id);
+              featureSelRef.current = null;
+              return;
+            }
+            featureSelRef.current = null;
+          }
           e.preventDefault();
           onEditRequest({
             type: 'delete',
@@ -2944,6 +2967,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selectedPrimerIds,
     enrichedPrimers,
     onEditRequest,
+    onFeatureDelete,
+    features,
     copySelection,
     translationSel,
     designPick,
@@ -3532,6 +3557,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   setSelStart(fStart);
                   setSelEnd(fEnd);
                   setCursorIndex(fEnd + 1);
+                  featureSelRef.current = f.orf
+                    ? null
+                    : { id: f.id, selStart: fStart, selEnd: fEnd };
                   clearCursorTimer();
                   // Clear primer / translation selection
                   setSelectionMode('text');
@@ -3778,6 +3806,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 setSelStart(fStart);
                 setSelEnd(fEnd);
                 setCursorIndex(fEnd + 1);
+                featureSelRef.current = { id: f.id, selStart: fStart, selEnd: fEnd };
                 clearCursorTimer();
                 setSelectionMode('text');
                 setSelectedPrimerIds([]);
@@ -3833,6 +3862,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               setSelStart(fStart);
               setSelEnd(fEnd);
               setCursorIndex(fEnd + 1);
+              featureSelRef.current = { id: f.id, selStart: fStart, selEnd: fEnd };
               clearCursorTimer();
               setSelectionMode('text');
               setSelectedPrimerIds([]);
