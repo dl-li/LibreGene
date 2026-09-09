@@ -54,6 +54,8 @@ push 到 master 时，CI（`.github/workflows/build.yml` 的 `release` job）检
 2. 手写 `release-notes/v<version>.md` 作为 release note（缺失时 CI 回退为 GitHub 自动生成 notes）
 3. 合并到 master 即可
 
+发布成功后 `homebrew-tap` job 自动更新 Homebrew tap：cask 模板在本仓库 `homebrew/libregene.rb`（唯一事实来源，勿直接改 tap 仓库），CI 下载新 release 的 dmg 计算 sha256、更新 version 后推送到 `dl-li/homebrew-libregene` 的 `Casks/libregene.rb`（需要 secret `HOMEBREW_TAP_TOKEN`，对 tap 仓库有写权限的 PAT）。用户安装：`brew install --cask dl-li/libregene/libregene`。
+
 ## 文件结构
 
 ```

@@ -111,6 +111,18 @@ Ready-to-run agent tasks live in [`examples/tasks`](examples/tasks), each with a
 - **Full undo/redo** — sequence edits and feature changes
 - **GenBank / SnapGene / FASTA I/O** — read/write .gb/.gbk and protein .gpt; read .dna/.rna/.prot ([SnapGene](https://www.snapgene.com)), FASTA and Sanger .ab1
 
+## Installation
+
+**macOS (Homebrew, Apple Silicon):**
+
+```bash
+brew install --cask dl-li/libregene/libregene
+```
+
+The app is not notarized yet, so on first launch use right-click → **Open** (or approve it in System Settings → Privacy & Security).
+
+Alternatively, download installers for macOS (dmg), Windows (msi / nsis) and Linux (Flatpak) directly from [GitHub Releases](https://github.com/dl-li/LibreGene/releases).
+
 ## Quick Start
 
 ```bash

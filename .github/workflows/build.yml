@@ -168,6 +168,8 @@ jobs:
     permissions:
       contents: write
     concurrency: release
+    outputs:
+      released: ${{ steps.version.outputs.released }}
     steps:
       - uses: actions/checkout@v7
 
@@ -180,8 +182,10 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null 2>&1; then
             echo "Tag ${TAG} already exists; skipping release"
             echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "released=false" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "released=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download installer artifacts
@@ -213,4 +217,44 @@ jobs:
           else
             echo "::warning::${NOTES} not found; using auto-generated notes"
             gh release create "$TAG" release-files/* --target "$SHA" --title "$TAG" --generate-notes
+          fi
+
+
+  # After a new GitHub Release is created, update the Homebrew cask in the
+  # dl-li/homebrew-libregene tap. The cask template lives in homebrew/ in
+  # this repo; this step bumps version/sha256 and pushes it to the tap.
+  # Requires a HOMEBREW_TAP_TOKEN secret (PAT with write access to the tap).
+  homebrew-tap:
+    name: Update Homebrew tap
+    needs: release
+    if: github.event_name == 'push' && needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Push updated cask to tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -e
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          DMG="LibreGene_${VERSION}_aarch64.dmg"
+          curl -fSL "https://github.com/dl-li/LibreGene/releases/download/${TAG}/${DMG}" -o "/tmp/${DMG}"
+          SHA=$(shasum -a 256 "/tmp/${DMG}" | cut -d' ' -f1)
+          sed -e "s/^  version \".*\"/  version \"${VERSION}\"/" \
+              -e "s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" \
+              homebrew/libregene.rb > /tmp/libregene.rb
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/dl-li/homebrew-libregene.git" tap
+          mkdir -p tap/Casks
+          cp /tmp/libregene.rb tap/Casks/libregene.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/libregene.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date"
+          else
+            git commit -m "libregene ${VERSION}"
+            git push
           fi

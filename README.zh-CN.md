@@ -111,6 +111,18 @@ LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听
 - **完整的撤销/重做** — 序列编辑和特征修改均可回退
 - **GenBank / SnapGene / FASTA** — 读写 .gb/.gbk 与蛋白 .gpt；读取 .dna/.rna/.prot（[SnapGene](https://www.snapgene.com)）、FASTA 和 Sanger .ab1
 
+## 安装
+
+**macOS（Homebrew，Apple Silicon）：**
+
+```bash
+brew install --cask dl-li/libregene/libregene
+```
+
+应用暂未做 Apple 公证，首次打开请右键 → **打开**（或在「系统设置 → 隐私与安全性」中允许）。
+
+也可以直接从 [GitHub Releases](https://github.com/dl-li/LibreGene/releases) 下载各平台安装包：macOS（dmg）、Windows（msi / nsis）、Linux（Flatpak）。
+
 ## 快速开始
 
 ```bash
