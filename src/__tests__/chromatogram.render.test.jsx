@@ -104,7 +104,9 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     for (const d of paths) {
       expect(d).not.toContain('NaN');
     }
-    const widest = paths.map(pathXExtent).reduce((a, b) => (b.maxX - b.minX > a.maxX - a.minX ? b : a));
+    const widest = paths
+      .map(pathXExtent)
+      .reduce((a, b) => (b.maxX - b.minX > a.maxX - a.minX ? b : a));
     expect(widest.maxX - widest.minX).toBeGreaterThanOrEqual(650);
   });
 });
