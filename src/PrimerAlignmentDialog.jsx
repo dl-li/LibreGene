@@ -64,8 +64,11 @@ function AlignmentView({ data }) {
   const isRev = primerArrowLine.includes("3' <");
   const primerColor = isRev ? COLORS.rev : COLORS.fwd;
 
-  // Forward: show primer on top, template on bottom (swap lines 1↔5, 2↔4)
+  // Forward: primer on top, markers below the template line (↑ points up at
+  // the template). Reverse: template on top, markers above it (↓ points
+  // down). Rev is detected from the "3' <" primer arrows.
   const displayLines = isRev ? lines : [lines[4], lines[3], lines[2], lines[1], lines[0]];
+  const cardBg = 'color-mix(in oklab, var(--muted) 40%, var(--background))';
 
   return (
     <div
@@ -85,6 +88,18 @@ function AlignmentView({ data }) {
         } else if (isRev ? i >= 3 : i <= 1) {
           // Primer lines: top two in forward mode, bottom two in reverse
           color = primerColor;
+        }
+        // Primer arrow line: highlight only the base run, leaving the
+        // "5' >" / "< 5'"-style arrow labels in the plain primer colour.
+        const m = line.match(/^(\s*(?:5' > |3' < ))(.*?)( > 3'| < 5')$/);
+        if (m) {
+          return (
+            <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>
+              {m[1]}
+              <span style={{ backgroundColor: primerColor, color: cardBg, padding: '1px 2px' }}>{m[2]}</span>
+              {m[3]}
+            </div>
+          );
         }
         return (
           <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>
