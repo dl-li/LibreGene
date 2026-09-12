@@ -4026,11 +4026,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
                         }}
                       >
                         ·
-                        {insBases.length > 1 && (
-                          <tspan fontSize="9" dy="-5" fill="#dc2626" fillOpacity={0.8}>
-                            {insBases.length}
-                          </tspan>
-                        )}
                       </tspan>
                     );
                   }
