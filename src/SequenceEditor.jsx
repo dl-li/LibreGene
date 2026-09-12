@@ -235,20 +235,28 @@ function InsDot({ x, onMouseDown, onMouseEnter, onMouseLeave }) {
   );
 }
 
-// Insertions this close together (chained, same alignment) form one hover
-// group — e.g. the junction insertion and a nearby 1 bp insertion.
-const INS_GROUP_GAP = 25;
-
-/** Map of insertion pos -> group index, grouping nearby insertions. */
-function insertionGroups(insertions) {
+/** Map of insertion pos -> group index. Consecutive insertions (by pos)
+ *  chain into one hover group when every template column between them is
+ *  covered by a real segment; the chain breaks at inter-segment deletion
+ *  runs and segment boundaries, so each junction's dots form one group. */
+function insertionGroups(insertions, segments) {
+  const covered = new Set();
+  for (const seg of segments || []) {
+    const chars = seg.chars || '';
+    for (let i = 0; i < chars.length; i++) covered.add(seg.start + i);
+  }
   const sorted = [...insertions].sort((a, b) => a.pos - b.pos);
   const groupOf = new Map();
   let g = -1;
-  let last = -Infinity;
+  let prev = null;
   for (const ins of sorted) {
-    if (ins.pos - last > INS_GROUP_GAP) g += 1;
+    let linked = prev !== null;
+    for (let p = prev; linked && p < ins.pos; p++) {
+      if (!covered.has(p)) linked = false;
+    }
+    if (!linked) g += 1;
     groupOf.set(ins.pos, g);
-    last = ins.pos;
+    prev = ins.pos;
   }
   return groupOf;
 }
@@ -3989,7 +3997,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return alignmentTracks.map((al, ti) => {
       const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
-      const insGroupOf = insertionGroups(al.insertions || []);
+      const insGroupOf = insertionGroups(al.insertions || [], al.segments);
       const rows = [];
       const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
       for (const seg of segs) {
@@ -4132,7 +4140,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
     return alignmentTracks.map((al, ti) => {
       const rowLabels = {};
-      for (const seg of al.segments || []) {
+      // Real segments and gap-dash placeholder runs both mark a row as part
+      // of this track, so gap-only rows get the right-margin label too.
+      for (const seg of [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)]) {
         for (const v of sp(seg.start, seg.end)) {
           if (v.row < vs || v.row > ve) continue;
           if (!rowLabels[v.row] || v.colEnd > rowLabels[v.row].colEnd) rowLabels[v.row] = v;
@@ -4258,6 +4268,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     onToggleAlignmentChrom,
     onHideAlignment,
     charsPerLine,
+    cleanSeq.length,
   ]);
 
   // Chromatogram bands: the project's own trace directly under the top
