@@ -18,6 +18,16 @@ const GAP: i32 = -2;
 pub const MIN_IDENTITY: f64 = 0.6;
 /// Minimum aligned span (template positions) for an alignment to be kept.
 pub const MIN_ALIGNED_LEN: usize = 50;
+/// Minimum aligned span for a secondary flank of a split-read alignment.
+const MIN_FLANK_LEN: usize = 20;
+/// Minimum identity for a secondary flank (it extends an already-accepted
+/// primary alignment, so the bar is higher than [`MIN_IDENTITY`]).
+const MIN_FLANK_IDENTITY: f64 = 0.75;
+/// A run of this many non-match columns within [`GARBAGE_WINDOW`] marks a
+/// garbage stretch: SW bridged a template region that is absent from the
+/// read (split read) with mismatches and gaps.
+const GARBAGE_CLUSTER: usize = 6;
+const GARBAGE_WINDOW: usize = 50;
 
 /// Why `align_read_checked` rejected an alignment candidate.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +84,10 @@ struct SwResult {
     /// first and last template-consuming column, inclusive.
     t_start: usize,
     t_end: usize,
+    /// Read coordinates of the first and last read base consumed by the
+    /// traceback, inclusive.
+    r_start: usize,
+    r_end: usize,
 }
 
 fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
@@ -161,6 +175,8 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
         r_aln,
         t_start: j,
         t_end: bj - 1,
+        r_start: i,
+        r_end: bi - 1,
     })
 }
 
@@ -286,6 +302,8 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
             r_aln,
             t_start: j,
             t_end: bj - 1,
+            r_start: i,
+            r_end: bi - 1,
         }),
         edge,
     )
@@ -375,9 +393,33 @@ fn smith_waterman_seeded(t: &[u8], r: &[u8]) -> Option<SwResult> {
     None
 }
 
+/// A [`SwResult`] clipped and rendered into an [`Alignment`], keeping the
+/// counts needed to merge several blocks (split-read flanks) afterwards.
+struct BuiltAln {
+    aln: Alignment,
+    matched: usize,
+    /// Clipped aligned columns (template-consuming + internal read-only).
+    cols: usize,
+    /// Clipped template span in the possibly doubled template, inclusive.
+    t_start: usize,
+    t_end: usize,
+    /// Read interval consumed by the traceback, inclusive.
+    r_start: usize,
+    r_end: usize,
+}
+
 /// Build the render-oriented [`Alignment`] from a traceback, or the reason
 /// the alignment is too weak to be meaningful.
-fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len: usize, tlen: usize) -> Result<Alignment, AlignReject> {
+#[allow(clippy::too_many_arguments)]
+fn build_alignment(
+    sw: &SwResult,
+    oriented_read: String,
+    strand: &str,
+    read_len: usize,
+    tlen: usize,
+    min_identity: f64,
+    min_span: usize,
+) -> Result<BuiltAln, AlignReject> {
     // Clip read-only overhang: leading/trailing columns that don't consume template.
     let lead = sw.t_aln.iter().take_while(|&&c| c == b'-').count();
     let trail = sw.t_aln.iter().rev().take_while(|&&c| c == b'-').count();
@@ -398,10 +440,10 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
         .count();
     let identity = matched as f64 / cols.len() as f64;
 
-    if identity < MIN_IDENTITY {
+    if identity < min_identity {
         return Err(AlignReject::LowIdentity { identity, span });
     }
-    if span < MIN_ALIGNED_LEN {
+    if span < min_span {
         return Err(AlignReject::TooShort { span });
     }
 
@@ -440,16 +482,211 @@ fn build_alignment(sw: &SwResult, oriented_read: String, strand: &str, read_len:
     }
     // Trailing read-only columns were clipped; any leftover pending insertion is dropped.
 
-    Ok(Alignment {
-        id: String::new(),
-        name: String::new(),
-        length: read_len,
-        strand: strand.to_string(),
-        identity,
-        segments,
-        insertions,
-        seq: oriented_read,
-        trace_path: None,
+    Ok(BuiltAln {
+        aln: Alignment {
+            id: String::new(),
+            name: String::new(),
+            length: read_len,
+            strand: strand.to_string(),
+            identity,
+            segments,
+            insertions,
+            seq: oriented_read,
+            trace_path: None,
+        },
+        matched,
+        cols: cols.len(),
+        t_start,
+        t_end,
+        r_start: sw.r_start,
+        r_end: sw.r_end,
+    })
+}
+
+struct FlankHit {
+    flank: BuiltAln,
+    downstream: bool,
+    /// Read bases between the two aligned blocks (oriented coords).
+    junction: String,
+    /// Template column the second block (in read order) resumes at.
+    junction_pos: usize,
+}
+
+/// Try to align a leftover read piece (the part the primary block did not
+/// consume) as a second flank against the template arc the primary block
+/// left unused.
+#[allow(clippy::too_many_arguments)]
+fn find_flank(
+    t2: &[u8],
+    piece: &[u8],
+    piece_offset: usize,
+    downstream: bool,
+    primary: &BuiltAln,
+    oriented: &str,
+    strand: &str,
+    read_len: usize,
+    tlen: usize,
+) -> Option<FlankHit> {
+    if piece.len() < MIN_FLANK_LEN {
+        return None;
+    }
+    let sw = sw_dispatch(t2, piece)?;
+    let flank = build_alignment(
+        &sw,
+        oriented.to_string(),
+        strand,
+        read_len,
+        tlen,
+        MIN_FLANK_IDENTITY,
+        MIN_FLANK_LEN,
+    )
+    .ok()?;
+    // The flank must sit on the template arc the primary block did not cover.
+    // On a circular template SW may report the flank in either copy of the
+    // doubled template, so shift it by whole template lengths onto the copy
+    // that lies on the expected side of the primary block.
+    if downstream {
+        let k = (primary.t_end + 1).saturating_sub(flank.t_start).div_ceil(tlen);
+        if flank.t_start + k * tlen <= primary.t_end || flank.t_end + k * tlen >= primary.t_start + tlen {
+            return None;
+        }
+    } else {
+        let k = primary.t_start.saturating_sub(flank.t_end + 1) / tlen;
+        if flank.t_end + k * tlen >= primary.t_start || flank.t_start + (k + 1) * tlen <= primary.t_end {
+            return None;
+        }
+    }
+
+    // Read bases between the two blocks (insert, plus any unalignable
+    // low-quality bases) become an insertion at the junction.
+    let junction = if downstream {
+        &oriented[primary.r_end + 1..piece_offset + flank.r_start]
+    } else {
+        &oriented[piece_offset + flank.r_end + 1..primary.r_start]
+    };
+    Some(FlankHit {
+        junction_pos: if downstream { flank.t_start % tlen } else { primary.t_start % tlen },
+        flank,
+        downstream,
+        junction: junction.to_string(),
+    })
+}
+
+fn merge_flank(primary: BuiltAln, hit: FlankHit) -> Alignment {
+    let (first, second) = if hit.downstream {
+        (primary, hit.flank)
+    } else {
+        (hit.flank, primary)
+    };
+    let matched = first.matched + second.matched;
+    let cols = first.cols + second.cols + hit.junction.len();
+
+    let BuiltAln { aln: mut merged, .. } = first;
+    let second = second.aln;
+    merged.identity = matched as f64 / cols as f64;
+    if !hit.junction.is_empty() {
+        merged.insertions.push(AlignInsertion {
+            pos: hit.junction_pos,
+            bases: hit.junction,
+        });
+    }
+    merged.segments.extend(second.segments);
+    merged.insertions.extend(second.insertions);
+    merged
+}
+
+/// Confident core of a clipped alignment: trim end stretches where
+/// mismatches/gaps cluster (≥ [`GARBAGE_CLUSTER`] non-match columns within
+/// [`GARBAGE_WINDOW`]), which is how SW renders a template region that is
+/// absent from the read. Returns `(left, right)` column bounds into the
+/// clipped columns; `(0, cols.len())` when the whole block is confident.
+fn confident_core(cols: &[u8], rcols: &[u8]) -> (usize, usize) {
+    let bads: Vec<usize> = cols
+        .iter()
+        .zip(rcols)
+        .enumerate()
+        .filter(|(_, (&t, &r))| !(t != b'-' && r != b'-' && matches_base(t, r)))
+        .map(|(i, _)| i)
+        .collect();
+    let mut left = 0;
+    let mut right = cols.len();
+    if bads.len() >= GARBAGE_CLUSTER {
+        let is_cluster = |w: &[usize]| w[GARBAGE_CLUSTER - 1] - w[0] < GARBAGE_WINDOW;
+        if let Some(w) = bads.windows(GARBAGE_CLUSTER).find(|w| is_cluster(w)) {
+            right = w[0];
+        }
+        if let Some(w) = bads.windows(GARBAGE_CLUSTER).rev().find(|w| is_cluster(w) && w[GARBAGE_CLUSTER - 1] < right) {
+            left = w[GARBAGE_CLUSTER - 1] + 1;
+        }
+        if left >= right {
+            // A single cluster: keep the longer confident side.
+            let w0 = bads.windows(GARBAGE_CLUSTER).find(|w| is_cluster(w)).unwrap()[0];
+            let w1 = bads.windows(GARBAGE_CLUSTER).rev().find(|w| is_cluster(w)).unwrap()[GARBAGE_CLUSTER - 1] + 1;
+            if w0 >= cols.len() - w1 {
+                left = 0;
+                right = w0;
+            } else {
+                left = w1;
+                right = cols.len();
+            }
+        }
+    }
+    (left, right)
+}
+
+/// Split-read path for a primary traceback that bridged a large absent
+/// template region: trim the block back to its confident core, then re-align
+/// the remaining read piece against the template arc the core left unused.
+fn split_at_garbage(sw: &SwResult, t2: &[u8], oriented: &str, strand: &str, read_len: usize, tlen: usize) -> Option<Alignment> {
+    let lead = sw.t_aln.iter().take_while(|&&c| c == b'-').count();
+    let trail = sw.t_aln.iter().rev().take_while(|&&c| c == b'-').count();
+    let cols = &sw.t_aln[lead..sw.t_aln.len() - trail];
+    let rcols = &sw.r_aln[lead..sw.r_aln.len() - trail];
+    let (l, r) = confident_core(cols, rcols);
+    if l == 0 && r == cols.len() {
+        return None;
+    }
+    // Confident core bounded by template-consuming columns on both sides.
+    let sub = &cols[l..r];
+    let c0 = l + sub.iter().position(|&c| c != b'-')?;
+    let c1 = l + sub.iter().rposition(|&c| c != b'-')? + 1;
+    let t_base = sw.t_start + lead;
+    let r_base = sw.r_start + lead;
+    let t_skip: usize = cols[..c0].iter().filter(|&&c| c != b'-').count();
+    let t_take: usize = cols[c0..c1].iter().filter(|&&c| c != b'-').count();
+    let r_skip: usize = rcols[..c0].iter().filter(|&&c| c != b'-').count();
+    let r_take: usize = rcols[c0..c1].iter().filter(|&&c| c != b'-').count();
+    let trimmed = SwResult {
+        score: sw.score,
+        t_aln: cols[c0..c1].to_vec(),
+        r_aln: rcols[c0..c1].to_vec(),
+        t_start: t_base + t_skip,
+        t_end: t_base + t_skip + t_take - 1,
+        r_start: r_base + r_skip,
+        r_end: r_base + r_skip + r_take - 1,
+    };
+    let core = build_alignment(&trimmed, oriented.to_string(), strand, read_len, tlen, MIN_IDENTITY, MIN_ALIGNED_LEN).ok()?;
+    let read = oriented.as_bytes();
+    let hit = find_flank(t2, &read[core.r_end + 1..], core.r_end + 1, true, &core, oriented, strand, read_len, tlen)
+        .or_else(|| find_flank(t2, &read[..core.r_start], 0, false, &core, oriented, strand, read_len, tlen))?;
+    Some(merge_flank(core, hit))
+}
+
+/// Align one read orientation, then look for a second flank in the read
+/// bases the primary block left unaligned (split read: two template flanks
+/// with a large internal template region absent from the read).
+fn align_oriented(t2: &[u8], oriented: &str, strand: &str, read_len: usize, tlen: usize) -> Result<Alignment, AlignReject> {
+    let sw = sw_dispatch(t2, oriented.as_bytes()).ok_or(AlignReject::NoSignificantAlignment)?;
+    if let Some(aln) = split_at_garbage(&sw, t2, oriented, strand, read_len, tlen) {
+        return Ok(aln);
+    }
+    let primary = build_alignment(&sw, oriented.to_string(), strand, read_len, tlen, MIN_IDENTITY, MIN_ALIGNED_LEN)?;
+    let r = oriented.as_bytes();
+    let hit = find_flank(t2, &r[primary.r_end + 1..], primary.r_end + 1, true, &primary, oriented, strand, read_len, tlen)
+        .or_else(|| find_flank(t2, &r[..primary.r_start], 0, false, &primary, oriented, strand, read_len, tlen));
+    Ok(match hit {
+        Some(h) => merge_flank(primary, h),
+        None => primary.aln,
     })
 }
 
@@ -487,6 +724,23 @@ pub fn alignment_diff(a: &Alignment, template: &str) -> AlignmentDiff {
         }
         if let Some(rs) = run_start.take() {
             deletions.push(deletion_at(tbytes, rs, seg.end));
+        }
+    }
+
+    // Template gap between consecutive segments (split-read flanks): the
+    // region absent from the read between two blocks, reported as a deletion.
+    if tlen > 0 {
+        for w in a.segments.windows(2) {
+            let gap = (w[1].start + tlen - w[0].end - 1) % tlen;
+            if gap == 0 {
+                continue;
+            }
+            let start = (w[0].end + 1) % tlen;
+            deletions.push(AlignDeletion {
+                pos: start,
+                length: gap,
+                bases: (0..gap).map(|k| tbytes[(start + k) % tlen] as char).collect(),
+            });
         }
     }
 
@@ -538,9 +792,7 @@ pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<
     }
 
     let t2 = if circular { format!("{}{}", t, t) } else { t };
-    let fwd = sw_dispatch(t2.as_bytes(), r.as_bytes())
-        .ok_or(AlignReject::NoSignificantAlignment)
-        .and_then(|f| build_alignment(&f, r.clone(), "+", read.len(), tlen));
+    let fwd = align_oriented(t2.as_bytes(), &r, "+", read.len(), tlen);
     if let Ok(ref a) = fwd {
         if a.identity >= 0.9 {
             return fwd;
@@ -548,9 +800,7 @@ pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<
     }
 
     let rc = crate::utils::reverse_complement(&r);
-    let rev = sw_dispatch(t2.as_bytes(), rc.as_bytes())
-        .ok_or(AlignReject::NoSignificantAlignment)
-        .and_then(|v| build_alignment(&v, rc, "-", read.len(), tlen));
+    let rev = align_oriented(t2.as_bytes(), &rc, "-", read.len(), tlen);
 
     match (fwd, rev) {
         (Ok(f), Ok(v)) => {
@@ -600,6 +850,23 @@ mod tests {
             .map(|_| {
                 x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 b"ACGT"[(x >> 33) as usize & 3] as char
+            })
+            .collect()
+    }
+
+    /// Higher-quality random template (splitmix64): the LCG above correlates
+    /// with itself at kilobase offsets, which lets SW bridge large deletions
+    /// and defeats the split-read tests.
+    fn make_template_smx(len: usize, seed: u64) -> String {
+        let mut x = seed;
+        (0..len)
+            .map(|_| {
+                x = x.wrapping_add(0x9E3779B97F4A7C15);
+                let mut z = x;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+                z ^= z >> 31;
+                b"ACGT"[(z & 3) as usize] as char
             })
             .collect()
     }
@@ -847,5 +1114,94 @@ mod tests {
         let read = make_template(3_000, 113);
         assert!(align_read(&t, &read, false).is_none());
         assert!(align_read_checked(&t, &read, false).is_err());
+    }
+
+    /// Random template restricted to a subset alphabet: regions with
+    /// disjoint composition cannot be bridged by a gapped SW extension,
+    /// which forces a clean split at the junction in split-read tests.
+    fn make_biased(len: usize, seed: u64, alphabet: &[u8]) -> String {
+        let mut x = seed;
+        (0..len)
+            .map(|_| {
+                x = x.wrapping_add(0x9E3779B97F4A7C15);
+                let mut z = x;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+                z ^= z >> 31;
+                alphabet[z as usize % alphabet.len()] as char
+            })
+            .collect()
+    }
+
+    /// Template: left flank (AC-only), 1 kb middle (GT-only, absent from the
+    /// read), right flank (AC-only). Read = left + insert + right.
+    fn split_read_fixture() -> (String, String, String) {
+        let left = make_biased(500, 61, b"AC");
+        let middle = make_biased(1_000, 63, b"GT");
+        let right = make_biased(500, 67, b"AC");
+        let insert = "AACCCAAACACCAACCCAC".to_string();
+        let t = format!("{}{}{}", left, middle, right);
+        let read = format!("{}{}{}", left, insert, right);
+        (t, read, insert)
+    }
+
+    #[test]
+    fn test_split_read_internal_deletion_with_insert() {
+        let (t, read, insert) = split_read_fixture();
+        let aln = align_read(&t, &read, false).unwrap();
+
+        assert_eq!(aln.segments.len(), 2, "segments {:?}", aln.segments);
+        let (a, b) = (&aln.segments[0], &aln.segments[1]);
+        assert!((a.start as i64).abs() <= 2, "seg0 start {}", a.start);
+        assert!((a.end as i64 - 499).abs() <= 2, "seg0 end {}", a.end);
+        assert!((b.start as i64 - 1500).abs() <= 4, "seg1 start {}", b.start);
+        assert!((b.end as i64 - 1999).abs() <= 2, "seg1 end {}", b.end);
+        let gap = b.start - a.end - 1;
+        assert!((gap as i64 - 1000).abs() <= 6, "template gap {}", gap);
+
+        assert_eq!(aln.insertions.len(), 1, "insertions {:?}", aln.insertions);
+        assert_eq!(aln.insertions[0].pos, b.start);
+        assert!(aln.insertions[0].bases.contains(&insert[2..insert.len() - 2]), "bases {}", aln.insertions[0].bases);
+        assert!(aln.identity >= 0.95, "identity {}", aln.identity);
+
+        let diff = alignment_diff(&aln, &t);
+        assert_eq!(diff.deletions.len(), 1, "deletions {:?}", diff.deletions);
+        assert!((diff.deletions[0].length as i64 - 1000).abs() <= 6);
+    }
+
+    #[test]
+    fn test_split_read_full_match_unchanged() {
+        let t = make_template_smx(3_000, 63);
+        let read = &t[500..1500];
+        let aln = align_read(&t, read, false).unwrap();
+        assert_eq!(aln.segments.len(), 1);
+        assert_eq!(aln.segments[0].start, 500);
+        assert_eq!(aln.segments[0].end, 1499);
+        assert!(aln.insertions.is_empty());
+        assert!((aln.identity - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_split_read_junk_tail_unchanged() {
+        let t = make_template_smx(3_000, 67);
+        // Matching body + a poly-A tail that aligns nowhere.
+        let read = format!("{}{}", &t[1000..1500], "A".repeat(200));
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.segments.len(), 1, "segments {:?}", aln.segments);
+        assert_eq!(aln.segments[0].start, 1000);
+        assert!(aln.segments[0].end <= 1_510, "end {}", aln.segments[0].end);
+        assert!(aln.identity >= 0.9, "identity {}", aln.identity);
+        assert!(!aln.insertions.iter().any(|i| i.bases.len() >= 20));
+    }
+
+    #[test]
+    fn test_split_read_minus_strand() {
+        let (t, fwd, insert) = split_read_fixture();
+        let read = crate::utils::reverse_complement(&fwd);
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.strand, "-");
+        assert_eq!(aln.segments.len(), 2, "segments {:?}", aln.segments);
+        assert_eq!(aln.insertions.len(), 1);
+        assert!(aln.insertions[0].bases.contains(&insert[2..insert.len() - 2]), "bases {}", aln.insertions[0].bases);
     }
 }
