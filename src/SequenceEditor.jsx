@@ -235,29 +235,12 @@ function InsDot({ x, onMouseDown, onMouseEnter, onMouseLeave }) {
   );
 }
 
-/** Map of insertion pos -> group index. Consecutive insertions (by pos)
- *  chain into one hover group when every template column between them is
- *  covered by a real segment; the chain breaks at inter-segment deletion
- *  runs and segment boundaries, so each junction's dots form one group. */
-function insertionGroups(insertions, segments) {
-  const covered = new Set();
-  for (const seg of segments || []) {
-    const chars = seg.chars || '';
-    for (let i = 0; i < chars.length; i++) covered.add(seg.start + i);
-  }
+/** Map of insertion pos -> group index: consecutive insertion dots (sorted
+ *  by pos) pair up — 1st+2nd, 3rd+4th, ...; an odd trailing dot is alone. */
+function insertionGroups(insertions) {
   const sorted = [...insertions].sort((a, b) => a.pos - b.pos);
   const groupOf = new Map();
-  let g = -1;
-  let prev = null;
-  for (const ins of sorted) {
-    let linked = prev !== null;
-    for (let p = prev; linked && p < ins.pos; p++) {
-      if (!covered.has(p)) linked = false;
-    }
-    if (!linked) g += 1;
-    groupOf.set(ins.pos, g);
-    prev = ins.pos;
-  }
+  sorted.forEach((ins, i) => groupOf.set(ins.pos, Math.floor(i / 2)));
   return groupOf;
 }
 
@@ -3997,7 +3980,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return alignmentTracks.map((al, ti) => {
       const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
-      const insGroupOf = insertionGroups(al.insertions || [], al.segments);
+      const insGroupOf = insertionGroups(al.insertions || []);
       const rows = [];
       const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
       for (const seg of segs) {
