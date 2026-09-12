@@ -216,6 +216,27 @@ function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
+/** Insertion placeholder dot in an alignment read lane; underlines on hover
+ *  to signal it is clickable (opens the insertion popover). */
+function InsDot({ x, onMouseDown }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <tspan
+      x={x}
+      textAnchor="middle"
+      fill={hover ? '#2563eb' : '#1f2937'}
+      fillOpacity={hover ? 0.9 : 0.55}
+      textDecoration={hover ? 'underline' : 'none'}
+      style={{ cursor: 'pointer' }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onMouseDown={onMouseDown}
+    >
+      ·
+    </tspan>
+  );
+}
+
 /** Template sequence covered by a primer match (origin-crossing aware). */
 function matchedSeqOf(p, cleanSeq) {
   return (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }])
@@ -4007,13 +4028,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       insBases +
                       (sequence[insPos] || '');
                     return (
-                      <tspan
+                      <InsDot
                         key={col}
                         x={getX(col) + cw / 2}
-                        textAnchor="middle"
-                        fill="#1f2937"
-                        fillOpacity={0.55}
-                        style={{ cursor: 'pointer' }}
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           e.preventDefault();
@@ -4024,9 +4041,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                             bases: display,
                           });
                         }}
-                      >
-                        ·
-                      </tspan>
+                      />
                     );
                   }
                   return (
