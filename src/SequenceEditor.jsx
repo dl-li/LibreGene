@@ -235,12 +235,11 @@ function InsDot({ x, onMouseDown, onMouseEnter, onMouseLeave }) {
   );
 }
 
-/** Map of insertion pos -> group index: consecutive insertion dots (sorted
- *  by pos) pair up — 1st+2nd, 3rd+4th, ...; an odd trailing dot is alone. */
+/** Map of insertion pos -> hover group index: each insertion is its own
+ *  group (it renders as the adjacent pair of dot columns pos-1 and pos). */
 function insertionGroups(insertions) {
-  const sorted = [...insertions].sort((a, b) => a.pos - b.pos);
   const groupOf = new Map();
-  sorted.forEach((ins, i) => groupOf.set(ins.pos, Math.floor(i / 2)));
+  insertions.forEach((ins, i) => groupOf.set(ins.pos, i));
   return groupOf;
 }
 
