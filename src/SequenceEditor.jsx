@@ -6034,7 +6034,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 transform: 'translateX(-50%)',
                 zIndex: 30,
                 background: '#FFFFFF',
-                border: '1px solid rgba(0,0,0,0.08)',
+                border: '1px solid #fca5a5',
                 borderRadius: 8,
                 padding: '4px 10px',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
