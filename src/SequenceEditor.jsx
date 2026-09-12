@@ -216,25 +216,41 @@ function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
-/** Insertion placeholder dot in an alignment read lane; underlines on hover
- *  to signal it is clickable (opens the insertion popover). */
-function InsDot({ x, onMouseDown }) {
-  const [hover, setHover] = useState(false);
+/** Insertion placeholder dot in an alignment read lane; hover is lifted to
+ *  the caller so every dot of an insertion group reacts together. */
+function InsDot({ x, onMouseDown, onMouseEnter, onMouseLeave }) {
   return (
     <tspan
       x={x}
       textAnchor="middle"
-      fill={hover ? '#2563eb' : '#1f2937'}
-      fillOpacity={hover ? 0.9 : 0.55}
-      textDecoration={hover ? 'underline' : 'none'}
+      fill="#1f2937"
+      fillOpacity={0.55}
       style={{ cursor: 'pointer' }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onMouseDown={onMouseDown}
     >
       ·
     </tspan>
   );
+}
+
+// Insertions this close together (chained, same alignment) form one hover
+// group — e.g. the junction insertion and a nearby 1 bp insertion.
+const INS_GROUP_GAP = 25;
+
+/** Map of insertion pos -> group index, grouping nearby insertions. */
+function insertionGroups(insertions) {
+  const sorted = [...insertions].sort((a, b) => a.pos - b.pos);
+  const groupOf = new Map();
+  let g = -1;
+  let last = -Infinity;
+  for (const ins of sorted) {
+    if (ins.pos - last > INS_GROUP_GAP) g += 1;
+    groupOf.set(ins.pos, g);
+    last = ins.pos;
+  }
+  return groupOf;
 }
 
 /** Template sequence covered by a primer match (origin-crossing aware). */
@@ -833,6 +849,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
   const [insPopover, setInsPopover] = useState(null); // { x, y, bases } for alignment insertions
   const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
+  const [hoverInsGroup, setHoverInsGroup] = useState(null); // `${alignmentId}:${insertionGroup}`
 
   useEffect(() => {
     if (!insPopover) return;
@@ -3972,6 +3989,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return alignmentTracks.map((al, ti) => {
       const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
+      const insGroupOf = insertionGroups(al.insertions || []);
       const rows = [];
       const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
       for (const seg of segs) {
@@ -3997,18 +4015,24 @@ const SequenceEditor = React.memo(function SequenceEditor({
           });
           rows.push(
             <g key={`${v.row}-${v.colStart}`}>
-              {mismatches.map((col) => (
-                <rect
-                  key={col}
-                  x={getX(col)}
-                  y={y - 11}
-                  width={cw}
-                  height={14}
-                  fill="#fecaca"
-                  fillOpacity={0.6}
-                  style={{ pointerEvents: 'none' }}
-                />
-              ))}
+              {mismatches.map((col) => {
+                const gI = v.row * charsPerLine + col;
+                const insAt = insMap.has(gI) ? gI : insMap.has(gI + 1) ? gI + 1 : -1;
+                const hot =
+                  insAt >= 0 && hoverInsGroup === `${al.id}:${insGroupOf.get(insAt)}`;
+                return (
+                  <rect
+                    key={col}
+                    x={getX(col)}
+                    y={y - 11}
+                    width={cw}
+                    height={14}
+                    fill={hot ? '#fca5a5' : '#fecaca'}
+                    fillOpacity={hot ? 0.95 : 0.6}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                );
+              })}
               <text
                 y={y}
                 fontFamily="Cascadia Code"
@@ -4031,6 +4055,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       <InsDot
                         key={col}
                         x={getX(col) + cw / 2}
+                        onMouseEnter={() => setHoverInsGroup(`${al.id}:${insGroupOf.get(insPos)}`)}
+                        onMouseLeave={() => setHoverInsGroup(null)}
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           e.preventDefault();
@@ -4074,6 +4100,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     sequence,
     alignLaneInfo,
     cleanSeq.length,
+    hoverInsGroup,
   ]);
 
   const renderedAlignmentLabels = useMemo(() => {
@@ -4125,7 +4152,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const hKey = `${al.id}:${v.row}`;
             const labelHover = hoverAlignLabel === hKey;
             const hovered = truncated && labelHover;
-            const labelX = getX(v.colEnd + 1) + 8;
+            // Fixed position right of the row's last column (the empty right
+            // margin), so labels never overlap read chars or gap dashes.
+            const labelX = getX(charsPerLine) + 8;
             const clipId = `align-label-clip-${al.id}-${v.row}`;
             const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
             // Trace toggle: labels of alignments whose .ab1 resolved are
@@ -4228,6 +4257,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     expandedChromAlnId,
     onToggleAlignmentChrom,
     onHideAlignment,
+    charsPerLine,
   ]);
 
   // Chromatogram bands: the project's own trace directly under the top
