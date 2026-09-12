@@ -198,6 +198,24 @@ function buildMatchSegs(ms, me, tlen) {
   return [{ start: ms, end: me }];
 }
 
+/** '-' placeholder segments covering template gaps between consecutive
+ *  segments of one alignment (split-read deletions), split at the origin so
+ *  each piece stays contiguous like real segments. */
+function alignmentGapSegments(al, tlen) {
+  const segs = al.segments || [];
+  const gaps = [];
+  if (!tlen) return gaps;
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const gap = (((segs[i + 1].start - segs[i].end - 1) % tlen) + tlen) % tlen;
+    if (gap === 0) continue;
+    const start = (segs[i].end + 1) % tlen;
+    for (const { start: s, end: e } of buildMatchSegs(start, (start + gap - 1) % tlen, tlen)) {
+      gaps.push({ start: s, end: e, chars: '-'.repeat(e - s + 1), gap: true });
+    }
+  }
+  return gaps;
+}
+
 /** Template sequence covered by a primer match (origin-crossing aware). */
 function matchedSeqOf(p, cleanSeq) {
   return (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }])
@@ -1331,7 +1349,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alignmentTracks.forEach((al, ti) => {
       const hasChrom = !!alignmentChromatograms[al.id];
       const rows = new Set();
-      for (const seg of al.segments || []) {
+      for (const seg of [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)]) {
         for (const v of sp(seg.start, seg.end)) rows.add(v.row);
       }
       for (const r of rows) {
@@ -1346,7 +1364,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     // Extra below-sequence height contributed by chromatogram bands.
     const chromBelow = chromCounts.map((n) => mainChromH + n * (CHROM_TRACK_H + CHROM_GAP));
     return { perRow, counts, chromPerRow, chromCounts, mainChromH, chromBelow };
-  }, [alignmentTracks, numRows, sp, alignmentChromatograms, chromatogram]);
+  }, [alignmentTracks, numRows, sp, alignmentChromatograms, chromatogram, cleanSeq.length]);
 
   // --- collision avoidance: features + primers ---
   // Normalize features and pre-compute colors once
@@ -3934,7 +3952,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return alignmentTracks.map((al, ti) => {
       const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
       const rows = [];
-      for (const seg of al.segments || []) {
+      const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
+      for (const seg of segs) {
         for (const v of sp(seg.start, seg.end)) {
           if (v.row < vs || v.row > ve) continue;
           const sy = getSeqY(v.row);
@@ -4007,6 +4026,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
                         }}
                       >
                         ·
+                        {insBases.length > 1 && (
+                          <tspan fontSize="9" dy="-5" fill="#dc2626" fillOpacity={0.8}>
+                            {insBases.length}
+                          </tspan>
+                        )}
                       </tspan>
                     );
                   }
@@ -4039,6 +4063,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     charsPerLine,
     sequence,
     alignLaneInfo,
+    cleanSeq.length,
   ]);
 
   const renderedAlignmentLabels = useMemo(() => {
