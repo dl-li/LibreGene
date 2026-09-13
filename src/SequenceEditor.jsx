@@ -4008,8 +4008,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               {mismatches.map((col) => {
                 const gI = v.row * charsPerLine + col;
                 const insAt = insMap.has(gI) ? gI : insMap.has(gI + 1) ? gI + 1 : -1;
-                const hot =
-                  insAt >= 0 && hoverInsGroup === `${al.id}:${insGroupOf.get(insAt)}`;
+                const hot = insAt >= 0 && hoverInsGroup === `${al.id}:${insGroupOf.get(insAt)}`;
                 return (
                   <rect
                     key={col}
@@ -5936,6 +5935,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onManageAlignments={onManageAlignments}
           onOpenRnaFold={onOpenRnaFold}
           onOpenMapView={onOpenMapView}
+          background={background}
+          backgroundOptions={backgroundOptions}
+          onBackgroundChange={onBackgroundChange}
           onPrimerDesign={handlePrimerDesign}
           primerDesignEnabled={primerDesignEnabled}
           onOpenMyPrimers={onOpenMyPrimers}
