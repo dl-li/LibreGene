@@ -63,17 +63,37 @@ const ENZYME_FILTER_OPTIONS = [
   { value: 'rec8p', label: '≥8 bp Recognition' },
 ];
 
-function NavTrigger({ icon: Icon, label }) {
+const NAV_BUTTON_CLASS =
+  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95 data-[state=open]:bg-accent data-[state=open]:text-foreground';
+
+// Left click runs onLeftClick (when given) and right click opens the menu;
+// without onLeftClick both left and right click open the menu. Radix opens
+// the menu on left pointerdown by default — preventDefault() there opts out.
+function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children }) {
+  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenuTrigger asChild>
-      <button
-        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95 data-[state=open]:bg-accent data-[state=open]:text-foreground"
-        type="button"
-      >
-        <Icon className="size-4" />
-        <span>{label}</span>
-      </button>
-    </DropdownMenuTrigger>
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={NAV_BUTTON_CLASS}
+          type="button"
+          onPointerDown={(e) => {
+            if (e.button === 0 && onLeftClick) e.preventDefault();
+          }}
+          onClick={() => onLeftClick?.()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setOpen(true);
+          }}
+        >
+          <Icon className="size-4" />
+          <span>{label}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="center" className={contentClassName}>
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -122,6 +142,9 @@ export default function EditorNavMenu({
   onManageAlignments,
   onOpenRnaFold,
   onOpenMapView,
+  background = 'none',
+  backgroundOptions = [],
+  onBackgroundChange,
   onPrimerDesign,
   primerDesignEnabled = true,
   onOpenPrimerOverview,
@@ -147,6 +170,15 @@ export default function EditorNavMenu({
   // rna/protein projects are single-strand sequences: keep Edit/Features/Search,
   // hide DNA-only tooling (primers, enzymes, alignment, antisense/translation).
   const isDna = moleculeType === 'dna';
+
+  // Left-click toggles "Show As Background" when that background is offered
+  // for this molecule type (protein has none → fall back to the examine dialog).
+  const bgToggle = (value) =>
+    onBackgroundChange && backgroundOptions.some((o) => o.value === value)
+      ? () => onBackgroundChange(background === value ? 'none' : value)
+      : null;
+  const mapBackgroundToggle = bgToggle('map');
+  const foldingBackgroundToggle = bgToggle('folding');
 
   const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
   const SCOPE_WORDS = {
@@ -238,285 +270,289 @@ export default function EditorNavMenu({
       }}
     >
       <div className="nav-bar-enter relative flex items-center gap-0.5 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
-        {/* Edit */}
-        <DropdownMenu modal={false}>
-          <NavTrigger icon={Pencil} label="Edit" />
-          <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-            <DropdownMenuItem disabled={!canDirectSave} onSelect={onSave}>
-              <Save /> Save
-              <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onSaveAs}>
-              <FileDown /> Save As…
-              <DropdownMenuShortcut>⇧⌘S</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-              <Undo2 /> Undo
-              <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-              <Redo2 /> Redo
-              <DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+        {/* Edit: left or right click opens the menu */}
+        <NavMenu icon={Pencil} label="Edit" contentClassName="min-w-52 overflow-visible">
+          <DropdownMenuItem disabled={!canDirectSave} onSelect={onSave}>
+            <Save /> Save
+            <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onSaveAs}>
+            <FileDown /> Save As…
+            <DropdownMenuShortcut>⇧⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+            <Undo2 /> Undo
+            <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+            <Redo2 /> Redo
+            <DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!hasSelection && !hasTranslationSelection}
+            onSelect={onCopySense}
+          >
+            <CopyPlus /> Copy (+) Strand
+          </DropdownMenuItem>
+          {isDna && (
             <DropdownMenuItem
               disabled={!hasSelection && !hasTranslationSelection}
-              onSelect={onCopySense}
+              onSelect={onCopyAntisense}
             >
-              <CopyPlus /> Copy (+) Strand
+              <CopyMinus /> Copy (−) Strand
             </DropdownMenuItem>
-            {isDna && (
-              <DropdownMenuItem
-                disabled={!hasSelection && !hasTranslationSelection}
-                onSelect={onCopyAntisense}
-              >
-                <CopyMinus /> Copy (−) Strand
+          )}
+          {isDna && (
+            <DropdownMenuItem disabled={!hasTranslationSelection} onSelect={onCopyTranslation}>
+              <CopyX /> Copy Translation
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem disabled={!canPaste} onSelect={onPaste}>
+            <ClipboardPaste /> Paste
+            <DropdownMenuShortcut>⌘V</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToUppercase}>
+            <CaseUpper /> To Uppercase
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToLowercase}>
+            <CaseLower /> To Lowercase
+          </DropdownMenuItem>
+          {isDna && onToggleTopology && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onToggleTopology}>
+                {topology === 'circular' ? (
+                  <>
+                    <Minus /> Linearize
+                  </>
+                ) : (
+                  <>
+                    <Circle /> Circularize
+                  </>
+                )}
               </DropdownMenuItem>
-            )}
-            {isDna && (
-              <DropdownMenuItem disabled={!hasTranslationSelection} onSelect={onCopyTranslation}>
-                <CopyX /> Copy Translation
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem disabled={!canPaste} onSelect={onPaste}>
-              <ClipboardPaste /> Paste
-              <DropdownMenuShortcut>⌘V</DropdownMenuShortcut>
+            </>
+          )}
+        </NavMenu>
+
+        {/* Features: left click toggles visibility, right click opens menu */}
+        <NavMenu
+          icon={Tag}
+          label="Features"
+          onLeftClick={onToggleFeatures}
+          contentClassName="min-w-52 overflow-visible"
+        >
+          <DropdownMenuCheckboxItem checked={showFeatures} onCheckedChange={onToggleFeatures}>
+            Show Features
+          </DropdownMenuCheckboxItem>
+          {onToggleOrfs && (
+            <DropdownMenuCheckboxItem checked={showOrfs} onCheckedChange={onToggleOrfs}>
+              Show ORFs
+            </DropdownMenuCheckboxItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onCreateFeature}>
+            <Plus /> Create Feature
+            <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onOpenDetectFeatures} disabled={!onOpenDetectFeatures}>
+            <ScanSearch /> Detect Common Features
+          </DropdownMenuItem>
+        </NavMenu>
+
+        {/* Primers (DNA only): left click toggles visibility, right click opens menu */}
+        {isDna && (
+          <NavMenu
+            icon={ArrowRight}
+            label="Primers"
+            onLeftClick={onTogglePrimers}
+            contentClassName="min-w-52 overflow-visible"
+          >
+            <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
+              Show Primers
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onCreatePrimer}>
+              <Plus /> Create Primer
+              <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToUppercase}>
-              <CaseUpper /> To Uppercase
+            <DropdownMenuItem onSelect={onOpenPrimerOverview}>
+              <ArrowDownWideNarrow /> Primer Overview
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToLowercase}>
-              <CaseLower /> To Lowercase
-            </DropdownMenuItem>
-            {isDna && onToggleTopology && (
-              <>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger inset>My Primer Collection</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-48">
+                <DropdownMenuItem onSelect={onOpenMyPrimers}>
+                  <ListChecks /> My Primer Collection…
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onToggleTopology}>
-                  {topology === 'circular' ? (
+                <DropdownMenuItem
+                  disabled={!hasSelectedPrimer}
+                  onSelect={onAddCurrentPrimerToMyPrimers}
+                >
+                  <Plus /> Add Current Primer
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!hasPrimers} onSelect={onAddAllPrimersToMyPrimers}>
+                  <CopyPlus /> Add All from This File
+                </DropdownMenuItem>
+                <DropdownMenuCheckboxItem
+                  checked={autoAddPrimers}
+                  onCheckedChange={onToggleAutoAddPrimers}
+                >
+                  Auto-add from Opened Files
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            {primerDesignEnabled && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-44">
+                  <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
+                    Amplify Fragment
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
+                    OE-PCR
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={topology !== 'circular'}
+                    onSelect={() => onPrimerDesign?.('mutagenesis')}
+                  >
+                    PCR Mutagenesis
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+          </NavMenu>
+        )}
+
+        {/* Enzymes (DNA only): left click toggles visibility, right click opens menu */}
+        {isDna && (
+          <NavMenu
+            icon={Scissors}
+            label="Enzymes"
+            onLeftClick={onToggleEnzymes}
+            contentClassName="min-w-52 overflow-visible"
+          >
+            <DropdownMenuCheckboxItem checked={showEnzymes} onCheckedChange={onToggleEnzymes}>
+              Show Enzyme Sites
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger inset>Choose Enzyme Set</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-44">
+                <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
+                  {ENZYME_FILTER_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem
+                      key={opt.value}
+                      value={opt.value}
+                      className={opt.className}
+                    >
+                      {opt.value === 'unique' ? (
+                        <span>
+                          <strong>Unique</strong> Cutters
+                        </span>
+                      ) : opt.value === 'unique6' ? (
+                        <span>
+                          <strong>Unique</strong> 6 bp
+                        </span>
+                      ) : opt.value === 'twice' ? (
+                        <span>
+                          Twice-cutter<sup>²</sup>
+                        </span>
+                      ) : opt.value === 'unique+twice' ? (
+                        <span>
+                          <strong>Unique</strong> + Twice-cutter<sup>²</sup>
+                        </span>
+                      ) : (
+                        opt.label
+                      )}
+                    </DropdownMenuRadioItem>
+                  ))}
+                  {myEnzymes.length > 0 && (
                     <>
-                      <Minus /> Linearize
-                    </>
-                  ) : (
-                    <>
-                      <Circle /> Circularize
+                      <DropdownMenuSeparator />
+                      <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
                     </>
                   )}
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Features */}
-        <DropdownMenu modal={false}>
-          <NavTrigger icon={Tag} label="Features" />
-          <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-            <DropdownMenuCheckboxItem checked={showFeatures} onCheckedChange={onToggleFeatures}>
-              Show Features
-            </DropdownMenuCheckboxItem>
-            {onToggleOrfs && (
-              <DropdownMenuCheckboxItem checked={showOrfs} onCheckedChange={onToggleOrfs}>
-                Show ORFs
-              </DropdownMenuCheckboxItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onCreateFeature}>
-              <Plus /> Create Feature
-              <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem onSelect={onOpenMyEnzymes}>
+              <Scissors /> My Enzymes…
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onOpenDetectFeatures} disabled={!onOpenDetectFeatures}>
-              <ScanSearch /> Detect Common Features
+            <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
+              <Database /> Enzyme Database…
             </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Primers (DNA only) */}
-        {isDna && (
-          <DropdownMenu modal={false}>
-            <NavTrigger icon={ArrowRight} label="Primers" />
-            <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-              <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
-                Show Primers
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onCreatePrimer}>
-                <Plus /> Create Primer
-                <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onOpenPrimerOverview}>
-                <ArrowDownWideNarrow /> Primer Overview
-              </DropdownMenuItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger inset>My Primer Collection</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-48">
-                  <DropdownMenuItem onSelect={onOpenMyPrimers}>
-                    <ListChecks /> My Primer Collection…
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={!hasSelectedPrimer}
-                    onSelect={onAddCurrentPrimerToMyPrimers}
-                  >
-                    <Plus /> Add Current Primer
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!hasPrimers} onSelect={onAddAllPrimersToMyPrimers}>
-                    <CopyPlus /> Add All from This File
-                  </DropdownMenuItem>
-                  <DropdownMenuCheckboxItem
-                    checked={autoAddPrimers}
-                    onCheckedChange={onToggleAutoAddPrimers}
-                  >
-                    Auto-add from Opened Files
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              {primerDesignEnabled && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-44">
-                    <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
-                      Amplify Fragment
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
-                      OE-PCR
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={topology !== 'circular'}
-                      onSelect={() => onPrimerDesign?.('mutagenesis')}
-                    >
-                      PCR Mutagenesis
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          </NavMenu>
         )}
 
-        {/* Enzymes (DNA only) */}
-        {isDna && (
-          <DropdownMenu modal={false}>
-            <NavTrigger icon={Scissors} label="Enzymes" />
-            <DropdownMenuContent side="top" align="center" className="min-w-52 overflow-visible">
-              <DropdownMenuCheckboxItem checked={showEnzymes} onCheckedChange={onToggleEnzymes}>
-                Show Enzyme Sites
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger inset>Choose Enzyme Set</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-44">
-                  <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
-                    {ENZYME_FILTER_OPTIONS.map((opt) => (
-                      <DropdownMenuRadioItem
-                        key={opt.value}
-                        value={opt.value}
-                        className={opt.className}
-                      >
-                        {opt.value === 'unique' ? (
-                          <span>
-                            <strong>Unique</strong> Cutters
-                          </span>
-                        ) : opt.value === 'unique6' ? (
-                          <span>
-                            <strong>Unique</strong> 6 bp
-                          </span>
-                        ) : opt.value === 'twice' ? (
-                          <span>
-                            Twice-cutter<sup>²</sup>
-                          </span>
-                        ) : opt.value === 'unique+twice' ? (
-                          <span>
-                            <strong>Unique</strong> + Twice-cutter<sup>²</sup>
-                          </span>
-                        ) : (
-                          opt.label
-                        )}
-                      </DropdownMenuRadioItem>
-                    ))}
-                    {myEnzymes.length > 0 && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
-                      </>
-                    )}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuItem onSelect={onOpenMyEnzymes}>
-                <Scissors /> My Enzymes…
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
-                <Database /> Enzyme Database…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-
-        {/* Alignment (DNA only) */}
+        {/* Alignment (DNA only): left click opens the manager, right click opens menu */}
         {isDna && alignmentEnabled && (
-          <DropdownMenu modal={false}>
-            <NavTrigger icon={ChartNoAxesGantt} label="Align" />
-            <DropdownMenuContent side="top" align="center" className="min-w-56 overflow-visible">
+          <NavMenu
+            icon={ChartNoAxesGantt}
+            label="Align"
+            onLeftClick={onManageAlignments}
+            contentClassName="min-w-56 overflow-visible"
+          >
+            <DropdownMenuCheckboxItem checked={showAlignments} onCheckedChange={onToggleAlignments}>
+              Show Alignments
+            </DropdownMenuCheckboxItem>
+            {alignments.length > 0 && <DropdownMenuSeparator />}
+            {alignments.map((a) => (
               <DropdownMenuCheckboxItem
-                checked={showAlignments}
-                onCheckedChange={onToggleAlignments}
+                key={a.id}
+                checked={!hiddenAlignIds.includes(a.id)}
+                onCheckedChange={() => onToggleAlignmentVisible?.(a.id)}
               >
-                Show Alignments
+                <span className="truncate">{a.name}</span>
+                <DropdownMenuShortcut className="ml-4 text-muted-foreground">
+                  {a.identity != null ? `${(a.identity * 100).toFixed(0)}%` : ''}
+                </DropdownMenuShortcut>
               </DropdownMenuCheckboxItem>
-              {alignments.length > 0 && <DropdownMenuSeparator />}
-              {alignments.map((a) => (
-                <DropdownMenuCheckboxItem
-                  key={a.id}
-                  checked={!hiddenAlignIds.includes(a.id)}
-                  onCheckedChange={() => onToggleAlignmentVisible?.(a.id)}
-                >
-                  <span className="truncate">{a.name}</span>
-                  <DropdownMenuShortcut className="ml-4 text-muted-foreground">
-                    {a.identity != null ? `${(a.identity * 100).toFixed(0)}%` : ''}
-                  </DropdownMenuShortcut>
-                </DropdownMenuCheckboxItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onAddAlignmentFile}>
-                <FileUp /> Add from File…
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onAddAlignmentText}>
-                <Type /> Add from Text…
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onManageAlignments}>
-                <ListChecks /> Manage Alignments…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onAddAlignmentFile}>
+              <FileUp /> Add from File…
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onAddAlignmentText}>
+              <Type /> Add from Text…
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onManageAlignments}>
+              <ListChecks /> Manage Alignments…
+            </DropdownMenuItem>
+          </NavMenu>
         )}
 
-        {/* Plasmid Map: top-level button (plugin can be disabled) */}
+        {/* Plasmid Map: left click toggles the background, right click opens menu */}
         {onOpenMapView && (
-          <button
-            type="button"
-            onClick={onOpenMapView}
-            title="Plasmid map"
-            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95"
+          <NavMenu
+            icon={MapIcon}
+            label="Map"
+            onLeftClick={mapBackgroundToggle || onOpenMapView}
+            contentClassName="min-w-44"
           >
-            <MapIcon className="size-4" />
-            <span>Map</span>
-          </button>
+            <DropdownMenuItem onSelect={onOpenMapView}>
+              <MapIcon /> Examine Map
+            </DropdownMenuItem>
+          </NavMenu>
         )}
 
-        {/* RNA Folding: top-level button, RNA projects only (plugin can be disabled) */}
+        {/* RNA Folding (RNA only): left click toggles the background, right click opens menu */}
         {moleculeType === 'rna' && onOpenRnaFold && (
-          <button
-            type="button"
-            onClick={onOpenRnaFold}
-            title="Predict RNA secondary structure"
-            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95"
+          <NavMenu
+            icon={AudioWaveform}
+            label="Folding"
+            onLeftClick={foldingBackgroundToggle || onOpenRnaFold}
+            contentClassName="min-w-52"
           >
-            <AudioWaveform className="size-4" />
-            <span>Folding</span>
-          </button>
+            <DropdownMenuItem onSelect={onOpenRnaFold}>
+              <AudioWaveform /> Examine Secondary Structure
+            </DropdownMenuItem>
+          </NavMenu>
         )}
 
         {/* Search: icon stays in flow; expanding overlay covers the other buttons */}
