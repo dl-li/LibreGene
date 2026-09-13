@@ -35,11 +35,19 @@ const NN_TABLE: &[(&[u8; 2], f64, f64)] = &[
     (b"TT", -7.9, -22.2),
 ];
 
-/// Initiation ΔS° for non-self-complementary duplex (cal/mol·K).
-const DS_INIT: f64 = -4.1;
+/// Initiation parameters for non-self-complementary duplex
+/// (SantaLucia & Hicks 2004, Table 2): ΔH° = 0.2 kcal/mol,
+/// ΔS° = −5.7 cal/mol·K.
+const DH_INIT: f64 = 0.2;
+const DS_INIT: f64 = -5.7;
+
+/// Terminal A·T pair penalty (per duplex end ending in A or T):
+/// ΔH° = +2.2 kcal/mol, ΔS° = +6.9 cal/mol·K.
+const DH_TERM_AT: f64 = 2.2;
+const DS_TERM_AT: f64 = 6.9;
 
 /// Gas constant (cal/mol·K).
-const R: f64 = 1.9872;
+const R: f64 = 1.987;
 
 // ---------------------------------------------------------------------------
 // Default conditions — aligned with SnapGene's Tm convention:
@@ -177,7 +185,8 @@ fn lookup_nn(b1: u8, b2: u8, nn_map: &HashMap<[u8; 2], (f64, f64)>) -> Option<(f
 // Dinucleotide parameter summation
 // ---------------------------------------------------------------------------
 
-/// Sum dinucleotide ΔH° and ΔS° for a duplex sequence (primer strand, 5'→3').
+/// Sum dinucleotide ΔH° and ΔS° for a duplex sequence (primer strand, 5'→3'),
+/// including SantaLucia 2004 initiation and terminal A·T penalties.
 /// Supports IUPAC ambiguous bases via weighted averaging.
 fn sum_nn_params(seq: &[u8]) -> (f64, f64) {
     if seq.len() < 2 {
@@ -185,7 +194,7 @@ fn sum_nn_params(seq: &[u8]) -> (f64, f64) {
     }
 
     let nn_map = get_nn_map();
-    let mut dh = 0.0;
+    let mut dh = DH_INIT;
     let mut ds = DS_INIT;
 
     for w in seq.windows(2) {
@@ -197,6 +206,22 @@ fn sum_nn_params(seq: &[u8]) -> (f64, f64) {
             dh += -8.2;
             ds += -22.0;
         }
+    }
+
+    // Terminal A·T penalty on each duplex end (terminal G·C contributes 0).
+    // IUPAC ends are averaged over their expansions.
+    for &end in [seq.first(), seq.last()].into_iter().flatten() {
+        let expanded = iupac::iupac_expand(end);
+        if expanded.is_empty() {
+            continue;
+        }
+        let at_frac = expanded
+            .iter()
+            .filter(|&&b| b == b'A' || b == b'T' || b == b'U')
+            .count() as f64
+            / expanded.len() as f64;
+        dh += DH_TERM_AT * at_frac;
+        ds += DS_TERM_AT * at_frac;
     }
 
     (dh, ds)
