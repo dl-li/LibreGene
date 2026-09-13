@@ -96,7 +96,9 @@ function AlignmentView({ data }) {
           return (
             <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>
               {m[1]}
-              <span style={{ backgroundColor: primerColor, color: cardBg, padding: '1px 2px' }}>{m[2]}</span>
+              <span style={{ backgroundColor: primerColor, color: cardBg, padding: '1px 2px' }}>
+                {m[2]}
+              </span>
               {m[3]}
             </div>
           );

@@ -50,6 +50,29 @@ import { setMyEnzymes } from './myEnzymes';
 
 const EMPTY_ARRAY = [];
 
+// Per-file memory of hidden alignment tracks, persisted as names keyed by
+// file path (alignment ids are positional and shift when a track is removed).
+const HIDDEN_ALN_KEY = 'hiddenAlignments';
+function readHiddenAlnNames(pid) {
+  try {
+    const all = JSON.parse(localStorage.getItem(HIDDEN_ALN_KEY));
+    return Array.isArray(all?.[pid]) ? all[pid] : [];
+  } catch {
+    return [];
+  }
+}
+function writeHiddenAlnNames(pid, names) {
+  if (!pid) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(HIDDEN_ALN_KEY)) || {};
+    if (names.length) all[pid] = names;
+    else delete all[pid];
+    localStorage.setItem(HIDDEN_ALN_KEY, JSON.stringify(all));
+  } catch {
+    // storage may be unavailable; memory just won't persist
+  }
+}
+
 export default function ProjectWorkspace({
   projectId,
   projectName,
@@ -114,7 +137,12 @@ export default function ProjectWorkspace({
     setAgentTabLocked(projectId, false).catch(() => {});
   }, [projectId]);
   const [showAlignments, setShowAlignments] = useState(true);
-  const [hiddenAlignIds, setHiddenAlignIds] = useState(EMPTY_ARRAY);
+  const [hiddenAlignIds, setHiddenAlignIds] = useState(() => {
+    const names = readHiddenAlnNames(projectId);
+    return (initialData?.alignments || EMPTY_ARRAY)
+      .filter((a) => names.includes(a.name))
+      .map((a) => a.id);
+  });
   const [alignTextOpen, setAlignTextOpen] = useState(false);
   const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
   const primerDesignEnabled = isDna && !disabledPlugins.includes('primerDesign');
@@ -274,6 +302,12 @@ export default function ProjectWorkspace({
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
           setAlignments(data.alignments || EMPTY_ARRAY);
+          const hiddenNames = readHiddenAlnNames(projectIdRef.current);
+          setHiddenAlignIds(
+            (data.alignments || EMPTY_ARRAY)
+              .filter((a) => hiddenNames.includes(a.name))
+              .map((a) => a.id),
+          );
           setMoleculeType(data.moleculeType || 'dna');
           setTopologyLive(data.topology || 'circular');
           setTracePath(data.tracePath || null);
@@ -1023,13 +1057,23 @@ export default function ProjectWorkspace({
     [onProjectsSync],
   );
 
-  const handleToggleAlignmentVisible = useCallback((alignmentId) => {
-    setHiddenAlignIds((prev) =>
-      prev.includes(alignmentId) ? prev.filter((x) => x !== alignmentId) : [...prev, alignmentId],
-    );
-    // Hiding a track collapses its chromatogram band if it was expanded.
-    setExpandedChromAlnId((cur) => (cur === alignmentId ? null : cur));
-  }, []);
+  const handleToggleAlignmentVisible = useCallback(
+    (alignmentId) => {
+      setHiddenAlignIds((prev) => {
+        const next = prev.includes(alignmentId)
+          ? prev.filter((x) => x !== alignmentId)
+          : [...prev, alignmentId];
+        writeHiddenAlnNames(
+          projectIdRef.current,
+          next.map((id) => alignments.find((a) => a.id === id)?.name).filter(Boolean),
+        );
+        return next;
+      });
+      // Hiding a track collapses its chromatogram band if it was expanded.
+      setExpandedChromAlnId((cur) => (cur === alignmentId ? null : cur));
+    },
+    [alignments],
+  );
 
   const visibleAlignments = useMemo(
     () =>
@@ -1050,12 +1094,23 @@ export default function ProjectWorkspace({
           setAlignments(data.alignments);
           if (data.projects) onProjectsSync(data.projects);
           setIsDirty(true);
+          const removedName = alignments.find((a) => a.id === alignmentId)?.name;
+          setHiddenAlignIds((prev) => {
+            const next = prev.filter((x) => x !== alignmentId);
+            writeHiddenAlnNames(
+              projectIdRef.current,
+              next
+                .map((id) => alignments.find((a) => a.id === id)?.name)
+                .filter((n) => n && n !== removedName),
+            );
+            return next;
+          });
         }
       } catch (e) {
         console.error('remove alignment error:', e);
       }
     },
-    [onProjectsSync],
+    [onProjectsSync, alignments],
   );
 
   /**
