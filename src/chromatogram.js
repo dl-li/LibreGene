@@ -83,6 +83,7 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnc
     }
     const prev = anchors[i - 1];
     if (a.x - prev.x > maxAnchorGap) {
+      open = false;
       emitPoint(a.x, peakA); // start a new subpath at this base's peak
       continue;
     }
