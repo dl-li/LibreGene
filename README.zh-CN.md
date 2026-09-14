@@ -91,7 +91,7 @@ LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听
 - **读取** — `read_sequence`、`get_project_overview`、`get_region_view`、`search_sequence`（IUPAC 模糊搜索，肽段查询自动展开为简并密码子）
 - **编辑** — `edit_sequence`（插入/删除/替换）、`set_feature`（创建与更新）
 - **引物** — `add_primer`、`list_primers`、`check_primer_binding`（结合位点 + Tm）、`design_primers`（扩增 / OE-PCR / 诱变）
-- **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`optimize_cds`（9 个物种的密码子优化）
+- **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`convert_sequence`（序列转换 + 9 个物种的密码子优化）
 
 #### 示例任务
 

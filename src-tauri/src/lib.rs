@@ -65,9 +65,12 @@ const SEQ_EXTS: &[&str] = &[
     "ab1", "seq",
 ];
 const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
-/// Output extensions accepted by MCP `optimize_cds`'s `output_path`
-/// (.gbk/.gb/.genbank → DNA GenBank, .gpt → protein GenBank).
+/// Output extensions accepted by save paths that write a whole project
+/// (.gbk/.gb/.genbank → DNA/RNA GenBank, .gpt → protein GenBank).
 const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
+/// Output extensions accepted by MCP `convert_sequence`'s `output_path`:
+/// the GenBank set above plus bare-sequence text (.fa/.fasta/.txt).
+const CONVERT_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt", "fa", "fasta", "txt"];
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -1690,7 +1693,7 @@ pub(crate) fn codon_optimize_options(
     })
 }
 
-/// Shared codon-optimization core (Tauri commands + MCP `optimize_cds`): find
+/// Shared codon-optimization core (Tauri commands + MCP `convert_sequence`): find
 /// the CDS/mRNA feature, extract its coding sequence, run the optimizer, and
 /// build the equal-length replacement sequence via `segments_on_template`
 /// write-back (minus-strand pieces reverse-complemented). Read-only — callers
