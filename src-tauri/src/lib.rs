@@ -707,6 +707,7 @@ async fn do_create_project(
     let mut return_data = filter_project(&computed, &params);
     if let Some(ref mut map) = return_data.as_object_mut() {
         map.insert("id".to_string(), serde_json::json!(id));
+        map.insert("dirty".to_string(), serde_json::json!(true));
     }
 
     let (projects, active_id) = {
@@ -714,6 +715,8 @@ async fn do_create_project(
         if let Err(e) = pm.load(&id, computed) {
             return Ok(serde_json::json!({"error": e}));
         }
+        // New in-memory projects start dirty so closing them prompts a save.
+        pm.mark_dirty(&id);
         (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
     // The load may have evicted another project; drop its bindings.
@@ -1925,7 +1928,13 @@ async fn get_project(
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
-        Some(p) => Ok(filter_project(p, &params)),
+        Some(p) => {
+            let mut filtered = filter_project(p, &params);
+            if let Some(ref mut map) = filtered.as_object_mut() {
+                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&project_id)));
+            }
+            Ok(filtered)
+        }
         None => Ok(serde_json::json!({"error": "Project not found"})),
     }
 }
@@ -3396,7 +3405,11 @@ async fn get_project_by_id(
                 row_end: None,
                 cpl: None,
             };
-            Ok(filter_project(p, &params))
+            let mut filtered = filter_project(p, &params);
+            if let Some(ref mut map) = filtered.as_object_mut() {
+                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&id)));
+            }
+            Ok(filtered)
         }
         None => Ok(serde_json::json!({"error": "project not found"})),
     }
