@@ -293,6 +293,27 @@ export async function getChromatogram(path) {
 }
 
 // ---------------------------------------------------------------------------
+// SnapGene history snapshots (.dna files)
+// ---------------------------------------------------------------------------
+
+/**
+ * Flat SnapGene history list of a .dna-sourced project: rows of
+ * {id, depth, name, seqLen, circular, operation, edge, hasSnapshot}.
+ * `entries` is null when the file carries no history.
+ */
+export async function getSnapgeneHistory(projectId) {
+  return tauriInvoke('get_snapgene_history', { projectId });
+}
+
+/**
+ * Open one history snapshot as a new in-memory project (Save As to keep it).
+ * Returns the same shape as openFile plus the generated `snapshot-<millis>` id.
+ */
+export async function openSnapgeneSnapshot(projectId, nodeId) {
+  return tauriInvoke('open_snapgene_snapshot', { projectId, nodeId });
+}
+
+// ---------------------------------------------------------------------------
 // Methylation
 // ---------------------------------------------------------------------------
 

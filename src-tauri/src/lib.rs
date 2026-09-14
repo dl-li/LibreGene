@@ -865,6 +865,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
             methylation_overlap: p.methylation_overlap,
             roi: p.roi,
             trace_path: p.trace_path.clone(),
+            snapgene_history: p.snapgene_history.clone(),
         })
     };
 
@@ -3297,6 +3298,146 @@ async fn get_chromatogram(path: String) -> Result<libregene_core::models::Chroma
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — SnapGene history snapshots
+// ---------------------------------------------------------------------------
+
+/// Whether `project_id` refers to a project opened from a `.dna` file (the
+/// project id of a file-opened project is its path).
+fn is_snapgene_dna_path(project_id: &str) -> bool {
+    std::path::Path::new(project_id)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("dna"))
+}
+
+/// The SnapGene history of `project_id` for the Snapshots dialog: the
+/// in-memory subtree a snapshot project carries wins, otherwise the source
+/// `.dna` file is re-read on demand — snapshot sequences never travel with
+/// get_project/broadcast payloads. `entries` is null when there is none.
+#[tauri::command]
+async fn get_snapgene_history(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<serde_json::Value, String> {
+    let file_backed;
+    {
+        let pm = state.pm.read().await;
+        let project = pm
+            .get_project_by_id(&project_id)
+            .ok_or("project not found")?;
+        if let Some(history) = &project.snapgene_history {
+            return Ok(serde_json::json!({ "entries": history.entries }));
+        }
+        file_backed = project.is_dna() && is_snapgene_dna_path(&project_id);
+    }
+    if !file_backed {
+        return Ok(serde_json::json!({ "entries": null }));
+    }
+    let path = std::path::PathBuf::from(&project_id);
+    let result = tokio::task::spawn_blocking(move || {
+        let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+        Ok::<_, String>(
+            libregene_core::file_io::snapgene_history::parse_snapgene_history(&data)
+                .map(|history| history.entries),
+        )
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+    match result {
+        Ok(entries) => Ok(serde_json::json!({ "entries": entries })),
+        Err(e) => Ok(serde_json::json!({ "error": e })),
+    }
+}
+
+/// Open one SnapGene history snapshot as a new in-memory project: sequence +
+/// snapshot-time features/primers/topology, plus the node's complete subtree
+/// history carried along (root = the snapshot) so nested snapshots stay
+/// openable — GenePad's "open snapshot as independent document" semantics.
+/// Works both on `.dna`-file projects and on snapshot projects themselves.
+/// The virtual id `snapshot-<millis>` has no file extension, so the first
+/// save always goes through Save As.
+#[tauri::command]
+async fn open_snapgene_snapshot(
+    state: State<'_, AppState>,
+    project_id: String,
+    node_id: u32,
+) -> Result<serde_json::Value, String> {
+    enum Source {
+        Memory(libregene_core::models::SnapGeneHistoryData),
+        File(std::path::PathBuf),
+    }
+    let source = {
+        let pm = state.pm.read().await;
+        let project = pm
+            .get_project_by_id(&project_id)
+            .ok_or("project not found")?;
+        if let Some(history) = &project.snapgene_history {
+            Source::Memory(history.clone())
+        } else if project.is_dna() && is_snapgene_dna_path(&project_id) {
+            Source::File(std::path::PathBuf::from(&project_id))
+        } else {
+            return Ok(serde_json::json!({
+                "error": "this project has no SnapGene history (only .dna files and opened snapshots carry one)"
+            }));
+        }
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let history = match source {
+            Source::Memory(history) => history,
+            Source::File(path) => {
+                let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+                libregene_core::file_io::snapgene_history::parse_snapgene_history(&data)
+                    .ok_or("this file carries no SnapGene history")?
+            }
+        };
+        let mut project =
+            libregene_core::file_io::snapgene_history::snapshot_project_from_history(
+                &history, node_id,
+            )
+            .ok_or("snapshot not found (its sequence may be unavailable)")?;
+        enzyme::recompute(&mut project);
+        primer::recompute(&mut project);
+        libregene_core::translate::refresh_feature_translations(&mut project);
+        Ok::<_, String>(project)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+    let project = match result {
+        Ok(p) => p,
+        Err(e) => return Ok(serde_json::json!({ "error": e })),
+    };
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let id = format!("snapshot-{}", ts);
+
+    let params = ProjectParams {
+        enzyme_filter: Some("all".to_string()),
+        row_start: None,
+        row_end: None,
+        cpl: None,
+    };
+    let mut return_data = filter_project(&project, &params);
+    if let Some(ref mut map) = return_data.as_object_mut() {
+        map.insert("id".to_string(), serde_json::json!(id));
+    }
+
+    let (projects, active_id) = {
+        let mut pm = state.pm.write().await;
+        if let Err(e) = pm.load(&id, project) {
+            return Ok(serde_json::json!({ "error": e }));
+        }
+        (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
+    };
+    // The load may have evicted another project; drop its bindings.
+    prune_orphan_bindings(&state.pm, &state.window_projects, &state.agent_tabs).await;
+
+    Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — methylation
 // ---------------------------------------------------------------------------
 
@@ -4054,6 +4195,8 @@ pub fn run() {
             add_alignment_seq,
             remove_alignment,
             get_chromatogram,
+            get_snapgene_history,
+            open_snapgene_snapshot,
             set_methylation,
             get_projects,
             activate_project,

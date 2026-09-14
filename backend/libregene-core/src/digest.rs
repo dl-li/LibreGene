@@ -969,6 +969,7 @@ mod tests {
             definition: String::new(),
             keywords: String::new(),
             lab_host: String::new(),
+            snapgene_history: None,
             sequence: "ACGT".repeat(15),
             length: 60,
             trace_path: None,

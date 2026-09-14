@@ -4,6 +4,7 @@ pub mod dna;
 pub mod fasta;
 pub mod gbk;
 pub mod gpt;
+pub mod snapgene_history;
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
