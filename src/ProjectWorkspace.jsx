@@ -43,6 +43,7 @@ import PrimerOverviewDialog from './components/PrimerOverviewDialog';
 import DetectFeaturesDialog from './DetectFeaturesDialog';
 import MyPrimersDialog from './MyPrimersDialog';
 import MyEnzymesDialog from './MyEnzymesDialog';
+import SnapshotsDialog from './SnapshotsDialog';
 import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
 import { findOrfs } from './plugins/orf';
 import { addMyPrimers, removeMyPrimer, libraryToPrimers } from './myPrimers';
@@ -109,6 +110,9 @@ export default function ProjectWorkspace({
   // True while this project is bound to an MCP agent tab and locked: only
   // dirty-producing edits are refused; viewing/scrolling/selection stay live.
   agentLocked = false,
+  // Open a SnapGene history snapshot as a new project (App owns project
+  // switching; returns {ok} or {ok: false, error}).
+  onOpenSnapshot,
 }) {
   const [sequence, setSequence] = useState(initialData?.sequence ?? null);
   const [features, setFeatures] = useState(initialData?.features || EMPTY_ARRAY);
@@ -163,6 +167,7 @@ export default function ProjectWorkspace({
   const [myPrimersOpen, setMyPrimersOpen] = useState(false);
   const [myEnzymesOpen, setMyEnzymesOpen] = useState(false);
   const [enzymeDbOpen, setEnzymeDbOpen] = useState(false);
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [myPrimerBinding, setMyPrimerBinding] = useState({ loading: false, results: [] });
   const [pluginDialogs, setPluginDialogs] = useState({});
   const openPrimerEditorRef = useRef(null);
@@ -1716,6 +1721,11 @@ export default function ProjectWorkspace({
                   : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
               }
               onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
+              onOpenSnapshots={
+                isTauri && isDna && /\.dna$/i.test(projectId || '')
+                  ? () => setSnapshotsOpen(true)
+                  : undefined
+              }
               blastEnabled={isTauri && (isDna || isProtein) && !disabledPlugins.includes('blast')}
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
@@ -1808,6 +1818,13 @@ export default function ProjectWorkspace({
       )}
 
       {isDna && <EnzymeDatabaseDialog open={enzymeDbOpen} onOpenChange={setEnzymeDbOpen} />}
+
+      <SnapshotsDialog
+        open={snapshotsOpen}
+        onOpenChange={setSnapshotsOpen}
+        projectId={projectId}
+        onOpenSnapshot={onOpenSnapshot}
+      />
 
       {plugins
         .filter(

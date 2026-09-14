@@ -27,6 +27,7 @@ import {
   ArrowDownWideNarrow,
   ScanSearch,
   AudioWaveform,
+  History,
   Map as MapIcon,
   Circle,
   Minus,
@@ -161,6 +162,7 @@ export default function EditorNavMenu({
   topology,
   onToggleTopology,
   moleculeType = 'dna',
+  onOpenSnapshots,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -539,6 +541,19 @@ export default function EditorNavMenu({
               <MapIcon /> Examine Map
             </DropdownMenuItem>
           </NavMenu>
+        )}
+
+        {/* SnapGene history snapshots (DNA from a .dna file): opens the list */}
+        {isDna && onOpenSnapshots && (
+          <button
+            type="button"
+            onClick={onOpenSnapshots}
+            className={NAV_BUTTON_CLASS}
+            title="SnapGene history snapshots"
+          >
+            <History className="size-4" />
+            <span>Snapshots</span>
+          </button>
         )}
 
         {/* RNA Folding (RNA only): left click toggles the background, right click opens menu */}
