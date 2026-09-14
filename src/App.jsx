@@ -4,6 +4,7 @@ import {
   openFile,
   peekFastaRecords,
   createProject,
+  openSnapgeneSnapshot,
   isTauri,
   openFileDialog,
   listenProjectUpdates,
@@ -753,6 +754,25 @@ export default function App() {
     [refreshProjects],
   );
 
+  // Open a SnapGene history snapshot as a new in-memory project (Snapshots
+  // dialog); the workspace mounts for the new id like handleCreateProject.
+  const handleOpenSnapshot = useCallback(
+    async (projectId, nodeId) => {
+      try {
+        const data = await openSnapgeneSnapshot(projectId, nodeId);
+        if (data && data.sequence && data.id) {
+          initialDataRef.current[data.id] = data;
+          await refreshProjects();
+          return { ok: true };
+        }
+        return { ok: false, error: data?.error || 'Failed to open snapshot' };
+      } catch (e) {
+        return { ok: false, error: e?.message || String(e) };
+      }
+    },
+    [refreshProjects],
+  );
+
   // Open a path directly from the recent-files list (no native dialog).
   const handleOpenRecent = useCallback(
     async (path) => {
@@ -1122,6 +1142,7 @@ export default function App() {
       onMyEnzymesChange: setMyEnzymes,
       autoAddPrimers,
       onToggleAutoAddPrimers,
+      onOpenSnapshot: handleOpenSnapshot,
     }),
     [
       backendStatus,
@@ -1149,6 +1170,7 @@ export default function App() {
       myEnzymes,
       autoAddPrimers,
       onToggleAutoAddPrimers,
+      handleOpenSnapshot,
     ],
   );
 

@@ -22,3 +22,6 @@ itertools = "0.14"
 rayon = "1"
 aho-corasick = "1"
 log = "0.4"
+# Pure-Rust xz/lzma (SnapGene history tree Block 7 + seq_type 29 payloads);
+# no C dependency, builds everywhere including aarch64 Linux.
+lzma-rs = "0.3"

@@ -762,6 +762,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onManageAlignments,
   onOpenRnaFold,
   onOpenMapView,
+  onOpenSnapshots,
   onEnzymeHoverChange,
   blastEnabled = false,
   topology = 'linear',
@@ -5935,6 +5936,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onManageAlignments={onManageAlignments}
           onOpenRnaFold={onOpenRnaFold}
           onOpenMapView={onOpenMapView}
+          onOpenSnapshots={onOpenSnapshots}
           background={background}
           backgroundOptions={backgroundOptions}
           onBackgroundChange={onBackgroundChange}
