@@ -1467,10 +1467,11 @@ export default function ProjectWorkspace({
     // Protein projects export as protein GenBank (.gpt); DNA/RNA as .gbk.
     const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
     const pid = projectIdRef.current || '';
-    // Unsaved in-memory projects (id `untitled-*`) have no path — prefill the
-    // save dialog with the name the user entered in the New Sequence dialog.
+    // Unsaved in-memory projects (ids `untitled-*` / `snapshot-*`) have no
+    // path — prefill the save dialog with the project name (for snapshots,
+    // the snapshot's original node name).
     const rawName =
-      pid.startsWith('untitled-') || !pid
+      pid.startsWith('untitled-') || pid.startsWith('snapshot-') || !pid
         ? projectName || 'sequence'
         : pid.split('/').pop().split('\\').pop();
     const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
@@ -1722,7 +1723,9 @@ export default function ProjectWorkspace({
               }
               onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
               onOpenSnapshots={
-                isTauri && isDna && /\.dna$/i.test(projectId || '')
+                isTauri &&
+                isDna &&
+                (/\.dna$/i.test(projectId || '') || /^snapshot-/.test(projectId || ''))
                   ? () => setSnapshotsOpen(true)
                   : undefined
               }

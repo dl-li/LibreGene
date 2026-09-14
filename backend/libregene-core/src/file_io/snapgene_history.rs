@@ -20,8 +20,6 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
-
 use crate::file_io::dna::{features_from_xml, parse_dna_primers};
 use crate::models::ProjectData;
 
@@ -33,48 +31,7 @@ const NESTED_PRIMERS: u8 = 0x05;
 const NESTED_DOC_BUNDLE: u8 = 0x1e;
 const NESTED_EXTERNAL_RESIDUES: u8 = 0x1f;
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryInputSummary {
-    pub manipulation: String,
-    pub val1: i64,
-    pub val2: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Default)]
-pub struct HistoryNode {
-    pub id: u32,
-    pub name: String,
-    pub seq_len: i64,
-    pub circular: bool,
-    pub operation: String,
-    pub input_summaries: Vec<HistoryInputSummary>,
-    pub children: Vec<HistoryNode>,
-}
-
-/// One row of the flattened history list (pre-order, root first).
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryEntry {
-    pub id: u32,
-    pub depth: usize,
-    pub name: String,
-    pub seq_len: i64,
-    pub circular: bool,
-    pub operation: String,
-    /// How the parent edit consumed this input; `None` for the root.
-    pub edge: Option<HistoryInputSummary>,
-    /// A sequence could be resolved for this node (openable as a snapshot).
-    pub has_snapshot: bool,
-}
-
-pub struct SnapGeneHistory {
-    pub root: HistoryNode,
-    pub entries: Vec<HistoryEntry>,
-    /// node id -> resolved sequence; the root is not included (its state is
-    /// the current sequence).
-    pub sequences: BTreeMap<u32, String>,
-}
+use crate::models::{HistoryEntry, HistoryInputSummary, HistoryNode, SnapGeneHistoryData};
 
 struct RawSnapshot {
     sequence: String,
@@ -769,40 +726,103 @@ fn flatten_entries(root: &HistoryNode, sequences: &BTreeMap<u32, String>) -> Vec
     entries
 }
 
-/// Parse the history of a `.dna` file into the flat list shown by the
-/// Snapshots dialog. `None` when the file carries no history tree.
-pub fn parse_snapgene_history(data: &[u8]) -> Option<SnapGeneHistory> {
+/// Parse the history of a `.dna` file: tree, flattened list rows, every
+/// node's resolved snapshot sequence and annotation payload. `None` when the
+/// file carries no history tree.
+pub fn parse_snapgene_history(data: &[u8]) -> Option<SnapGeneHistoryData> {
     let parts = collect_parts(data)?;
     let sequences = resolve_sequences(&parts);
     let entries = flatten_entries(&parts.root, &sequences);
-    Some(SnapGeneHistory {
+    let nested = parts
+        .snapshots
+        .iter()
+        .filter_map(|(id, s)| s.nested.clone().map(|n| (*id, n)))
+        .collect();
+    Some(SnapGeneHistoryData {
         root: parts.root,
         entries,
         sequences,
+        root_sequence: parts.sequence,
+        nested,
     })
 }
 
-/// Build a standalone project from one history snapshot (sequence +
-/// snapshot-time annotations), for "open snapshot and Save As".
-pub fn snapgene_snapshot_project(data: &[u8], node_id: u32) -> Option<ProjectData> {
-    let parts = collect_parts(data)?;
-    let node = find_node(&parts.root, node_id)?;
-    let sequences = resolve_sequences(&parts);
-    let sequence = if node_id == parts.root.id {
-        parts.sequence.clone()
-    } else {
-        sequences.get(&node_id).filter(|s| !s.is_empty()).cloned()?
-    };
+/// Cut the subtree rooted at `node_id` into a standalone history (GenePad's
+/// "open snapshot as independent document" semantics): the node becomes the
+/// new root (its state = [`SnapGeneHistoryData::root_sequence`]), and the
+/// snapshots of its descendants come along so the opened project's own
+/// history dialog — and nested snapshot opening — stays complete.
+pub fn history_subtree(
+    history: &SnapGeneHistoryData,
+    node_id: u32,
+) -> Option<SnapGeneHistoryData> {
+    let node = find_node(&history.root, node_id)?;
+    let mut ids: Vec<u32> = Vec::new();
+    collect_descendant_ids(node, &mut ids);
 
-    let (features_xml, primers_xml) = parts
-        .snapshots
+    let root_sequence = if node_id == history.root.id {
+        history.root_sequence.clone()
+    } else {
+        history.sequences.get(&node_id)?.clone()
+    };
+    let sequences: BTreeMap<u32, String> = history
+        .sequences
+        .iter()
+        .filter(|(id, _)| ids.contains(id))
+        .map(|(id, s)| (*id, s.clone()))
+        .collect();
+    let nested: BTreeMap<u32, Vec<u8>> = history
+        .nested
+        .iter()
+        .filter(|(id, _)| ids.contains(id))
+        .map(|(id, n)| (*id, n.clone()))
+        .collect();
+    let root = node.clone();
+    let entries = flatten_entries(&root, &sequences);
+    Some(SnapGeneHistoryData {
+        root,
+        entries,
+        sequences,
+        root_sequence,
+        nested,
+    })
+}
+
+fn collect_descendant_ids(node: &HistoryNode, ids: &mut Vec<u32>) {
+    for child in &node.children {
+        ids.push(child.id);
+        collect_descendant_ids(child, ids);
+    }
+}
+
+/// Build a standalone project from one node of an already-parsed history
+/// (sequence + snapshot-time annotations), for "open snapshot and Save As".
+/// The project keeps the node's subtree history so nested snapshots travel
+/// with it. Works both on file-parsed histories and on the subtree a
+/// snapshot project carries in memory.
+pub fn snapshot_project_from_history(
+    history: &SnapGeneHistoryData,
+    node_id: u32,
+) -> Option<ProjectData> {
+    let node = find_node(&history.root, node_id)?;
+    let sequence = if node_id == history.root.id {
+        history.root_sequence.clone()
+    } else {
+        history.sequences.get(&node_id).filter(|s| !s.is_empty()).cloned()?
+    };
+    if sequence.is_empty() {
+        return None;
+    }
+
+    let (features_xml, primers_xml) = history
+        .nested
         .get(&node_id)
-        .and_then(|s| s.nested.as_deref())
-        .map(decode_snapshot_annotation_xml)
+        .map(|n| decode_snapshot_annotation_xml(n))
         .unwrap_or_default();
     let topology = if node.circular { "circular" } else { "linear" };
     let features = features_from_xml(&features_xml, &sequence, topology);
     let primers = parse_dna_primers(&primers_xml, &sequence);
+    let subtree = history_subtree(history, node_id);
 
     Some(ProjectData {
         name: node.name.clone(),
@@ -812,12 +832,20 @@ pub fn snapgene_snapshot_project(data: &[u8], node_id: u32) -> Option<ProjectDat
         molecule_type: "dna".to_string(),
         features,
         primers,
+        snapgene_history: subtree,
         ..Default::default()
     })
     .map(|mut p| {
         p.length = p.sequence.len() as i64;
         p
     })
+}
+
+/// Parse a `.dna` file and build a standalone project from one history
+/// snapshot (sequence + snapshot-time annotations + subtree history).
+pub fn snapgene_snapshot_project(data: &[u8], node_id: u32) -> Option<ProjectData> {
+    let history = parse_snapgene_history(data)?;
+    snapshot_project_from_history(&history, node_id)
 }
 
 #[cfg(test)]
@@ -930,5 +958,82 @@ mod tests {
         assert_eq!(root.input_summaries[0].manipulation, "insertAt");
         assert_eq!(root.input_summaries[0].val1, 10);
         assert_eq!(root.children[0].id, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Snapshot subtree carrying (open snapshot as independent document)
+    // -----------------------------------------------------------------------
+
+    /// root(9) -> a(1) -> b(0); a's sibling c(2). Sequences for 0/1/2.
+    fn sample_history() -> SnapGeneHistoryData {
+        let node = |id: u32, name: &str, children: Vec<HistoryNode>| HistoryNode {
+            id,
+            name: name.to_string(),
+            seq_len: 9,
+            circular: true,
+            operation: "insert".to_string(),
+            input_summaries: Vec::new(),
+            children,
+        };
+        SnapGeneHistoryData {
+            root: node(9, "current", vec![node(1, "a", vec![node(0, "b", vec![])]) , node(2, "c", vec![])]),
+            entries: Vec::new(),
+            sequences: BTreeMap::from([
+                (0, "AAA".to_string()),
+                (1, "TTT".to_string()),
+                (2, "CCC".to_string()),
+            ]),
+            root_sequence: "GGGGGGGGG".to_string(),
+            nested: BTreeMap::from([(0, vec![1, 2, 3]), (1, vec![4, 5])]),
+        }
+    }
+
+    #[test]
+    fn subtree_keeps_descendants_drops_siblings() {
+        let history = sample_history();
+        let subtree = history_subtree(&history, 1).unwrap();
+        // cut node becomes the new root, keeping its name
+        assert_eq!(subtree.root.id, 1);
+        assert_eq!(subtree.root.name, "a");
+        // root state = the cut node's snapshot sequence
+        assert_eq!(subtree.root_sequence, "TTT");
+        // descendants survive with their snapshots…
+        assert!(subtree.sequences.contains_key(&0));
+        assert!(subtree.nested.contains_key(&0));
+        // …siblings don't
+        assert!(!subtree.sequences.contains_key(&2));
+        assert!(!subtree.nested.contains_key(&2));
+        // flattened rows: root first (openable), then b
+        assert_eq!(subtree.entries[0].id, 1);
+        assert!(subtree.entries[0].has_snapshot);
+        assert_eq!(subtree.entries[1].id, 0);
+        assert!(subtree.entries[1].has_snapshot);
+    }
+
+    #[test]
+    fn subtree_of_root_is_whole_history() {
+        let history = sample_history();
+        let subtree = history_subtree(&history, 9).unwrap();
+        assert_eq!(subtree.root.id, 9);
+        assert_eq!(subtree.root_sequence, "GGGGGGGGG");
+        assert_eq!(subtree.sequences.len(), history.sequences.len());
+    }
+
+    #[test]
+    fn project_from_subtree_opens_nested_snapshots() {
+        let history = sample_history();
+        let project = snapshot_project_from_history(&history, 1).unwrap();
+        // sequence + name come from the snapshot
+        assert_eq!(project.sequence, "TTT");
+        assert_eq!(project.name, "a");
+        assert_eq!(project.length, 3);
+        // the project carries the subtree so nested snapshots stay openable
+        let carried = project.snapgene_history.as_ref().unwrap();
+        assert_eq!(carried.root.id, 1);
+        let nested = snapshot_project_from_history(carried, 0).unwrap();
+        assert_eq!(nested.sequence, "AAA");
+        assert_eq!(nested.name, "b");
+        // no snapshot sequence -> not openable
+        assert!(snapshot_project_from_history(&history, 99).is_none());
     }
 }

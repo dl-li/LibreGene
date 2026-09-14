@@ -97,13 +97,16 @@ impl ProjectManager {
         self.ordered_ids
             .iter()
             .filter_map(|id| self.projects.get(id).map(|p| {
-                // In-memory projects (virtual id `untitled-{millis}`) have no
-                // file path to display — show the user-entered name instead.
-                let name = if id.starts_with("untitled-") && !p.name.is_empty() {
-                    p.name.as_str()
-                } else {
-                    id.as_str()
-                };
+                // In-memory projects (virtual ids `untitled-{millis}` for new
+                // sequences, `snapshot-{millis}` for opened SnapGene history
+                // snapshots) have no file path to display — show their name
+                // instead (the snapshot's original node name).
+                let name =
+                    if (id.starts_with("untitled-") || id.starts_with("snapshot-")) && !p.name.is_empty() {
+                        p.name.as_str()
+                    } else {
+                        id.as_str()
+                    };
                 serde_json::json!({
                     "id": id,
                     "name": name,
@@ -249,9 +252,12 @@ mod tests {
         let mut pm = ProjectManager::new();
         pm.load("untitled-123", proj("My Plasmid")).unwrap();
         pm.load("/tmp/foo.gbk", proj("FooLocus")).unwrap();
+        pm.load("snapshot-456", proj("Vector.dna")).unwrap();
         let list = pm.list_projects();
         assert_eq!(list[0]["name"], "My Plasmid");
         // File-backed projects still display their path (frontend takes the basename).
         assert_eq!(list[1]["name"], "/tmp/foo.gbk");
+        // Opened SnapGene history snapshots display the snapshot's node name.
+        assert_eq!(list[2]["name"], "Vector.dna");
     }
 }

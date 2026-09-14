@@ -424,6 +424,76 @@ pub struct ProjectData {
     /// frontend loads the chromatogram lazily from this file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_path: Option<String>,
+    /// SnapGene history subtree carried by a project opened from a history
+    /// snapshot (see `file_io::snapgene_history`): root = the snapshot the
+    /// project was opened at, children = its inputs with their own snapshot
+    /// sequences. `#[serde(skip)]` keeps it out of every IPC/JSON payload —
+    /// the Snapshots dialog reads it through a dedicated command — and it
+    /// lives and dies with the in-memory project.
+    #[serde(skip)]
+    pub snapgene_history: Option<SnapGeneHistoryData>,
+}
+
+// ---------------------------------------------------------------------------
+// SnapGene history (decoded Block 7 tree + resolved Block 11 snapshots)
+// ---------------------------------------------------------------------------
+
+/// How a parent edit consumed one input (`<InputSummary>` edge label;
+/// val1/val2 are 0-based inclusive coordinates).
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryInputSummary {
+    pub manipulation: String,
+    pub val1: i64,
+    pub val2: i64,
+}
+
+/// One node of the SnapGene history tree. The root is the current state;
+/// children are the inputs that produced it (the tree grows to the past).
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct HistoryNode {
+    pub id: u32,
+    pub name: String,
+    pub seq_len: i64,
+    pub circular: bool,
+    pub operation: String,
+    pub input_summaries: Vec<HistoryInputSummary>,
+    pub children: Vec<HistoryNode>,
+}
+
+/// One row of the flattened history list (pre-order, root first).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub id: u32,
+    pub depth: usize,
+    pub name: String,
+    pub seq_len: i64,
+    pub circular: bool,
+    pub operation: String,
+    /// How the parent edit consumed this input; `None` for the root.
+    pub edge: Option<HistoryInputSummary>,
+    /// A sequence could be resolved for this node (openable as a snapshot).
+    pub has_snapshot: bool,
+}
+
+/// Resolved SnapGene history for one project. Also the carrier for snapshot
+/// projects: a project opened from a snapshot keeps the subtree (root = that
+/// snapshot) so its own history dialog and nested snapshot opening work.
+#[derive(Debug, Clone, Default)]
+pub struct SnapGeneHistoryData {
+    pub root: HistoryNode,
+    /// Flattened tree rows (root first) for the history dialog.
+    pub entries: Vec<HistoryEntry>,
+    /// node id -> resolved sequence; excludes the root (whose state is
+    /// [`SnapGeneHistoryData::root_sequence`]).
+    pub sequences: std::collections::BTreeMap<u32, String>,
+    /// The root node's state: the file's current sequence, or — for a
+    /// subtree — the sequence of the snapshot the subtree was cut at.
+    pub root_sequence: String,
+    /// node id -> nested TLV bytes (snapshot-time annotations payload,
+    /// decoded on demand when a snapshot is opened as a project).
+    pub nested: std::collections::BTreeMap<u32, Vec<u8>>,
 }
 
 fn default_topology() -> String {

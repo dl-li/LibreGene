@@ -181,7 +181,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **自动标注弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联/窗口拖放打开**：纯前端/OS 集成
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
-- **SnapGene 历史快照**（底部 Snapshots 按钮 → `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`，列表/打开均按需重读源文件，快照序列不进 `ProjectData`）：未暴露 MCP 工具
+- **SnapGene 历史快照**（底部 Snapshots 按钮 → `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
 - **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失/deletion 处曲线截断跳跃，参考 GenePad）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返
 
 ## 核心模型约定
