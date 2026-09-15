@@ -4270,8 +4270,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const renderBand = (key, chrom, anchors, y) => {
       if (anchors.length === 0) return;
       const peaks = chrom.peakLocations;
-      const p0 = Math.max(0, (peaks[anchors[0].q] ?? 0) - 14);
-      const p1 = (peaks[anchors[anchors.length - 1].q] ?? 0) + 14;
+      // Min/max over ALL anchors: a circular read's join wrap makes the last
+      // anchor's query index smaller than the first, so first/last alone can
+      // yield an inverted (empty) sample range and the band vanishes.
+      let p0 = Infinity;
+      let p1 = -Infinity;
+      for (const a of anchors) {
+        const p = peaks[a.q] ?? 0;
+        if (p < p0) p0 = p;
+        if (p > p1) p1 = p;
+      }
+      p0 = Math.max(0, p0 - 14);
+      p1 += 14;
       const maxVal = traceRangeMax(chrom, p0, p1);
       if (maxVal <= 0) return;
       const baseY = y + CHROM_TRACK_H - 4;
