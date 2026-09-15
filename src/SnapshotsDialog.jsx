@@ -55,9 +55,9 @@ function edgeLabel(entry, index) {
 }
 
 /**
- * SnapGene .dna file history — a flat, depth-indented list of the history
- * tree (root = current state, children = the inputs that produced it).
- * Clicking a snapshot opens it as a new in-memory project for Save As.
+ * SnapGene .dna file history — a vertical timeline of the history tree
+ * (root = current state at top, older ancestors below). Clicking a snapshot
+ * opens it as a new in-memory project for Save As.
  * Rendering approach follows GenePad's history panel
  * (https://github.com/GenePad), without the per-node minimaps.
  */
@@ -141,7 +141,8 @@ export default function SnapshotsDialog({ open, onOpenChange, projectId, onOpenS
               This file has no recorded history.
             </div>
           ) : (
-            <ul className="flex flex-col gap-0.5 py-1">
+            <ul className="relative flex flex-col gap-0.5 py-1">
+              <span aria-hidden className="absolute bottom-4 left-[11px] top-4 w-px bg-border" />
               {entries.map((entry, i) => (
                 <li key={entry.id}>
                   <button
@@ -149,18 +150,20 @@ export default function SnapshotsDialog({ open, onOpenChange, projectId, onOpenS
                     disabled={!entry.hasSnapshot || openingId != null}
                     onClick={() => handleRowClick(entry)}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition-colors',
+                      'group relative flex w-full items-center gap-2 rounded-md py-1.5 pl-8 pr-2 text-left text-sm transition-colors',
                       entry.hasSnapshot
                         ? 'cursor-pointer hover:bg-accent'
                         : 'cursor-default opacity-60',
                     )}
-                    style={{ paddingLeft: `${entry.depth * 18 + 8}px` }}
                     title={
                       entry.hasSnapshot ? 'Open this snapshot' : 'Snapshot sequence unavailable'
                     }
                   >
                     <span
-                      className={cn('size-2 shrink-0 rounded-full', operationTone(entry.operation))}
+                      className={cn(
+                        'absolute left-[7px] top-1/2 size-[9px] -translate-y-1/2 rounded-full ring-2 ring-background',
+                        operationTone(entry.operation),
+                      )}
                     />
                     <span
                       className={cn(
