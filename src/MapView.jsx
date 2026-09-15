@@ -1,6 +1,29 @@
 import { useMemo, useRef, useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { bgColor, featLabelW, featureSelRange, rangeLen } from './editorConstants';
+import { bgColor, featLabelW, featureSelRange, measureWidth, rangeLen } from './editorConstants';
+
+// Keep both ends of a long name, replace the middle with an ellipsis so the
+// text never exceeds maxWidth.
+function middleEllipsize(text, maxWidth, font) {
+  if (!text || measureWidth(text, font) <= maxWidth) return text;
+  const ell = '…';
+  let lo = 2;
+  let hi = text.length - 2;
+  let best = ell;
+  while (lo <= hi) {
+    const keep = (lo + hi) >> 1;
+    const head = Math.ceil(keep / 2);
+    const tail = keep - head;
+    const cand = text.slice(0, head) + ell + text.slice(text.length - tail);
+    if (measureWidth(cand, font) <= maxWidth) {
+      best = cand;
+      lo = keep + 1;
+    } else {
+      hi = keep - 1;
+    }
+  }
+  return best;
+}
 
 const TWO_PI = Math.PI * 2;
 // Full-turn arcs are split at ~π: nudge the split off the antipodal endpoints
@@ -481,7 +504,7 @@ export function CircularMap({
         fill="#222"
         pointerEvents="none"
       >
-        {name}
+        {middleEllipsize(name, 2 * (R - half) - 50, 'bold 17px TeX Gyre Heros')}
       </text>
       <text
         x={cx}
@@ -770,7 +793,11 @@ export function LinearMap({
           fill="#222"
           pointerEvents="none"
         >
-          {name} · {length} bp
+          {middleEllipsize(
+            `${name} · ${length} bp`,
+            x1 - x0 - 20,
+            'bold 13px TeX Gyre Heros',
+          )}
         </text>
       )}
     </svg>

@@ -152,7 +152,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **启停/入口**：默认 `enabled=true, port=8766`，配置存 localStorage `mcpConfig`；侧边栏 "MCP Server" 打开 `McpGuideDialog.jsx`（开关/端口/令牌/自动生成的 Agent 配置提示词）。关主窗口只是隐藏，进程与 MCP 继续跑；托盘 Quit 遇未保存改动先经前端确认再走 `force_quit`
 - **鉴权**：每请求需 `Authorization: Bearer <token>` 且 `Host` 严格等于 `127.0.0.1:<port>`（防 DNS rebinding）；令牌存 `<app_config_dir>/mcp_auth_token`；文件路径经 `validate_user_path` 校验（拒绝 `..` + 扩展名白名单）
 - **Agent 标签页（强制隔离）**：MCP `open_project` = 加载 + 绑定为**主窗口侧边栏 Agent 标签**（`AppState.agent_tabs`，默认 locked，不开窗口）。已绑定则复用+重锁；已加载未绑定（用户项目）则拒绝，指引 Agent 用 bash `cp` 复制副本再打开。mutation 工具对未绑定项目报错；任何工具调用自动重锁标签（统一入口 `resolve_project_id`/`resolve_project`/`resolve_project_light`，后者 clone 时置空 enzymes 减负）；解锁走前端 `set_agent_tab_locked`；项目列表每条带 `agentLocked: bool|null`
-- **工具**：18 个——`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`optimize_cds`。`project_id` 必填（无 active 回退）；mutation 工具统一返回 `{ok, message, projectId, regionView?}`。**各工具的参数与行为细节以 `mcp.rs` 内工具描述为准，不在本文件重复**
+- **工具**：18 个——`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`convert_sequence`。`project_id` 必填（无 active 回退）；mutation 工具统一返回 `{ok, message, projectId, regionView?}`。**各工具的参数与行为细节以 `mcp.rs` 内工具描述为准，不在本文件重复**
 - **文件优先 I/O**：工具描述统一引导 Agent 用文件传序列（`path`/`replacement_path`/`input_path`/`output_path`），纯文本只留给短输入（引物、点突变、短插入）；改描述时保持此口径一致
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/错误体、Agent 标签绑定/门控/重锁、各工具正反例与 digest 渲染
 
@@ -166,7 +166,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - 序列读取、坐标转换、自动标注（只读展示）、甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
 - 序列编辑 → `edit_sequence`；特征 → `set_feature`
 - 引物 → `add_primer` / `list_primers` / `check_primer_binding`；引物设计 → `design_primers`
-- ORF → `find_orfs`；序列比对 → `add_alignment`；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；密码子优化 → `optimize_cds`
+- ORF → `find_orfs`；序列比对 → `add_alignment`；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（统一批量转换：dna↔rna（T↔U，可选 revComp）、dna/rna→protein（翻译）、protein→dna/rna（逆转录+密码子优化）、dna→dna 密码子优化；逐项错误隔离，全部失败才 isError；单项调用可省略 `items` 直接顶层传参）
 - 上述 DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError
 
 未适配（前端/UI 专有，MCP 不可用）：
