@@ -20,6 +20,26 @@ pub fn reverse_complement(seq: &str) -> String {
     seq.chars().rev().map(complement_char).collect()
 }
 
+pub fn to_rna(seq: &str) -> String {
+    seq.chars()
+        .map(|c| match c {
+            'T' => 'U',
+            't' => 'u',
+            _ => c,
+        })
+        .collect()
+}
+
+pub fn to_dna(seq: &str) -> String {
+    seq.chars()
+        .map(|c| match c {
+            'U' => 'T',
+            'u' => 't',
+            _ => c,
+        })
+        .collect()
+}
+
 /// Map one 0-based inclusive span after replacing `[edit_start, edit_end]`
 /// with `new_len` bases; `None` when the span collapses to nothing. Shared by
 /// `adjust_features_for_edit` and `features_edit_impact` so both stay in sync.
@@ -267,6 +287,14 @@ mod tests {
     fn test_complement_char() {
         assert_eq!(complement_char('A'), 'T');
         assert_eq!(complement_char('G'), 'C');
+    }
+
+    #[test]
+    fn test_to_rna_to_dna() {
+        assert_eq!(to_rna("ATGCt"), "AUGCu");
+        assert_eq!(to_dna("AUGCu"), "ATGCt");
+        assert_eq!(to_rna("AAA"), "AAA");
+        assert_eq!(to_dna("UUU"), "TTT");
     }
 
     fn feat(id: &str, start: i64, end: i64, segments: Vec<(i64, i64)>) -> crate::models::Feature {

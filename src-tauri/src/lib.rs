@@ -65,9 +65,12 @@ const SEQ_EXTS: &[&str] = &[
     "ab1", "seq",
 ];
 const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
-/// Output extensions accepted by MCP `optimize_cds`'s `output_path`
-/// (.gbk/.gb/.genbank → DNA GenBank, .gpt → protein GenBank).
+/// Output extensions accepted by save paths that write a whole project
+/// (.gbk/.gb/.genbank → DNA/RNA GenBank, .gpt → protein GenBank).
 const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
+/// Output extensions accepted by MCP `convert_sequence`'s `output_path`:
+/// the GenBank set above plus bare-sequence text (.fa/.fasta/.txt).
+const CONVERT_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt", "fa", "fasta", "txt"];
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -704,6 +707,7 @@ async fn do_create_project(
     let mut return_data = filter_project(&computed, &params);
     if let Some(ref mut map) = return_data.as_object_mut() {
         map.insert("id".to_string(), serde_json::json!(id));
+        map.insert("dirty".to_string(), serde_json::json!(true));
     }
 
     let (projects, active_id) = {
@@ -711,6 +715,8 @@ async fn do_create_project(
         if let Err(e) = pm.load(&id, computed) {
             return Ok(serde_json::json!({"error": e}));
         }
+        // New in-memory projects start dirty so closing them prompts a save.
+        pm.mark_dirty(&id);
         (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
     // The load may have evicted another project; drop its bindings.
@@ -1691,7 +1697,7 @@ pub(crate) fn codon_optimize_options(
     })
 }
 
-/// Shared codon-optimization core (Tauri commands + MCP `optimize_cds`): find
+/// Shared codon-optimization core (Tauri commands + MCP `convert_sequence`): find
 /// the CDS/mRNA feature, extract its coding sequence, run the optimizer, and
 /// build the equal-length replacement sequence via `segments_on_template`
 /// write-back (minus-strand pieces reverse-complemented). Read-only — callers
@@ -1923,7 +1929,13 @@ async fn get_project(
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
-        Some(p) => Ok(filter_project(p, &params)),
+        Some(p) => {
+            let mut filtered = filter_project(p, &params);
+            if let Some(ref mut map) = filtered.as_object_mut() {
+                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&project_id)));
+            }
+            Ok(filtered)
+        }
         None => Ok(serde_json::json!({"error": "Project not found"})),
     }
 }
@@ -3534,7 +3546,11 @@ async fn get_project_by_id(
                 row_end: None,
                 cpl: None,
             };
-            Ok(filter_project(p, &params))
+            let mut filtered = filter_project(p, &params);
+            if let Some(ref mut map) = filtered.as_object_mut() {
+                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&id)));
+            }
+            Ok(filtered)
         }
         None => Ok(serde_json::json!({"error": "project not found"})),
     }

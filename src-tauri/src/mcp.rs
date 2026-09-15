@@ -183,35 +183,40 @@ struct EditSequenceRequest {
     expected_old: Option<String>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-struct OptimizeCdsRequest {
-    /// Project mode (required there): optimize a CDS/mRNA feature inside an
-    /// open project. Must be absent in `sequence`/`input_path` modes.
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
+struct ConvertItem {
+    /// Project mode (only for from=dna, to=dna codon optimization): optimize
+    /// a CDS/mRNA feature inside an open project. Must be absent in
+    /// `sequence`/`input_path` modes.
     project_id: Option<String>,
     /// Feature id (project mode: required; input_path mode: optional — pick
     /// the file's CDS/mRNA feature with this id, otherwise the whole file
-    /// sequence is treated as the coding sequence).
+    /// sequence is used).
     feature_id: Option<String>,
-    /// Standalone mode: raw DNA coding sequence text (whitespace/digits
-    /// ignored, ACGT only, length divisible by 3; a trailing stop codon is
-    /// fine). Use ONLY for short hand-authored sequences; for anything from a
-    /// file or an open project use `input_path` (export regions first with
-    /// save_file's `region`) — pasted long sequences are error-prone.
+    /// Standalone mode: raw sequence text (whitespace/digits ignored). Use
+    /// ONLY for short hand-authored sequences; for anything from a file or an
+    /// open project use `input_path` (export regions first with save_file's
+    /// `region`) — pasted long sequences are error-prone.
     sequence: Option<String>,
-    /// Standalone mode (PREFERRED for real sequences): local sequence file (.gbk/.gb/.genbank/.dna/.rna/
-    /// .fasta/.fa/.fna/.ab1 — DNA) or protein file (.gpt/.prot — reverse
-    /// translation). A file cannot be mistyped or truncated.
+    /// Standalone mode (PREFERRED for real sequences): local sequence file
+    /// (.gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 — nucleotide; .gpt/.prot —
+    /// protein). A file cannot be mistyped or truncated. `from` defaults to
+    /// the file's molecule type.
     input_path: Option<String>,
-    /// Optional: write the result to a file. .gbk/.gb/.genbank → DNA GenBank
-    /// with the optimized CDS annotated; .gpt → protein GenBank of the
-    /// translated sequence. PREFERRED way to collect the result — use the file
-    /// (open_project afterwards) rather than copying the `optimizedSequence` text.
-    output_path: Option<String>,
-    /// Required (true) when `output_path` already exists (same overwrite rule
-    /// as save_file).
-    overwrite: Option<bool>,
-    /// Species key from list_species (e.g. "e_coli", "h_sapiens").
-    species: String,
+    /// Input molecule type: "dna" | "rna" | "protein". Defaults: project
+    /// mode → "dna"; `input_path` → the file's molecule type; `sequence` →
+    /// "dna".
+    from: Option<String>,
+    /// Output molecule type: "dna" | "rna" | "protein". Defaults: "dna" for
+    /// a protein input (reverse translation), otherwise same as `from`.
+    to: Option<String>,
+    /// Reverse-complement the input before converting (nucleotide →
+    /// nucleotide only; rejected for protein input or output).
+    rev_comp: Option<bool>,
+    /// Species key from list_species (e.g. "e_coli", "h_sapiens"). Required
+    /// for codon optimization (dna→dna with optimization, protein→dna/rna
+    /// reverse translation, project mode).
+    species: Option<String>,
     /// use_best_codon (default) | match_codon_usage | harmonize_rca.
     method: Option<String>,
     /// Source table for harmonize_rca; falls back to match_codon_usage when absent.
@@ -222,6 +227,28 @@ struct OptimizeCdsRequest {
     /// Only meaningful in project mode (in sequence/input_path mode pass
     /// `output_path` instead).
     apply: Option<bool>,
+    /// Optional: write the result to a file (sequence/input_path modes only;
+    /// REJECTED in project mode — use apply=true, then save_file).
+    /// .gbk/.gb/.genbank → GenBank of the output molecule; .gpt → protein
+    /// GenBank; .fa/.fasta/.txt → bare sequence text. PREFERRED way to collect
+    /// the result — use the file (open_project afterwards) rather than copying
+    /// the result `sequence` text.
+    output_path: Option<String>,
+    /// Required (true) when `output_path` already exists (same overwrite rule
+    /// as save_file).
+    overwrite: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+struct ConvertSequenceRequest {
+    /// Batch of conversion items (1-64). Each item is converted independently:
+    /// a failing item does not abort the others — it is reported as
+    /// {ok: false, error} in its slot of `results`. A single conversion can
+    /// also be passed WITHOUT `items` by putting the item fields at the top
+    /// level (same shape as one item).
+    items: Option<Vec<ConvertItem>>,
+    #[serde(flatten)]
+    single: ConvertItem,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -427,10 +454,10 @@ struct RegionSpec {
 }
 
 // ---------------------------------------------------------------------------
-// optimize_cds input resolution (project / raw sequence / file)
+// convert_sequence input resolution (project / raw sequence / file)
 // ---------------------------------------------------------------------------
 
-/// One of the three mutually exclusive input modes of `optimize_cds`.
+/// One of the three mutually exclusive input modes of `convert_sequence`.
 enum OptimizeInput {
     /// Open-project mode: `feature_id` names the CDS/mRNA feature to optimize.
     Project {
@@ -532,7 +559,30 @@ fn clean_coding_sequence(seq: &str) -> Result<String, String> {
     Ok(cleaned)
 }
 
-/// The shared optimize_cds preview fields (identical across all input modes).
+/// Strip whitespace/digits and uppercase, requiring every letter in
+/// `alphabet` ("ACGT" for DNA, "ACGU" for RNA). No length constraint.
+fn clean_na_sequence(seq: &str, alphabet: &str) -> Result<String, String> {
+    let cleaned: String = seq
+        .chars()
+        .filter(|c| !c.is_whitespace() && !c.is_ascii_digit())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if cleaned.is_empty() {
+        return Err("sequence is empty".to_string());
+    }
+    for (i, c) in cleaned.char_indices() {
+        if !alphabet.contains(c) {
+            return Err(format!(
+                "invalid base '{}' at position {} in sequence (expected one of {})",
+                c, i, alphabet
+            ));
+        }
+    }
+    Ok(cleaned)
+}
+
+/// The shared convert_sequence preview fields for codon-optimizing items
+/// (identical across all input modes).
 fn codon_preview_json(
     result: &libregene_core::codon::OptimizeResult,
     aa: &str,
@@ -556,43 +606,49 @@ fn codon_preview_json(
     })
 }
 
-/// Write an optimization result to `output_path`. The extension decides the
-/// format: .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated
-/// (`source` replaces the default minimal project when the input file already
-/// carried features), .gpt → protein GenBank of the translated sequence.
-/// `cds_name` labels the whole-length CDS feature of a minimal project
-/// (typically the source file stem); it falls back to the output file stem.
-/// Returns the written path.
-fn write_optimization_output(
+/// Write a conversion result to `output_path`. The extension decides the
+/// format: .gbk/.gb/.genbank → GenBank of `molecule` ("dna" | "rna" |
+/// "protein"; `source` replaces the default minimal project when the input
+/// file already carried features), .gpt → protein GenBank, .fa/.fasta/.txt →
+/// bare sequence text. `cds_name` labels the whole-length CDS feature of a
+/// minimal project (typically the source file stem); it falls back to the
+/// output file stem. Returns the written path.
+fn write_convert_output(
     output_path: &str,
-    dna: Option<&str>,
-    aa: &str,
+    sequence: &str,
+    molecule: &str,
     source: Option<&ProjectData>,
     cds_name: Option<&str>,
 ) -> Result<String, String> {
-    let ext = crate::validate_user_path(output_path, crate::CODON_OUTPUT_EXTS)?;
+    let ext = crate::validate_user_path(output_path, crate::CONVERT_OUTPUT_EXTS)?;
     let path = std::path::Path::new(output_path);
     match ext.as_str() {
         "gbk" | "gb" | "genbank" => {
             let project = match source {
                 Some(p) => p.clone(),
-                None => {
-                    let dna = dna
-                        .ok_or_else(|| "no DNA sequence available for GenBank output".to_string())?;
-                    minimal_dna_project(output_path, dna, cds_name)
-                }
+                None => minimal_na_project(output_path, sequence, molecule, cds_name),
             };
             libregene_core::file_io::gbk::write_gbk(&project, path)
                 .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
         }
         "gpt" => {
-            let project = minimal_protein_project(output_path, aa, cds_name);
+            if molecule != "protein" {
+                return Err(format!(
+                    ".gpt is a protein GenBank format; the {} output cannot be written as .gpt (use .gbk/.fa/.fasta/.txt)",
+                    molecule
+                ));
+            }
+            let project = minimal_protein_project(output_path, sequence, cds_name);
             libregene_core::file_io::gpt::write_gpt(&project, path)
+                .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
+        }
+        "fa" | "fasta" | "txt" => {
+            std::fs::write(path, format!("{}\n", sequence))
                 .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
         }
         other => {
             return Err(format!(
-                "unsupported output extension '.{}' (allowed: gbk, gb, genbank, gpt)",
+                "unsupported output extension '.{}' (allowed: gbk, gb, genbank, gpt, fa, fasta, txt)",
                 other
             ))
         }
@@ -600,32 +656,27 @@ fn write_optimization_output(
     Ok(output_path.to_string())
 }
 
-fn minimal_dna_project(output_path: &str, dna: &str, cds_name: Option<&str>) -> ProjectData {
+fn minimal_na_project(
+    output_path: &str,
+    seq: &str,
+    molecule: &str,
+    cds_name: Option<&str>,
+) -> ProjectData {
     let name = output_project_name(output_path);
-    let len = dna.len() as i64;
+    let len = seq.len() as i64;
     ProjectData {
         features: vec![whole_cds_feature(len, cds_name.unwrap_or(&name))],
         name,
-        sequence: dna.to_string(),
+        sequence: seq.to_string(),
         length: len,
         topology: "linear".to_string(),
-        molecule_type: "dna".to_string(),
+        molecule_type: molecule.to_string(),
         ..Default::default()
     }
 }
 
 fn minimal_protein_project(output_path: &str, aa: &str, cds_name: Option<&str>) -> ProjectData {
-    let name = output_project_name(output_path);
-    let len = aa.len() as i64;
-    ProjectData {
-        features: vec![whole_cds_feature(len, cds_name.unwrap_or(&name))],
-        name,
-        sequence: aa.to_string(),
-        length: len,
-        topology: "linear".to_string(),
-        molecule_type: "protein".to_string(),
-        ..Default::default()
-    }
+    minimal_na_project(output_path, aa, "protein", cds_name)
 }
 
 fn output_project_name(output_path: &str) -> String {
@@ -1460,49 +1511,123 @@ impl<R: Runtime> LibreGeneMcp<R> {
         payload.get("error").and_then(|v| v.as_str()).map(String::from)
     }
 
-    /// Standalone `sequence` input for optimize_cds: clean + validate the DNA
-    /// coding sequence, optimize, optionally write the result to a file.
-    async fn optimize_sequence_input(
+    /// Convert one batch item of `convert_sequence`: resolve the input mode,
+    /// infer/validate the from→to pair, run the conversion and build the
+    /// per-item result JSON (the caller adds `index` / `ok`).
+    async fn convert_one(&self, item: &ConvertItem) -> Result<serde_json::Value, String> {
+        let mode = resolve_optimize_input(
+            item.project_id.as_deref(),
+            item.feature_id.as_deref(),
+            item.sequence.as_deref(),
+            item.input_path.as_deref(),
+        )?;
+
+        let apply = item.apply.unwrap_or(false);
+        if !matches!(mode, OptimizeInput::Project { .. }) && apply && item.output_path.is_none() {
+            return Err(
+                "apply=true is only meaningful in project mode; in sequence/input_path mode pass `output_path` to write the result to a file (or set apply=false)"
+                    .to_string(),
+            );
+        }
+        if matches!(mode, OptimizeInput::Project { .. }) && item.output_path.is_some() {
+            return Err(
+                "output_path is only supported in sequence/input_path modes; in project mode use apply=true to write the optimized CDS back into the project, then save_file to export a file"
+                    .to_string(),
+            );
+        }
+        if let Some(op) = &item.output_path {
+            crate::validate_user_path(op, crate::CONVERT_OUTPUT_EXTS)
+                .map_err(|e| format!("invalid output_path: {}", e))?;
+            if !item.overwrite.unwrap_or(false) && std::path::Path::new(op).exists() {
+                return Err(format!(
+                    "{} already exists — pass overwrite: true to replace it, or choose a different output_path",
+                    op
+                ));
+            }
+        }
+
+        match mode {
+            OptimizeInput::Project { project_id, feature_id } => {
+                if let Some(f) = &item.from {
+                    if f != "dna" {
+                        return Err(format!(
+                            "project mode is dna→dna codon optimization; from=\"{}\" is not supported (projects hold the molecule they hold — export a region with save_file and use input_path/sequence for {} input)",
+                            f, f
+                        ));
+                    }
+                }
+                let to = item.to.clone().unwrap_or_else(|| "dna".to_string());
+                if to != "dna" {
+                    return Err(format!(
+                        "project mode only supports dna→dna codon optimization (to=\"{}\" requested); for conversions export the region with save_file first, then use input_path",
+                        to
+                    ));
+                }
+                let species = item.species.clone().ok_or_else(|| {
+                    "species is required in project mode (codon optimization needs a codon usage table from list_species)"
+                        .to_string()
+                })?;
+                self.convert_project_item(item, project_id, feature_id, &species, apply)
+                    .await
+            }
+            OptimizeInput::Sequence(seq) => {
+                let from = item.from.clone().unwrap_or_else(|| "dna".to_string());
+                let to = default_to(item.to.as_deref(), &from);
+                check_conversion(&from, &to, item)?;
+                require_species_for(&from, &to, item)?;
+                self.convert_sequence_input(item, seq, &from, &to).await
+            }
+            OptimizeInput::File { path, feature_id } => {
+                self.convert_file_input(item, path, feature_id).await
+            }
+        }
+    }
+
+    /// Project mode: codon-optimize a CDS/mRNA feature inside an open DNA
+    /// project (preview by default, write-back on apply=true).
+    async fn convert_project_item(
         &self,
-        sequence: String,
-        species: String,
-        method: String,
-        original_species: Option<String>,
-        avoid_enzyme_sites: Option<Vec<String>>,
-        output_path: Option<String>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let cleaned = clean_coding_sequence(&sequence)
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let codons: Vec<String> = cleaned
-            .as_bytes()
-            .chunks(3)
-            .map(|c| String::from_utf8_lossy(c).into_owned())
-            .collect();
-        let codon_count = codons.len();
-        let sp = species.clone();
+        item: &ConvertItem,
+        project_id: String,
+        feature_id: String,
+        species: &str,
+        apply: bool,
+    ) -> Result<serde_json::Value, String> {
+        let id = self.resolve_project_id(project_id).await.map_err(|e| e.message.to_string())?;
+        if apply {
+            self.require_agent_tab(&id).await.map_err(|e| e.message.to_string())?;
+        }
+        let project = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id)
+                .cloned()
+                .ok_or_else(|| format!("Project not found: {}", id))?
+        };
+        if !project.is_dna() {
+            return Err(format!(
+                "convert_sequence project mode re-encodes a CDS feature inside a DNA project; a {} project has no coding DNA to re-encode — pass `sequence` or `input_path` instead (a protein .gpt/.prot file or sequence with from=\"protein\" is reverse-translated to optimized DNA)",
+                project.molecule_type
+            ));
+        }
+        let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let f_id = feature_id.clone();
+        let sp = species.to_string();
         let m = method.clone();
-        let os = original_species.clone();
-        let aes = avoid_enzyme_sites.clone();
-        let (result, aa) = tokio::task::spawn_blocking(move || -> Result<_, String> {
-            let table = crate::codon_usage_table(&sp, None)?;
-            let opts = crate::codon_optimize_options(&m, os.as_deref(), aes, None)?;
-            let result = libregene_core::codon::optimize_codons(&codons, &table, &opts);
-            let aa: String = codons
-                .iter()
-                .map(|c| table.aa_of.get(c).copied().unwrap_or('?'))
-                .collect();
-            Ok((result, aa))
+        let os = item.original_species.clone();
+        let aes = item.avoid_enzyme_sites.clone();
+        let (new_sequence, result, coding) = tokio::task::spawn_blocking(move || {
+            crate::codon_optimize(&project, &f_id, &sp, &m, None, os.as_deref(), aes, None)
         })
         .await
-        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
-        .map_err(|e| ErrorData::invalid_params(e, None))?;
+        .map_err(|e| format!("task join error: {}", e))??;
 
-        let optimized: String = result.new_codons.concat();
-        let mut v = codon_preview_json(&result, &aa, codon_count, &method, &species);
-        v["ok"] = serde_json::json!(true);
-        v["optimizedSequence"] = serde_json::json!(optimized);
+        let mut v = codon_preview_json(&result, &coding.aa, coding.codons.len(), &method, species);
+        v["from"] = serde_json::json!("dna");
+        v["to"] = serde_json::json!("dna");
+        v["projectId"] = serde_json::json!(id);
         v["message"] = serde_json::json!(format!(
-            "Codon optimization (sequence input, {}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
+            "Codon optimization preview for {} ({}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
+            feature_id,
             species,
             result.cai_before,
             result.cai_after,
@@ -1511,183 +1636,395 @@ impl<R: Runtime> LibreGeneMcp<R> {
             result.repairs.len(),
             result.unresolved.len(),
         ));
-        if let Some(op) = output_path {
-            let written = write_optimization_output(&op, Some(&optimized), &aa, None, None)
-                .map_err(|e| ErrorData::invalid_params(e, None))?;
-            v["outputPath"] = serde_json::json!(written);
+        if apply {
+            let payload = crate::do_update_sequence(
+                &self.app_handle,
+                &self.pm,
+                &self.wp,
+                &self.agent_tabs,
+                None,
+                id.clone(),
+                new_sequence,
+                None,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Some(err) = Self::payload_error(&payload) {
+                return Err(err);
+            }
+            if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
+                v["regionView"] = serde_json::json!(rv);
+            }
+            v["message"] = serde_json::json!(format!(
+                "Optimized CDS {} ({}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
+                feature_id,
+                species,
+                result.cai_before,
+                result.cai_after,
+                result.repairs.len(),
+                result.unresolved.len(),
+            ));
         }
-        Ok(Json(v))
+        Ok(v)
     }
 
-    /// Standalone `input_path` input for optimize_cds: parse the file, run the
-    /// optimizer (feature CDS, whole sequence, or protein reverse translation),
-    /// optionally write the result to a file.
-    async fn optimize_file_input(
+    /// Standalone `sequence` input: clean per `from`, run the from→to
+    /// conversion, optionally write the result to a file.
+    async fn convert_sequence_input(
         &self,
+        item: &ConvertItem,
+        sequence: String,
+        from: &str,
+        to: &str,
+    ) -> Result<serde_json::Value, String> {
+        let optimize = from == "dna" && to == "dna" && wants_optimization(item);
+        let cleaned = match from {
+            "dna" if optimize => clean_coding_sequence(&sequence)?,
+            "dna" => clean_na_sequence(&sequence, "ACGT")?,
+            "rna" => clean_na_sequence(&sequence, "ACGU")?,
+            _ => sequence.clone(),
+        };
+        let species = item.species.clone();
+        let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let os = item.original_species.clone();
+        let aes = item.avoid_enzyme_sites.clone();
+        let rev = item.rev_comp.unwrap_or(false);
+        let f = from.to_string();
+        let t = to.to_string();
+        let conv = tokio::task::spawn_blocking(move || {
+            convert_sequence_text(&cleaned, &f, &t, optimize, rev, species, &method, os, aes)
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))??;
+
+        let mut v = standalone_result_json(&conv, from, to);
+        if let Some(op) = &item.output_path {
+            let written = write_convert_output(op, &conv.sequence, to, None, None)?;
+            v["path"] = serde_json::json!(written);
+        }
+        Ok(v)
+    }
+
+    /// Standalone `input_path` input: parse the file (its molecule type
+    /// defaults `from`), run the conversion, optionally write the result.
+    async fn convert_file_input(
+        &self,
+        item: &ConvertItem,
         path: String,
         feature_id: Option<String>,
-        species: String,
-        method: String,
-        original_species: Option<String>,
-        avoid_enzyme_sites: Option<Vec<String>>,
-        output_path: Option<String>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
+    ) -> Result<serde_json::Value, String> {
         crate::validate_user_path(&path, crate::SEQ_EXTS)
-            .map_err(|e| ErrorData::invalid_params(format!("invalid input_path: {}", e), None))?;
-
-        let sp = species.clone();
-        let m = method.clone();
-        let os = original_species.clone();
-        let aes = avoid_enzyme_sites.clone();
-        let fid = feature_id.clone();
+            .map_err(|e| format!("invalid input_path: {}", e))?;
         let p = path.clone();
-        let (outcome, result, codon_count, aa, message) = tokio::task::spawn_blocking(
-            move || -> Result<
-                (
-                    FileOutcome,
-                    libregene_core::codon::OptimizeResult,
-                    usize,
-                    String,
-                    String,
-                ),
-                String,
-            > {
-            let project = libregene_core::file_io::parse_file(std::path::Path::new(&p)).map_err(
-                |e| {
-                    format!(
-                        "failed to read {} (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
-                        p, e
-                    )
-                },
-            )?;
-            if project.molecule_type == "protein" {
-                // Reverse translation: aa file → optimized DNA coding sequence.
-                let aa = project.sequence.to_ascii_uppercase();
-                let table = crate::codon_usage_table(&sp, None)?;
-                let opts = crate::codon_optimize_options(&m, os.as_deref(), aes, None)?;
-                let result = libregene_core::codon::optimize_from_aa(&aa, &table, &opts)?;
-                let dna: String = result.new_codons.concat();
-                let message = format!(
-                    "Reverse translation (protein file input, {}): {} aa → {} bp DNA, {} repairs, {} unresolved",
-                    sp,
-                    aa.chars().count(),
-                    dna.len(),
-                    result.repairs.len(),
-                    result.unresolved.len(),
-                );
-                return Ok((
-                    FileOutcome::Plain { dna },
-                    result,
-                    aa.chars().count(),
-                    aa,
-                    message,
-                ));
+        let project = tokio::task::spawn_blocking(move || {
+            libregene_core::file_io::parse_file(std::path::Path::new(&p)).map_err(|e| {
+                format!(
+                    "failed to read {} (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
+                    p, e
+                )
+            })
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))??;
+
+        let file_mol = if project.molecule_type.is_empty() {
+            "dna"
+        } else {
+            project.molecule_type.as_str()
+        };
+        let from = match &item.from {
+            Some(f) => {
+                if f != file_mol {
+                    return Err(format!(
+                        "input file {} is a {} sequence but from=\"{}\" was given — drop `from` to use the file's molecule type",
+                        path, file_mol, f
+                    ));
+                }
+                f.clone()
             }
-            if let Some(fid) = &fid {
-                // Feature CDS inside the DNA file: write-back through the
-                // template so the full sequence (CDS replaced) is available.
-                let (new_sequence, result, coding) = crate::codon_optimize(
-                    &project,
-                    fid,
-                    &sp,
-                    &m,
-                    None,
-                    os.as_deref(),
-                    aes,
-                    None,
-                )?;
-                let message = format!(
-                    "Codon optimization for {} (file input, {}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
-                    fid,
-                    sp,
-                    result.cai_before,
-                    result.cai_after,
-                    result.repairs.len(),
-                    result.unresolved.len(),
-                );
+            None => file_mol.to_string(),
+        };
+        let to = default_to(item.to.as_deref(), &from);
+        check_conversion(&from, &to, item)?;
+        require_species_for(&from, &to, item)?;
+
+        let species = item.species.clone();
+        let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let os = item.original_species.clone();
+        let aes = item.avoid_enzyme_sites.clone();
+        let rev = item.rev_comp.unwrap_or(false);
+
+        // Feature-CDS codon optimization inside a DNA file: write-back
+        // through the template so the full sequence (CDS replaced) survives.
+        if from == "dna" && to == "dna" && feature_id.is_some() && wants_optimization(item) {
+            let fid = feature_id.unwrap();
+            let fid_label = fid.clone();
+            let sp = species.clone().expect("require_species_for gates optimization");
+            let m = method.clone();
+            let proj = project.clone();
+            let (new_sequence, result, coding) = tokio::task::spawn_blocking(move || {
+                crate::codon_optimize(&proj, &fid, &sp, &m, None, os.as_deref(), aes, None)
+            })
+            .await
+            .map_err(|e| format!("task join error: {}", e))??;
+            let message = format!(
+                "Codon optimization for {} (file input, {}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
+                fid_label,
+                species.clone().unwrap_or_default(),
+                result.cai_before,
+                result.cai_after,
+                result.repairs.len(),
+                result.unresolved.len(),
+            );
+            let mut v = codon_preview_json(
+                &result,
+                &coding.aa,
+                coding.codons.len(),
+                &method,
+                species.as_deref().unwrap_or(""),
+            );
+            v["from"] = serde_json::json!("dna");
+            v["to"] = serde_json::json!("dna");
+            v["sequence"] = serde_json::json!(new_sequence);
+            v["length"] = serde_json::json!(new_sequence.len());
+            v["message"] = serde_json::json!(message);
+            if let Some(op) = &item.output_path {
                 let mut source_project = project.clone();
                 source_project.sequence = new_sequence.clone();
                 source_project.length = new_sequence.len() as i64;
-                Ok((
-                    FileOutcome::Feature { new_sequence, source_project },
-                    result,
-                    coding.codons.len(),
-                    coding.aa,
-                    message,
-                ))
-            } else {
-                // Whole file sequence as the coding sequence.
-                let cleaned = clean_coding_sequence(&project.sequence)
-                    .map_err(|e| format!("invalid file sequence: {}", e))?;
-                let codons: Vec<String> = cleaned
-                    .as_bytes()
-                    .chunks(3)
-                    .map(|c| String::from_utf8_lossy(c).into_owned())
-                    .collect();
-                let table = crate::codon_usage_table(&sp, None)?;
-                let opts = crate::codon_optimize_options(&m, os.as_deref(), aes, None)?;
-                let result = libregene_core::codon::optimize_codons(&codons, &table, &opts);
-                let aa: String = codons
-                    .iter()
-                    .map(|c| table.aa_of.get(c).copied().unwrap_or('?'))
-                    .collect();
-                let dna: String = result.new_codons.concat();
-                let message = format!(
-                    "Codon optimization (file input, whole sequence as CDS, {}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
-                    sp,
-                    result.cai_before,
-                    result.cai_after,
-                    result.repairs.len(),
-                    result.unresolved.len(),
-                );
-                Ok((
-                    FileOutcome::Plain { dna },
-                    result,
-                    codons.len(),
-                    aa,
-                    message,
-                ))
+                let cds_name = std::path::Path::new(&path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().replace(' ', "_"));
+                let written =
+                    write_convert_output(op, &new_sequence, "dna", Some(&source_project), cds_name.as_deref())?;
+                v["path"] = serde_json::json!(written);
             }
+            return Ok(v);
+        }
+        if feature_id.is_some() {
+            return Err(
+                "feature_id is only meaningful for dna→dna codon optimization (pass `species` to optimize, or drop `feature_id` to convert the whole file sequence)"
+                    .to_string(),
+            );
+        }
+
+        let raw = project.sequence.to_ascii_uppercase();
+        let optimize = from == "dna" && to == "dna" && wants_optimization(item);
+        let cleaned = match from.as_str() {
+            "dna" if optimize => clean_coding_sequence(&raw)
+                .map_err(|e| format!("invalid file sequence: {}", e))?,
+            "dna" => clean_na_sequence(&raw, "ACGT")
+                .map_err(|e| format!("invalid file sequence: {}", e))?,
+            "rna" => clean_na_sequence(&raw, "ACGU")
+                .map_err(|e| format!("invalid file sequence: {}", e))?,
+            _ => raw,
+        };
+        let f = from.clone();
+        let t = to.clone();
+        let conv = tokio::task::spawn_blocking(move || {
+            convert_sequence_text(&cleaned, &f, &t, optimize, rev, species, &method, os, aes)
         })
         .await
-        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
-        .map_err(|e| ErrorData::invalid_params(e, None))?;
+        .map_err(|e| format!("task join error: {}", e))??;
 
-        let mut v = codon_preview_json(&result, &aa, codon_count, &method, &species);
-        v["ok"] = serde_json::json!(true);
-        v["optimizedSequence"] = serde_json::json!(match &outcome {
-            FileOutcome::Feature { new_sequence, .. } => new_sequence,
-            FileOutcome::Plain { dna } => dna,
-        });
-        v["message"] = serde_json::json!(message);
-        if let Some(op) = output_path {
-            let (dna, source) = match &outcome {
-                FileOutcome::Feature { source_project, .. } => (None, Some(source_project)),
-                FileOutcome::Plain { dna, .. } => (Some(dna.as_str()), None),
-            };
+        let mut v = standalone_result_json(&conv, &from, &to);
+        if let Some(op) = &item.output_path {
             // Label the minimal project's CDS after the source file (e.g.
             // CAR.gpt → a "CAR" CDS), saving a rename step downstream.
             let cds_name = std::path::Path::new(&path)
                 .file_stem()
                 .map(|s| s.to_string_lossy().replace(' ', "_"));
-            let written = write_optimization_output(&op, dna, &aa, source, cds_name.as_deref())
-                .map_err(|e| ErrorData::invalid_params(e, None))?;
-            v["outputPath"] = serde_json::json!(written);
+            let written =
+                write_convert_output(op, &conv.sequence, &to, None, cds_name.as_deref())?;
+            v["path"] = serde_json::json!(written);
         }
-        Ok(Json(v))
+        Ok(v)
     }
 }
 
-/// The optimized sequence carried out of `optimize_file_input`'s compute
-/// closure: a full template write-back (feature mode) or a bare DNA string.
-enum FileOutcome {
-    /// Full file sequence with the optimized CDS written back in place.
-    Feature {
-        new_sequence: String,
-        source_project: ProjectData,
-    },
-    /// The optimized coding sequence itself.
-    Plain { dna: String },
+/// The outcome of a standalone (sequence/file) conversion: the converted
+/// sequence plus, for codon-optimizing paths, the optimizer preview fields.
+struct Conversion {
+    sequence: String,
+    preview: Option<serde_json::Value>,
+    message: String,
+}
+
+/// `to` defaults: reverse translation for a protein input, otherwise a
+/// molecule-preserving conversion.
+fn default_to(to: Option<&str>, from: &str) -> String {
+    match to {
+        Some(t) => t.to_string(),
+        None if from == "protein" => "dna".to_string(),
+        None => from.to_string(),
+    }
+}
+
+/// The item asks for codon optimization (dna→dna) when any optimizer
+/// parameter is present.
+fn wants_optimization(item: &ConvertItem) -> bool {
+    item.species.is_some()
+        || item.method.is_some()
+        || item.original_species.is_some()
+        || item.avoid_enzyme_sites.is_some()
+}
+
+/// Validate a from→to pair and its revComp combination (per item).
+fn check_conversion(from: &str, to: &str, item: &ConvertItem) -> Result<(), String> {
+    for m in [from, to] {
+        if !matches!(m, "dna" | "rna" | "protein") {
+            return Err(format!(
+                "invalid molecule type \"{}\" (expected \"dna\" | \"rna\" | \"protein\")",
+                m
+            ));
+        }
+    }
+    if from == "protein" && to == "protein" {
+        return Err("protein→protein conversion is not supported".to_string());
+    }
+    if item.rev_comp.unwrap_or(false) && (from == "protein" || to == "protein") {
+        return Err(
+            "revComp is only meaningful for nucleotide→nucleotide conversions (a protein has no complement)"
+                .to_string(),
+        );
+    }
+    if item.rev_comp.unwrap_or(false) && from == "dna" && to == "dna" && wants_optimization(item) {
+        return Err("revComp cannot be combined with codon optimization".to_string());
+    }
+    Ok(())
+}
+
+/// Codon-optimizing paths (dna→dna with optimizer parameters, protein→dna/rna
+/// reverse translation) need a codon usage table.
+fn require_species_for(from: &str, to: &str, item: &ConvertItem) -> Result<(), String> {
+    let optimizing =
+        from == "protein" || (from == "dna" && to == "dna" && wants_optimization(item));
+    if optimizing && item.species.is_none() {
+        return Err(
+            "species is required for codon optimization / reverse translation (a key from list_species, e.g. \"e_coli\")"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Run a standalone sequence conversion (shared by `sequence` and
+/// `input_path` modes; `input` is already cleaned, in the `from` alphabet).
+fn convert_sequence_text(
+    input: &str,
+    from: &str,
+    to: &str,
+    optimize: bool,
+    rev_comp: bool,
+    species: Option<String>,
+    method: &str,
+    original_species: Option<String>,
+    avoid_enzyme_sites: Option<Vec<String>>,
+) -> Result<Conversion, String> {
+    if from == "protein" {
+        let sp = species.expect("require_species_for gates protein input");
+        let aa: String = input
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
+        let table = crate::codon_usage_table(&sp, None)?;
+        let opts =
+            crate::codon_optimize_options(method, original_species.as_deref(), avoid_enzyme_sites, None)?;
+        let result = libregene_core::codon::optimize_from_aa(&aa, &table, &opts)?;
+        let dna: String = result.new_codons.concat();
+        let out = if to == "rna" {
+            libregene_core::utils::to_rna(&dna)
+        } else {
+            dna
+        };
+        let unit = if to == "rna" { "nt RNA" } else { "bp DNA" };
+        let message = format!(
+            "Reverse translation ({} → {}, {}): {} aa → {} {}, {} repairs, {} unresolved",
+            from,
+            to,
+            sp,
+            aa.chars().count(),
+            out.len(),
+            unit,
+            result.repairs.len(),
+            result.unresolved.len(),
+        );
+        return Ok(Conversion {
+            sequence: out,
+            preview: Some(codon_preview_json(&result, &aa, aa.chars().count(), method, &sp)),
+            message,
+        });
+    }
+    if optimize {
+        let sp = species.expect("require_species_for gates codon optimization");
+        let codons: Vec<String> = input
+            .as_bytes()
+            .chunks(3)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect();
+        let table = crate::codon_usage_table(&sp, None)?;
+        let opts =
+            crate::codon_optimize_options(method, original_species.as_deref(), avoid_enzyme_sites, None)?;
+        let result = libregene_core::codon::optimize_codons(&codons, &table, &opts);
+        let aa: String = codons
+            .iter()
+            .map(|c| table.aa_of.get(c).copied().unwrap_or('?'))
+            .collect();
+        let optimized: String = result.new_codons.concat();
+        let message = format!(
+            "Codon optimization ({}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
+            sp,
+            result.cai_before,
+            result.cai_after,
+            result.gc_before * 100.0,
+            result.gc_after * 100.0,
+            result.repairs.len(),
+            result.unresolved.len(),
+        );
+        return Ok(Conversion {
+            sequence: optimized,
+            preview: Some(codon_preview_json(&result, &aa, codons.len(), method, &sp)),
+            message,
+        });
+    }
+    let dna = if from == "rna" {
+        libregene_core::utils::to_dna(input)
+    } else {
+        input.to_string()
+    };
+    let dna = if rev_comp {
+        libregene_core::utils::reverse_complement(&dna)
+    } else {
+        dna
+    };
+    let out = match to {
+        "rna" => libregene_core::utils::to_rna(&dna),
+        "protein" => String::from_utf8(libregene_core::translate::translate_nt(dna.as_bytes()))
+            .map_err(|e| e.to_string())?,
+        _ => dna,
+    };
+    let unit = if to == "protein" { "aa" } else { "nt" };
+    let message = format!(
+        "Converted {} → {}{}: {} {}",
+        from,
+        to,
+        if rev_comp { " (reverse-complemented)" } else { "" },
+        out.len(),
+        unit
+    );
+    Ok(Conversion { sequence: out, preview: None, message })
+}
+
+/// The per-item result JSON shared by the sequence/input_path modes.
+fn standalone_result_json(conv: &Conversion, from: &str, to: &str) -> serde_json::Value {
+    let mut v = conv.preview.clone().unwrap_or_else(|| serde_json::json!({}));
+    v["from"] = serde_json::json!(from);
+    v["to"] = serde_json::json!(to);
+    v["sequence"] = serde_json::json!(conv.sequence);
+    v["length"] = serde_json::json!(conv.sequence.len());
+    v["message"] = serde_json::json!(conv.message);
+    v
 }
 
 // ---------------------------------------------------------------------------
@@ -2912,7 +3249,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// re-locked and returns {ok, projectId, locked, reused: true}; a project
     /// the USER opened is REFUSED — copy the file with bash `cp` to a new
     /// path and open_project the copy. Mutating tools (edit_sequence,
-    /// set_feature, add_primer, add_alignment, save_file, optimize_cds/apply,
+    /// set_feature, add_primer, add_alignment, save_file, convert_sequence/apply,
     /// find_orfs/add_as_features) REFUSE to run on projects not bound as an
     /// agent tab. Multiple agents each open their own copy and work in
     /// parallel without interfering.
@@ -4826,223 +5163,131 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    /// Optimize a coding sequence's codons (DNA Chisel ports: use_best_codon /
-    /// match_codon_usage / harmonize_rca) — project, raw sequence, or file
-    /// input. `species` is a key from list_species (e.g. "e_coli",
-    /// "h_sapiens", "s_cerevisiae"); `method` defaults to use_best_codon;
-    /// harmonize_rca additionally uses `original_species` as the source table.
+    /// Convert sequences between molecule types — DNA/RNA/protein — with
+    /// codon optimization where it applies. BATCH: `items` takes 1-64
+    /// independent conversion items; a failing item does not abort the others
+    /// (its slot in `results` carries {ok: false, error}). A single
+    /// conversion may omit `items` and put the item fields at the top level.
     ///
-    /// Exactly one input mode:
-    /// - `project_id` + `feature_id`: optimize the CDS/mRNA feature inside an
-    ///   open project (both required). `apply=false`
-    ///   (default) is a read-only preview; `apply=true` replaces the feature's
-    ///   coding bases in the template (equal-length synonymous substitution,
-    ///   coordinates unchanged) through the same recompute+broadcast path as
-    ///   edit_sequence. Project mode requires a DNA project — RNA/protein
-    ///   projects are rejected with a hint to use `sequence`/`input_path`
-    ///   instead (amino acids are reverse-translated there).
-    /// - `sequence`: raw DNA coding sequence text. Whitespace/digits are
-    ///   ignored, letters must be A/C/G/T, length must be divisible by 3 (a
-    ///   trailing stop codon is fine). No project is involved. Use ONLY for
-    ///   short hand-authored coding sequences — pasted long sequences are
+    /// Conversion matrix (per item, `from`/`to` ∈ "dna" | "rna" | "protein"):
+    /// - dna→dna: codon optimization when `species` (or another optimizer
+    ///   parameter) is given, else the sequence passes through unchanged;
+    ///   `revComp: true` reverse-complements (not combinable with
+    ///   optimization). Project mode lives here.
+    /// - dna→rna / rna→dna: T↔U conversion (optional revComp).
+    /// - dna→protein / rna→protein: translation (frame 0; a trailing
+    ///   partial codon is dropped).
+    /// - protein→dna / protein→rna: REVERSE TRANSLATION with codon
+    ///   optimization (`species` required — a key from list_species such as
+    ///   "e_coli", "h_sapiens"; `method` = use_best_codon (default) |
+    ///   match_codon_usage | harmonize_rca, the latter using
+    ///   `original_species` as the source table; `avoid_enzyme_sites` takes
+    ///   IUPAC recognition sequences to avoid).
+    /// - protein→protein: rejected. revComp with a protein side: rejected.
+    /// `from` defaults: project mode → dna; `input_path` → the file's
+    /// molecule type; `sequence` → dna. `to` defaults: dna for a protein
+    /// input, otherwise same as `from`.
+    ///
+    /// Exactly one input mode per item:
+    /// - `project_id` + `feature_id` (both required; dna→dna codon
+    ///   optimization ONLY, DNA projects only): optimize the CDS/mRNA feature
+    ///   inside an open project. `apply=false` (default) is a read-only
+    ///   preview; `apply=true` replaces the feature's coding bases in the
+    ///   template (equal-length synonymous substitution, coordinates
+    ///   unchanged) through the same recompute+broadcast path as
+    ///   edit_sequence. `output_path` is REJECTED here — apply then save_file.
+    /// - `sequence`: raw sequence text (whitespace/digits ignored). Use ONLY
+    ///   for short hand-authored sequences — pasted long sequences are
     ///   error-prone, so whenever the sequence exists as a file use
     ///   `input_path`, and when it is a region of an open project export it
     ///   first with save_file's `region`.
-    /// - `input_path` (PREFERRED for real sequences): local file parsed with file_io. DNA files (.gbk/.gb/
-    ///   .genbank/.dna/.rna/.fasta/.fa/.fna/.ab1): with `feature_id` the
-    ///   file's CDS/mRNA feature is optimized (the written sequence carries
-    ///   the full file sequence with that CDS replaced); without `feature_id`
-    ///   the whole file sequence is treated as the coding sequence. Protein
-    ///   files (.gpt/.prot) mean REVERSE TRANSLATION: the amino acid sequence
-    ///   is turned directly into an optimized DNA coding sequence (codons
-    ///   chosen per `method` and the `species` table).
+    /// - `input_path` (PREFERRED for real sequences): local file parsed with
+    ///   file_io (.gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 nucleotide,
+    ///   .gpt/.prot protein). A file cannot be mistyped or truncated. With
+    ///   `feature_id` on a DNA file + `species`, that file CDS is optimized
+    ///   and the written sequence carries the full file with the CDS
+    ///   replaced.
     ///
-    /// Returns {ok, message, projectId?, aa, codonCount, newCodons,
-    /// caiBefore, caiAfter, gcBefore, gcAfter, repairs, repairCount,
-    /// unresolved, method, species, optimizedSequence?, outputPath?,
-    /// regionView?}. `aa` is the translated protein INCLUDING a trailing '*'
-    /// for the stop codon, and `codonCount` counts that stop codon too (a
-    /// 466-aa protein with a stop shows codonCount 467).
-    /// `optimizedSequence` (the full optimized DNA) is added in
-    /// sequence/input_path modes; `outputPath` when `output_path` was given;
-    /// `regionView` after an apply=true project write-back.
+    /// Returns {ok, results: [{index, ok, from, to, sequence?, length?,
+    /// message?, path?, projectId?, regionView?, error?, ...}]}. Successful
+    /// items carry the converted `sequence` text and its `length`; codon-
+    /// optimizing items additionally carry the optimizer fields (aa,
+    /// codonCount, newCodons, caiBefore, caiAfter, gcBefore, gcAfter, repairs,
+    /// repairCount, unresolved, method, species). `aa` includes a trailing
+    /// '*' for the stop codon and `codonCount` counts it. `path` appears when
+    /// `output_path` was given; `regionView` after an apply=true project
+    /// write-back. Failed items carry {ok: false, error}; when EVERY item
+    /// fails the whole call returns an error.
     ///
-    /// `output_path` (`sequence`/`input_path` modes only, optional —
-    /// REJECTED in project mode: use apply=true, then save_file): writes the
-    /// result to a file
-    /// — .gbk/.gb/.genbank → DNA GenBank with the optimized CDS annotated,
-    /// .gpt → protein GenBank of the translated sequence; other extensions
-    /// are rejected. When the output carries a single whole-length CDS
-    /// (sequence/whole-file/protein reverse-translation inputs), the CDS
-    /// feature is labeled after the SOURCE file stem (falling back to the
-    /// output file stem) instead of a generic "CDS". PREFER writing the
-    /// result to a file (and open_project it
-    /// afterwards) over reading the `optimizedSequence` text — sequences move
-    /// between tools as files, not pasted text. When `output_path` already
-    /// exists, `overwrite: true` is required (same rule as save_file).
-    /// `apply=true` is only meaningful in project mode: in
-    /// sequence/input_path mode it requires `output_path` (there is no
-    /// project to update).
+    /// `output_path` (sequence/input_path modes only): .gbk/.gb/.genbank →
+    /// GenBank of the output molecule (DNA/RNA with the CDS annotated),
+    /// .gpt → protein GenBank (protein output only), .fa/.fasta/.txt → bare
+    /// sequence text. When the output carries a single whole-length CDS, the
+    /// CDS feature is labeled after the SOURCE file stem (falling back to the
+    /// output file stem). PREFER writing the result to a file (and
+    /// open_project it afterwards) over reading the `sequence` text —
+    /// sequences move between tools as files, not pasted text. When
+    /// `output_path` already exists, `overwrite: true` is required (same rule
+    /// as save_file).
     #[tool]
-    async fn optimize_cds(
+    async fn convert_sequence(
         &self,
-        Parameters(request): Parameters<OptimizeCdsRequest>,
+        Parameters(request): Parameters<ConvertSequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let mode = resolve_optimize_input(
-            request.project_id.as_deref(),
-            request.feature_id.as_deref(),
-            request.sequence.as_deref(),
-            request.input_path.as_deref(),
-        )
-        .map_err(|e| ErrorData::invalid_params(e, None))?;
-
-        let apply = request.apply.unwrap_or(false);
-        if !matches!(mode, OptimizeInput::Project { .. }) && apply && request.output_path.is_none()
-        {
-            return Err(ErrorData::invalid_params(
-                "apply=true is only meaningful in project mode; in sequence/input_path mode pass `output_path` to write the result to a file (or set apply=false)",
-                None,
-            ));
-        }
-        if matches!(mode, OptimizeInput::Project { .. }) && request.output_path.is_some() {
-            return Err(ErrorData::invalid_params(
-                "output_path is only supported in sequence/input_path modes; in project mode use apply=true to write the optimized CDS back into the project, then save_file to export a file",
-                None,
-            ));
-        }
-        if let Some(op) = &request.output_path {
-            crate::validate_user_path(op, crate::CODON_OUTPUT_EXTS).map_err(|e| {
-                ErrorData::invalid_params(format!("invalid output_path: {}", e), None)
-            })?;
-            if !request.overwrite.unwrap_or(false) && std::path::Path::new(op).exists() {
+        let ConvertSequenceRequest { items, single } = request;
+        let items = match items {
+            Some(items) if items.is_empty() => {
                 return Err(ErrorData::invalid_params(
-                    format!(
-                        "{} already exists — pass overwrite: true to replace it, or choose a different output_path",
-                        op
-                    ),
+                    "items must not be empty — give 1-64 conversion items",
                     None,
                 ));
             }
-        }
-
-        let species = request.species.clone();
-        let method = request
-            .method
-            .clone()
-            .unwrap_or_else(|| "use_best_codon".to_string());
-        let original_species = request.original_species.clone();
-        let avoid_enzyme_sites = request.avoid_enzyme_sites.clone();
-
-        match mode {
-            OptimizeInput::Project { project_id, feature_id } => {
-                let id = self.resolve_project_id(project_id).await?;
-                if apply {
-                    self.require_agent_tab(&id).await?;
-                }
-                let project = {
-                    let pm = self.pm.read().await;
-                    pm.get_project_by_id(&id).cloned().ok_or_else(|| {
-                        ErrorData::invalid_params(format!("Project not found: {}", id), None)
-                    })?
-                };
-                if !project.is_dna() {
+            Some(items) => items,
+            None => {
+                if single.project_id.is_some() || single.sequence.is_some() || single.input_path.is_some() {
+                    vec![single]
+                } else {
                     return Err(ErrorData::invalid_params(
-                        format!(
-                            "optimize_cds project mode re-encodes a CDS feature inside a DNA project; a {} project has no coding DNA to re-encode — pass `sequence` (raw coding DNA) or `input_path` instead (a protein .gpt/.prot file is reverse-translated to optimized DNA)",
-                            project.molecule_type
-                        ),
+                        "items is required: a batch of 1-64 conversion items (a single conversion may put the item fields at the top level instead — one of project_id / sequence / input_path)",
                         None,
                     ));
                 }
-                let f_id = feature_id.clone();
-                let sp = species.clone();
-                let m = method.clone();
-                let (new_sequence, result, coding) = tokio::task::spawn_blocking(move || {
-                    crate::codon_optimize(
-                        &project,
-                        &f_id,
-                        &sp,
-                        &m,
-                        None,
-                        original_species.as_deref(),
-                        avoid_enzyme_sites,
-                        None,
-                    )
-                })
-                .await
-                .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
-                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            }
+        };
+        if items.len() > 64 {
+            return Err(ErrorData::invalid_params(
+                format!("items is capped at 64 entries per call (got {})", items.len()),
+                None,
+            ));
+        }
 
-                let mut v =
-                    codon_preview_json(&result, &coding.aa, coding.codons.len(), &method, &species);
-                v["ok"] = serde_json::json!(true);
-                v["projectId"] = serde_json::json!(id);
-                v["message"] = serde_json::json!(format!(
-                    "Codon optimization preview for {} ({}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
-                    feature_id,
-                    species,
-                    result.cai_before,
-                    result.cai_after,
-                    result.gc_before * 100.0,
-                    result.gc_after * 100.0,
-                    result.repairs.len(),
-                    result.unresolved.len(),
-                ));
-                if apply {
-                    let payload = crate::do_update_sequence(
-                        &self.app_handle,
-                        &self.pm,
-                        &self.wp,
-                        &self.agent_tabs,
-                        None,
-                        id.clone(),
-                        new_sequence,
-                        None,
-                    )
-                    .await
-                    .map_err(|e| ErrorData::internal_error(e, None))?;
-                    if let Some(err) = Self::payload_error(&payload) {
-                        return Ok(Json(fail_envelope(&id, err)));
-                    }
-                    if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
-                        v["regionView"] = serde_json::json!(rv);
-                    }
-                    v["message"] = serde_json::json!(format!(
-                        "Optimized CDS {} ({}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
-                        feature_id,
-                        species,
-                        result.cai_before,
-                        result.cai_after,
-                        result.repairs.len(),
-                        result.unresolved.len(),
-                    ));
+        let mut results = Vec::with_capacity(items.len());
+        let mut ok_count = 0usize;
+        for (i, item) in items.iter().enumerate() {
+            match self.convert_one(item).await {
+                Ok(mut v) => {
+                    v["index"] = serde_json::json!(i);
+                    v["ok"] = serde_json::json!(true);
+                    ok_count += 1;
+                    results.push(v);
                 }
-                Ok(Json(v))
-            }
-            OptimizeInput::Sequence(seq) => {
-                self.optimize_sequence_input(
-                    seq,
-                    species,
-                    method,
-                    original_species,
-                    avoid_enzyme_sites,
-                    request.output_path,
-                )
-                .await
-            }
-            OptimizeInput::File { path, feature_id } => {
-                self.optimize_file_input(
-                    path,
-                    feature_id,
-                    species,
-                    method,
-                    original_species,
-                    avoid_enzyme_sites,
-                    request.output_path,
-                )
-                .await
+                Err(e) => {
+                    results.push(serde_json::json!({ "index": i, "ok": false, "error": e }));
+                }
             }
         }
+        if ok_count == 0 {
+            let detail = results
+                .iter()
+                .map(|r| format!("[{}] {}", r["index"], r["error"].as_str().unwrap_or_default()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(ErrorData::invalid_params(
+                format!("all {} item(s) failed: {}", results.len(), detail),
+                None,
+            ));
+        }
+        Ok(Json(serde_json::json!({ "ok": true, "results": results })))
     }
 }
 
@@ -5050,7 +5295,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 // Server bootstrap + settings (start/stop/restart without app restart)
 // ---------------------------------------------------------------------------
 
-#[tool_handler(name = "LibreGene", instructions = "Agent tabs: open_project opens a sequence file AND binds it as your agent tab in the main window in one step (locked against user input; every tool call re-locks it). A path that is already open but not bound belongs to the user — copy the file with bash `cp` to a new path and open_project the copy. Mutating tools refuse projects not bound as an agent tab. Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_project; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed optimize_cds via input_path and collect its result via output_path; to create a new file from a known region of an open project, save_file with `region` (by coordinates, feature, enzymes/cuts, or primers) then open_project the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases (and resolving coordinates), not for moving sequences between tools. Every tool takes a required project_id; list_projects' activeId is the project the user is viewing (informational only) — avoid it when several agents work in parallel.")]
+#[tool_handler(name = "LibreGene", instructions = "Agent tabs: open_project opens a sequence file AND binds it as your agent tab in the main window in one step (locked against user input; every tool call re-locks it). A path that is already open but not bound belongs to the user — copy the file with bash `cp` to a new path and open_project the copy. Mutating tools refuse projects not bound as an agent tab. Files over pasted text: whenever a sequence exists as a file (or can be written to one), prefer file-based I/O over pasting sequence text into tool arguments — pasted sequences are error-prone (transcription slips, truncation, wrong strand). Open sequence files with open_project; insert/replace from a file via edit_sequence's replacement_path; hand reads to add_alignment via path; feed convert_sequence via input_path and collect its result via output_path; to create a new file from a known region of an open project, save_file with `region` (by coordinates, feature, enzymes/cuts, or primers) then open_project the result — never retype the sequence into another tool. Plain-text sequence parameters stay available for short hand-authored input (primers ~20-60 nt, point mutations, short inserts) or when no file exists. read_sequence is for inspecting bases (and resolving coordinates), not for moving sequences between tools. Every tool takes a required project_id; list_projects' activeId is the project the user is viewing (informational only) — avoid it when several agents work in parallel.")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";
@@ -5823,7 +6068,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // optimize_cds: input resolution / sequence cleaning / file output
+    // convert_sequence: input resolution / sequence cleaning / file output
     // ------------------------------------------------------------------
 
     #[test]
@@ -5872,11 +6117,11 @@ mod tests {
     }
 
     #[test]
-    fn write_optimization_output_rejects_unknown_extension() {
-        assert!(write_optimization_output("out.fasta", Some("ATG"), "M", None, None).is_err());
-        assert!(write_optimization_output("out.ab1", Some("ATG"), "M", None, None).is_err());
-        assert!(write_optimization_output("out.txt", Some("ATG"), "M", None, None).is_err());
-        assert!(write_optimization_output("../esc.gbk", Some("ATG"), "M", None, None).is_err());
+    fn write_convert_output_rejects_unknown_extension() {
+        assert!(write_convert_output("out.ab1", "ATG", "dna", None, None).is_err());
+        assert!(write_convert_output("../esc.gbk", "ATG", "dna", None, None).is_err());
+        // .gpt is protein-only; a DNA output cannot be written as .gpt.
+        assert!(write_convert_output("out.gpt", "ATG", "dna", None, None).is_err());
     }
 
     #[test]
@@ -5896,13 +6141,13 @@ mod tests {
     }
 
     #[test]
-    fn write_optimization_output_roundtrips_gbk_and_gpt() {
+    fn write_convert_output_roundtrips_gbk_gpt_rna_and_text() {
         let dir = std::env::temp_dir().join(format!("libregene-codon-write-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let gbk_path = dir.join("out.gbk");
         let written =
-            write_optimization_output(gbk_path.to_str().unwrap(), Some("ATGGTGAGCTAA"), "MVS*", None, Some("CAR"))
+            write_convert_output(gbk_path.to_str().unwrap(), "ATGGTGAGCTAA", "dna", None, Some("CAR"))
                 .unwrap();
         assert_eq!(written, gbk_path.to_str().unwrap());
         let parsed = libregene_core::file_io::parse_file(&gbk_path).unwrap();
@@ -5912,10 +6157,20 @@ mod tests {
         assert!(parsed.features.iter().any(|f| f.ftype == "CDS" && f.name == "CAR"));
 
         let gpt_path = dir.join("out.gpt");
-        write_optimization_output(gpt_path.to_str().unwrap(), None, "MVS*", None, None).unwrap();
+        write_convert_output(gpt_path.to_str().unwrap(), "MVS*", "protein", None, None).unwrap();
         let parsed = libregene_core::file_io::parse_file(&gpt_path).unwrap();
         assert_eq!(parsed.molecule_type, "protein");
         assert_eq!(parsed.sequence, "mvs*"); // the gpt writer lower-cases
+
+        let rna_path = dir.join("out_rna.gbk");
+        write_convert_output(rna_path.to_str().unwrap(), "AUGGUGAGCUAA", "rna", None, None).unwrap();
+        let parsed = libregene_core::file_io::parse_file(&rna_path).unwrap();
+        assert_eq!(parsed.molecule_type, "rna");
+        assert_eq!(parsed.sequence.to_ascii_uppercase(), "AUGGUGAGCUAA");
+
+        let txt_path = dir.join("out.txt");
+        write_convert_output(txt_path.to_str().unwrap(), "ATGGTGAGCTAA", "dna", None, None).unwrap();
+        assert_eq!(std::fs::read_to_string(&txt_path).unwrap(), "ATGGTGAGCTAA\n");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -5932,31 +6187,38 @@ mod tests {
         )
     }
 
+    fn convert_req(items: Vec<ConvertItem>) -> ConvertSequenceRequest {
+        ConvertSequenceRequest { items: Some(items), ..Default::default() }
+    }
+
     #[tokio::test]
-    async fn optimize_cds_sequence_preview_and_validation() {
+    async fn convert_sequence_sequence_preview_and_validation() {
         let server = test_handler();
-        // happy path: sequence input → optimizedSequence, no projectId
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        // happy path: sequence input → converted sequence, no projectId
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             sequence: Some("GAG GAG GAG\nTAA".to_string()),
             ..Default::default()
-        };
-        let out = server.optimize_cds(Parameters(req)).await.unwrap();
-        let v = out.0;
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["ok"], true);
+        let v = &out.0["results"][0];
         assert_eq!(v["ok"], true);
+        assert_eq!(v["from"], "dna");
+        assert_eq!(v["to"], "dna");
         assert_eq!(v["aa"], "EEE*");
         assert_eq!(v["codonCount"], 4);
-        assert_eq!(v["optimizedSequence"], "GAAGAAGAATAA"); // E→GAA, stop→TAA (e_coli best)
+        assert_eq!(v["sequence"], "GAAGAAGAATAA"); // E→GAA, stop→TAA (e_coli best)
         assert!(v.get("projectId").is_none());
 
         // apply=true without output_path in sequence mode → clear error
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             sequence: Some("ATGGTGAGCTAA".to_string()),
             apply: Some(true),
             ..Default::default()
-        };
-        let err = match server.optimize_cds(Parameters(req)).await {
+        }]);
+        let err = match server.convert_sequence(Parameters(req)).await {
             Err(e) => e,
             Ok(_) => panic!("expected apply validation error"),
         };
@@ -5964,56 +6226,97 @@ mod tests {
         assert!(err.message.contains("output_path"), "{}", err.message);
 
         // sequence + input_path conflict
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             sequence: Some("ATG".to_string()),
             input_path: Some("x.gbk".to_string()),
             ..Default::default()
-        };
-        assert!(server.optimize_cds(Parameters(req)).await.is_err());
+        }]);
+        assert!(server.convert_sequence(Parameters(req)).await.is_err());
 
         // project mode without feature_id → clear error
-        let req = OptimizeCdsRequest {
+        let req = convert_req(vec![ConvertItem {
             project_id: Some("p1".to_string()),
-            species: "e_coli".to_string(),
+            species: Some("e_coli".to_string()),
             ..Default::default()
-        };
-        let err = match server.optimize_cds(Parameters(req)).await {
+        }]);
+        let err = match server.convert_sequence(Parameters(req)).await {
             Err(e) => e,
             Ok(_) => panic!("expected missing-feature_id error"),
         };
         assert!(err.message.contains("feature_id"), "{}", err.message);
 
         // no input at all → clear error
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             ..Default::default()
-        };
-        let err = match server.optimize_cds(Parameters(req)).await {
+        }]);
+        let err = match server.convert_sequence(Parameters(req)).await {
             Err(e) => e,
             Ok(_) => panic!("expected missing-project_id error"),
         };
         assert!(err.message.contains("project_id"), "{}", err.message);
+
+        // an explicit empty batch → clear error
+        let err = match server
+            .convert_sequence(Parameters(ConvertSequenceRequest {
+                items: Some(vec![]),
+                ..Default::default()
+            }))
+            .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("expected empty-items error"),
+        };
+        assert!(err.message.contains("empty"), "{}", err.message);
+
+        // no items and no single-item fields → clear error
+        assert!(server
+            .convert_sequence(Parameters(ConvertSequenceRequest::default()))
+            .await
+            .is_err());
     }
 
     #[tokio::test]
-    async fn optimize_cds_file_reverse_translates_protein_gpt() {
+    async fn convert_sequence_single_item_top_level_compat() {
+        let server = test_handler();
+        // Without `items`, the top-level fields act as a single item.
+        let req = ConvertSequenceRequest {
+            single: ConvertItem {
+                sequence: Some("ATGTAAC".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = &out.0["results"][0];
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["sequence"], "AUGUAAC");
+        assert_eq!(v["length"], 7);
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_file_reverse_translates_protein_gpt() {
         let gpt = include_str!("../../backend/test_data/mCherry.gpt");
         let path = std::env::temp_dir().join(format!("libregene-mcp-revtest-{}.gpt", std::process::id()));
         std::fs::write(&path, gpt).unwrap();
         let server = test_handler();
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             input_path: Some(path.to_string_lossy().into_owned()),
             ..Default::default()
-        };
-        let out = server.optimize_cds(Parameters(req)).await.unwrap();
-        let v = out.0;
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = &out.0["results"][0];
         assert_eq!(v["ok"], true);
+        assert_eq!(v["from"], "protein");
+        assert_eq!(v["to"], "dna");
         let aa = v["aa"].as_str().unwrap();
         assert!(aa.starts_with("MVSKGEEDNM"), "aa: {}", aa);
         assert!(aa.ends_with('*'), "aa: {}", aa);
-        let dna = v["optimizedSequence"].as_str().unwrap();
+        let dna = v["sequence"].as_str().unwrap();
         assert_eq!(dna.len(), aa.chars().count() * 3);
         assert!(dna.bytes().all(|b| matches!(b, b'A' | b'C' | b'G' | b'T')));
         assert!(v["message"].as_str().unwrap().contains("Reverse translation"));
@@ -6021,18 +6324,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optimize_cds_sequence_writes_output_file() {
+    async fn convert_sequence_sequence_writes_output_file() {
         let out_path = std::env::temp_dir().join(format!("libregene-mcp-outtest-{}.gbk", std::process::id()));
         let server = test_handler();
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             sequence: Some("ATGGTGAGCTAA".to_string()),
             output_path: Some(out_path.to_string_lossy().into_owned()),
             ..Default::default()
-        };
-        let out = server.optimize_cds(Parameters(req)).await.unwrap();
-        let v = out.0;
-        assert_eq!(v["outputPath"], out_path.to_str().unwrap());
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = &out.0["results"][0];
+        assert_eq!(v["path"], out_path.to_str().unwrap());
         let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
         assert_eq!(parsed.sequence, "ATGGTGAGCTAA");
         assert!(parsed.features.iter().any(|f| f.ftype == "CDS"));
@@ -6040,7 +6343,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optimize_cds_file_with_feature_writes_optimized_gbk() {
+    async fn convert_sequence_file_with_feature_writes_optimized_gbk() {
         let dir = std::env::temp_dir().join(format!("libregene-mcp-feattest-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let src = dir.join("src.gbk");
@@ -6070,23 +6373,223 @@ mod tests {
 
         let out_path = dir.join("out.gbk");
         let server = test_handler();
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             input_path: Some(src.to_string_lossy().into_owned()),
             feature_id: Some("cds_0".to_string()), // id rebuilt as {label}_{start} on parse
             output_path: Some(out_path.to_string_lossy().into_owned()),
             ..Default::default()
-        };
-        let out = server.optimize_cds(Parameters(req)).await.unwrap();
-        let v = out.0;
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = &out.0["results"][0];
         assert_eq!(v["ok"], true);
         assert_eq!(v["aa"], "EEE*");
-        assert_eq!(v["optimizedSequence"], "GAAGAAGAATAA");
-        assert_eq!(v["outputPath"], out_path.to_str().unwrap());
+        assert_eq!(v["sequence"], "GAAGAAGAATAA");
+        assert_eq!(v["path"], out_path.to_str().unwrap());
         let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
         assert_eq!(parsed.sequence, "GAAGAAGAATAA");
         assert!(parsed.features.iter().any(|f| f.ftype == "CDS"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_nucleotide_conversions() {
+        let server = test_handler();
+        let req = convert_req(vec![
+            // dna→rna (no %3 constraint outside codon optimization)
+            ConvertItem {
+                sequence: Some("ATGTAAC".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                ..Default::default()
+            },
+            // rna→dna
+            ConvertItem {
+                sequence: Some("AUGUAA".to_string()),
+                from: Some("rna".to_string()),
+                to: Some("dna".to_string()),
+                ..Default::default()
+            },
+            // dna→dna revComp (no species → no optimization)
+            ConvertItem {
+                sequence: Some("ATGC".to_string()),
+                rev_comp: Some(true),
+                ..Default::default()
+            },
+            // dna→rna with revComp: ATGC → GCAT → GCAU
+            ConvertItem {
+                sequence: Some("ATGC".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                rev_comp: Some(true),
+                ..Default::default()
+            },
+            // rna→dna with revComp: AUGC → ATGC → GCAT
+            ConvertItem {
+                sequence: Some("AUGC".to_string()),
+                from: Some("rna".to_string()),
+                to: Some("dna".to_string()),
+                rev_comp: Some(true),
+                ..Default::default()
+            },
+        ]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["ok"], true);
+        let r = &out.0["results"];
+        assert_eq!(r[0]["sequence"], "AUGUAAC");
+        assert_eq!(r[1]["sequence"], "ATGTAA");
+        assert_eq!(r[2]["sequence"], "GCAT");
+        assert_eq!(r[3]["sequence"], "GCAU");
+        assert_eq!(r[4]["sequence"], "GCAT");
+        // plain conversions carry no optimizer fields
+        assert!(r[0].get("aa").is_none());
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_translation_conversions() {
+        let server = test_handler();
+        let req = convert_req(vec![
+            // dna→protein
+            ConvertItem {
+                sequence: Some("ATGGTGAGCTAA".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("protein".to_string()),
+                ..Default::default()
+            },
+            // rna→protein
+            ConvertItem {
+                sequence: Some("AUGGUGAGCUAA".to_string()),
+                from: Some("rna".to_string()),
+                to: Some("protein".to_string()),
+                ..Default::default()
+            },
+            // protein→dna (reverse translation, e_coli best codons)
+            ConvertItem {
+                sequence: Some("MVS*".to_string()),
+                from: Some("protein".to_string()),
+                to: Some("dna".to_string()),
+                species: Some("e_coli".to_string()),
+                ..Default::default()
+            },
+            // protein→rna
+            ConvertItem {
+                sequence: Some("MVS*".to_string()),
+                from: Some("protein".to_string()),
+                to: Some("rna".to_string()),
+                species: Some("e_coli".to_string()),
+                ..Default::default()
+            },
+        ]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let r = &out.0["results"];
+        assert_eq!(r[0]["sequence"], "MVS*");
+        assert_eq!(r[0]["length"], 4);
+        assert_eq!(r[1]["sequence"], "MVS*");
+        assert_eq!(r[2]["sequence"], "ATGGTGAGCTAA");
+        assert_eq!(r[2]["aa"], "MVS*");
+        assert_eq!(r[2]["codonCount"], 4);
+        assert_eq!(r[3]["sequence"], "AUGGUGAGCUAA");
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_rna_output_writes_fasta_and_gbk() {
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-rnaout-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fa = dir.join("out.fa");
+        let gbk = dir.join("out.gbk");
+        let server = test_handler();
+        let req = convert_req(vec![
+            ConvertItem {
+                sequence: Some("ATGTAAC".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                output_path: Some(fa.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+            ConvertItem {
+                sequence: Some("ATGTAAC".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                output_path: Some(gbk.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        ]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let r = &out.0["results"];
+        assert_eq!(r[0]["path"], fa.to_str().unwrap());
+        assert_eq!(std::fs::read_to_string(&fa).unwrap(), "AUGUAAC\n");
+        let parsed = libregene_core::file_io::parse_file(&gbk).unwrap();
+        assert_eq!(parsed.molecule_type, "rna");
+        assert_eq!(parsed.sequence.to_ascii_uppercase(), "AUGUAAC");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_batch_isolates_item_errors() {
+        let server = test_handler();
+        let req = convert_req(vec![
+            ConvertItem {
+                sequence: Some("ATGTAA".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                ..Default::default()
+            },
+            // protein→protein is not supported
+            ConvertItem {
+                sequence: Some("MVS".to_string()),
+                from: Some("protein".to_string()),
+                to: Some("protein".to_string()),
+                ..Default::default()
+            },
+            // revComp with a protein output is rejected
+            ConvertItem {
+                sequence: Some("ATGTAA".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("protein".to_string()),
+                rev_comp: Some(true),
+                ..Default::default()
+            },
+            ConvertItem {
+                sequence: Some("ATGC".to_string()),
+                rev_comp: Some(true),
+                ..Default::default()
+            },
+        ]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert_eq!(out.0["ok"], true);
+        let r = &out.0["results"];
+        assert_eq!(r[0]["ok"], true);
+        assert_eq!(r[0]["sequence"], "AUGUAA");
+        assert_eq!(r[1]["ok"], false);
+        assert!(r[1]["error"].as_str().unwrap().contains("protein"), "{}", r[1]);
+        assert_eq!(r[2]["ok"], false);
+        assert!(r[2]["error"].as_str().unwrap().contains("revComp"), "{}", r[2]);
+        assert_eq!(r[3]["ok"], true);
+        assert_eq!(r[3]["sequence"], "GCAT");
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_all_items_failed_is_error() {
+        let server = test_handler();
+        let req = convert_req(vec![
+            ConvertItem {
+                sequence: Some("MVS".to_string()),
+                from: Some("protein".to_string()),
+                to: Some("protein".to_string()),
+                ..Default::default()
+            },
+            ConvertItem {
+                sequence: Some("ATGN".to_string()),
+                from: Some("dna".to_string()),
+                to: Some("rna".to_string()),
+                ..Default::default()
+            },
+        ]);
+        let err = match server.convert_sequence(Parameters(req)).await {
+            Err(e) => e,
+            Ok(v) => panic!("expected all-failed error, got {}", v.0),
+        };
+        assert!(err.message.contains("all 2 item(s) failed"), "{}", err.message);
     }
 
     // ------------------------------------------------------------------
@@ -7545,15 +8048,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optimize_cds_project_mode_rejects_protein_project() {
+    async fn convert_sequence_project_mode_rejects_protein_project() {
         let server = handler_with_project(protein_test_project()).await;
-        let req = OptimizeCdsRequest {
+        let req = convert_req(vec![ConvertItem {
             project_id: Some("prot".to_string()),
             feature_id: Some("f1".to_string()),
-            species: "e_coli".to_string(),
+            species: Some("e_coli".to_string()),
             ..Default::default()
-        };
-        let err = match server.optimize_cds(Parameters(req)).await {
+        }]);
+        let err = match server.convert_sequence(Parameters(req)).await {
             Err(e) => e,
             Ok(_) => panic!("expected protein project-mode rejection"),
         };
@@ -9709,7 +10212,7 @@ mod tests {
         // A protein .gpt as replacement_path for a DNA project is refused.
         let gpt_path = std::env::temp_dir()
             .join(format!("libregene-mcp-repl-{}.gpt", std::process::id()));
-        write_optimization_output(gpt_path.to_str().unwrap(), None, "MVS*", None, None).unwrap();
+        write_convert_output(gpt_path.to_str().unwrap(), "MVS*", "protein", None, None).unwrap();
         let out = server
             .edit_sequence(Parameters(EditSequenceRequest {
                 project_id: "edit_test".to_string(),
@@ -9782,38 +10285,40 @@ mod tests {
         );
     }
 
-    /// optimize_cds's output_path follows the save_file overwrite rule: an
-    /// existing target needs an explicit overwrite flag.
+    /// convert_sequence's output_path follows the save_file overwrite rule:
+    /// an existing target needs an explicit overwrite flag.
     #[tokio::test]
-    async fn optimize_cds_output_path_requires_overwrite() {
+    async fn convert_sequence_output_path_requires_overwrite() {
         let server = test_handler();
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-opt-overwrite-{}.gbk", std::process::id()));
         std::fs::write(&out_path, "placeholder").unwrap();
 
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             sequence: Some("ATGGTGAGCTAA".to_string()),
             output_path: Some(out_path.to_string_lossy().into_owned()),
             ..Default::default()
-        };
+        }]);
         let err = server
-            .optimize_cds(Parameters(req))
+            .convert_sequence(Parameters(req))
             .await
             .err()
             .expect("existing output_path without overwrite must fail");
         assert!(err.message.contains("overwrite"), "{err}");
 
-        let req = OptimizeCdsRequest {
-            species: "e_coli".to_string(),
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
             sequence: Some("ATGGTGAGCTAA".to_string()),
             output_path: Some(out_path.to_string_lossy().into_owned()),
             overwrite: Some(true),
             ..Default::default()
-        };
-        let out = server.optimize_cds(Parameters(req)).await.unwrap();
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
         assert_eq!(out.0["ok"], true, "{}", out.0);
-        assert_eq!(out.0["outputPath"], out_path.to_str().unwrap(), "{}", out.0);
+        let v = &out.0["results"][0];
+        assert_eq!(v["ok"], true, "{}", v);
+        assert_eq!(v["path"], out_path.to_str().unwrap(), "{}", v);
         std::fs::remove_file(&out_path).ok();
     }
 
@@ -10124,18 +10629,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optimize_cds_project_mode_rejects_output_path_and_rna() {
+    async fn convert_sequence_project_mode_rejects_output_path_and_rna() {
         let mut p = dna_test_project();
         p.features = vec![feature("f1", "cds", 10, 60, "+")];
         let server = handler_with_project(p).await;
         let err = match server
-            .optimize_cds(Parameters(OptimizeCdsRequest {
+            .convert_sequence(Parameters(convert_req(vec![ConvertItem {
                 project_id: Some("feat".to_string()),
                 feature_id: Some("f1".to_string()),
-                species: "e_coli".to_string(),
+                species: Some("e_coli".to_string()),
                 output_path: Some("/tmp/libregene-should-not-write.gbk".to_string()),
                 ..Default::default()
-            }))
+            }])))
             .await
         {
             Err(e) => e,
@@ -10147,12 +10652,12 @@ mod tests {
         // RNA projects have no coding DNA to re-encode either.
         let server = handler_with_project(rna_test_project()).await;
         let err = match server
-            .optimize_cds(Parameters(OptimizeCdsRequest {
+            .convert_sequence(Parameters(convert_req(vec![ConvertItem {
                 project_id: Some("rna".to_string()),
                 feature_id: Some("f1".to_string()),
-                species: "e_coli".to_string(),
+                species: Some("e_coli".to_string()),
                 ..Default::default()
-            }))
+            }])))
             .await
         {
             Err(e) => e,

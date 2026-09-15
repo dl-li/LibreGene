@@ -260,7 +260,7 @@ export default function ProjectWorkspace({
     translationSel: null,
   });
   const undoVersionRef = useRef(0);
-  const [isDirty, setIsDirty] = useState(false);
+  const [isDirty, setIsDirty] = useState(initialData?.dirty === true);
   const isDirtyRef = useRef(false);
   const baselineSequenceRef = useRef(initialData?.sequence ?? '');
 
@@ -294,6 +294,7 @@ export default function ProjectWorkspace({
         selEnd: null,
       });
       baselineSequenceRef.current = initialData.sequence;
+      setIsDirty(initialData.dirty === true);
       return;
     }
     let cancelled = false;
@@ -325,7 +326,7 @@ export default function ProjectWorkspace({
             selEnd: null,
           });
           baselineSequenceRef.current = data.sequence;
-          setIsDirty(false);
+          setIsDirty(data.dirty === true);
         }
       } catch {
         // initial load failed; workspace stays on welcome/empty data
@@ -469,13 +470,16 @@ export default function ProjectWorkspace({
     [showFeatures, features],
   );
   const mapName = useMemo(() => {
+    // Unsaved in-memory projects carry the user-entered name in the project
+    // list; file-backed projects derive the name from the file stem.
+    if (projectName && projectName !== projectId) return projectName;
     return projectId
       .split('/')
       .pop()
       .split('\\')
       .pop()
       .replace(/\.[^.]+$/, '');
-  }, [projectId]);
+  }, [projectId, projectName]);
   const editorPrimers = useMemo(
     () => (isDna && showPrimers ? primers : EMPTY_ARRAY),
     [isDna, showPrimers, primers],
@@ -1393,8 +1397,12 @@ export default function ProjectWorkspace({
         setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
         if (data.projects) onProjectsSync(data.projects);
-        // Accurate dirty check: undo to saved state = not dirty
-        setIsDirty(snapshot.sequence !== baselineSequenceRef.current);
+        // Accurate dirty check: undo to saved state = not dirty. A
+        // never-saved `untitled-*` project has no on-disk state to undo back
+        // to, so it stays dirty regardless.
+        setIsDirty(
+          projectId.startsWith('untitled-') || snapshot.sequence !== baselineSequenceRef.current,
+        );
       } else {
         // Re-fetch to recover
         try {
@@ -1413,7 +1421,7 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('undo error:', e);
     }
-  }, [onProjectsSync]);
+  }, [onProjectsSync, projectId]);
 
   // --- Redo ---
   const handleRedo = useCallback(async () => {
@@ -1439,8 +1447,11 @@ export default function ProjectWorkspace({
         setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
         if (data.projects) onProjectsSync(data.projects);
-        // Accurate dirty check: redo back to saved state = not dirty
-        setIsDirty(snapshot.sequence !== baselineSequenceRef.current);
+        // Accurate dirty check: redo back to saved state = not dirty (a
+        // never-saved `untitled-*` project stays dirty regardless)
+        setIsDirty(
+          projectId.startsWith('untitled-') || snapshot.sequence !== baselineSequenceRef.current,
+        );
       } else {
         try {
           const refresh = await getProject('all');
@@ -1458,7 +1469,7 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('redo error:', e);
     }
-  }, [onProjectsSync]);
+  }, [onProjectsSync, projectId]);
 
   // --- Save As (defined before Save because Save may reference it) ---
   const handleSaveAs = useCallback(async () => {
