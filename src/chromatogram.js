@@ -55,8 +55,11 @@ export function traceRangeMax(chrom, from, to) {
 // Build an SVG polyline path for one channel over the anchors
 // [{ x, q }] (pixel x, base query index, ascending in x). Trace samples are
 // linearly interpolated between consecutive peak positions so each base's
-// peak lands on its own pixel column. Consecutive anchors farther apart than
-// `maxAnchorGap` px (read gap / deletion) break the polyline.
+// peak lands on its own pixel column. The polyline breaks where the read is
+// discontinuous with the template: deletions (consecutive anchors farther
+// apart than `maxAnchorGap` px) and insertions / circular join wraps (query
+// index not advancing by exactly 1). Plain matches and mismatches stay
+// connected.
 export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnchorGap = 18) {
   const trace = chrom[channelKey];
   const peaks = chrom.peakLocations;
@@ -82,7 +85,7 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnc
       continue;
     }
     const prev = anchors[i - 1];
-    if (a.x - prev.x > maxAnchorGap) {
+    if (a.x - prev.x > maxAnchorGap || a.q - prev.q !== 1) {
       open = false;
       emitPoint(a.x, peakA); // start a new subpath at this base's peak
       continue;
