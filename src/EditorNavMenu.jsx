@@ -338,6 +338,15 @@ export default function EditorNavMenu({
               </DropdownMenuItem>
             </>
           )}
+          {/* SnapGene history snapshots (project from a .dna file) */}
+          {onOpenSnapshots && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onOpenSnapshots}>
+                <History /> History
+              </DropdownMenuItem>
+            </>
+          )}
         </NavMenu>
 
         {/* Features: left click toggles visibility, right click opens menu */}
@@ -541,19 +550,6 @@ export default function EditorNavMenu({
               <MapIcon /> Examine Map
             </DropdownMenuItem>
           </NavMenu>
-        )}
-
-        {/* SnapGene history snapshots (DNA from a .dna file): opens the list */}
-        {isDna && onOpenSnapshots && (
-          <button
-            type="button"
-            onClick={onOpenSnapshots}
-            className={NAV_BUTTON_CLASS}
-            title="SnapGene history snapshots"
-          >
-            <History className="size-4" />
-            <span>Snapshots</span>
-          </button>
         )}
 
         {/* RNA Folding (RNA only): left click toggles the background, right click opens menu */}
