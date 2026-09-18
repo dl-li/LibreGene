@@ -31,6 +31,7 @@ import {
   Map as MapIcon,
   Circle,
   Minus,
+  Triangle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -72,11 +73,12 @@ const NAV_BUTTON_CLASS =
 // the menu on left pointerdown by default — preventDefault() there opts out.
 function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children }) {
   const [open, setOpen] = useState(false);
+  const pressWasOpenRef = useRef(false);
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          className={NAV_BUTTON_CLASS}
+          className={cn(NAV_BUTTON_CLASS, 'group')}
           type="button"
           onPointerDown={(e) => {
             if (e.button === 0 && onLeftClick) e.preventDefault();
@@ -87,7 +89,55 @@ function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children })
             setOpen(true);
           }}
         >
-          <Icon className="size-4" />
+          <span className="relative -ml-1.5 flex items-center justify-center">
+            <Icon
+              className={cn(
+                'size-4 transition-opacity',
+                open ? 'opacity-0' : 'group-hover:opacity-0',
+              )}
+            />
+            {/* Menu-affordance disc: appears on button hover (hollow caret),
+                solid caret on disc hover, flipped while the menu is open. */}
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label={`Open ${label} menu`}
+              className={cn(
+                'group/caret absolute -inset-1 flex cursor-pointer items-center justify-center rounded-full text-teal-700 transition-opacity dark:text-teal-400',
+                open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+              )}
+              onPointerDown={(e) => {
+                pressWasOpenRef.current = open;
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Radix closes the open menu on this same pointerdown (capture
+                // phase, unstoppable) — don't reopen it on the following click.
+                if (!pressWasOpenRef.current) setOpen(true);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(true);
+              }}
+            >
+              <Triangle
+                strokeWidth={3}
+                className={cn(
+                  'size-3 transition-transform duration-150 group-hover/caret:hidden',
+                  open && 'rotate-180',
+                )}
+              />
+              <Triangle
+                strokeWidth={3}
+                className={cn(
+                  'hidden size-3 fill-current transition-transform duration-150 group-hover/caret:block',
+                  open && 'rotate-180',
+                )}
+              />
+            </span>
+          </span>
           <span>{label}</span>
         </button>
       </DropdownMenuTrigger>
