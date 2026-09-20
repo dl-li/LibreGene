@@ -143,3 +143,5 @@ Copyright (C) 2025 dl-li
 ## 致谢
 
 感谢本项目贡献者 [liu1568075](https://github.com/liu1568075) 和 [Masterchiefm](https://github.com/Masterchiefm)。
+
+同时感谢本项目参考的众多优秀开源工具，包括 [pLannotate](https://github.com/mmcguffi/pLannotate)、[pydna](https://github.com/pydna-group/pydna)、[DNA Chisel](https://github.com/Edinburgh-Genome-Foundry/DnaChisel)、[Biopython](https://biopython.org)、[RibossFold](https://github.com/mirditalab/RibossFold) 等。

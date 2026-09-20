@@ -143,3 +143,5 @@ Copyright (C) 2025 dl-li
 ## Acknowledgements
 
 Thanks to our contributors [liu1568075](https://github.com/liu1568075) and [Masterchiefm](https://github.com/Masterchiefm).
+
+This project also builds on many great open-source tools, including [pLannotate](https://github.com/mmcguffi/pLannotate), [pydna](https://github.com/pydna-group/pydna), [DNA Chisel](https://github.com/Edinburgh-Genome-Foundry/DnaChisel), [Biopython](https://biopython.org) and [RibossFold](https://github.com/mirditalab/RibossFold).
