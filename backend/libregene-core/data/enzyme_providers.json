@@ -108,7 +108,7 @@
        "workTemp": "37",
        "heatInactivation": "80",
        "methylation": "CpG",
-       "starActivity": "50% in r2.1"
+       "starActivity": "in r2.1"
       }
      ]
     },
@@ -220,7 +220,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "dcm; CpG",
-       "starActivity": "75% in r2.1"
+       "starActivity": "in r2.1"
       }
      ]
     },
@@ -1298,7 +1298,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "65",
-       "starActivity": "50% in r2.1"
+       "starActivity": "in r2.1"
       }
      ]
     },
@@ -1644,7 +1644,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "No",
-       "starActivity": "75% in r1.1; 100% in r2.1; 100% in rCutSmart"
+       "starActivity": "in r1.1, r2.1, rCutSmart"
       },
       {
        "name": "BamHI-HF",
@@ -2023,7 +2023,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "CpG",
-       "starActivity": "100% in r1.1; 100% in r2.1; 100% in rCutSmart"
+       "starActivity": "in r1.1, r2.1, rCutSmart"
       }
      ]
     }
@@ -2057,7 +2057,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "dam; CpG",
-       "starActivity": "75% in r2.1; 50% in rCutSmart"
+       "starActivity": "in r2.1, rCutSmart"
       }
      ]
     }
@@ -2662,7 +2662,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "65",
-       "starActivity": "100% in rCutSmart"
+       "starActivity": "in rCutSmart"
       }
      ]
     }
@@ -2850,7 +2850,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "65",
-       "starActivity": "100% in rCutSmart"
+       "starActivity": "in rCutSmart"
       }
      ]
     }
@@ -2956,7 +2956,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "65",
-       "starActivity": "50% in r1.1; 50% in r3.1"
+       "starActivity": "in r1.1, r3.1"
       }
      ]
     }
@@ -3131,7 +3131,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -3241,7 +3241,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "No",
-       "starActivity": "50% in r1.1; 100% in r2.1"
+       "starActivity": "in r1.1, r2.1"
       }
      ]
     }
@@ -3765,7 +3765,7 @@
        "workTemp": "55",
        "heatInactivation": "65",
        "methylation": "CpG",
-       "starActivity": "50% in r2.1"
+       "starActivity": "in r2.1"
       },
       {
        "name": "BsiWI-HF",
@@ -3804,7 +3804,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -3934,7 +3934,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -4465,7 +4465,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "65",
-       "starActivity": "50% in r2.1"
+       "starActivity": "in r2.1"
       }
      ]
     }
@@ -4523,7 +4523,7 @@
        ],
        "workTemp": "50",
        "heatInactivation": "80",
-       "starActivity": "100% in r1.1; 100% in r2.1; 100% in rCutSmart"
+       "starActivity": "in r1.1, r2.1, rCutSmart"
       }
      ]
     },
@@ -4538,7 +4538,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -4563,7 +4563,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -5963,7 +5963,7 @@
        ],
        "workTemp": "25",
        "heatInactivation": "No",
-       "starActivity": "100% in r2.1; 75% in rCutSmart"
+       "starActivity": "in r2.1, rCutSmart"
       }
      ]
     }
@@ -6137,7 +6137,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "dam",
-       "starActivity": "100% in r3.1"
+       "starActivity": "in r3.1"
       }
      ]
     },
@@ -7050,7 +7050,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "CpG",
-       "starActivity": "100% in r2.1; 50% in rCutSmart"
+       "starActivity": "in r2.1, rCutSmart"
       },
       {
        "name": "EcoRI-HF",
@@ -7114,7 +7114,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -7329,7 +7329,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -7883,7 +7883,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "CpG",
-       "starActivity": "100% in rCutSmart"
+       "starActivity": "in rCutSmart"
       }
      ]
     }
@@ -8359,7 +8359,7 @@
        "workTemp": "37",
        "heatInactivation": "No",
        "methylation": "CpG",
-       "starActivity": "75% in r2.1"
+       "starActivity": "in r2.1"
       }
      ]
     },
@@ -9274,7 +9274,7 @@
        "workTemp": "37",
        "heatInactivation": "65",
        "methylation": "dam",
-       "starActivity": "100% in r1.1"
+       "starActivity": "in r1.1"
       }
      ]
     },
@@ -11194,7 +11194,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "80",
-       "starActivity": "50% in rCutSmart"
+       "starActivity": "in rCutSmart"
       }
      ]
     },
@@ -11927,7 +11927,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "80",
-       "starActivity": "50% in rCutSmart"
+       "starActivity": "in rCutSmart"
       },
       {
        "name": "PstI-HF",
@@ -12180,7 +12180,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "No",
-       "starActivity": "100% in rCutSmart"
+       "starActivity": "in rCutSmart"
       },
       {
        "name": "PvuII-HF",
@@ -13353,7 +13353,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -13618,7 +13618,7 @@
        "workTemp": "37",
        "heatInactivation": "80",
        "methylation": "CpG",
-       "starActivity": "50% in r1.1"
+       "starActivity": "in r1.1"
       }
      ]
     },
@@ -14589,7 +14589,7 @@
        "workTemp": "75",
        "heatInactivation": "No",
        "methylation": "CpG",
-       "starActivity": "50% in r1.1; 75% in r2.1; 50% in r3.1"
+       "starActivity": "in r1.1, r2.1, r3.1"
       }
      ]
     }
@@ -14906,7 +14906,7 @@
        ],
        "workTemp": "37",
        "heatInactivation": "65",
-       "starActivity": "100% in rCutSmart"
+       "starActivity": "in rCutSmart"
       }
      ]
     },
@@ -15009,7 +15009,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -15393,7 +15393,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -15492,7 +15492,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -15763,7 +15763,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
@@ -15827,7 +15827,7 @@
         },
         {
          "name": "Thermo FastDigest Buffer",
-         "activity": "专用缓冲液，不兼容其他"
+         "activity": "N/A (dedicated buffer)"
         },
         {
          "name": "NEB rCutSmart Buffer",
