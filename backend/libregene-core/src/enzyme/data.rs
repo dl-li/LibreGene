@@ -59,11 +59,12 @@ pub struct BufferActivity {
     pub activity: String,
 }
 
-/// One supplier's product data for an enzyme. All fields optional in the
+/// One variant's product data under a supplier. All fields optional in the
 /// source JSON (e.g. some entries lack a catalog number).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProviderInfo {
+pub struct VariantInfo {
+    pub name: String,
     #[serde(default)]
     pub buffers: Vec<BufferActivity>,
     #[serde(default)]
@@ -76,6 +77,15 @@ pub struct ProviderInfo {
     pub star_activity: String,
     #[serde(default)]
     pub catalog: String,
+}
+
+/// One supplier's product data for an enzyme: per-variant entries (e.g.
+/// BamHI vs BamHI-HF differ in buffer compatibility).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    #[serde(default)]
+    pub variants: Vec<VariantInfo>,
 }
 
 /// Provider data for a main-DB enzyme, keyed by DB enzyme name.
