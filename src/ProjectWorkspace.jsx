@@ -1862,7 +1862,7 @@ export default function ProjectWorkspace({
           enzymeProvider={enzymeProvider}
           onEnzymeProviderChange={onEnzymeProviderChange}
           projectEnzymes={enzymes}
-          plasmidLength={sequence.length}
+          plasmidLength={sequence?.length ?? 0}
         />
       )}
 
