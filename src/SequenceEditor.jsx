@@ -29,6 +29,8 @@ import { DESIGN_MODES } from './plugins/primerDesign';
 import { computePrimerAlignment, computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
 import { TRACE_CHANNELS, traceRangeMax, buildTracePath, buildColumnQueryMap } from './chromatogram';
 import { getRelatedEnzymes } from './enzymeRelated';
+import EnzymeDetailDialog from './EnzymeDetailDialog';
+import { loadProviderData, buildProviderIndex } from './enzymeProviders';
 import { CircularMap, LinearMap } from './MapView';
 import FornaView from './plugins/rnaFold/FornaView';
 import useRnaFold, { MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
@@ -802,6 +804,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // sequence. Guarded by exact selStart/selEnd equality at delete time.
   const featureSelRef = useRef(null);
   const [featureInfoFeature, setFeatureInfoFeature] = useState(null); // for FeatureInfoDialog (edit mode)
+  const [enzymeDetailRecord, setEnzymeDetailRecord] = useState(null); // for EnzymeDetailDialog
   const [createFeatureLoc, setCreateFeatureLoc] = useState(null); // for FeatureInfoDialog (create mode, null=closed, string=location)
   const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog (edit mode)
   const [createPrimerSeq, setCreatePrimerSeq] = useState(null); // for PrimerAlignmentDialog (create mode, null=closed, '' or string=sequence)
@@ -2617,6 +2620,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
       showContextMenu(e.clientX, e.clientY, items);
     },
     [enzymes, isDna, copySelection, loadEnzymeDb, selectEnzymeSite],
+  );
+
+  const providerIndexRef = useRef(null);
+  const openEnzymeDetail = useCallback(
+    async (e, l) => {
+      e.stopPropagation();
+      const enzyme = enzymes.find((x) => x.id === l.groupId);
+      if (enzyme) selectEnzymeSite(enzyme, l.id);
+      const db = await loadEnzymeDb();
+      const rec = db.find((r) => r.name.toLowerCase() === l.name.toLowerCase());
+      if (!rec) return;
+      if (!providerIndexRef.current) {
+        providerIndexRef.current = buildProviderIndex(await loadProviderData());
+      }
+      setEnzymeDetailRecord(rec);
+    },
+    [enzymes, loadEnzymeDb, selectEnzymeSite],
   );
 
   const copyAmplimer = useCallback(() => {
@@ -4902,6 +4922,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         <g
           key={l.id}
           onContextMenu={(e) => openEnzymeMenu(e, l)}
+          onDoubleClick={(e) => openEnzymeDetail(e, l)}
           onMouseEnter={() => {
             if (enzymeDragRef.current?.active) {
               // Regular enzyme can't drag to cut-twice enzyme
@@ -5110,6 +5131,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     clearCursorTimer,
     cleanSeq,
     openEnzymeMenu,
+    openEnzymeDetail,
   ]);
 
   const renderedEnzymeOverlay = useMemo(() => {
@@ -6067,8 +6089,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           )}
         </div>
         <FeatureInfoDialog
-          feature={featureInfoFeature}
-          open={featureInfoFeature !== null || createFeatureLoc !== null}
+          feature={featureInfoFeature}          open={featureInfoFeature !== null || createFeatureLoc !== null}
           onOpenChange={(open) => {
             if (!open) {
               setFeatureInfoFeature(null);
@@ -6085,6 +6106,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onDeleteFeature={onFeatureDelete}
           features={features}
           moleculeType={moleculeType}
+        />
+        <EnzymeDetailDialog
+          open={enzymeDetailRecord !== null}
+          onOpenChange={(open) => {
+            if (!open) setEnzymeDetailRecord(null);
+          }}
+          record={enzymeDetailRecord}
+          dbRecords={enzymeDbRef.current}
+          providerIndex={providerIndexRef.current}
         />
         <PrimerAlignmentDialog
           primer={primerAlignmentPrimer}
