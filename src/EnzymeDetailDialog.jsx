@@ -139,11 +139,11 @@ export default function EnzymeDetailDialog({
           <Field label="Cut Notation">
             <MonoChip>{record.elucidate || '—'}</MonoChip>
           </Field>
-          <Field label="Cut Type">{CUT_TYPE_LABEL[record.cutType] || record.cutType || '—'}</Field>
-          <Field label="Overhang">
-            {record.overhangLen != null && record.overhangLen !== 0
-              ? `${record.overhangLen} nt`
-              : '—'}
+          <Field label="Cut Type">
+            {CUT_TYPE_LABEL[record.cutType] || record.cutType || '—'}
+            {record.overhangLen != null &&
+              record.overhangLen !== 0 &&
+              ` (${Math.abs(record.overhangLen)} nt)`}
           </Field>
           {cutSites !== null && (
             <Field label={`Cut Sites (${cutSites.length})`}>
