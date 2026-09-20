@@ -13,7 +13,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2064"
     }
    }
@@ -24,7 +24,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -60,7 +60,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1724"
     }
    }
@@ -95,7 +95,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -125,7 +125,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0994"
     }
    }
@@ -193,7 +193,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0904"
     }
    }
@@ -227,7 +227,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -278,7 +278,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -367,7 +367,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1234"
     }
    }
@@ -401,7 +401,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -452,7 +452,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -533,7 +533,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -596,7 +596,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1954"
     }
    }
@@ -659,7 +659,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -689,7 +689,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0014"
     }
    }
@@ -707,7 +707,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 20 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0024"
     }
    }
@@ -725,7 +725,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0034"
     }
    }
@@ -742,7 +742,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0044"
     }
    }
@@ -832,7 +832,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -862,7 +862,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1414"
     }
    }
@@ -896,7 +896,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -948,7 +948,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "12.5"
       },
       {
@@ -1029,7 +1029,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1080,7 +1080,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1160,7 +1160,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1212,7 +1212,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1263,7 +1263,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1371,7 +1371,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1401,7 +1401,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0054/5"
     }
    }
@@ -1491,7 +1491,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1542,7 +1542,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1735,7 +1735,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1766,7 +1766,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 20 min",
      "methylation": "CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0724"
     }
    }
@@ -1783,7 +1783,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 20 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0064"
     }
    }
@@ -1829,7 +1829,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1254"
     }
    }
@@ -1874,7 +1874,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1164"
     }
    }
@@ -1892,7 +1892,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD2184"
     }
    }
@@ -1954,7 +1954,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -1984,7 +1984,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:2h",
+     "starActivity": "Star-activity-free up to 2h",
      "catalog": "FD0074"
     }
    }
@@ -2017,7 +2017,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -2047,7 +2047,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0084"
     }
    }
@@ -2092,7 +2092,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1424"
     }
    }
@@ -2165,7 +2165,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2124"
     }
    }
@@ -2211,7 +2211,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 20 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1434"
     }
    }
@@ -2224,7 +2224,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -2255,7 +2255,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1014"
     }
    }
@@ -2273,7 +2273,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1314"
     }
    }
@@ -2341,7 +2341,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1184"
     }
    }
@@ -2359,7 +2359,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0094"
     }
    }
@@ -2508,7 +2508,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -2626,7 +2626,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1084"
     }
    }
@@ -2644,7 +2644,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0874"
     }
    }
@@ -2662,7 +2662,7 @@
      "workTemp": "65",
      "heatInactivation": "No",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1714"
     }
    }
@@ -2679,7 +2679,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1204"
     }
    }
@@ -2697,7 +2697,7 @@
      "workTemp": "55",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1264"
     }
    }
@@ -2715,7 +2715,7 @@
      "workTemp": "55",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1404"
     }
    }
@@ -2733,7 +2733,7 @@
      "workTemp": "65",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0884"
     }
    }
@@ -2778,7 +2778,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 15 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1444"
     }
    }
@@ -2796,7 +2796,7 @@
      "workTemp": "65",
      "heatInactivation": "80°C, 15 min",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1454"
     }
    }
@@ -2864,7 +2864,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -2895,7 +2895,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0924"
     }
    }
@@ -2912,7 +2912,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 15 min",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0894"
     }
    }
@@ -2929,7 +2929,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1004"
     }
    }
@@ -2946,7 +2946,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1464"
     }
    }
@@ -3038,7 +3038,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": ""
       },
       {
@@ -3148,7 +3148,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -3227,7 +3227,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -3289,7 +3289,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0124"
     }
    }
@@ -3306,7 +3306,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0134"
     }
    }
@@ -3351,7 +3351,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0934"
     }
    }
@@ -3369,7 +3369,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0784"
     }
    }
@@ -3458,7 +3458,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "<10"
       },
       {
@@ -3510,7 +3510,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -3545,7 +3545,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1154"
     }
    }
@@ -3591,7 +3591,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD2044"
     }
    }
@@ -3627,7 +3627,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": ""
       },
       {
@@ -3663,7 +3663,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0834"
     }
    }
@@ -3724,7 +3724,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "50"
       },
       {
@@ -3807,7 +3807,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -3926,7 +3926,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0704"
     }
    }
@@ -3988,7 +3988,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4041,7 +4041,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4148,7 +4148,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "25"
       },
       {
@@ -4178,7 +4178,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:0.5h",
+     "starActivity": "Star-activity-free up to 0.5h",
      "catalog": "FD1024"
     }
    }
@@ -4252,7 +4252,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 15 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0144"
     }
    }
@@ -4297,7 +4297,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0154"
     }
    }
@@ -4453,7 +4453,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1744"
     }
    }
@@ -4498,7 +4498,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1394"
     }
    }
@@ -4515,7 +4515,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:2h",
+     "starActivity": "Star-activity-free up to 2h",
      "catalog": "FD0184"
     }
    }
@@ -4532,7 +4532,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0194"
     }
    }
@@ -4545,7 +4545,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4597,7 +4597,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4632,7 +4632,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0744"
     }
    }
@@ -4649,7 +4649,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1904"
     }
    }
@@ -4667,7 +4667,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2114"
     }
    }
@@ -4685,7 +4685,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0214"
     }
    }
@@ -4829,7 +4829,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4880,7 +4880,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4911,7 +4911,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "Does not cut dam– DNA",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1704"
     }
    }
@@ -4946,7 +4946,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -4997,7 +4997,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5028,7 +5028,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0224"
     }
    }
@@ -5064,7 +5064,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5174,7 +5174,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5209,7 +5209,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0234"
     }
    }
@@ -5227,7 +5227,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0244"
     }
    }
@@ -5261,7 +5261,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5325,7 +5325,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0254"
     }
    }
@@ -5342,7 +5342,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0404"
     }
    }
@@ -5360,7 +5360,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0414"
     }
    }
@@ -5378,7 +5378,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0424"
     }
    }
@@ -5395,7 +5395,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0294"
     }
    }
@@ -5413,7 +5413,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0304"
     }
    }
@@ -5431,7 +5431,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 20 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0314"
     }
    }
@@ -5448,7 +5448,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0324"
     }
    }
@@ -5465,7 +5465,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0334"
     }
    }
@@ -5511,7 +5511,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0344"
     }
    }
@@ -5529,7 +5529,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0364"
     }
    }
@@ -5547,7 +5547,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0374"
     }
    }
@@ -5565,7 +5565,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0384"
     }
    }
@@ -5583,7 +5583,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:2h",
+     "starActivity": "Star-activity-free up to 2h",
      "catalog": "FD0394"
     }
    }
@@ -5651,7 +5651,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0264"
     }
    }
@@ -5689,7 +5689,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5719,7 +5719,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5min",
-     "starActivity": "最长无星号孵育:0.5h",
+     "starActivity": "Star-activity-free up to 0.5h",
      "catalog": "FD0274/5"
     }
    }
@@ -5755,7 +5755,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5790,7 +5790,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0444"
     }
    }
@@ -5827,7 +5827,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -5856,7 +5856,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0454"
     }
    }
@@ -5873,7 +5873,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1814"
     }
    }
@@ -5990,7 +5990,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6021,7 +6021,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD2144"
     }
    }
@@ -6067,7 +6067,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1664"
     }
    }
@@ -6085,7 +6085,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1764"
     }
    }
@@ -6146,7 +6146,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6182,7 +6182,7 @@
      "workTemp": "30",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0464"
     }
    }
@@ -6243,7 +6243,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6324,7 +6324,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6354,7 +6354,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1854"
     }
    }
@@ -6371,7 +6371,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0474"
     }
    }
@@ -6389,7 +6389,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1834"
     }
    }
@@ -6407,7 +6407,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0484"
     }
    }
@@ -6441,7 +6441,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6499,7 +6499,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0494"
     }
    }
@@ -6534,7 +6534,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6564,7 +6564,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 10 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0504/5"
     }
    }
@@ -6598,7 +6598,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6629,7 +6629,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0804"
     }
    }
@@ -6664,7 +6664,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6716,7 +6716,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -6746,7 +6746,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0514"
     }
    }
@@ -6875,7 +6875,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1574"
     }
    }
@@ -7030,7 +7030,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1734"
     }
    }
@@ -7048,7 +7048,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1884"
     }
    }
@@ -7082,7 +7082,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7117,7 +7117,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2164"
     }
    }
@@ -7135,7 +7135,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0534"
     }
    }
@@ -7170,7 +7170,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7200,7 +7200,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0524"
     }
    }
@@ -7217,7 +7217,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
-     "starActivity": "最长无星号孵育:0.5h",
+     "starActivity": "Star-activity-free up to 0.5h",
      "catalog": "FD1034"
     }
    }
@@ -7235,7 +7235,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1934"
     }
    }
@@ -7280,7 +7280,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:0.5h",
+     "starActivity": "Star-activity-free up to 0.5h",
      "catalog": "FD2074"
     }
    }
@@ -7298,7 +7298,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2084"
     }
    }
@@ -7315,7 +7315,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1274"
     }
    }
@@ -7349,7 +7349,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7379,7 +7379,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 15 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0814"
     }
    }
@@ -7420,7 +7420,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0824"
     }
    }
@@ -7466,7 +7466,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 20 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1214"
     }
    }
@@ -7529,7 +7529,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7559,7 +7559,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0564"
     }
    }
@@ -7647,7 +7647,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7678,7 +7678,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1074"
     }
    }
@@ -7696,7 +7696,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 15 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0734"
     }
    }
@@ -7714,7 +7714,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2024"
     }
    }
@@ -7748,7 +7748,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7799,7 +7799,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7904,7 +7904,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -7935,7 +7935,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0544"
     }
    }
@@ -7980,7 +7980,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1344"
     }
    }
@@ -7993,7 +7993,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8023,7 +8023,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0754"
     }
    }
@@ -8041,7 +8041,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0964"
     }
    }
@@ -8059,7 +8059,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0554"
     }
    }
@@ -8206,7 +8206,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8236,7 +8236,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 15 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0574/5"
     }
    }
@@ -8269,7 +8269,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8299,7 +8299,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0584/5"
     }
    }
@@ -8364,7 +8364,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8394,7 +8394,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0974"
     }
    }
@@ -8493,7 +8493,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1514"
     }
    }
@@ -8529,7 +8529,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8558,7 +8558,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0594/5"
     }
    }
@@ -8594,7 +8594,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8629,7 +8629,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 15 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1224"
     }
    }
@@ -8664,7 +8664,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8725,7 +8725,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD1634"
     }
    }
@@ -8758,7 +8758,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -8788,7 +8788,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2204"
     }
    }
@@ -8806,7 +8806,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "Dcm; CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0604"
     }
    }
@@ -8853,7 +8853,7 @@
      ],
      "workTemp": "37\n37",
      "heatInactivation": "80°C, 5 min 65°C, 15 min",
-     "starActivity": "最长无星号孵育:0.5\n16h",
+     "starActivity": "Star-activity-free up to 0.5h–16h",
      "catalog": "FD1284\nFD1524"
     }
    }
@@ -8915,7 +8915,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "50"
       },
       {
@@ -8950,7 +8950,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1534"
     }
    }
@@ -8967,7 +8967,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1784"
     }
    }
@@ -8986,7 +8986,7 @@
      ],
      "workTemp": "37\n37",
      "heatInactivation": "65°C, 5 min 65°C, 5 min",
-     "starActivity": "最长无星号孵育:16\n16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0854\nFD1754"
     }
    }
@@ -9131,7 +9131,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9182,7 +9182,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9217,7 +9217,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD1974"
     }
    }
@@ -9251,7 +9251,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9343,7 +9343,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0944"
     }
    }
@@ -9360,7 +9360,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0764"
     }
    }
@@ -9377,7 +9377,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2224"
     }
    }
@@ -9413,7 +9413,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9523,7 +9523,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9553,7 +9553,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0614/5"
     }
    }
@@ -9571,7 +9571,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1554"
     }
    }
@@ -9589,7 +9589,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:4h",
+     "starActivity": "Star-activity-free up to 4h",
      "catalog": "FD1334"
     }
    }
@@ -9607,7 +9607,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2134"
     }
    }
@@ -9643,7 +9643,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9672,7 +9672,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0624"
     }
    }
@@ -9708,7 +9708,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9738,7 +9738,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:0.5h",
+     "starActivity": "Star-activity-free up to 0.5h",
      "catalog": "FD0634"
     }
    }
@@ -9756,7 +9756,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:4h",
+     "starActivity": "Star-activity-free up to 4h",
      "catalog": "FD2154"
     }
    }
@@ -9790,7 +9790,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9819,7 +9819,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1124"
     }
    }
@@ -9837,7 +9837,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2004"
     }
    }
@@ -9901,7 +9901,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -9931,7 +9931,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1134"
     }
    }
@@ -9965,7 +9965,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10018,7 +10018,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10048,7 +10048,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0644"
     }
    }
@@ -10081,7 +10081,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10116,7 +10116,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD2174"
     }
    }
@@ -10134,7 +10134,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1644"
     }
    }
@@ -10225,7 +10225,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10277,7 +10277,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10307,7 +10307,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0434"
     }
    }
@@ -10325,7 +10325,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1374"
     }
    }
@@ -10366,7 +10366,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10397,7 +10397,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1194"
     }
    }
@@ -10415,7 +10415,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 15 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0654"
     }
    }
@@ -10461,7 +10461,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "Dcm; CG",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD2094"
     }
    }
@@ -10550,7 +10550,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10580,7 +10580,7 @@
      ],
      "workTemp": "50",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1824"
     }
    }
@@ -10619,7 +10619,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": ""
       },
       {
@@ -10671,7 +10671,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "50"
       },
       {
@@ -10706,7 +10706,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1894"
     }
    }
@@ -10740,7 +10740,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10769,7 +10769,7 @@
      ],
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0664"
     }
    }
@@ -10787,7 +10787,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 15 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1244"
     }
    }
@@ -10849,7 +10849,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10902,7 +10902,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -10955,7 +10955,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11018,7 +11018,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:4h",
+     "starActivity": "Star-activity-free up to 4h",
      "catalog": "FD1794"
     }
    }
@@ -11031,7 +11031,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11084,7 +11084,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11114,7 +11114,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG; Dam",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD0774"
     }
    }
@@ -11148,7 +11148,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11255,7 +11255,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "<12.5"
       },
       {
@@ -11291,7 +11291,7 @@
      "workTemp": "65",
      "heatInactivation": "No",
      "methylation": "CG; Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1364"
     }
    }
@@ -11308,7 +11308,7 @@
      ],
      "workTemp": "65",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD1144"
     }
    }
@@ -11344,7 +11344,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11374,7 +11374,7 @@
      ],
      "workTemp": "65",
      "heatInactivation": "No",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0674"
     }
    }
@@ -11392,7 +11392,7 @@
      "workTemp": "65",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD1354"
     }
    }
@@ -11410,7 +11410,7 @@
      "workTemp": "65",
      "heatInactivation": "No",
      "methylation": "no effect",
-     "starActivity": "最长无星号孵育:1h",
+     "starActivity": "Star-activity-free up to 1h",
      "catalog": "FD1294"
     }
    }
@@ -11428,7 +11428,7 @@
      "workTemp": "55",
      "heatInactivation": "No",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1654"
     }
    }
@@ -11474,7 +11474,7 @@
      "workTemp": "65",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:2h",
+     "starActivity": "Star-activity-free up to 2h",
      "catalog": "FD0984"
     }
    }
@@ -11492,7 +11492,7 @@
      "workTemp": "65",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD2104"
     }
    }
@@ -11528,7 +11528,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11579,7 +11579,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11698,7 +11698,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 10 min",
      "methylation": "Dcm",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD0714"
     }
    }
@@ -11716,7 +11716,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0914"
     }
    }
@@ -11734,7 +11734,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1304"
     }
    }
@@ -11752,7 +11752,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "Dam",
-     "starActivity": "最长无星号孵育:6h",
+     "starActivity": "Star-activity-free up to 6h",
      "catalog": "FD1384"
     }
    }
@@ -11788,7 +11788,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11818,7 +11818,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 20 min",
      "methylation": "Dam",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0684/5"
     }
    }
@@ -11836,7 +11836,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1474"
     }
    }
@@ -11870,7 +11870,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11924,7 +11924,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -11954,7 +11954,7 @@
      "workTemp": "37",
      "heatInactivation": "80°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD0694/5"
     }
    }
@@ -12000,7 +12000,7 @@
      "workTemp": "37",
      "heatInactivation": "No",
      "methylation": "No effect",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1564"
     }
    }
@@ -12018,7 +12018,7 @@
      "workTemp": "37",
      "heatInactivation": "65°C, 5 min",
      "methylation": "CG",
-     "starActivity": "最长无星号孵育:16h",
+     "starActivity": "Star-activity-free up to 16h",
      "catalog": "FD1484"
     }
    }
@@ -12051,7 +12051,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -12135,7 +12135,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -12189,7 +12189,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -12243,7 +12243,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -12327,7 +12327,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -12473,7 +12473,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": "100"
       },
       {
@@ -12558,7 +12558,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": ""
       },
       {
@@ -12612,7 +12612,7 @@
     "bestenzyme": {
      "buffers": [
       {
-       "name": "百时美 CutOne Buffer",
+       "name": "CutOne Buffer",
        "activity": ""
       },
       {

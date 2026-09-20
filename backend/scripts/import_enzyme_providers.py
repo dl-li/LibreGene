@@ -93,10 +93,23 @@ def cell(v):
     return str(v).strip()
 
 
+def clean_value(key, s):
+    """Translate/normalize supplier field values to English."""
+    s = re.sub(r"百时美\s*", "", s)  # '百时美 CutOne Buffer' -> 'CutOne Buffer'
+    m = re.fullmatch(r"最长无星号孵育[:：]([\s\S]+)", s)
+    if m:
+        times = [t.strip() for t in re.split(r"[\n/]", m.group(1)) if t.strip()]
+        times = [t if t.endswith("h") else t + "h" for t in times]
+        uniq = list(dict.fromkeys(times))
+        span = uniq[0] if len(uniq) == 1 else f"{uniq[0]}\u2013{uniq[-1]}"
+        return f"Star-activity-free up to {span}"
+    return s
+
+
 def row_to_provider_info(r, idx):
     buffers = []
     for bi in range(1, 5):
-        name = cell(r[idx[f"b{bi}name"]])
+        name = clean_value("buffers", cell(r[idx[f"b{bi}name"]]))
         act = cell(r[idx[f"b{bi}act"]])
         if name:
             buffers.append({"name": name, "activity": act})
@@ -105,7 +118,7 @@ def row_to_provider_info(r, idx):
         "workTemp": cell(r[idx["temp"]]),
         "heatInactivation": cell(r[idx["inact"]]),
         "methylation": cell(r[idx["meth"]]),
-        "starActivity": cell(r[idx["star"]]),
+        "starActivity": clean_value("starActivity", cell(r[idx["star"]])),
         "catalog": cell(r[idx["cat"]]),
     }
     return {k: v for k, v in info.items() if v != "" and v != []}
