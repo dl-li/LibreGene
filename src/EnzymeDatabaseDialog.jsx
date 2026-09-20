@@ -89,7 +89,8 @@ export default function EnzymeDatabaseDialog({
   const cutTypeLabel = useCallback((e) => CUT_TYPE_LABEL[e.cutType] || e.cutType || '—', []);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-5xl max-h-[80vh] flex flex-col px-8">
         <DialogHeader>
           <DialogTitle>Enzyme Database ({records ? records.length : '…'})</DialogTitle>
@@ -212,6 +213,7 @@ export default function EnzymeDatabaseDialog({
           </div>
         </DialogFooter>
       </DialogContent>
+      </Dialog>
       <EnzymeDetailDialog
         open={!!detailRecord}
         onOpenChange={(v) => {
@@ -221,6 +223,6 @@ export default function EnzymeDatabaseDialog({
         dbRecords={records}
         providerIndex={providerIndex}
       />
-    </Dialog>
+    </>
   );
 }
