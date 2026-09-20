@@ -49,3 +49,64 @@ fn default_true() -> bool {
 pub struct EnzymeDb {
     pub enzymes: Vec<EnzymeRecord>,
 }
+
+/// Buffer compatibility entry from enzyme_providers.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BufferActivity {
+    pub name: String,
+    #[serde(default)]
+    pub activity: String,
+}
+
+/// One supplier's product data for an enzyme. All fields optional in the
+/// source JSON (e.g. some entries lack a recommended buffer or catalog no.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    #[serde(default)]
+    pub recommended_buffer: String,
+    #[serde(default)]
+    pub buffers: Vec<BufferActivity>,
+    #[serde(default)]
+    pub work_temp: String,
+    #[serde(default)]
+    pub heat_inactivation: String,
+    #[serde(default)]
+    pub methylation: String,
+    #[serde(default)]
+    pub star_activity: String,
+    #[serde(default)]
+    pub catalog: String,
+}
+
+/// Provider data for a main-DB enzyme, keyed by DB enzyme name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnzymeProviderEntry {
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, ProviderInfo>,
+}
+
+/// Enzyme that only exists in supplier catalogs (nicking/homing enzymes
+/// absent from the main DB).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderOnlyEnzyme {
+    pub name: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, ProviderInfo>,
+}
+
+/// In-memory supplier database loaded from enzyme_providers.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderData {
+    pub enzymes: std::collections::HashMap<String, EnzymeProviderEntry>,
+    #[serde(default)]
+    pub provider_only: Vec<ProviderOnlyEnzyme>,
+}

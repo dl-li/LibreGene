@@ -730,6 +730,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onToggleEnzymes,
   enzymeFilter,
   onEnzymeFilterChange,
+  enzymeProvider,
+  onEnzymeProviderChange,
   openPrimerEditorRef,
   openFeatureEditorRef,
   alignmentCacheRef,
@@ -5932,6 +5934,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToggleEnzymes={onToggleEnzymes}
           enzymeFilter={enzymeFilter}
           onEnzymeFilterChange={onEnzymeFilterChange}
+          enzymeProvider={enzymeProvider}
+          onEnzymeProviderChange={onEnzymeProviderChange}
           onSearch={handleSearch}
           searchNav={searchNav}
           openSearchRef={openSearchRef}

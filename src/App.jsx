@@ -86,6 +86,7 @@ import {
 } from './recentFiles';
 import { getMyPrimers } from './myPrimers';
 import { getMyEnzymes } from './myEnzymes';
+import { ENZYME_PROVIDER_VALUES } from './enzymeProviders';
 
 // Valid values for the persisted enzyme filter (ENZYME_FILTER_OPTIONS in
 // EditorNavMenu.jsx plus the dynamic 'myEnzymes' entry).
@@ -251,6 +252,14 @@ export default function App() {
     }
   });
   const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
+  const [enzymeProvider, setEnzymeProvider] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('enzymeProvider'));
+      return v && ENZYME_PROVIDER_VALUES.has(v) ? v : 'all';
+    } catch {
+      return 'all';
+    }
+  });
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
   const [tmParams, setTmParams] = useState({
@@ -1113,6 +1122,16 @@ export default function App() {
     }
   }, []);
 
+  const onEnzymeProviderChange = useCallback((next) => {
+    if (!ENZYME_PROVIDER_VALUES.has(next)) return;
+    setEnzymeProvider(next);
+    try {
+      localStorage.setItem('enzymeProvider', JSON.stringify(next));
+    } catch {
+      // storage may be unavailable; selection still applies in-memory
+    }
+  }, []);
+
   const workspaceProps = useMemo(
     () => ({
       backendStatus,
@@ -1131,6 +1150,8 @@ export default function App() {
       onToggleEnzymes,
       enzymeFilter,
       onEnzymeFilterChange,
+      enzymeProvider,
+      onEnzymeProviderChange,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
@@ -1161,6 +1182,8 @@ export default function App() {
       onToggleEnzymes,
       enzymeFilter,
       onEnzymeFilterChange,
+      enzymeProvider,
+      onEnzymeProviderChange,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
