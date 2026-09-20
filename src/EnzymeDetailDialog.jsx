@@ -59,7 +59,7 @@ function NameList({ items }) {
           className="shrink-0 text-xs text-teal-700 hover:underline"
           onClick={() => setOpen((v) => !v)}
         >
-          {open ? 'less' : `+${items.length - 3} more`}
+          {open ? 'less' : `show all ${items.length}`}
         </button>
       )}
     </span>
