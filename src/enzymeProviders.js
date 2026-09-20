@@ -6,7 +6,7 @@ import { getEnzymeProviders } from './tauriApi';
 export const ENZYME_PROVIDER_OPTIONS = [
   { value: 'all', label: 'All Suppliers' },
   { value: 'neb', label: 'NEB' },
-  { value: 'bestenzyme', label: '愚公·百时美 (BestEnzyme)' },
+  { value: 'bestenzyme', label: '愚公 (Yugong)' },
   { value: 'thermo', label: 'Thermo FastDigest' },
 ];
 
@@ -14,7 +14,7 @@ export const ENZYME_PROVIDER_VALUES = new Set(ENZYME_PROVIDER_OPTIONS.map((o) =>
 
 export const PROVIDER_LABEL = {
   neb: 'NEB',
-  bestenzyme: '愚公·百时美 (BestEnzyme)',
+  bestenzyme: '愚公 (Yugong)',
   thermo: 'Thermo FastDigest',
 };
 

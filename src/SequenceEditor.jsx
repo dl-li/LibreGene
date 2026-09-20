@@ -2623,6 +2623,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   );
 
   const providerIndexRef = useRef(null);
+  const [enzymeDetailCutSites, setEnzymeDetailCutSites] = useState(null);
   const openEnzymeDetail = useCallback(
     async (e, l) => {
       e.stopPropagation();
@@ -2634,6 +2635,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!providerIndexRef.current) {
         providerIndexRef.current = buildProviderIndex(await loadProviderData());
       }
+      const sites = enzymes
+        .filter((x) => x.name.toLowerCase() === l.name.toLowerCase())
+        .flatMap((x) =>
+          (x.cutPairs || [{ topCutIndex: x.cutIndex }]).map((p) => p.topCutIndex),
+        )
+        .sort((a, b) => a - b);
+      setEnzymeDetailCutSites(sites);
       setEnzymeDetailRecord(rec);
     },
     [enzymes, loadEnzymeDb, selectEnzymeSite],
@@ -6115,6 +6123,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
           record={enzymeDetailRecord}
           dbRecords={enzymeDbRef.current}
           providerIndex={providerIndexRef.current}
+          cutSites={enzymeDetailCutSites}
+          plasmidLength={cleanSeq.length}
+          currentProvider={enzymeProvider}
         />
         <PrimerAlignmentDialog
           primer={primerAlignmentPrimer}

@@ -33,6 +33,8 @@ export default function EnzymeDatabaseDialog({
   onOpenChange,
   enzymeProvider = 'all',
   onEnzymeProviderChange,
+  projectEnzymes = null,
+  plasmidLength = 0,
 }) {
   const [records, setRecords] = useState(null);
   const [error, setError] = useState('');
@@ -78,13 +80,27 @@ export default function EnzymeDatabaseDialog({
     }
     const q = query.trim().toLowerCase();
     if (!q) return out;
-    return out.filter(
-      (e) =>
+    return out.filter((e) => {
+      if (
         (e.name || '').toLowerCase().includes(q) ||
         (e.site || '').toLowerCase().includes(q) ||
-        (e.elucidate || '').toLowerCase().includes(q),
-    );
+        (e.elucidate || '').toLowerCase().includes(q)
+      )
+        return true;
+      const pEntry = findProviderEntry(providerIndex, e.name);
+      return (pEntry?.aliases || []).some((a) => a.toLowerCase().includes(q));
+    });
   }, [records, query, enzymeProvider, providerIndex]);
+
+  const detailCutSites = useMemo(() => {
+    if (!detailRecord || !projectEnzymes) return null;
+    return projectEnzymes
+      .filter((e) => e.name.toLowerCase() === detailRecord.name.toLowerCase())
+      .flatMap((e) =>
+        (e.cutPairs || [{ topCutIndex: e.cutIndex }]).map((p) => p.topCutIndex),
+      )
+      .sort((a, b) => a - b);
+  }, [detailRecord, projectEnzymes]);
 
   const cutTypeLabel = useCallback((e) => CUT_TYPE_LABEL[e.cutType] || e.cutType || '—', []);
 
@@ -222,6 +238,9 @@ export default function EnzymeDatabaseDialog({
         record={detailRecord}
         dbRecords={records}
         providerIndex={providerIndex}
+        cutSites={detailCutSites}
+        plasmidLength={plasmidLength}
+        currentProvider={enzymeProvider}
       />
     </>
   );
