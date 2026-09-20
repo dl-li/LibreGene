@@ -96,6 +96,7 @@ def cell(v):
 def clean_value(key, s):
     """Translate/normalize supplier field values to English."""
     s = re.sub(r"百时美\s*", "", s)  # '百时美 CutOne Buffer' -> 'CutOne Buffer'
+    s = s.replace("专用缓冲液，不兼容其他", "N/A (dedicated buffer)")
     m = re.fullmatch(r"最长无星号孵育[:：]([\s\S]+)", s)
     if m:
         times = [t.strip() for t in re.split(r"[\n/]", m.group(1)) if t.strip()]
@@ -103,6 +104,15 @@ def clean_value(key, s):
         uniq = list(dict.fromkeys(times))
         span = uniq[0] if len(uniq) == 1 else f"{uniq[0]}\u2013{uniq[-1]}"
         return f"Star-activity-free up to {span}"
+    if key == "starActivity" and "% in " in s:
+        # '75% in r1.1; 100% in r2.1' -> 'in r1.1, r2.1' (percentages were
+        # a data-entry error; the column lists buffers with star activity)
+        bufs = []
+        for seg in s.split(";"):
+            seg = seg.strip()
+            mm = re.fullmatch(r"\d+(?:\.\d+)?%\s+in\s+(.+)", seg)
+            bufs.append(mm.group(1).strip() if mm else seg)
+        return "in " + ", ".join(bufs)
     return s
 
 
@@ -110,7 +120,7 @@ def row_to_provider_info(r, idx):
     buffers = []
     for bi in range(1, 5):
         name = clean_value("buffers", cell(r[idx[f"b{bi}name"]]))
-        act = cell(r[idx[f"b{bi}act"]])
+        act = clean_value("activity", cell(r[idx[f"b{bi}act"]]))
         if name:
             buffers.append({"name": name, "activity": act})
     info = {
