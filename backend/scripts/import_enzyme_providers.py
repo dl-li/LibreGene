@@ -154,24 +154,31 @@ for sheet, prov in SHEET_PROVIDER.items():
         for a in display:
             if a.lower() != (canon or "").lower() and a not in entry["aliases"]:
                 entry["aliases"].append(a)
-        # merge provider info; first non-empty wins per field
-        p = entry["providers"].setdefault(prov, {})
-        for k, v in info.items():
-            if k == "buffers":
-                existing = {b["name"] for b in p.get("buffers", [])}
-                p.setdefault("buffers", [])
-                for b in v:
-                    if b["name"] not in existing:
-                        p["buffers"].append(b)
-                        existing.add(b["name"])
-            else:
-                p.setdefault(k, v)
+        # Keep each variant's supplier data separate (e.g. BamHI vs BamHI-HF
+        # have different buffer compatibilities).
+        p = entry["providers"].setdefault(prov, {"variants": {}})
+        vname = display[0]
+        if vname not in p["variants"]:
+            p["variants"][vname] = info
 
 out_enzymes = {}
 for canon, e in enzymes.items():
-    out_enzymes[canon] = {"aliases": e["aliases"], "providers": e["providers"]}
+    provs = {}
+    for pk, p in e["providers"].items():
+        variants = [{"name": vn, **vi} for vn, vi in p["variants"].items()]
+        # canonical-named variant first
+        variants.sort(key=lambda v: 0 if v["name"].lower() == canon.lower() else 1)
+        provs[pk] = {"variants": variants}
+    out_enzymes[canon] = {"aliases": e["aliases"], "providers": provs}
+def variants_of(e):
+    provs = {}
+    for pk, p in e["providers"].items():
+        provs[pk] = {"variants": [{"name": vn, **vi} for vn, vi in p["variants"].items()]}
+    return provs
+
+
 out_only = [
-    {"name": name, "aliases": e["aliases"], "providers": e["providers"]}
+    {"name": name, "aliases": e["aliases"], "providers": variants_of(e)}
     for name, e in sorted(provider_only.items())
 ]
 

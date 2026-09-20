@@ -98,12 +98,20 @@ export default function EnzymeDetailDialog({
 
   const providerKeys = PROVIDER_ORDER.filter((k) => entry?.providers?.[k]);
   const [expanded, setExpanded] = useState({});
+  const [variantSel, setVariantSel] = useState({});
   useEffect(() => {
     if (!record) return;
     const init = {};
     for (const k of PROVIDER_ORDER) init[k] = k === currentProvider;
     setExpanded(init);
-  }, [record, currentProvider]);
+    const sel = {};
+    for (const k of PROVIDER_ORDER) {
+      const vs = entry?.providers?.[k]?.variants || [];
+      const i = vs.findIndex((v) => v.name.toLowerCase() === record.name.toLowerCase());
+      sel[k] = i >= 0 ? i : 0;
+    }
+    setVariantSel(sel);
+  }, [record, currentProvider, entry]);
 
   if (!record) return null;
   const aliases = (entry?.aliases || []).filter(
@@ -169,7 +177,9 @@ export default function EnzymeDetailDialog({
             </div>
           )}
           {providerKeys.map((key) => {
-            const p = entry.providers[key];
+            const variants = entry.providers[key]?.variants || [];
+            const selIdx = Math.min(variantSel[key] ?? 0, Math.max(variants.length - 1, 0));
+            const p = variants[selIdx] || {};
             const isOpen = !!expanded[key];
             return (
               <div
@@ -188,6 +198,25 @@ export default function EnzymeDetailDialog({
                 </button>
                 {isOpen && (
                   <div className="px-3 pb-3 pt-1">
+                    {variants.length > 1 && (
+                      <div className="flex flex-wrap gap-1 pb-2">
+                        {variants.map((v, i) => (
+                          <button
+                            key={v.name}
+                            type="button"
+                            className={`rounded-full px-2 py-0.5 text-xs ring-1 ring-inset transition-colors ${
+                              i === selIdx
+                                ? 'bg-teal-600 text-white ring-teal-600'
+                                : 'bg-transparent text-teal-700 ring-teal-600/30 hover:bg-teal-50'
+                            }`}
+                            style={{ fontFamily: monoFont }}
+                            onClick={() => setVariantSel((cur) => ({ ...cur, [key]: i }))}
+                          >
+                            {v.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {(p.buffers || []).length > 0 && (
                       <div className="flex gap-2 py-0.5 text-sm">
                         <span className="w-36 shrink-0 text-muted-foreground">Buffers</span>
