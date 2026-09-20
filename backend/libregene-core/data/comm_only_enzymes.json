@@ -190,7 +190,7 @@
     "cut_type": "5overhang",
     "overhang_len": -1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GAGTCNNNN^N_N"
   },
@@ -235,7 +235,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CAC^_GTG"
   },
@@ -460,7 +460,7 @@
     "cut_type": "3overhang",
     "overhang_len": 3,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "CAG_NNN^CTG"
   },
@@ -475,7 +475,7 @@
     "cut_type": "3overhang",
     "overhang_len": 1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CCTCNNNNNN_N^N"
   },
@@ -760,7 +760,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GT^_AC"
   },
@@ -895,7 +895,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "AT^TA_AT"
   },
@@ -940,7 +940,7 @@
     "cut_type": "3overhang",
     "overhang_len": 3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCCN_NNN^NGGC"
   },
@@ -1120,7 +1120,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^TCGA_G"
   },
@@ -1180,7 +1180,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G_ACGT^C"
   },
@@ -1210,7 +1210,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GACNN_NN^NNGTC"
   },
@@ -1270,7 +1270,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "TAC^_GTA"
   },
@@ -1375,7 +1375,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CACNN^_NNGTG"
   },
@@ -1420,7 +1420,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^CWG_C"
   },
@@ -1450,7 +1450,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCG_AT^CGC"
   },
@@ -1465,7 +1465,7 @@
     "cut_type": "3overhang",
     "overhang_len": 3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCAN_NNN^NTGC"
   },
@@ -1480,7 +1480,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "A^AGCT_T"
   },
@@ -1705,7 +1705,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^YCGR_G"
   },
@@ -1810,7 +1810,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "A^CG_T"
   },
@@ -1825,7 +1825,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GCAGCNNNNNNNN^NNNN_N"
   },
@@ -1885,7 +1885,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^CWG_C"
   },
@@ -1915,7 +1915,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "G_CATG^C"
   },
@@ -1960,7 +1960,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "YAC^_GTR"
   },
@@ -2065,7 +2065,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "R_GCGC^Y"
   },
@@ -2125,7 +2125,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^GCGC_C"
   },
@@ -2185,7 +2185,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "N^GATC_N"
   },
@@ -2275,7 +2275,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "ACGGCNNNNNNNNNNNN^NN_N"
   },
@@ -2305,7 +2305,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CG^_CG"
   },
@@ -2410,7 +2410,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G_GTAC^C"
   },
@@ -2455,7 +2455,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "AT^CG_AT"
   },
@@ -2545,7 +2545,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "ACCTGCNNNN^NNNN_N"
   },
@@ -2575,7 +2575,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCN^_NGC"
   },
@@ -2605,7 +2605,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GG^CGCG_CC"
   },
@@ -2755,7 +2755,7 @@
     "cut_type": "3overhang",
     "overhang_len": 1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CCTTCNNNNN_N^N"
   },
@@ -2800,7 +2800,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "C^TTAA_G"
   },
@@ -2860,7 +2860,7 @@
     "cut_type": "3overhang",
     "overhang_len": 3,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "CCAN_NNN^NTGG"
   },
@@ -2935,7 +2935,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "TTT^_AAA"
   },
@@ -2950,7 +2950,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GAT^_ATC"
   },
@@ -2980,7 +2980,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "CG^CGCG_CG"
   },
@@ -3205,7 +3205,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CGTCTCN^NNNN_N"
   },
@@ -3235,7 +3235,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "TGC^_GCA"
   },
@@ -3355,7 +3355,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "ACCTGCNNNN^NNNN_N"
   },
@@ -3430,7 +3430,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^AATT_G"
   },
@@ -3505,7 +3505,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "AGG^_CCT"
   },
@@ -3565,7 +3565,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CTCAGNNNNNNNN_NN^N"
   },
@@ -3595,7 +3595,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GTY^_RAC"
   },
@@ -3670,7 +3670,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CA^TA_TG"
   },
@@ -3805,7 +3805,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CTCTTCN^NNN_N"
   },
@@ -3880,7 +3880,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^GTAC_G"
   },
@@ -3970,7 +3970,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^CTAG_C"
   },
@@ -4120,7 +4120,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "R^CCGG_Y"
   },
@@ -4135,7 +4135,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CGTCTCN^NNNN_N"
   },
@@ -4225,7 +4225,7 @@
     "cut_type": "5overhang",
     "overhang_len": -1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GC^N_GC"
   },
@@ -4270,7 +4270,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^TCGA_G"
   },
@@ -4285,7 +4285,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "AGG^_CCT"
   },
@@ -4315,7 +4315,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^CG_C"
   },
@@ -4435,7 +4435,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCC^_GGC"
   },
@@ -4450,7 +4450,7 @@
     "cut_type": "5overhang",
     "overhang_len": -5,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GACGCNNNNN^NNNNN_N"
   },
@@ -4465,7 +4465,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CTGAAGNNNNNNNNNNNNNN_NN^N"
   },
@@ -4540,7 +4540,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^ANT_C"
   },
@@ -4615,7 +4615,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^TCGA_C"
   },
@@ -4870,7 +4870,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CACCTGCNNNN^NNNN_N"
   },
@@ -4915,7 +4915,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CR^CCGG_YG"
   },
@@ -4930,7 +4930,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "CG^_CG"
   },
@@ -4960,7 +4960,7 @@
     "cut_type": "5overhang",
     "overhang_len": -1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CC^S_GG"
   },
@@ -4990,7 +4990,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GACNN^_NNGTC"
   },
@@ -5020,7 +5020,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "TCCRACNNNNNNNNNNNNNNNNNN_NN^N"
   },
@@ -5230,7 +5230,7 @@
     "cut_type": "3overhang",
     "overhang_len": 1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GACNN_N^NNGTC"
   },
@@ -5260,7 +5260,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CAG^_CTG"
   },
@@ -5335,7 +5335,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CG^GWC_CG"
   },
@@ -5410,7 +5410,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^CCGG_G"
   },
@@ -5500,7 +5500,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "AGT^_ACT"
   },
@@ -5530,7 +5530,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^GGCC_G"
   },
@@ -5695,7 +5695,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GT^MK_AC"
   },
@@ -5800,7 +5800,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CCC^_GGG"
   },
@@ -5905,7 +5905,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G_GCGC^C"
   },
@@ -5920,7 +5920,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GTA^_TAC"
   },
@@ -5950,7 +5950,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^CCGG_G"
   },
@@ -6085,7 +6085,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^CG_C"
   },
@@ -6220,7 +6220,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "AG^_CT"
   },
@@ -6355,7 +6355,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^CG_G"
   },
@@ -6415,7 +6415,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^AWT_C"
   },
@@ -6490,7 +6490,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "AA^CG_TT"
   },
@@ -6610,7 +6610,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GACNN_NN^NNGTC"
   },
@@ -6640,7 +6640,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CCG^_CTC"
   },
@@ -6655,7 +6655,7 @@
     "cut_type": "3overhang",
     "overhang_len": 5,
     "is_cut_twice": true,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "cut twice, not yet implemented sorry."
   },
@@ -6820,7 +6820,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "A^CCGG_T"
   },
@@ -6910,7 +6910,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G_CG^C"
   },
@@ -6925,7 +6925,7 @@
     "cut_type": "3overhang",
     "overhang_len": 5,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "N_CGWCG^"
   },
@@ -6985,7 +6985,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "T^CCGG_A"
   },
@@ -7000,7 +7000,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "T^GTAC_A"
   },
@@ -7090,7 +7090,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GTCTCN^NNNN_N"
   },
@@ -7120,7 +7120,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GG^_CC"
   },
@@ -7225,7 +7225,7 @@
     "cut_type": "3overhang",
     "overhang_len": 3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCNN_NNN^NNGC"
   },
@@ -7285,7 +7285,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "T^CCGG_A"
   },
@@ -7360,7 +7360,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G_AGCT^C"
   },
@@ -7375,7 +7375,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CC^TNA_GC"
   },
@@ -7660,7 +7660,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GCG_AT^CGC"
   },
@@ -7720,7 +7720,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GTCTCN^NNNN_N"
   },
@@ -7750,7 +7750,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GAT^_ATC"
   },
@@ -7810,7 +7810,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "G^GWC_C"
   },
@@ -7825,7 +7825,7 @@
     "cut_type": "3overhang",
     "overhang_len": 4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C_TGCA^G"
   },
@@ -7885,7 +7885,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^CG_G"
   },
@@ -8125,7 +8125,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CC_GC^GG"
   },
@@ -8155,7 +8155,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "C^CATG_G"
   },
@@ -8215,7 +8215,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GATNN^_NNATC"
   },
@@ -8335,7 +8335,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GCGATGNNNNNNNNNN^NNNN_N"
   },
@@ -8500,7 +8500,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "G^CCGG_C"
   },
@@ -8530,7 +8530,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "R^AATT_Y"
   },
@@ -8575,7 +8575,7 @@
     "cut_type": "3overhang",
     "overhang_len": 1,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "AC_N^GT"
   },
@@ -8785,7 +8785,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "GC^GGCC_GC"
   },
@@ -8830,7 +8830,7 @@
     "cut_type": "5overhang",
     "overhang_len": -4,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "N^GATC_N"
   },
@@ -8875,7 +8875,7 @@
     "cut_type": "5overhang",
     "overhang_len": -1,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "CC^N_GG"
   },
@@ -8950,7 +8950,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CMG^_CKG"
   },
@@ -8995,7 +8995,7 @@
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "CTGGAGNNNNNNNNNNNNNN_NN^N"
   },
@@ -9130,7 +9130,7 @@
     "cut_type": "5overhang",
     "overhang_len": -3,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CC^TCA_GC"
   },
@@ -9145,7 +9145,7 @@
     "cut_type": "blunt",
     "overhang_len": 0,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "GATNN^_NNATC"
   },
@@ -9325,7 +9325,7 @@
     "cut_type": "5overhang",
     "overhang_len": -1,
     "is_cut_twice": false,
-    "methylation": "sensitive",
+    "methylation": "none",
     "methylation_dependent": false,
     "elucidate": "CC^W_GG"
   },
@@ -9340,7 +9340,7 @@
     "cut_type": "5overhang",
     "overhang_len": -2,
     "is_cut_twice": false,
-    "methylation": "none",
+    "methylation": "sensitive",
     "methylation_dependent": false,
     "elucidate": "TC^NN_GA"
   }
