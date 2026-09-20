@@ -101,7 +101,6 @@ def row_to_provider_info(r, idx):
         if name:
             buffers.append({"name": name, "activity": act})
     info = {
-        "recommendedBuffer": cell(r[idx["recbuf"]]),
         "buffers": buffers,
         "workTemp": cell(r[idx["temp"]]),
         "heatInactivation": cell(r[idx["inact"]]),
@@ -123,7 +122,6 @@ for sheet, prov in SHEET_PROVIDER.items():
         "name": hdr.index("酶名称"),
         "temp": hdr.index("工作温度(°C)"),
         "inact": hdr.index("热失活温度"),
-        "recbuf": hdr.index("推荐缓冲液"),
         "meth": hdr.index("甲基化影响"),
         "star": hdr.index("星号活性"),
         "cat": hdr.index("货号"),

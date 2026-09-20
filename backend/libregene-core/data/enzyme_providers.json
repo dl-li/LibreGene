@@ -4,7 +4,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -23,7 +22,6 @@
    "aliases": [],
    "providers": {
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -53,7 +51,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -72,7 +69,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -97,7 +93,6 @@
      "starActivity": "50% in r2.1"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -122,7 +117,6 @@
      "catalog": "EG25511S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -140,7 +134,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart + DTT",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -168,7 +161,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -193,7 +185,6 @@
      "starActivity": "75% in r2.1"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -211,7 +202,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -235,7 +225,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -264,7 +253,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -288,7 +276,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -317,7 +304,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -346,7 +332,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -374,7 +359,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -392,7 +376,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -445,7 +428,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -468,7 +450,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -498,7 +479,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -528,7 +508,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -552,7 +531,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -581,7 +559,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -610,7 +587,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -631,7 +607,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -660,7 +635,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -706,7 +680,6 @@
      "catalog": "EG24509S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -725,7 +698,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -744,7 +716,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -763,7 +734,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -781,7 +751,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -810,7 +779,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -839,7 +807,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -863,7 +830,6 @@
      "methylation": "dcm; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -888,7 +854,6 @@
      "catalog": "EG25502S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -906,7 +871,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -930,7 +894,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -960,7 +923,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -984,7 +946,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1016,7 +977,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1044,7 +1004,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1068,7 +1027,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1097,7 +1055,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1121,7 +1078,6 @@
      "starActivity": "50% in r2.1"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1151,7 +1107,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1180,7 +1135,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1204,7 +1158,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1234,7 +1187,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1258,7 +1210,6 @@
      "methylation": "dcm; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1288,7 +1239,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1339,7 +1289,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1367,7 +1316,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1398,7 +1346,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1422,7 +1369,6 @@
      "starActivity": "75% in r1.1; 100% in r2.1; 100% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1446,7 +1392,6 @@
      "catalog": "EG15510S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -1465,7 +1410,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1494,7 +1438,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1524,7 +1467,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1547,7 +1489,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1576,7 +1517,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1600,7 +1540,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1630,7 +1569,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1658,7 +1596,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1686,7 +1623,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1716,7 +1652,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1746,7 +1681,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1776,7 +1710,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1800,7 +1733,6 @@
      "methylation": "dcm"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -1825,7 +1757,6 @@
      "catalog": "EG15513S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -1844,7 +1775,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -1862,7 +1792,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1891,7 +1820,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -1910,7 +1838,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -1938,7 +1865,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -1957,7 +1883,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -1976,7 +1901,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2005,7 +1929,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2029,7 +1952,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -2054,7 +1976,6 @@
      "catalog": "EG24507S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2072,7 +1993,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2118,7 +2038,6 @@
      "catalog": "EG15591S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2137,7 +2056,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2165,7 +2083,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2184,7 +2101,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2213,7 +2129,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2242,7 +2157,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2262,7 +2176,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2290,7 +2203,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2334,7 +2246,6 @@
      "catalog": "EG25525S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2353,7 +2264,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2372,7 +2282,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2401,7 +2310,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2424,7 +2332,6 @@
      "heatInactivation": "80"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2443,7 +2350,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2462,7 +2368,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2491,7 +2396,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2520,7 +2424,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2549,7 +2452,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2581,7 +2483,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2605,7 +2506,6 @@
      "methylation": "dcm; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -2635,7 +2535,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2663,7 +2562,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2691,7 +2589,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2720,7 +2617,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2739,7 +2635,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2758,7 +2653,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2777,7 +2671,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2795,7 +2688,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2814,7 +2706,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2833,7 +2724,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2852,7 +2742,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2880,7 +2769,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2899,7 +2787,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -2918,7 +2805,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2947,7 +2833,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -2977,7 +2862,6 @@
    ],
    "providers": {
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3002,7 +2886,6 @@
      "catalog": "EG25515S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3021,7 +2904,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3039,7 +2921,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3057,7 +2938,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3075,7 +2955,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3104,7 +2983,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3134,7 +3012,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3159,7 +3036,6 @@
      "starActivity": "50% in r2.1"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3188,7 +3064,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3217,7 +3092,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3249,7 +3123,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3273,7 +3146,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3303,7 +3175,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3332,7 +3203,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3355,7 +3225,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3385,7 +3254,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3413,7 +3281,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3431,7 +3298,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3449,7 +3315,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3477,7 +3342,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3496,7 +3360,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3515,7 +3378,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3543,7 +3405,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3572,7 +3433,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3596,7 +3456,6 @@
      "methylation": "dam; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3626,7 +3485,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3679,7 +3537,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3697,7 +3554,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3726,7 +3582,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3747,7 +3602,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3771,7 +3625,6 @@
      "starActivity": "100% in r1.1; 100% in r2.1; 100% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3801,7 +3654,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -3820,7 +3672,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3849,7 +3700,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3872,7 +3722,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer B",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3904,7 +3753,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3935,7 +3783,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -3958,7 +3805,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -3987,7 +3833,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4015,7 +3860,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4046,7 +3890,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4074,7 +3917,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4093,7 +3935,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4122,7 +3963,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4146,7 +3986,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -4178,7 +4017,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4201,7 +4039,6 @@
      "heatInactivation": "No"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -4231,7 +4068,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4259,7 +4095,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4288,7 +4123,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4312,7 +4146,6 @@
      "methylation": "dam"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -4337,7 +4170,6 @@
      "catalog": "EG24516S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4355,7 +4187,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4385,7 +4216,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4414,7 +4244,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4432,7 +4261,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4460,7 +4288,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4479,7 +4306,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4507,7 +4333,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4536,7 +4361,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4566,7 +4390,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4594,7 +4417,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4622,7 +4444,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4641,7 +4462,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4670,7 +4490,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4688,7 +4507,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4706,7 +4524,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4726,7 +4543,6 @@
    ],
    "providers": {
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -4756,7 +4572,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4809,7 +4624,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4827,7 +4641,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4845,7 +4658,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4864,7 +4676,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -4883,7 +4694,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4911,7 +4721,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4941,7 +4750,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4969,7 +4777,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -4998,7 +4805,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5021,7 +4827,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5050,7 +4855,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5074,7 +4878,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5099,7 +4902,6 @@
      "catalog": "EG15585S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5118,7 +4920,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "U",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5143,7 +4944,6 @@
      "starActivity": "100% in r3.1"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5173,7 +4973,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5220,7 +5019,6 @@
      "catalog": "EG23502S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5241,7 +5039,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5265,7 +5062,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5295,7 +5091,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5324,7 +5119,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5355,7 +5149,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5379,7 +5172,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5408,7 +5200,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5427,7 +5218,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5446,7 +5236,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5470,7 +5259,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5500,7 +5288,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5529,7 +5316,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5548,7 +5334,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5566,7 +5351,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5585,7 +5369,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5604,7 +5387,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5622,7 +5404,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5641,7 +5422,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5660,7 +5440,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5678,7 +5457,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5696,7 +5474,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5725,7 +5502,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5744,7 +5520,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5763,7 +5538,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5782,7 +5556,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5801,7 +5574,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5820,7 +5592,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5848,7 +5619,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5872,7 +5642,6 @@
      "methylation": "dam"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5894,7 +5663,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "U",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -5919,7 +5687,6 @@
      "starActivity": "100% in r2.1; 50% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -5944,7 +5711,6 @@
      "catalog": "EG15536S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -5964,7 +5730,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6017,7 +5782,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6038,7 +5802,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6062,7 +5825,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6086,7 +5848,6 @@
      "catalog": "EG21503S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6104,7 +5865,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6122,7 +5882,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6150,7 +5909,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6179,7 +5937,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6208,7 +5965,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6232,7 +5988,6 @@
      "methylation": "dam; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6257,7 +6012,6 @@
      "catalog": "EG24523S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6276,7 +6030,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6305,7 +6058,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6324,7 +6076,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6370,7 +6121,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6394,7 +6144,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6424,7 +6173,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6443,7 +6191,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6472,7 +6219,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6495,7 +6241,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6525,7 +6270,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r1.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6555,7 +6299,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6603,7 +6346,6 @@
      "catalog": "EG24510S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6621,7 +6363,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6639,7 +6380,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6658,7 +6398,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6677,7 +6416,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6701,7 +6439,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6731,7 +6468,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6755,7 +6491,6 @@
      "methylation": "CpG"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6775,7 +6510,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6798,7 +6532,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6822,7 +6555,6 @@
      "catalog": "EG15539S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6841,7 +6573,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6865,7 +6596,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6890,7 +6620,6 @@
      "catalog": "EG15593S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -6909,7 +6638,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -6934,7 +6662,6 @@
      "starActivity": "75% in r2.1"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -6964,7 +6691,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7012,7 +6738,6 @@
      "catalog": "EG23507S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7030,7 +6755,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7059,7 +6783,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7088,7 +6811,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7117,7 +6839,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7146,7 +6867,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7164,7 +6884,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7193,7 +6912,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7222,7 +6940,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7250,7 +6967,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7279,7 +6995,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7307,7 +7022,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7325,7 +7039,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7344,7 +7057,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7368,7 +7080,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -7397,7 +7108,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7416,7 +7126,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7437,7 +7146,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7460,7 +7168,6 @@
      "heatInactivation": "No"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -7484,7 +7191,6 @@
      "catalog": "EG15544S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7503,7 +7209,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7521,7 +7226,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7567,7 +7271,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7586,7 +7289,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7605,7 +7307,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7623,7 +7324,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7647,7 +7347,6 @@
      "methylation": "dam; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -7672,7 +7371,6 @@
      "catalog": "EG24522S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7690,7 +7388,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7715,7 +7412,6 @@
      "starActivity": "100% in r1.1"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7735,7 +7431,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7763,7 +7458,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7781,7 +7475,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7811,7 +7504,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7835,7 +7527,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -7860,7 +7551,6 @@
      "catalog": "EG15547S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -7878,7 +7568,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7906,7 +7595,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7935,7 +7623,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -7982,7 +7669,6 @@
      "catalog": "EG15548S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8001,7 +7687,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8020,7 +7705,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8039,7 +7723,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8063,7 +7746,6 @@
      "methylation": "dam"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8093,7 +7775,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8116,7 +7797,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8145,7 +7825,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8173,7 +7852,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8202,7 +7880,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8225,7 +7902,6 @@
      "heatInactivation": "No"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8250,7 +7926,6 @@
      "catalog": "EG23508S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8296,7 +7971,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8317,7 +7991,6 @@
    ],
    "providers": {
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8341,7 +8014,6 @@
      "catalog": "EG23510S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8360,7 +8032,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8379,7 +8050,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8398,7 +8068,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8427,7 +8096,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8456,7 +8124,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8485,7 +8152,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8516,7 +8182,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8562,7 +8227,6 @@
      "catalog": "EG15550S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8581,7 +8245,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8604,7 +8267,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8628,7 +8290,6 @@
      "catalog": "EG15551S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8647,7 +8308,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8679,7 +8339,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8703,7 +8362,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8727,7 +8385,6 @@
      "catalog": "EG15552S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8746,7 +8403,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8774,7 +8430,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8803,7 +8458,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8831,7 +8485,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8851,7 +8504,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8875,7 +8527,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8899,7 +8550,6 @@
      "catalog": "EG15553S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8919,7 +8569,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -8943,7 +8592,6 @@
      "methylation": "dam; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -8973,7 +8621,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -8993,7 +8640,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9044,7 +8690,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9072,7 +8717,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9090,7 +8734,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9113,7 +8756,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -9137,7 +8779,6 @@
      "catalog": "EG15603S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9156,7 +8797,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9175,7 +8815,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9206,7 +8845,6 @@
    ],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9252,7 +8890,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9276,7 +8913,6 @@
      "starActivity": "50% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -9306,7 +8942,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9324,7 +8959,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9344,7 +8978,6 @@
    ],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9362,7 +8995,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9390,7 +9022,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9419,7 +9050,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9448,7 +9078,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9477,7 +9106,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9501,7 +9129,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -9530,7 +9157,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9554,7 +9180,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -9584,7 +9209,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9602,7 +9226,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9626,7 +9249,6 @@
      "methylation": "dam"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -9656,7 +9278,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9687,7 +9308,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9715,7 +9335,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9733,7 +9352,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9751,7 +9369,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9771,7 +9388,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9824,7 +9440,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9853,7 +9468,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9884,7 +9498,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -9908,7 +9521,6 @@
      "starActivity": "50% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -9932,7 +9544,6 @@
      "catalog": "EG15561S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9951,7 +9562,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9970,7 +9580,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -9989,7 +9598,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10010,7 +9618,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10034,7 +9641,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10058,7 +9664,6 @@
      "catalog": "EG23513S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10078,7 +9683,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10102,7 +9706,6 @@
      "starActivity": "100% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10126,7 +9729,6 @@
      "catalog": "EG15604S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10145,7 +9747,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10164,7 +9765,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10188,7 +9788,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10212,7 +9811,6 @@
      "catalog": "EG24503S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10230,7 +9828,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10249,7 +9846,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10280,7 +9876,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10327,7 +9922,6 @@
      "catalog": "EG15565S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10346,7 +9940,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10370,7 +9963,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10401,7 +9993,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10425,7 +10016,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10449,7 +10039,6 @@
      "catalog": "EG15566S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10468,7 +10057,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10491,7 +10079,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10520,7 +10107,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10539,7 +10125,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10558,7 +10143,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r1.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10587,7 +10171,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10618,7 +10201,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10671,7 +10253,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10694,7 +10275,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10718,7 +10298,6 @@
      "catalog": "EG24502S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10737,7 +10316,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10756,7 +10334,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10787,7 +10364,6 @@
    ],
    "providers": {
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -10812,7 +10388,6 @@
      "catalog": "EG24515S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10831,7 +10406,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10850,7 +10424,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10879,7 +10452,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -10898,7 +10470,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10927,7 +10498,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10955,7 +10525,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -10979,7 +10548,6 @@
      "methylation": "dam; CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11004,7 +10572,6 @@
      "catalog": "EG15570S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11022,7 +10589,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11051,7 +10617,6 @@
    "aliases": [],
    "providers": {
     "bestenzyme": {
-     "recommendedBuffer": "Buffer",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11081,7 +10646,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11105,7 +10669,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer B CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11135,7 +10698,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11153,7 +10715,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11177,7 +10738,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11201,7 +10761,6 @@
      "catalog": "EG15572S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11219,7 +10778,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11238,7 +10796,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11266,7 +10823,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11322,7 +10878,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11345,7 +10900,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11377,7 +10931,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11400,7 +10953,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11429,7 +10981,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11458,7 +11009,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11510,7 +11060,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11533,7 +11082,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11557,7 +11105,6 @@
      "catalog": "EG15576S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11576,7 +11123,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11600,7 +11146,6 @@
      "methylation": "dam"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11629,7 +11174,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11660,7 +11204,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11688,7 +11231,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11711,7 +11253,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -11741,7 +11282,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11760,7 +11300,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11780,7 +11319,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11828,7 +11366,6 @@
      "catalog": "EG15580S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11846,7 +11383,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11865,7 +11401,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11884,7 +11419,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11903,7 +11437,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11932,7 +11465,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11951,7 +11483,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -11972,7 +11503,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -11996,7 +11526,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12026,7 +11555,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12049,7 +11577,6 @@
      "heatInactivation": "No"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne® CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12079,7 +11606,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12109,7 +11635,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12137,7 +11662,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12165,7 +11689,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12184,7 +11707,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12203,7 +11725,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12222,7 +11743,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12243,7 +11763,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12267,7 +11786,6 @@
      "methylation": "dam"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12291,7 +11809,6 @@
      "catalog": "EG15581S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12310,7 +11827,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12329,7 +11845,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r2.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12353,7 +11868,6 @@
      "starActivity": "100% in rCutSmart"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12385,7 +11899,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12429,11 +11942,9 @@
      ],
      "workTemp": "37",
      "heatInactivation": "80",
-     "catalog": "EG15583S",
-     "recommendedBuffer": "F, GMP Grade CutOne®"
+     "catalog": "EG15583S"
     },
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12452,7 +11963,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12481,7 +11991,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12500,7 +12009,6 @@
    "aliases": [],
    "providers": {
     "thermo": {
-     "recommendedBuffer": "FastDigest Green Buffer",
      "buffers": [
       {
        "name": "FastDigest Buffer",
@@ -12519,7 +12027,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12542,7 +12049,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12572,7 +12078,6 @@
    "aliases": [],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12606,7 +12111,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12661,7 +12165,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12684,7 +12187,6 @@
      "heatInactivation": "65"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12717,7 +12219,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12772,7 +12273,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12803,7 +12303,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12826,7 +12325,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -12859,7 +12357,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12890,7 +12387,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12921,7 +12417,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12953,7 +12448,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -12977,7 +12471,6 @@
      "methylation": "CpG"
     },
     "bestenzyme": {
-     "recommendedBuffer": "CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -13010,7 +12503,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -13042,7 +12534,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -13065,7 +12556,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Cut Buffer C",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -13098,7 +12588,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "r3.1",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
@@ -13121,7 +12610,6 @@
      "heatInactivation": "80"
     },
     "bestenzyme": {
-     "recommendedBuffer": "Cut Buffer C CutOne®",
      "buffers": [
       {
        "name": "百时美 CutOne Buffer",
@@ -13154,7 +12642,6 @@
    ],
    "providers": {
     "neb": {
-     "recommendedBuffer": "rCutSmart",
      "buffers": [
       {
        "name": "NEBuffer r1.1",
