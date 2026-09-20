@@ -87,7 +87,6 @@ export default function EnzymeDetailDialog({ open, onOpenChange, record, dbRecor
             return (
               <div key={key} className="rounded-md border border-border/60 p-3">
                 <div className="pb-1 text-sm font-semibold">{PROVIDER_LABEL[key] || key}</div>
-                <Field label="Recommended Buffer">{p.recommendedBuffer}</Field>
                 {(p.buffers || []).length > 0 && (
                   <div className="flex gap-2 py-0.5 text-sm">
                     <span className="w-36 shrink-0 text-muted-foreground">Buffers</span>

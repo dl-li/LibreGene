@@ -60,12 +60,10 @@ pub struct BufferActivity {
 }
 
 /// One supplier's product data for an enzyme. All fields optional in the
-/// source JSON (e.g. some entries lack a recommended buffer or catalog no.).
+/// source JSON (e.g. some entries lack a catalog number).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderInfo {
-    #[serde(default)]
-    pub recommended_buffer: String,
     #[serde(default)]
     pub buffers: Vec<BufferActivity>,
     #[serde(default)]
