@@ -20,7 +20,7 @@ function Field({ label, children }) {
 function EnzymeName({ name, className = '' }) {
   const s = splitEnzymeName(name);
   return (
-    <span className={`text-teal-700 ${className}`} style={{ fontFamily: monoFont, fontWeight: 700 }}>
+    <span className={`text-blue-700 ${className}`} style={{ fontFamily: monoFont, fontWeight: 700 }}>
       {s.normal ? (
         <>
           <span style={{ fontStyle: 'italic' }}>{s.italic}</span>
@@ -36,7 +36,7 @@ function EnzymeName({ name, className = '' }) {
 function MonoChip({ children }) {
   return (
     <span
-      className="inline-block rounded bg-teal-50 px-1.5 py-0.5 text-xs text-teal-800 ring-1 ring-inset ring-teal-600/20"
+      className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800 ring-1 ring-inset ring-blue-600/20"
       style={{ fontFamily: monoFont }}
     >
       {children}
@@ -56,7 +56,7 @@ function NameList({ items }) {
       {collapsible && (
         <button
           type="button"
-          className="shrink-0 text-xs text-teal-700 hover:underline"
+          className="shrink-0 text-xs text-blue-700 hover:underline"
           onClick={() => setOpen((v) => !v)}
         >
           {open ? 'less' : `show all ${items.length}`}
@@ -184,15 +184,15 @@ export default function EnzymeDetailDialog({
             return (
               <div
                 key={key}
-                className={`rounded-md border ${isOpen ? 'border-teal-600/30 bg-teal-50/40' : 'border-border/60'}`}
+                className={`rounded-md border ${isOpen ? 'border-blue-600/30 bg-blue-50/40' : 'border-border/60'}`}
               >
                 <button
                   type="button"
-                  className={`flex w-full items-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold hover:bg-muted/50 ${isOpen ? 'text-teal-700' : ''}`}
+                  className={`flex w-full items-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold hover:bg-muted/50 ${isOpen ? 'text-blue-700' : ''}`}
                   onClick={() => setExpanded((cur) => ({ ...cur, [key]: !cur[key] }))}
                 >
                   <ChevronRight
-                    className={`size-4 shrink-0 transition-transform ${isOpen ? 'rotate-90 text-teal-600' : 'text-muted-foreground'}`}
+                    className={`size-4 shrink-0 transition-transform ${isOpen ? 'rotate-90 text-blue-600' : 'text-muted-foreground'}`}
                   />
                   {PROVIDER_LABEL[key] || key}
                 </button>
@@ -206,8 +206,8 @@ export default function EnzymeDetailDialog({
                             type="button"
                             className={`rounded-full px-2 py-0.5 text-xs ring-1 ring-inset transition-colors ${
                               i === selIdx
-                                ? 'bg-teal-600 text-white ring-teal-600'
-                                : 'bg-transparent text-teal-700 ring-teal-600/30 hover:bg-teal-50'
+                                ? 'bg-blue-600 text-white ring-blue-600'
+                                : 'bg-transparent text-blue-700 ring-blue-600/30 hover:bg-blue-50'
                             }`}
                             style={{ fontFamily: monoFont }}
                             onClick={() => setVariantSel((cur) => ({ ...cur, [key]: i }))}
