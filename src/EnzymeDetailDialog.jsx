@@ -20,7 +20,7 @@ function Field({ label, children }) {
 function EnzymeName({ name, className = '' }) {
   const s = splitEnzymeName(name);
   return (
-    <span className={className} style={{ fontFamily: monoFont, fontWeight: 700 }}>
+    <span className={`text-teal-700 ${className}`} style={{ fontFamily: monoFont, fontWeight: 700 }}>
       {s.normal ? (
         <>
           <span style={{ fontStyle: 'italic' }}>{s.italic}</span>
@@ -28,6 +28,39 @@ function EnzymeName({ name, className = '' }) {
         </>
       ) : (
         name
+      )}
+    </span>
+  );
+}
+
+function MonoChip({ children }) {
+  return (
+    <span
+      className="inline-block rounded bg-teal-50 px-1.5 py-0.5 text-xs text-teal-800 ring-1 ring-inset ring-teal-600/20"
+      style={{ fontFamily: monoFont }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function NameList({ items }) {
+  const [open, setOpen] = useState(false);
+  if (!items?.length) return <span className="text-muted-foreground/50">—</span>;
+  const collapsible = items.length > 3;
+  return (
+    <span className="flex items-start gap-1">
+      <span className={`min-w-0 flex-1 ${open || !collapsible ? '' : 'line-clamp-1'}`}>
+        {items.join(', ')}
+      </span>
+      {collapsible && (
+        <button
+          type="button"
+          className="shrink-0 text-xs text-teal-700 hover:underline"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? 'less' : `+${items.length - 3} more`}
+        </button>
       )}
     </span>
   );
@@ -93,14 +126,10 @@ export default function EnzymeDetailDialog({
 
         <div className="space-y-1">
           <Field label="Recognition Site">
-            <span className="text-xs" style={{ fontFamily: monoFont }}>
-              {record.site}
-            </span>
+            <MonoChip>{record.site}</MonoChip>
           </Field>
           <Field label="Cut Notation">
-            <span className="text-xs" style={{ fontFamily: monoFont }}>
-              {record.elucidate || '—'}
-            </span>
+            <MonoChip>{record.elucidate || '—'}</MonoChip>
           </Field>
           <Field label="Cut Type">{CUT_TYPE_LABEL[record.cutType] || record.cutType || '—'}</Field>
           <Field label="Overhang">
@@ -111,8 +140,10 @@ export default function EnzymeDetailDialog({
           {cutSites !== null && (
             <Field label={`Cut Sites (${cutSites.length})`}>
               {cutSites.length ? (
-                <span className="text-xs" style={{ fontFamily: monoFont }}>
-                  {cutSites.map((ci) => formatCutPos(ci, plasmidLength)).join(',  ')}
+                <span className="flex flex-wrap gap-1">
+                  {cutSites.map((ci) => (
+                    <MonoChip key={ci}>{formatCutPos(ci, plasmidLength)}</MonoChip>
+                  ))}
                 </span>
               ) : (
                 'Does not cut the current plasmid'
@@ -120,10 +151,14 @@ export default function EnzymeDetailDialog({
             </Field>
           )}
           <Field label="Isoschizomers">
-            {related?.isoschizomers?.length ? related.isoschizomers.join(', ') : '—'}
+            <span className="flex-1">
+              <NameList items={related?.isoschizomers} />
+            </span>
           </Field>
           <Field label="Isocaudomers">
-            {related?.isocaudomers?.length ? related.isocaudomers.join(', ') : '—'}
+            <span className="flex-1">
+              <NameList items={related?.isocaudomers} />
+            </span>
           </Field>
         </div>
 
@@ -137,14 +172,17 @@ export default function EnzymeDetailDialog({
             const p = entry.providers[key];
             const isOpen = !!expanded[key];
             return (
-              <div key={key} className="rounded-md border border-border/60">
+              <div
+                key={key}
+                className={`rounded-md border ${isOpen ? 'border-teal-600/30 bg-teal-50/40' : 'border-border/60'}`}
+              >
                 <button
                   type="button"
-                  className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-semibold hover:bg-muted/50 rounded-md"
+                  className={`flex w-full items-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold hover:bg-muted/50 ${isOpen ? 'text-teal-700' : ''}`}
                   onClick={() => setExpanded((cur) => ({ ...cur, [key]: !cur[key] }))}
                 >
                   <ChevronRight
-                    className={`size-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                    className={`size-4 shrink-0 transition-transform ${isOpen ? 'rotate-90 text-teal-600' : 'text-muted-foreground'}`}
                   />
                   {PROVIDER_LABEL[key] || key}
                 </button>
