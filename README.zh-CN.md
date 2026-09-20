@@ -58,6 +58,7 @@
 - **内置 900+ 酶数据库**（导出自 [Biopython](https://biopython.org) 的 `Bio.Restriction`），支持甲基化感知过滤
 - **分类清晰** — 唯一切点（unique）、双切点（twice）、平末端（blunt）和 IIS 型酶区分显示，切割位点同步标注在侧边滚动条上，方便快速定位
 - **自定义酶组** — 可定义自己的酶集合并随时切换
+- **供应商详细参数** — 内置来自 **NEB**、**Thermo Scientific** 和 **愚公生物（BestEnzyme）** 的缓冲液兼容性、孵育温度、甲基化敏感性与失活信息；可按供应商筛选酶切位点，双击酶标签打开详情对话框查看全部供应商参数及同裂酶/同尾酶列表
 
 <p align="center">
   <img src="screenshots/enzymes.png" alt="酶切位点视图" width="700" />
@@ -67,6 +68,7 @@
 
 - **多种格式** — 支持导入 Sanger 测序结果（.ab1）、FASTA 和 GenBank 序列，与参考序列比对显示
 - 错配、插入和缺失原位高亮，自动计算每条读段的一致性（identity）
+- **测序峰图显示** — 打开 `.ab1` 文件即可在序列旁查看 Sanger 峰图曲线；带 trace 数据的比对读段可展开峰图带，读段碱基与参考序列对齐渲染，错配/插入/缺失与峰形精确对应
 
 <p align="center">
   <img src="screenshots/alignment.png" alt="序列比对视图" width="700" />
@@ -137,3 +139,7 @@ npx tauri dev
 GNU General Public License v3.0 — 参见 [LICENSE](LICENSE)。
 
 Copyright (C) 2025 dl-li
+
+## 致谢
+
+感谢本项目贡献者 [liu1568075](https://github.com/liu1568075) 和 [Masterchiefm](https://github.com/Masterchiefm)。

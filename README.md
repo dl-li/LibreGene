@@ -58,6 +58,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 - **Built-in 900+ enzyme database** (exported from [Biopython](https://biopython.org)'s `Bio.Restriction`) with methylation-aware filtering
 - **Clear categorization** — unique cutters, twice cutters, blunt ends and Type IIS enzymes are distinguished visually, and cut sites are marked on the feature scrollbar for quick navigation
 - **Custom enzyme sets** — define your own enzyme collections and switch between them
+- **Supplier detail data** — per-enzyme buffer compatibility, incubation temperature, methylation sensitivity and inactivation info from **NEB**, **Thermo Scientific** and **Yugong Biotech (BestEnzyme)**; filter enzyme sites by provider, and double-click an enzyme label to open a detail dialog with all supplier parameters plus related isoschizomer / neoschizomer lists
 
 <p align="center">
   <img src="screenshots/enzymes.png" alt="Restriction enzyme view" width="700" />
@@ -67,6 +68,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 - **Multiple formats** — import Sanger reads (.ab1), FASTA or GenBank sequences and align them against the reference
 - Mismatches, insertions and deletions are highlighted in place, per-read identity is computed automatically
+- **Sanger chromatogram display** — open a `.ab1` file to see its trace curves alongside the sequence, and expand a chromatogram band under any alignment read that has trace data; the read's base calls are rendered against the reference so mismatches, insertions and deletions line up exactly with the peaks
 
 <p align="center">
   <img src="screenshots/alignment.png" alt="Sequence alignment view" width="700" />
@@ -137,3 +139,7 @@ Requires Node.js ≥ 20, Rust ≥ 1.75, and [Tauri v2 prerequisites](https://v2.
 GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
 Copyright (C) 2025 dl-li
+
+## Acknowledgements
+
+Thanks to our contributors [liu1568075](https://github.com/liu1568075) and [Masterchiefm](https://github.com/Masterchiefm).
