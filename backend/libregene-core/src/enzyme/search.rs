@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use crate::enzyme::data::{EnzymeDb, EnzymeRecord};
+use crate::enzyme::data::{EnzymeDb, EnzymeRecord, ProviderData};
 
 /// Global enzyme database, loaded once.
 static DB: OnceLock<EnzymeDb> = OnceLock::new();
@@ -13,6 +13,16 @@ pub fn get_db() -> &'static EnzymeDb {
         let enzymes: Vec<EnzymeRecord> =
             serde_json::from_str(json).expect("failed to parse comm_only_enzymes.json");
         EnzymeDb { enzymes }
+    })
+}
+
+/// Global supplier database (buffers/temps/catalog per provider), loaded once.
+static PROVIDER_DB: OnceLock<ProviderData> = OnceLock::new();
+
+pub fn get_provider_data() -> &'static ProviderData {
+    PROVIDER_DB.get_or_init(|| {
+        let json = include_str!("../../data/enzyme_providers.json");
+        serde_json::from_str(json).expect("failed to parse enzyme_providers.json")
     })
 }
 

@@ -45,6 +45,7 @@ import MyPrimersDialog from './MyPrimersDialog';
 import MyEnzymesDialog from './MyEnzymesDialog';
 import SnapshotsDialog from './SnapshotsDialog';
 import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
+import { loadProviderData, buildProviderIndex, findProviderEntry, hasProvider } from './enzymeProviders';
 import { findOrfs } from './plugins/orf';
 import { addMyPrimers, removeMyPrimer, libraryToPrimers } from './myPrimers';
 import { setMyEnzymes } from './myEnzymes';
@@ -96,6 +97,8 @@ export default function ProjectWorkspace({
   onToggleEnzymes,
   enzymeFilter,
   onEnzymeFilterChange,
+  enzymeProvider = 'all',
+  onEnzymeProviderChange,
   disabledPlugins,
   onDirtyChange,
   registerHandle,
@@ -558,7 +561,19 @@ export default function ProjectWorkspace({
     setExpandedChromAlnId((cur) => (cur === id ? null : id));
   }, []);
 
-  const displayEnzymes = useMemo(() => {
+  const [providerIndex, setProviderIndex] = useState(null);
+  useEffect(() => {
+    if (enzymeProvider === 'all' || providerIndex) return;
+    let cancelled = false;
+    loadProviderData().then((data) => {
+      if (!cancelled) setProviderIndex(buildProviderIndex(data));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enzymeProvider, providerIndex]);
+
+  const setFilteredEnzymes = useMemo(() => {
     // Enzymes only exist for DNA; rna/protein render sequence + features only.
     if (!isDna) return EMPTY_ARRAY;
     if (!showEnzymes) return EMPTY_ARRAY;
@@ -605,6 +620,13 @@ export default function ProjectWorkspace({
     if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
     return all.filter((e) => e.isUnique);
   }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes, isDna, mainChromatogram]);
+
+  const displayEnzymes = useMemo(() => {
+    if (enzymeProvider === 'all' || !providerIndex) return setFilteredEnzymes;
+    return setFilteredEnzymes.filter((e) =>
+      hasProvider(findProviderEntry(providerIndex, e.name), enzymeProvider),
+    );
+  }, [setFilteredEnzymes, enzymeProvider, providerIndex]);
 
   const handleSelectionChange = useCallback(
     (sel) => {
@@ -1693,6 +1715,8 @@ export default function ProjectWorkspace({
               onToggleEnzymes={onToggleEnzymes}
               enzymeFilter={enzymeFilter}
               onEnzymeFilterChange={onEnzymeFilterChange}
+              enzymeProvider={enzymeProvider}
+              onEnzymeProviderChange={onEnzymeProviderChange}
               openPrimerEditorRef={openPrimerEditorRef}
               openFeatureEditorRef={openFeatureEditorRef}
               alignmentCacheRef={alignmentCacheRef}
@@ -1831,7 +1855,14 @@ export default function ProjectWorkspace({
         />
       )}
 
-      {isDna && <EnzymeDatabaseDialog open={enzymeDbOpen} onOpenChange={setEnzymeDbOpen} />}
+      {isDna && (
+        <EnzymeDatabaseDialog
+          open={enzymeDbOpen}
+          onOpenChange={setEnzymeDbOpen}
+          enzymeProvider={enzymeProvider}
+          onEnzymeProviderChange={onEnzymeProviderChange}
+        />
+      )}
 
       <SnapshotsDialog
         open={snapshotsOpen}

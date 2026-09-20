@@ -7,16 +7,49 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Search, LoaderCircle } from 'lucide-react';
 import { monoFont } from './editorConstants';
 import { getEnzymeDatabase } from './tauriApi';
+import EnzymeDetailDialog from './EnzymeDetailDialog';
+import {
+  ENZYME_PROVIDER_OPTIONS,
+  loadProviderData,
+  buildProviderIndex,
+  findProviderEntry,
+  hasProvider,
+} from './enzymeProviders';
 
 const CUT_TYPE_LABEL = { blunt: 'Blunt', '5overhang': "5' Overhang", '3overhang': "3' Overhang" };
 
-export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
+export default function EnzymeDatabaseDialog({
+  open,
+  onOpenChange,
+  enzymeProvider = 'all',
+  onEnzymeProviderChange,
+}) {
   const [records, setRecords] = useState(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [providerIndex, setProviderIndex] = useState(null);
+  const [detailRecord, setDetailRecord] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadProviderData().then((data) => {
+      if (!cancelled) setProviderIndex(buildProviderIndex(data));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -39,15 +72,19 @@ export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
 
   const filtered = useMemo(() => {
     if (!records) return [];
+    let out = records;
+    if (enzymeProvider !== 'all' && providerIndex) {
+      out = out.filter((e) => hasProvider(findProviderEntry(providerIndex, e.name), enzymeProvider));
+    }
     const q = query.trim().toLowerCase();
-    if (!q) return records;
-    return records.filter(
+    if (!q) return out;
+    return out.filter(
       (e) =>
         (e.name || '').toLowerCase().includes(q) ||
         (e.site || '').toLowerCase().includes(q) ||
         (e.elucidate || '').toLowerCase().includes(q),
     );
-  }, [records, query]);
+  }, [records, query, enzymeProvider, providerIndex]);
 
   const cutTypeLabel = useCallback((e) => CUT_TYPE_LABEL[e.cutType] || e.cutType || '—', []);
 
@@ -58,15 +95,29 @@ export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
           <DialogTitle>Enzyme Database ({records ? records.length : '…'})</DialogTitle>
         </DialogHeader>
 
-        <div className="relative pb-2">
-          <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by name, recognition site…"
-            spellCheck={false}
-            className="h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-3 text-sm shadow-xs outline-none transition-shadow placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/50"
-          />
+        <div className="flex gap-2 pb-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by name, recognition site…"
+              spellCheck={false}
+              className="h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-3 text-sm shadow-xs outline-none transition-shadow placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/50"
+            />
+          </div>
+          <Select value={enzymeProvider} onValueChange={onEnzymeProviderChange}>
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ENZYME_PROVIDER_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex-1 overflow-auto -mx-8 px-8">
@@ -93,7 +144,12 @@ export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
               </thead>
               <tbody>
                 {filtered.map((e) => (
-                  <tr key={e.name} className="border-b border-border/30">
+                  <tr
+                    key={e.name}
+                    className="border-b border-border/30 hover:bg-muted/50 cursor-pointer transition-colors"
+                    onDoubleClick={() => setDetailRecord(e)}
+                    title="Double-click for supplier details"
+                  >
                     <td className="py-2 pr-3 whitespace-nowrap font-medium">{e.name}</td>
                     <td
                       className="py-2 pr-3 whitespace-nowrap font-mono text-xs"
@@ -156,6 +212,15 @@ export default function EnzymeDatabaseDialog({ open, onOpenChange }) {
           </div>
         </DialogFooter>
       </DialogContent>
+      <EnzymeDetailDialog
+        open={!!detailRecord}
+        onOpenChange={(v) => {
+          if (!v) setDetailRecord(null);
+        }}
+        record={detailRecord}
+        dbRecords={records}
+        providerIndex={providerIndex}
+      />
     </Dialog>
   );
 }

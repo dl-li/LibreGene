@@ -331,6 +331,10 @@ export async function getEnzymeDatabase() {
   return tauriInvoke('get_enzyme_database');
 }
 
+export async function getEnzymeProviders() {
+  return tauriInvoke('get_enzyme_providers');
+}
+
 // ---------------------------------------------------------------------------
 // Multi-project
 // ---------------------------------------------------------------------------

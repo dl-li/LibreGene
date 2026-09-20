@@ -48,6 +48,7 @@ import {
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
 
 const ENZYME_FILTER_OPTIONS = [
   { value: 'all', label: 'All Enzymes' },
@@ -179,6 +180,8 @@ export default function EditorNavMenu({
   onToggleEnzymes,
   enzymeFilter,
   onEnzymeFilterChange,
+  enzymeProvider = 'all',
+  onEnzymeProviderChange,
   onSearch,
   searchNav,
   openSearchRef,
@@ -539,6 +542,21 @@ export default function EditorNavMenu({
                       <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
                     </>
                   )}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger inset>Choose Provider</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-44">
+                <DropdownMenuRadioGroup
+                  value={enzymeProvider}
+                  onValueChange={onEnzymeProviderChange}
+                >
+                  {ENZYME_PROVIDER_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>

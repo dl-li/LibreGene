@@ -2435,6 +2435,13 @@ async fn get_enzyme_database() -> Result<serde_json::Value, String> {
     serde_json::to_value(&db.enzymes).map_err(|e| e.to_string())
 }
 
+/// Return the supplier database (per-provider buffers, temps, catalog numbers).
+#[tauri::command]
+async fn get_enzyme_providers() -> Result<serde_json::Value, String> {
+    let data = libregene_core::enzyme::search::get_provider_data();
+    serde_json::to_value(data).map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — primers
 // ---------------------------------------------------------------------------
@@ -4207,6 +4214,7 @@ pub fn run() {
             preview_codon_optimization,
             apply_codon_optimization,
             get_enzyme_database,
+            get_enzyme_providers,
             add_alignment,
             add_alignment_seq,
             remove_alignment,

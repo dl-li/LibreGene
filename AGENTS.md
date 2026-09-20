@@ -132,7 +132,7 @@ update_sequence, set_roi, clear_roi, set_topology,
 get_features, add_feature, delete_feature, update_feature_ftype/color/name/strand/location,
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
 design_primer_candidates, find_orfs, search_sequence, annotate_features, annotate_sequence,
-list_codon_species, preview_codon_optimization, apply_codon_optimization, get_enzyme_database,
+list_codon_species, preview_codon_optimization, apply_codon_optimization, get_enzyme_database, get_enzyme_providers,
 add_alignment, add_alignment_seq, remove_alignment, get_chromatogram, get_snapgene_history, open_snapgene_snapshot, set_methylation,
 get_projects, activate_project, delete_project, open_in_new_window, get_window_project_id, rekey_project,
 get_agent_tab_state, set_agent_tab_locked,
@@ -173,6 +173,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 - **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
+- **酶 Provider 数据与筛选**（`enzyme_providers.json`：NEB/BestEnzyme/Thermo 的 buffer 兼容性、温度、甲基化、别名变体；`get_enzyme_providers` 命令 + 导航菜单 Provider 筛选，与 Enzyme Set 筛选取交集；Enzyme Database 弹窗双击行打开 `EnzymeDetailDialog` 显示别名/同裂酶/同尾酶/各供应商信息）：供应商元数据仅展示用，不进 recompute
 - **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none}，Tauri 广播同步；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
 - **Agent 标签解锁按钮/导航控制条**：纯前端；锁定状态后端持有，MCP 不暴露
