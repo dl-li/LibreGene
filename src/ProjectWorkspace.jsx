@@ -1861,6 +1861,8 @@ export default function ProjectWorkspace({
           onOpenChange={setEnzymeDbOpen}
           enzymeProvider={enzymeProvider}
           onEnzymeProviderChange={onEnzymeProviderChange}
+          projectEnzymes={enzymes}
+          plasmidLength={sequence.length}
         />
       )}
 

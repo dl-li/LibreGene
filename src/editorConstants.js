@@ -180,3 +180,16 @@ export function peptideMassKda(seq) {
   for (const c of seq) da += AA_RESIDUE_MASS[c] || 0;
   return da / 1000;
 }
+
+/** Split an enzyme name into italic prefix and normal suffix (editor convention). */
+export function splitEnzymeName(name) {
+  let at = name.length;
+  for (let i = 1; i < name.length; i++) {
+    const c = name[i];
+    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+      at = i;
+      break;
+    }
+  }
+  return { italic: name.slice(0, at), normal: name.slice(at) };
+}
