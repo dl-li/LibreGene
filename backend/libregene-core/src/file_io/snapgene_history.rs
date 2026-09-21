@@ -55,9 +55,51 @@ fn be_u32(data: &[u8], offset: usize) -> Option<u32> {
 }
 
 fn xz_decompress(data: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
+    xz_decompress_with_cap(data, MAX_DECOMPRESSED_BYTES)
+}
+
+fn xz_decompress_with_cap(data: &[u8], cap: usize) -> Option<Vec<u8>> {
+    let mut out = CappedVec::with_cap(cap);
     lzma_rs::xz_decompress(&mut std::io::Cursor::new(data), &mut out).ok()?;
-    Some(out)
+    Some(out.into_inner())
+}
+
+/// Decompressed-output cap for every xz stream in a `.dna` file (history
+/// tree, manipulation XML, snapshot annotation bundles). A crafted few-KB
+/// stream can otherwise expand to gigabytes before any parsing happens.
+const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
+
+/// A `Vec<u8>` writer that fails once the decompressed stream exceeds a
+/// fixed cap; lzma-rs propagates writer errors via `write_all(...)?`, so the
+/// decode aborts instead of ballooning memory.
+struct CappedVec {
+    cap: usize,
+    buf: Vec<u8>,
+}
+
+impl CappedVec {
+    fn with_cap(cap: usize) -> Self {
+        Self { cap, buf: Vec::new() }
+    }
+    fn into_inner(self) -> Vec<u8> {
+        self.buf
+    }
+}
+
+impl std::io::Write for CappedVec {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len().saturating_add(buf.len()) > self.cap {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "decompressed output exceeds cap",
+            ));
+        }
+        self.buf.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 fn is_xz(data: &[u8]) -> bool {
@@ -146,6 +188,21 @@ fn decode_compressed_dna(data: &[u8]) -> Option<String> {
     let payload = &data[22..];
     let mut pay_off = 0usize;
 
+    // Upper bound on the decoded sequence. Chunk headers carry raw u32
+    // counts and the 0x03 marker expands them with String::repeat — without
+    // a budget, a crafted 27-byte header demands a multi-GB allocation
+    // before any payload byte is read. Real SnapGene documents (plasmids to
+    // bacterial chromosomes) stay orders of magnitude below this.
+    const MAX_SEQUENCE_CHARS: usize = 50_000_000;
+    if uncompressed_length > MAX_SEQUENCE_CHARS {
+        return None;
+    }
+    let total_cap = if uncompressed_length == 0 {
+        MAX_SEQUENCE_CHARS
+    } else {
+        uncompressed_length
+    };
+
     let read_section = |payload: &[u8], pay_off: &mut usize, marker: u8, count: usize| -> Option<String> {
         match marker {
             0x01 => {
@@ -173,6 +230,9 @@ fn decode_compressed_dna(data: &[u8]) -> Option<String> {
 
     let mut chars: Vec<char> = Vec::new();
     if chunk_count >= 1 {
+        if first_count > total_cap {
+            return None;
+        }
         let first = read_section(payload, &mut pay_off, first_marker, first_count)?;
         chars.extend(first.chars());
         for _ in 1..chunk_count {
@@ -182,6 +242,9 @@ fn decode_compressed_dna(data: &[u8]) -> Option<String> {
             let marker = payload[pay_off];
             let count = be_u32(payload, pay_off + 1)? as usize;
             pay_off += 5;
+            if chars.len() + count > total_cap {
+                return None;
+            }
             chars.extend(read_section(payload, &mut pay_off, marker, count)?.chars());
         }
     }
@@ -888,6 +951,48 @@ mod tests {
         data.push(0x03); // N-run marker
         data.extend_from_slice(&6u32.to_be_bytes()); // count = 6
         assert_eq!(decode_compressed_dna(&data).unwrap(), "NNNNNN");
+    }
+
+    #[test]
+    fn compressed_dna_rejects_count_beyond_declared_length() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&4u32.to_be_bytes()); // cl
+        data.extend_from_slice(&8u32.to_be_bytes()); // ul = 8
+        data.push(30);
+        data.extend_from_slice(&1u32.to_be_bytes()); // chunk_count
+        data.extend_from_slice(&0u32.to_be_bytes()); // lowercase_count
+        data.push(0x03);
+        data.extend_from_slice(&100u32.to_be_bytes()); // count = 100 > ul
+        assert!(decode_compressed_dna(&data).is_none());
+    }
+
+    #[test]
+    fn compressed_dna_rejects_uncapped_n_run() {
+        // No declared length + a u32::MAX N-run count: the budget must
+        // reject it up front instead of allocating gigabytes of 'N'.
+        let mut data = Vec::new();
+        data.extend_from_slice(&4u32.to_be_bytes()); // cl
+        data.extend_from_slice(&0u32.to_be_bytes()); // ul = 0 (unknown)
+        data.push(30);
+        data.extend_from_slice(&1u32.to_be_bytes()); // chunk_count
+        data.extend_from_slice(&0u32.to_be_bytes()); // lowercase_count
+        data.push(0x03);
+        data.extend_from_slice(&u32::MAX.to_be_bytes());
+        assert!(decode_compressed_dna(&data).is_none());
+    }
+
+    #[test]
+    fn xz_decompress_rejects_expansion_beyond_cap() {
+        let mut xz = Vec::new();
+        lzma_rs::xz_compress(&mut std::io::Cursor::new(&b"ACGT".repeat(1024)[..]), &mut xz)
+            .unwrap();
+        assert_eq!(
+            xz_decompress_with_cap(&xz, 1024 * 4).unwrap(),
+            b"ACGT".repeat(1024)
+        );
+        // Same stream with a cap below the expanded size must abort the
+        // decode instead of materializing the full output.
+        assert!(xz_decompress_with_cap(&xz, 1024).is_none());
     }
 
     #[test]
