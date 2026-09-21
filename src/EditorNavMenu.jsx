@@ -27,8 +27,10 @@ import {
   ArrowDownWideNarrow,
   ScanSearch,
   AudioWaveform,
+  Grid2x2,
   History,
   Map as MapIcon,
+  Waypoints,
   Circle,
   Minus,
   Triangle,
@@ -195,6 +197,7 @@ export default function EditorNavMenu({
   onAddAlignmentText,
   onManageAlignments,
   onOpenRnaFold,
+  onOpenDotplot,
   onOpenMapView,
   background = 'none',
   backgroundOptions = [],
@@ -226,14 +229,21 @@ export default function EditorNavMenu({
   // hide DNA-only tooling (primers, enzymes, alignment, antisense/translation).
   const isDna = moleculeType === 'dna';
 
-  // Left-click toggles "Show As Background" when that background is offered
-  // for this molecule type (protein has none → fall back to the examine dialog).
-  const bgToggle = (value) =>
-    onBackgroundChange && backgroundOptions.some((o) => o.value === value)
-      ? () => onBackgroundChange(background === value ? 'none' : value)
+  // Left click toggles the editor background: turning it on picks the
+  // per-molecule-type default diagram (RNA → folding, DNA/protein → map),
+  // turning it off goes back to none. Protein has no background option →
+  // fall back to the examine dialog.
+  const DEFAULT_DIAGRAM_BY_TYPE = { rna: 'folding' };
+  const diagramOptions = backgroundOptions.filter((o) => o.value !== 'none');
+  const defaultDiagram =
+    diagramOptions.find((o) => o.value === (DEFAULT_DIAGRAM_BY_TYPE[moleculeType] || 'map'))
+      ?.value || diagramOptions[0]?.value;
+  const diagramBackgroundToggle =
+    onBackgroundChange && defaultDiagram
+      ? () => onBackgroundChange(background === 'none' ? defaultDiagram : 'none')
       : null;
-  const mapBackgroundToggle = bgToggle('map');
-  const foldingBackgroundToggle = bgToggle('folding');
+  const hasFolding = moleculeType === 'rna' && !!onOpenRnaFold;
+  const hasDotplot = moleculeType !== 'protein' && !!onOpenDotplot;
 
   const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
   const SCOPE_WORDS = {
@@ -606,31 +616,41 @@ export default function EditorNavMenu({
           </NavMenu>
         )}
 
-        {/* Plasmid Map: left click toggles the background, right click opens menu */}
-        {onOpenMapView && (
+        {/* Diagrams: left click toggles the background, right click opens menu */}
+        {(onOpenMapView || hasFolding || hasDotplot) && (
           <NavMenu
-            icon={MapIcon}
-            label="Map"
-            onLeftClick={mapBackgroundToggle || onOpenMapView}
-            contentClassName="min-w-44"
+            icon={Waypoints}
+            label="Diagrams"
+            onLeftClick={diagramBackgroundToggle || onOpenMapView || onOpenRnaFold}
+            contentClassName="min-w-52 overflow-visible"
           >
-            <DropdownMenuItem onSelect={onOpenMapView}>
-              <MapIcon /> Examine Map
-            </DropdownMenuItem>
-          </NavMenu>
-        )}
-
-        {/* RNA Folding (RNA only): left click toggles the background, right click opens menu */}
-        {moleculeType === 'rna' && onOpenRnaFold && (
-          <NavMenu
-            icon={AudioWaveform}
-            label="Folding"
-            onLeftClick={foldingBackgroundToggle || onOpenRnaFold}
-            contentClassName="min-w-52"
-          >
-            <DropdownMenuItem onSelect={onOpenRnaFold}>
-              <AudioWaveform /> Examine Secondary Structure
-            </DropdownMenuItem>
+            {onBackgroundChange && backgroundOptions.length > 0 && (
+              <>
+                <DropdownMenuRadioGroup value={background} onValueChange={onBackgroundChange}>
+                  {backgroundOptions.map((o) => (
+                    <DropdownMenuRadioItem key={o.value} value={o.value}>
+                      {o.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            {onOpenMapView && (
+              <DropdownMenuItem onSelect={onOpenMapView}>
+                <MapIcon /> Examine Map
+              </DropdownMenuItem>
+            )}
+            {hasFolding && (
+              <DropdownMenuItem onSelect={onOpenRnaFold}>
+                <AudioWaveform /> Examine Secondary Structure
+              </DropdownMenuItem>
+            )}
+            {hasDotplot && (
+              <DropdownMenuItem onSelect={onOpenDotplot}>
+                <Grid2x2 /> Examine Dotplot
+              </DropdownMenuItem>
+            )}
           </NavMenu>
         )}
 

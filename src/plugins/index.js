@@ -2,6 +2,7 @@ import alignmentPlugin from './alignment';
 import orfPlugin from './orf';
 import codonOptimizationPlugin from './codonOptimization';
 import rnaFoldPlugin from './rnaFold';
+import dotplotPlugin from './dotplot';
 import primerDesignPlugin from './primerDesign';
 import blastPlugin from './blast';
 import mapPlugin from './map';
@@ -12,6 +13,7 @@ export const plugins = [
   orfPlugin,
   codonOptimizationPlugin,
   rnaFoldPlugin,
+  dotplotPlugin,
   primerDesignPlugin,
   blastPlugin,
 ];
