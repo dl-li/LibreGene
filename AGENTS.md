@@ -67,7 +67,7 @@ LibreGene/
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
 │   ├── chromatogram.js         # ab1 色谱：链取向（rev-comp 交换通道）、SVG 路径插值、比对列→read 序号映射
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
-│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/codonOptimization/blast
+│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/dotplot/codonOptimization/blast
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库（models/project、orf、search、codon、digest、enzyme/、primer/、file_io/）
 └── src-tauri/src/
@@ -174,12 +174,13 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
 - **酶 Provider 数据与筛选**（`enzyme_providers.json`：NEB/BestEnzyme/Thermo 的 buffer 兼容性、温度、甲基化、别名变体；`get_enzyme_providers` 命令 + 导航菜单 Provider 筛选，与 Enzyme Set 筛选取交集；Enzyme Database 弹窗双击行打开 `EnzymeDetailDialog` 显示别名/同裂酶/同尾酶/各供应商信息）：供应商元数据仅展示用，不进 recompute
-- **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none}，Tauri 广播同步；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
+- **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none|map}，Tauri 广播同步；导航栏 Diagrams 菜单左键切换背景（RNA 默认 Folding，DNA/Protein 默认 Map，未设置时单击即应用默认图），菜单内可单选背景并 Examine 各图；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
 - **Agent 标签解锁按钮/导航控制条**：纯前端；锁定状态后端持有，MCP 不暴露
 - **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态
 - **`add_alignment` 的 createdSites**：未实现；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联/窗口拖放打开**：纯前端/OS 集成
+- **Dotplot**（Diagrams 菜单 "Examine Dotplot" → `src/plugins/dotplot/`，k-mer 窗口点阵自比较 DNA/RNA 序列，可选反向互补以显示反向重复；Canvas 渲染，仅 Examine dialog、不做背景）：纯前端渲染
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
 - **SnapGene 历史快照**（Edit 菜单 History 项 → `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具

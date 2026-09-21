@@ -45,7 +45,12 @@ import MyPrimersDialog from './MyPrimersDialog';
 import MyEnzymesDialog from './MyEnzymesDialog';
 import SnapshotsDialog from './SnapshotsDialog';
 import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
-import { loadProviderData, buildProviderIndex, findProviderEntry, hasProvider } from './enzymeProviders';
+import {
+  loadProviderData,
+  buildProviderIndex,
+  findProviderEntry,
+  hasProvider,
+} from './enzymeProviders';
 import { findOrfs } from './plugins/orf';
 import { addMyPrimers, removeMyPrimer, libraryToPrimers } from './myPrimers';
 import { setMyEnzymes } from './myEnzymes';
@@ -154,12 +159,12 @@ export default function ProjectWorkspace({
   const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
   const primerDesignEnabled = isDna && !disabledPlugins.includes('primerDesign');
   const mapEnabled = !disabledPlugins.includes('map');
-  // Background (watermark) choices offered in the editor context menu for the
-  // current molecule type; a single choice means nothing to switch.
+  // Background (watermark) choices offered in the editor context menu and the
+  // Diagram nav menu for the current molecule type; a single choice means
+  // nothing to switch.
   const backgroundOptions = useMemo(() => {
     const opts = [];
-    if ((moleculeType === 'dna' || moleculeType === 'rna') && mapEnabled)
-      opts.push({ value: 'map', label: 'Map' });
+    if (mapEnabled) opts.push({ value: 'map', label: 'Map' });
     if (moleculeType === 'rna' && !disabledPlugins.includes('rnaFold'))
       opts.push({ value: 'folding', label: 'Folding' });
     return opts.length ? [{ value: 'none', label: 'None' }, ...opts] : [];
@@ -178,7 +183,7 @@ export default function ProjectWorkspace({
   const [mapViewOpen, setMapViewOpen] = useState(false);
   // Editor background (watermark) per molecule type, persisted globally and
   // shared across projects of the same type: dna → none|map, rna →
-  // none|folding, protein → none.
+  // none|map|folding, protein → none|map.
   const [backgrounds, setBackgrounds] = useState(() => {
     const fallback = { dna: 'none', rna: 'none', protein: 'none' };
     try {
@@ -1756,6 +1761,11 @@ export default function ProjectWorkspace({
                   ? undefined
                   : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
               }
+              onOpenDotplot={
+                !isProtein && !disabledPlugins.includes('dotplot')
+                  ? () => setPluginDialogs((prev) => ({ ...prev, dotplot: true }))
+                  : undefined
+              }
               onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
               onOpenSnapshots={
                 isTauri &&
@@ -1878,7 +1888,8 @@ export default function ProjectWorkspace({
           (plugin) =>
             !disabledPlugins.includes(plugin.id) &&
             (isDna || !plugin.dnaOnly) &&
-            (moleculeType === 'rna' || !plugin.rnaOnly),
+            (moleculeType === 'rna' || !plugin.rnaOnly) &&
+            (moleculeType !== 'protein' || !plugin.notForProtein),
         )
         .map((plugin) => {
           const DialogComp = plugin.dialog;

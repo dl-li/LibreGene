@@ -765,6 +765,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onAddAlignmentText,
   onManageAlignments,
   onOpenRnaFold,
+  onOpenDotplot,
   onOpenMapView,
   onOpenSnapshots,
   onEnzymeHoverChange,
@@ -2637,9 +2638,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       const sites = enzymes
         .filter((x) => x.name.toLowerCase() === l.name.toLowerCase())
-        .flatMap((x) =>
-          (x.cutPairs || [{ topCutIndex: x.cutIndex }]).map((p) => p.topCutIndex),
-        )
+        .flatMap((x) => (x.cutPairs || [{ topCutIndex: x.cutIndex }]).map((p) => p.topCutIndex))
         .sort((a, b) => a - b);
       setEnzymeDetailCutSites(sites);
       setEnzymeDetailRecord(rec);
@@ -5979,6 +5978,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onAddAlignmentText={onAddAlignmentText}
           onManageAlignments={onManageAlignments}
           onOpenRnaFold={onOpenRnaFold}
+          onOpenDotplot={onOpenDotplot}
           onOpenMapView={onOpenMapView}
           onOpenSnapshots={onOpenSnapshots}
           background={background}
@@ -6097,7 +6097,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           )}
         </div>
         <FeatureInfoDialog
-          feature={featureInfoFeature}          open={featureInfoFeature !== null || createFeatureLoc !== null}
+          feature={featureInfoFeature}
+          open={featureInfoFeature !== null || createFeatureLoc !== null}
           onOpenChange={(open) => {
             if (!open) {
               setFeatureInfoFeature(null);
