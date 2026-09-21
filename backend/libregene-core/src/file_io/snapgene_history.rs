@@ -67,6 +67,9 @@ fn xz_decompress_with_cap(data: &[u8], cap: usize) -> Option<Vec<u8>> {
 /// Decompressed-output cap for every xz stream in a `.dna` file (history
 /// tree, manipulation XML, snapshot annotation bundles). A crafted few-KB
 /// stream can otherwise expand to gigabytes before any parsing happens.
+/// Note: this bounds the returned buffer only — lzma-rs decodes each xz
+/// block into memory whole before writing it out, so one crafted block can
+/// still force a transient allocation larger than this cap.
 const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
 /// A `Vec<u8>` writer that fails once the decompressed stream exceeds a
