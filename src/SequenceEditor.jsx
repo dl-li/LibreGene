@@ -1565,6 +1565,47 @@ const SequenceEditor = React.memo(function SequenceEditor({
         }
       }
 
+      // Gap connector pieces: a segmented feature's faint connector line
+      // spans its gap columns in every row the gap passes through. Rows
+      // where the feature also has a segment extend its own reservation to
+      // cover the connector columns; rows without a segment default the
+      // connector to track 0, which is seeded up front so other features
+      // (e.g. long ORFs spanning the gap) drop to a lower track instead of
+      // overlapping the connector line.
+      const gapPiecesByFeatRow = {};
+      const gapBlockersByRow = {};
+      for (const f of resultFeatures) {
+        const segs = f.segments;
+        if (!segs || segs.length < 2) continue;
+        const segRows = new Set();
+        for (const seg of segs) {
+          for (
+            let r = Math.floor(seg.start / charsPerLine);
+            r <= Math.floor(seg.end / charsPerLine);
+            r++
+          ) {
+            segRows.add(r);
+          }
+        }
+        for (let di = 1; di < segs.length; di++) {
+          const gStart = segs[di - 1].end + 1;
+          const gEnd = segs[di].start - 1;
+          if (gStart > gEnd) continue;
+          for (
+            let r = Math.floor(gStart / charsPerLine);
+            r <= Math.floor(gEnd / charsPerLine);
+            r++
+          ) {
+            const pieceStart = Math.max(gStart, r * charsPerLine);
+            const pieceEnd = Math.min(gEnd, (r + 1) * charsPerLine - 1);
+            const entry = { start: pieceStart - 0.5, end: pieceEnd + 0.5 };
+            ((gapPiecesByFeatRow[f.id] || (gapPiecesByFeatRow[f.id] = {}))[r] ||
+              (gapPiecesByFeatRow[f.id][r] = [])).push(entry);
+            if (!segRows.has(r)) (gapBlockersByRow[r] || (gapBlockersByRow[r] = [])).push(entry);
+          }
+        }
+      }
+
       // Per-row feature track assignment — features only reserve space where they actually overlap
       const fRowTracks = {};
       for (let r = 0; r < numRows; r++) {
@@ -1581,6 +1622,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
           return lb - la || a.segments[0].start - b.segments[0].start;
         });
         const rowTracks = [];
+        for (const b of gapBlockersByRow[r] || []) {
+          (rowTracks[0] || (rowTracks[0] = [])).push(b);
+        }
         for (const f of rowFeats) {
           const rowSegs = f.segments.filter((seg) => !(seg.end < rs || seg.start > re));
           const segStart = Math.min(...rowSegs.map((s) => s.start));
@@ -1600,20 +1644,27 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   cw,
               )
             : Math.ceil(primerLabelW(f.name) / cw) + 2 + (f.strand && f.strand !== '.' ? 2 : 0);
-          const es = hangsBelow
+          const es0 = hangsBelow
             ? isFRev
               ? Math.min(segStart, Math.max(rs, segEnd - labelCols))
               : segStart
             : isFRev
               ? segStart - 0.5
               : Math.max(rs, segStart - labelCols) - 0.5;
-          const ee = hangsBelow
+          const ee0 = hangsBelow
             ? isFRev
               ? segEnd
               : Math.max(segEnd, segStart + labelCols)
             : isFRev
               ? segEnd + labelCols + 0.5
               : segEnd + 0.5;
+          // Extend the reservation across this row's gap-connector columns.
+          let es = es0;
+          let ee = ee0;
+          for (const gp of gapPiecesByFeatRow[f.id]?.[r] || []) {
+            if (gp.start < es) es = gp.start;
+            if (gp.end > ee) ee = gp.end;
+          }
           const overlaps = (track, s, e) =>
             rowTracks[track] && rowTracks[track].some((t) => !(e < t.start || s > t.end));
           let placed = false;
@@ -3498,6 +3549,26 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [scrollContainerRef, updateSeqDragSelection, updateTranslationDrag]);
 
+  // Solid segment coverage per `${row}:${track}` across all features. A
+  // segmented feature's gap draws a faint connector line at its track,
+  // defaulting to track 0 in rows where it has no track reservation — there
+  // the phantom line must give way wherever another feature solidly occupies
+  // the same track, instead of crossing its bar and translation glyphs.
+  const solidLineCols = useMemo(() => {
+    const m = new Map();
+    for (const g of visibleFeatures) {
+      for (const seg of g.segments) {
+        for (const vs of sp(seg.start, seg.end)) {
+          const track = (featureRowTracks[g.id] || {})[vs.row] || 0;
+          const key = `${vs.row}:${track}`;
+          if (!m.has(key)) m.set(key, []);
+          m.get(key).push({ colStart: vs.colStart, colEnd: vs.colEnd });
+        }
+      }
+    }
+    return m;
+  }, [visibleFeatures, featureRowTracks, sp]);
+
   const renderedFeatures = useMemo(() => {
     if (!visibleFeatures.length) return null;
     return visibleFeatures.map((f) => {
@@ -3563,6 +3634,29 @@ const SequenceEditor = React.memo(function SequenceEditor({
               (alignLaneInfo.counts[v.row] > 0 ? ALIGN_FEAT_GAP : 0);
             const y = sy + lp.featBaseOffset + rowTo;
             const isGap = v.type === 'gap';
+            // Cut gap-connector portions where another feature solidly
+            // occupies this row+track, so the faint line doesn't cross it.
+            let colParts = [[v.colStart, v.colEnd]];
+            if (isGap) {
+              const solids = solidLineCols.get(
+                `${v.row}:${(featureRowTracks[f.id] || {})[v.row] || 0}`,
+              );
+              if (solids) {
+                for (const s of solids) {
+                  const next = [];
+                  for (const [a, b] of colParts) {
+                    if (s.colEnd < a || s.colStart > b) {
+                      next.push([a, b]);
+                      continue;
+                    }
+                    if (s.colStart > a) next.push([a, s.colStart - 1]);
+                    if (s.colEnd < b) next.push([s.colEnd + 1, b]);
+                  }
+                  colParts = next;
+                  if (!colParts.length) break;
+                }
+              }
+            }
 
             return (
               <g
@@ -3680,36 +3774,45 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 )}
                 {f.orf ? (
                   <>
-                    <line
-                      x1={x}
-                      x2={x + w}
-                      y1={y}
-                      y2={y}
-                      stroke={v.color}
-                      strokeWidth="13"
-                      opacity={isGap ? 0.25 : 1}
-                    />
+                    {colParts.map(([a, b]) => (
+                      <line
+                        key={`gl-${a}`}
+                        x1={getX(a)}
+                        x2={getX(b) + cw}
+                        y1={y}
+                        y2={y}
+                        stroke={v.color}
+                        strokeWidth="13"
+                        opacity={isGap ? 0.25 : 1}
+                      />
+                    ))}
                     <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="13" />
                   </>
                 ) : (
                   <>
-                    <line
-                      x1={x}
-                      x2={x + w}
-                      y1={y}
-                      y2={y}
-                      stroke={isExpanded ? 'transparent' : bgColor}
-                      strokeWidth="7"
-                    />
-                    <line
-                      x1={x}
-                      x2={x + w}
-                      y1={y}
-                      y2={y}
-                      stroke={v.color}
-                      strokeWidth="5"
-                      opacity={isGap ? 0.25 : 1}
-                    />
+                    {colParts.map(([a, b]) => (
+                      <line
+                        key={`bl-${a}`}
+                        x1={getX(a)}
+                        x2={getX(b) + cw}
+                        y1={y}
+                        y2={y}
+                        stroke={isExpanded ? 'transparent' : bgColor}
+                        strokeWidth="7"
+                      />
+                    ))}
+                    {colParts.map(([a, b]) => (
+                      <line
+                        key={`cl-${a}`}
+                        x1={getX(a)}
+                        x2={getX(b) + cw}
+                        y1={y}
+                        y2={y}
+                        stroke={v.color}
+                        strokeWidth="5"
+                        opacity={isGap ? 0.25 : 1}
+                      />
+                    ))}
                     <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="10" />
                   </>
                 )}
@@ -3768,6 +3871,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     clearCursorTimer,
     lp,
     cdsFeatureData,
+    solidLineCols,
     setSelectionMode,
     setTranslationSel,
     startTranslationSelection,
