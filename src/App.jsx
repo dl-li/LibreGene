@@ -227,6 +227,21 @@ export default function App() {
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
   const [newSeqOpen, setNewSeqOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
+  const [showGcContent, setShowGcContent] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('showGcContent')) || false;
+    } catch {
+      return false;
+    }
+  });
+  const [gcWindowSize, setGcWindowSize] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('gcWindowSize'));
+      return Number.isFinite(v) && v >= 1 ? Math.round(v) : 11;
+    } catch {
+      return 11;
+    }
+  });
   const [alwaysExpandFeatures, setAlwaysExpandFeatures] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('alwaysExpandFeatures')) || false;
@@ -1071,6 +1086,29 @@ export default function App() {
   }, [dropConfirm, openExternalPath]);
 
   const onToggleFeatures = useCallback(() => setShowFeatures((v) => !v), []);
+  const onToggleGcContent = useCallback(
+    () =>
+      setShowGcContent((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('showGcContent', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
+    [],
+  );
+  const onGcWindowSizeChange = useCallback((next) => {
+    if (!Number.isFinite(next)) return;
+    const v = Math.min(999, Math.max(1, Math.round(next)));
+    setGcWindowSize(v);
+    try {
+      localStorage.setItem('gcWindowSize', JSON.stringify(v));
+    } catch {
+      // storage may be unavailable; selection still applies in-memory
+    }
+  }, []);
   const onTogglePrimers = useCallback(() => setShowPrimers((v) => !v), []);
   const onToggleEnzymes = useCallback(() => setShowEnzymes((v) => !v), []);
   const onToggleAlwaysExpandFeatures = useCallback(
@@ -1142,6 +1180,9 @@ export default function App() {
       layoutParams,
       showFeatures,
       onToggleFeatures,
+      showGcContent,
+      onToggleGcContent,
+      gcWindowSize,
       alwaysExpandFeatures,
       showPrimers,
       onTogglePrimers,
@@ -1174,6 +1215,9 @@ export default function App() {
       layoutParams,
       showFeatures,
       onToggleFeatures,
+      showGcContent,
+      onToggleGcContent,
+      gcWindowSize,
       alwaysExpandFeatures,
       showPrimers,
       onTogglePrimers,
@@ -1607,6 +1651,8 @@ export default function App() {
           onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
           featureLabelsBelow={featureLabelsBelow}
           onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
+          gcWindowSize={gcWindowSize}
+          onGcWindowSizeChange={onGcWindowSizeChange}
           methylationSystems={methylationSystems}
           setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap}

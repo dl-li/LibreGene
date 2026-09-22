@@ -94,6 +94,9 @@ export default function ProjectWorkspace({
   layoutParams,
   showFeatures,
   onToggleFeatures,
+  showGcContent,
+  onToggleGcContent,
+  gcWindowSize,
   alwaysExpandFeatures,
   showPrimers,
   onTogglePrimers,
@@ -1708,6 +1711,9 @@ export default function ProjectWorkspace({
               canRedo={canRedo}
               showFeatures={showFeatures}
               onToggleFeatures={onToggleFeatures}
+              showGcContent={showGcContent}
+              onToggleGcContent={onToggleGcContent}
+              gcWindowSize={gcWindowSize}
               alwaysExpandFeatures={alwaysExpandFeatures}
               featureLabelsBelow={featureLabelsBelow}
               showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}

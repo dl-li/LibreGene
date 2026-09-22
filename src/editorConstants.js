@@ -43,6 +43,22 @@ export const complement = (c) =>
                   ? 'g'
                   : c;
 
+// GC-content track color: 0% → blue, 50% → white, 100% → red. Mildly
+// non-linear cubic keeps the 40–60% range flat and near-white, while GC
+// below 30% / above 70% shifts color faster.
+export const gcContentColor = (frac) => {
+  const f = Math.min(1, Math.max(0, frac));
+  const x = f - 0.5;
+  const t = Math.min(1, Math.max(0, 0.5 + 0.636 * x + 1.458 * x * x * x));
+  const lerp = (a, b, u) => Math.round(a + (b - a) * u);
+  if (t <= 0.5) {
+    const u = t * 2;
+    return `rgb(${lerp(37, 255, u)},${lerp(99, 255, u)},${lerp(235, 255, u)})`;
+  }
+  const u = (t - 0.5) * 2;
+  return `rgb(${lerp(255, 220, u)},${lerp(255, 38, u)},${lerp(255, 38, u)})`;
+};
+
 export const measureWidth = (text, font) => {
   if (!_ctx) return text.length * 8;
   const key = `${font}|${text}`;

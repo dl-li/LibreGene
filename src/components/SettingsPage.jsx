@@ -30,6 +30,8 @@ export default function SettingsPage({
   onToggleAlwaysExpandFeatures,
   featureLabelsBelow = false,
   onFeatureLabelsBelowChange,
+  gcWindowSize = 11,
+  onGcWindowSizeChange,
   methylationSystems,
   setMethylationSystems,
   methylationOverlap,
@@ -107,6 +109,33 @@ export default function SettingsPage({
                     them under the feature line
                   </span>
                 </div>
+              </div>
+
+              <Separator />
+
+              {/* ── GC 含量 ── */}
+              <div>
+                <div className={SECTION_TITLE}>GC Content</div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground shrink-0">Window size</Label>
+                  <Input
+                    className="w-16 h-8 px-2 py-0 text-sm text-right font-mono"
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={gcWindowSize}
+                    onChange={(e) => {
+                      if (e.target.value === '') return;
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v)) onGcWindowSizeChange?.(v);
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">bp</span>
+                </div>
+                <span className="block text-xs text-muted-foreground mt-1.5">
+                  Each position is colored by the GC fraction of the surrounding window (blue = 0%,
+                  white = 50%, red = 100%)
+                </span>
               </div>
 
               <Separator />

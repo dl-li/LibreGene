@@ -171,6 +171,8 @@ export default function EditorNavMenu({
   onToLowercase,
   showFeatures,
   onToggleFeatures,
+  showGcContent = false,
+  onToggleGcContent,
   showOrfs,
   onToggleOrfs,
   onCreateFeature,
@@ -425,6 +427,11 @@ export default function EditorNavMenu({
           {onToggleOrfs && (
             <DropdownMenuCheckboxItem checked={showOrfs} onCheckedChange={onToggleOrfs}>
               Show ORFs
+            </DropdownMenuCheckboxItem>
+          )}
+          {moleculeType !== 'protein' && (
+            <DropdownMenuCheckboxItem checked={showGcContent} onCheckedChange={onToggleGcContent}>
+              Show GC Content
             </DropdownMenuCheckboxItem>
           )}
           <DropdownMenuSeparator />
