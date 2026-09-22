@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useId,
+} from 'react';
 import {
   cw,
   startX,
@@ -20,6 +28,7 @@ import {
   enzymeActiveBlue,
   amplimerGreen,
   peptideMassKda,
+  gcContentColor,
 } from './editorConstants';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
@@ -366,6 +375,11 @@ const ALIGN_FEAT_GAP = 10;
 // stacked bands / to the next block below the sequence.
 const CHROM_TRACK_H = 46;
 const CHROM_GAP = 4;
+
+// GC-content track: a full-width per-base gradient band in the first lane
+// below the sequence (everything else shifts down by GC_TRACK_H + GC_GAP).
+const GC_TRACK_H = 10;
+const GC_GAP = 4;
 
 // ---------------------------------------------------------------------------
 // MapWatermark — non-interactive plasmid map rendered as a faint overlay on
@@ -722,6 +736,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   canRedo,
   showFeatures,
   onToggleFeatures,
+  showGcContent = false,
+  onToggleGcContent,
+  gcWindowSize = 11,
   alwaysExpandFeatures = false,
   featureLabelsBelow = false,
   showOrfs,
@@ -797,6 +814,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // amino acids (protein).
   const seqUnit = isDna ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
   const containerRef = useRef(null);
+  // Prefix for per-row GC-track <linearGradient> ids (multiple editors stay
+  // mounted at once, so ids must be unique per instance).
+  const gcGradIdPrefix = `gc-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [charsPerLine, setCharsPerLine] = useState(initialCharsPerLine);
   const [hoveredFeature, setHoveredFeature] = useState(null);
   const featureLeaveRef = useRef(null);
@@ -1373,6 +1393,37 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [charsPerLine, cleanSeq.length],
   );
 
+  // Per-base local GC fractions for the GC-content track. Window = the base
+  // plus `half` flanks on each side; circular sequences wrap across the origin,
+  // linear ones truncate the window at the ends.
+  const gcFracs = useMemo(() => {
+    if (!showGcContent || moleculeType === 'protein' || !cleanSeq.length) return null;
+    const n = cleanSeq.length;
+    const half = Math.max(0, Math.floor((gcWindowSize - 1) / 2));
+    const pre = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) {
+      const c = cleanSeq[i];
+      pre[i + 1] = pre[i] + (c === 'G' || c === 'g' || c === 'C' || c === 'c' ? 1 : 0);
+    }
+    const fracs = new Float64Array(n);
+    if (topology === 'circular') {
+      const w = Math.min(2 * half + 1, n);
+      for (let i = 0; i < n; i++) {
+        const start = (((i - half) % n) + n) % n;
+        const gc =
+          start + w <= n ? pre[start + w] - pre[start] : pre[n] - pre[start] + pre[start + w - n];
+        fracs[i] = gc / w;
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        const lo = Math.max(0, i - half);
+        const hi = Math.min(n - 1, i + half);
+        fracs[i] = (pre[hi + 1] - pre[lo]) / (hi - lo + 1);
+      }
+    }
+    return fracs;
+  }, [showGcContent, moleculeType, cleanSeq, gcWindowSize, topology]);
+
   // Per-row compact lane assignment: an alignment only reserves a lane in
   // rows where it actually has sequence, so partial alignments leave no gaps.
   // Alignments with loaded chromatograms additionally reserve a trace band
@@ -1395,11 +1446,20 @@ const SequenceEditor = React.memo(function SequenceEditor({
     });
     const counts = perRow.map((m) => m.size);
     const chromCounts = chromPerRow.map((m) => m.size);
+    const gcH = gcFracs ? GC_TRACK_H + GC_GAP : 0;
     const mainChromH = chromatogram ? CHROM_TRACK_H + CHROM_GAP : 0;
-    // Extra below-sequence height contributed by chromatogram bands.
-    const chromBelow = chromCounts.map((n) => mainChromH + n * (CHROM_TRACK_H + CHROM_GAP));
-    return { perRow, counts, chromPerRow, chromCounts, mainChromH, chromBelow };
-  }, [alignmentTracks, numRows, sp, alignmentChromatograms, chromatogram, cleanSeq.length]);
+    // Extra below-sequence height contributed by the GC track + chromatogram bands.
+    const chromBelow = chromCounts.map((n) => gcH + mainChromH + n * (CHROM_TRACK_H + CHROM_GAP));
+    return { perRow, counts, chromPerRow, chromCounts, gcH, mainChromH, chromBelow };
+  }, [
+    alignmentTracks,
+    numRows,
+    sp,
+    alignmentChromatograms,
+    chromatogram,
+    cleanSeq.length,
+    gcFracs,
+  ]);
 
   // --- collision avoidance: features + primers ---
   // Normalize features and pre-compute colors once
@@ -4119,7 +4179,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const sy = getSeqY(v.row);
           const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
           const y =
-            sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 8;
+            sy +
+            lp.featBaseOffset +
+            alignLaneInfo.gcH +
+            alignLaneInfo.mainChromH +
+            lane * lp.featTrackHeight +
+            8;
           const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
           const mismatches = [];
           chars.forEach((c, i) => {
@@ -4270,7 +4335,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
             // Labels sit a few px above the lane baseline to visually align
             // with the alignment text track.
             const y =
-              sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 6.5;
+              sy +
+              lp.featBaseOffset +
+              alignLaneInfo.gcH +
+              alignLaneInfo.mainChromH +
+              lane * lp.featTrackHeight +
+              6.5;
             const hKey = `${al.id}:${v.row}`;
             const labelHover = hoverAlignLabel === hKey;
             const hovered = truncated && labelHover;
@@ -4390,6 +4460,64 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // on its own column; read gaps (deletions) break the polyline.
   // Band rendering ported from GenePad (https://github.com/GenePad),
   // provided by the GenePad team / https://github.com/Masterchiefm.
+  // One rect per row filled with a horizontal gradient: per-base stops at
+  // column centers make the whole track a continuous blue→white→red ramp.
+  // The band is nudged up toward the sequence text; the reserved lane
+  // height (alignLaneInfo.gcH) is unchanged so nothing else moves.
+  const renderedGcTrack = useMemo(() => {
+    if (!gcFracs) return null;
+    const vs = Math.max(0, visibleRows.start - ROW_BUF);
+    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
+    const rows = [];
+    for (let r = vs; r <= ve; r++) {
+      const rowStart = r * charsPerLine;
+      const rowEnd = Math.min(cleanSeq.length, (r + 1) * charsPerLine);
+      const count = rowEnd - rowStart;
+      const x0 = getX(0);
+      const x1 = getX(count);
+      const y = getSeqY(r) + lp.featBaseOffset - 6;
+      const gid = `${gcGradIdPrefix}-${r}`;
+      const stops = [];
+      for (let pos = rowStart; pos < rowEnd; pos++) {
+        stops.push(
+          <stop
+            key={pos}
+            offset={(pos - rowStart + 0.5) / count}
+            stopColor={gcContentColor(gcFracs[pos])}
+          />,
+        );
+      }
+      rows.push(
+        <g key={r}>
+          <defs>
+            <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={x0} y1={0} x2={x1} y2={0}>
+              {stops}
+            </linearGradient>
+          </defs>
+          <rect
+            x={x0}
+            y={y}
+            width={x1 - x0}
+            height={GC_TRACK_H}
+            fill={`url(#${gid})`}
+            stroke="#000000"
+            strokeWidth="1"
+          />
+        </g>,
+      );
+    }
+    return rows;
+  }, [
+    gcFracs,
+    visibleRows,
+    numRows,
+    charsPerLine,
+    cleanSeq.length,
+    getSeqY,
+    lp,
+    gcGradIdPrefix,
+  ]);
+
   const renderedChromatograms = useMemo(() => {
     const hasAlignChrom = alignmentTracks.some((al) => alignmentChromatograms[al.id]);
     if (!chromatogram && !hasAlignChrom) return null;
@@ -4450,7 +4578,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (let pos = rowStart; pos <= rowEnd; pos++) {
           anchors.push({ x: getX(pos - rowStart) + cw / 2, q: pos });
         }
-        renderBand(`chrom-main-${r}`, chromatogram, anchors, getSeqY(r) + lp.featBaseOffset);
+        renderBand(
+          `chrom-main-${r}`,
+          chromatogram,
+          anchors,
+          getSeqY(r) + lp.featBaseOffset + alignLaneInfo.gcH,
+        );
       }
     }
 
@@ -4471,6 +4604,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const y =
           getSeqY(row) +
           lp.featBaseOffset +
+          alignLaneInfo.gcH +
           alignLaneInfo.mainChromH +
           alignLaneInfo.counts[row] * lp.featTrackHeight +
           2 +
@@ -6054,6 +6188,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToLowercase={toLowercase}
           showFeatures={showFeatures}
           onToggleFeatures={onToggleFeatures}
+          showGcContent={showGcContent}
+          onToggleGcContent={onToggleGcContent}
           showOrfs={showOrfs}
           onToggleOrfs={onToggleOrfs}
           onCreateFeature={createFeature}
@@ -6156,6 +6292,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             {isDna && renderedAlignments}
             {isDna && renderedAlignmentLabels}
             {isDna && renderedChromatograms}
+            {renderedGcTrack}
             {renderedFeatures}
             {renderedFeatureLabels}
             {isDna && renderedEnzymes}

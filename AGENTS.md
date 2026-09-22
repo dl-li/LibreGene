@@ -172,6 +172,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 未适配（前端/UI 专有，MCP 不可用）：
 
 - **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
+- **GC 含量轨道**（Features 菜单 "Show GC Content" 开关，localStorage `showGcContent`/`gcWindowSize`（默认 11，设置页可调）；序列下方第一车道整行渲染蓝→白→红连续渐变带（每行一条 `linearGradient`，逐碱基 stop），颜色映射为非线性三次曲线（40–60% 平缓近白、<30%/>70% 陡峭，端点 0%=蓝/50%=白/100%=红，`editorConstants.js::gcContentColor`）；窗口 = 该碱基 ± floor((w-1)/2)，环状跨原点 wrap、线性端点截断；车道高度经 `alignLaneInfo.gcH` 折入 `chromBelow` 推开下方所有层，渲染时再向上偏移 6px 贴近序列文本，带纯黑 1px 描边）：纯渲染，UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
 - **酶 Provider 数据与筛选**（`enzyme_providers.json`：NEB/BestEnzyme/Thermo 的 buffer 兼容性、温度、甲基化、别名变体；`get_enzyme_providers` 命令 + 导航菜单 Provider 筛选，与 Enzyme Set 筛选取交集；Enzyme Database 弹窗双击行打开 `EnzymeDetailDialog` 显示别名/同裂酶/同尾酶/各供应商信息）：供应商元数据仅展示用，不进 recompute
 - **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none|map}，Tauri 广播同步；导航栏 Diagrams 菜单左键切换背景（RNA 默认 Folding，DNA/Protein 默认 Map，未设置时单击即应用默认图），菜单内可单选背景并 Examine 各图；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
