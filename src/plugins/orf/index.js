@@ -15,8 +15,15 @@ export const ORF_COLORS = { fwd: '#8BB29A', rev: '#A58AC6' };
 // lowest feature-track priority).
 export async function findOrfs(minAa = MIN_AA) {
   const features = await findOrfsCommand(minAa);
+  // Display names are compact positional numbers ("ORF #1") rather than the
+  // backend's coordinate-based names, numbered in template order.
+  const sorted = [...features].sort(
+    (a, b) => a.start - b.start || a.end - b.end || (a.strand < b.strand ? -1 : 1),
+  );
+  const nameById = new Map(sorted.map((f, i) => [f.id, `ORF #${i + 1}`]));
   return features.map((f) => ({
     ...f,
+    name: nameById.get(f.id) || f.name,
     orf: (f.qualifiers || []).some(([k, v]) => k === 'orf' && v === 'true'),
   }));
 }
