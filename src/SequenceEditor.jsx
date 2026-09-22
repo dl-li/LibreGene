@@ -899,7 +899,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [translationSel, setTranslationSel] = useState(null); // { featureId, startCodon, endCodon }
   const [isTranslationDragging, setIsTranslationDragging] = useState(false);
   const translationDragRef = useRef(null); // { featureId, startCodon }
-  const [hoveredCodon, setHoveredCodon] = useState(null); // { featureId, codonIndex }
+  const [hoveredCodon, setHoveredCodon] = useState(null); // { key, map: { [featureId]: codonIndex } }
   const cdsFeatureDataRef = useRef({}); // mirror of cdsFeatureData for early callbacks
   const resetCursorTimer = useCallback(() => {
     if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
@@ -2155,22 +2155,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
         setHoveredIndex(idx);
       }
       // Same trigger range as the base-number badge: hovering any base of a
-      // codon (not just the feature block) shows the AA number.
+      // codon (not just the feature block) shows the AA number. Every
+      // translatable feature covering the position shows its own number.
       let nextCodon = null;
       if (idx !== null) {
+        const map = {};
         for (const [featureId, cds] of Object.entries(cdsFeatureDataRef.current)) {
           const codon = cds.codonMap.get(idx);
-          if (codon !== undefined) {
-            nextCodon = { featureId, codonIndex: codon };
-            break;
-          }
+          if (codon !== undefined) map[featureId] = codon;
         }
+        if (Object.keys(map).length) nextCodon = { key: `${idx}`, map };
       }
-      setHoveredCodon((prev) =>
-        prev?.featureId === nextCodon?.featureId && prev?.codonIndex === nextCodon?.codonIndex
-          ? prev
-          : nextCodon,
-      );
+      setHoveredCodon((prev) => (prev?.key === nextCodon?.key ? prev : nextCodon));
     },
     [clientToCharIndex],
   );
@@ -3431,7 +3427,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (codon === undefined) return;
       const maxCodon = cds.trans.length - 1;
       const clamped = Math.max(0, Math.min(maxCodon, codon));
-      setHoveredCodon({ featureId: drag.featureId, codonIndex: clamped });
+      setHoveredCodon({
+        key: `drag:${drag.featureId}:${clamped}`,
+        map: { [drag.featureId]: clamped },
+      });
       setTranslationSel((prev) => {
         if (!prev || prev.featureId !== drag.featureId) return prev;
         return { featureId: drag.featureId, startCodon: drag.startCodon, endCodon: clamped };
@@ -3585,16 +3584,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   const svgPt = pt.matrixTransform(ctm.inverse());
                   let col = Math.floor((svgPt.x - startX) / cw);
                   col = Math.max(v.colStart, Math.min(v.colEnd, col));
-                  const codon = cds.codonMap.get(v.row * charsPerLine + col);
+                  const idx = v.row * charsPerLine + col;
+                  const map = {};
+                  for (const [featureId, cds] of Object.entries(cdsFeatureData)) {
+                    const codon = cds.codonMap.get(idx);
+                    if (codon !== undefined) map[featureId] = codon;
+                  }
                   const next =
-                    codon === undefined || codon === null
-                      ? null
-                      : { featureId: f.id, codonIndex: codon };
-                  setHoveredCodon((prev) =>
-                    prev?.featureId === next?.featureId && prev?.codonIndex === next?.codonIndex
-                      ? prev
-                      : next,
-                  );
+                    Object.keys(map).length === 0 ? null : { key: `${idx}`, map };
+                  setHoveredCodon((prev) => (prev?.key === next?.key ? prev : next));
                 }}
                 onMouseLeave={() => {
                   setHoveredCodon(null);
@@ -3735,8 +3733,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   lp.featTrackHeight +
                 (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
               const y = sy + lp.featBaseOffset + rowTo;
-              const isCodonHovered =
-                hoveredCodon?.featureId === f.id && hoveredCodon?.codonIndex === t.codonIndex;
+              const hoveredIdx = hoveredCodon?.map?.[f.id];
+              const isCodonHovered = hoveredIdx === t.codonIndex;
               return (
                 <text
                   key={`tr-${t.templatePos2}`}
