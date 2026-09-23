@@ -523,7 +523,7 @@ export default function EditorNavMenu({
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>Choose Enzyme Set</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>Enzyme Set</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
                   {ENZYME_FILTER_OPTIONS.map((opt) => (
@@ -563,7 +563,7 @@ export default function EditorNavMenu({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>Choose Provider</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>Provider</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup
                   value={enzymeProvider}
