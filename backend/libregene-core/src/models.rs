@@ -530,8 +530,14 @@ pub struct RemovedFeatureImpact {
     pub location: String,
 }
 
-/// A feature whose coordinates changed other than a pure translation (either
-/// a boundary was clipped by the edit or the span length changed).
+/// A feature whose coordinates changed other than a pure translation (a
+/// segment boundary was clipped by the edit or a segment was lost). Detection
+/// is per segment: a feature whose every segment merely shifted (e.g. a
+/// cross-origin feature downstream of a deletion) is NOT clipped.
+/// `before`/`after` are the bounding spans (min start, max end over the
+/// respective segments, so both share the same basis); `before_segments`/
+/// `after_segments` carry the individual 0-based inclusive ranges in join
+/// order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClippedFeatureImpact {
@@ -539,6 +545,10 @@ pub struct ClippedFeatureImpact {
     pub ftype: String,
     pub before: EditSpan,
     pub after: EditSpan,
+    #[serde(default)]
+    pub before_segments: Vec<EditSpan>,
+    #[serde(default)]
+    pub after_segments: Vec<EditSpan>,
 }
 
 /// 0-based inclusive coordinate span.

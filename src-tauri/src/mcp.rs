@@ -1056,11 +1056,18 @@ fn edit_impact_json(
         .clipped_features
         .iter()
         .map(|c| {
+            let segs = |v: &[libregene_core::models::EditSpan]| {
+                v.iter()
+                    .map(|s| serde_json::json!({"start": to1(s.start), "end": to1(s.end)}))
+                    .collect::<Vec<_>>()
+            };
             serde_json::json!({
                 "name": c.name,
                 "ftype": c.ftype,
                 "before": {"start": to1(c.before.start), "end": to1(c.before.end)},
                 "after": {"start": to1(c.after.start), "end": to1(c.after.end)},
+                "beforeSegments": segs(&c.before_segments),
+                "afterSegments": segs(&c.after_segments),
             })
         })
         .collect();
@@ -3693,9 +3700,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// the edit, and side-effect echo `removedFeatures`/`clippedFeatures`
     /// (both always present, empty arrays when none): removed lists features
     /// fully inside the deleted/replaced span ({name, ftype, location} with
-    /// the pre-edit 1-based "start..end"); clipped lists features whose
-    /// coordinates changed other than a pure translation ({name, ftype,
-    /// before, after} as 1-based {start, end}). An equal-length replacement
+    /// the pre-edit 1-based "start..end"); clipped lists features where at
+    /// least one segment actually lost or gained bases ({name, ftype, before,
+    /// after} as 1-based {start, end} bounding spans plus beforeSegments/
+    /// afterSegments with the individual 1-based ranges in join order; a
+    /// feature whose segments all merely shifted — e.g. a cross-origin feature
+    /// downstream of a deletion — is NOT clipped). An equal-length replacement
     /// (deleted length == inserted length) keeps ALL features at their
     /// current coordinates — nothing is removed or clipped, so case
     /// normalization and point-mutation edits are safe inside features. `transferredFeatures`/
@@ -8062,6 +8072,87 @@ mod tests {
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
         assert!(p.features.iter().all(|f| f.name != "gene"));
+    }
+
+    fn cross_origin_test_project() -> ProjectData {
+        // 200 bp circle with a cross-origin feature: segments (190,199)+(0,9),
+        // start/end in first/last join form (start > end).
+        let mut f = feature("co", "crossOrigin", 190, 9, "+");
+        f.segments = vec![
+            Segment { start: 190, end: 199, color: None },
+            Segment { start: 0, end: 9, color: None },
+        ];
+        ProjectData {
+            name: "co_test".to_string(),
+            sequence: synthetic_dna(200, 7),
+            length: 200,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![f],
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_pure_shift_of_cross_origin_feature_is_not_clipped() {
+        // Delete 10 bp at 1-based 51..60 (internal 50..59): both segments keep
+        // their base content (the first merely translates), so the feature
+        // must show up in neither removedFeatures nor clippedFeatures.
+        let server = handler_with_project(cross_origin_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "co_test".to_string(),
+                start: 51,
+                end: 60,
+                replacement: Some(String::new()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["removedFeatures"], serde_json::json!([]), "{v}");
+        assert_eq!(v["clippedFeatures"], serde_json::json!([]), "{v}");
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("co_test").unwrap();
+        let f = p.features.iter().find(|f| f.name == "crossOrigin").unwrap();
+        let spans: Vec<(i64, i64)> = f.segments.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(spans, vec![(180, 189), (0, 9)], "segments shifted, content intact");
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_clipped_cross_origin_feature_reports_segments() {
+        // Delete the last 5 bp (1-based 196..200), clipping the tail of the
+        // first segment: before/after are bounding spans on one basis and the
+        // per-segment 1-based ranges ride along.
+        let server = handler_with_project(cross_origin_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "co_test".to_string(),
+                start: 196,
+                end: 200,
+                replacement: Some(String::new()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["removedFeatures"], serde_json::json!([]), "{v}");
+        let c = &v["clippedFeatures"][0];
+        assert_eq!(c["name"], "crossOrigin", "{v}");
+        assert_eq!(c["before"], serde_json::json!({"start": 1, "end": 200}), "{v}");
+        assert_eq!(c["after"], serde_json::json!({"start": 1, "end": 195}), "{v}");
+        assert_eq!(
+            c["beforeSegments"],
+            serde_json::json!([{"start": 191, "end": 200}, {"start": 1, "end": 10}]),
+            "{v}"
+        );
+        assert_eq!(
+            c["afterSegments"],
+            serde_json::json!([{"start": 191, "end": 195}, {"start": 1, "end": 10}]),
+            "{v}"
+        );
     }
 
     #[tokio::test]

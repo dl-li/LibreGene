@@ -139,9 +139,16 @@ pub fn adjust_features_for_edit(
 }
 
 /// Side effects of an edit on feature coordinates, derived with the same span
-/// math as [`adjust_features_for_edit`]: features fully inside the deleted or
-/// replaced span are `removed`, and features whose span changed other than a
-/// pure translation (a boundary clipped or the length altered) are `clipped`.
+/// math as [`adjust_features_for_edit`]: features whose every segment fell
+/// inside the deleted or replaced span are `removed`, and features with at
+/// least one segment that actually lost (or gained) bases — a boundary
+/// clipped, a segment dropped — are `clipped`. Detection is per segment, so a
+/// feature whose segments all merely translated (e.g. a cross-origin feature
+/// downstream of a deletion, or an edit falling in a segment gap) is neither.
+/// `before`/`after` are bounding spans computed the same way (min start, max
+/// end over the segment list) so both share one basis even when the feature's
+/// own start/end are stored in first/last join form; the per-segment ranges
+/// ride along in `before_segments`/`after_segments` (join order).
 /// Equal-length replacements keep every feature (coordinates unchanged), so
 /// both lists are empty there.
 pub fn features_edit_impact(
@@ -155,43 +162,54 @@ pub fn features_edit_impact(
     if delta == 0 {
         return impact;
     }
+    let bounding = |spans: &[(i64, i64)]| crate::models::EditSpan {
+        start: spans.iter().map(|s| s.0).min().unwrap(),
+        end: spans.iter().map(|s| s.1).max().unwrap(),
+    };
     for f in features {
-        let mut new_spans: Vec<(i64, i64)> = Vec::new();
-        if f.segments.is_empty() {
-            if let Some((s, e)) = adjust_span(f.start, f.end, edit_start, edit_end, new_len) {
-                new_spans.push((s, e));
-            }
+        let old_spans: Vec<(i64, i64)> = if f.segments.is_empty() {
+            vec![(f.start, f.end)]
         } else {
-            for seg in &f.segments {
-                if let Some((s, e)) = adjust_span(seg.start, seg.end, edit_start, edit_end, new_len)
-                {
-                    new_spans.push((s, e));
+            f.segments.iter().map(|s| (s.start, s.end)).collect()
+        };
+        let mut new_spans: Vec<(i64, i64)> = Vec::new();
+        let mut clipped = false;
+        for &(s, e) in &old_spans {
+            match adjust_span(s, e, edit_start, edit_end, new_len) {
+                Some((ns, ne)) => {
+                    // A pure translation moves both boundaries by the same
+                    // delta (length preserved); anything else means this
+                    // segment's base content changed.
+                    if (ns - s) != (ne - e) {
+                        clipped = true;
+                    }
+                    new_spans.push((ns, ne));
                 }
+                None => clipped = true,
             }
         }
-        let Some((ns, ne)) = new_spans
-            .iter()
-            .map(|&(s, e)| (s, e))
-            .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
-        else {
+        if new_spans.is_empty() {
             impact.removed_features.push(crate::models::RemovedFeatureImpact {
                 name: f.name.clone(),
                 ftype: f.ftype.clone(),
                 location: format!("{}..{}", f.start, f.end),
             });
             continue;
-        };
-        // A pure translation moves both boundaries by the same delta (length
-        // preserved); anything else is a boundary change worth reporting.
-        if (ns - f.start) != (ne - f.end) {
+        }
+        if clipped {
             impact.clipped_features.push(crate::models::ClippedFeatureImpact {
                 name: f.name.clone(),
                 ftype: f.ftype.clone(),
-                before: crate::models::EditSpan {
-                    start: f.start,
-                    end: f.end,
-                },
-                after: crate::models::EditSpan { start: ns, end: ne },
+                before: bounding(&old_spans),
+                after: bounding(&new_spans),
+                before_segments: old_spans
+                    .iter()
+                    .map(|&(start, end)| crate::models::EditSpan { start, end })
+                    .collect(),
+                after_segments: new_spans
+                    .iter()
+                    .map(|&(start, end)| crate::models::EditSpan { start, end })
+                    .collect(),
             });
         }
     }
@@ -498,6 +516,50 @@ mod tests {
         let c = &impact.clipped_features[0];
         assert_eq!((c.before.start, c.before.end), (50, 300));
         assert_eq!((c.after.start, c.after.end), (50, 200));
+    }
+
+    #[test]
+    fn impact_cross_origin_feature_pure_shift_is_not_clipped() {
+        // Cross-origin CDS on a 9326 bp circle: segments (8885,9325)+(0,218)
+        // with start/end stored in first/last join form (start > end). A 10 bp
+        // deletion at 4000..4009 merely shifts the first segment — the feature
+        // must NOT be reported as clipped.
+        let feats = vec![feat("CmR", 8885, 218, vec![(8885, 9325), (0, 218)])];
+        let impact = features_edit_impact(&feats, 4000, 4009, 0);
+        assert!(impact.removed_features.is_empty());
+        assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn impact_edit_in_segment_gap_is_not_clipped() {
+        // A deletion falling strictly between two segments touches neither:
+        // both segments keep their base content (one translates), so the
+        // feature is not clipped even though its bounding span shrank.
+        let feats = vec![feat("seg", 50, 300, vec![(50, 120), (200, 300)])];
+        let impact = features_edit_impact(&feats, 130, 150, 0);
+        assert!(impact.removed_features.is_empty());
+        assert!(impact.clipped_features.is_empty());
+    }
+
+    #[test]
+    fn impact_cross_origin_feature_clipped_reports_consistent_segments() {
+        // Delete 16 bp at 9310..9325, clipping the tail of the first segment.
+        let feats = vec![feat("CmR", 8885, 218, vec![(8885, 9325), (0, 218)])];
+        let impact = features_edit_impact(&feats, 9310, 9325, 0);
+        assert!(impact.removed_features.is_empty());
+        assert_eq!(impact.clipped_features.len(), 1);
+        let c = &impact.clipped_features[0];
+        // before/after share the same bounding-span basis (min start, max end).
+        assert_eq!((c.before.start, c.before.end), (0, 9325));
+        assert_eq!((c.after.start, c.after.end), (0, 9309));
+        let before: Vec<(i64, i64)> = c
+            .before_segments
+            .iter()
+            .map(|s| (s.start, s.end))
+            .collect();
+        let after: Vec<(i64, i64)> = c.after_segments.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(before, vec![(8885, 9325), (0, 218)]);
+        assert_eq!(after, vec![(8885, 9309), (0, 218)]);
     }
 
     #[test]
