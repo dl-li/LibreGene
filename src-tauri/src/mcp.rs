@@ -582,7 +582,10 @@ fn clean_na_sequence(seq: &str, alphabet: &str) -> Result<String, String> {
 }
 
 /// The shared convert_sequence preview fields for codon-optimizing items
-/// (identical across all input modes).
+/// (identical across all input modes). The backend reports repairs/unresolved
+/// as raw 0-based values; MCP bumps them to the 1-based inclusive convention
+/// here (codonIndex 1 = first codon; unresolved ranges are 1-based inclusive
+/// base offsets within the optimized sequence).
 fn codon_preview_json(
     result: &libregene_core::codon::OptimizeResult,
     aa: &str,
@@ -590,6 +593,37 @@ fn codon_preview_json(
     method: &str,
     species: &str,
 ) -> serde_json::Value {
+    let repairs: Vec<serde_json::Value> = result
+        .repairs
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "codonIndex": r.codon_index + 1,
+                "old": r.old,
+                "new": r.new,
+                "reason": r.reason,
+            })
+        })
+        .collect();
+    let unresolved: Vec<serde_json::Value> = result
+        .unresolved
+        .iter()
+        .map(|u| {
+            // Backend format: "<reason> <start>..<end>" (0-based inclusive).
+            match u.rsplit_once(' ') {
+                Some((reason, range)) => match range.split_once("..") {
+                    Some((a, b)) => match (a.parse::<i64>(), b.parse::<i64>()) {
+                        (Ok(s), Ok(e)) => {
+                            serde_json::json!(format!("{} {}..{}", reason, s + 1, e + 1))
+                        }
+                        _ => serde_json::json!(u),
+                    },
+                    None => serde_json::json!(u),
+                },
+                None => serde_json::json!(u),
+            }
+        })
+        .collect();
     serde_json::json!({
         "aa": aa,
         "codonCount": codon_count,
@@ -598,9 +632,9 @@ fn codon_preview_json(
         "caiAfter": result.cai_after,
         "gcBefore": result.gc_before,
         "gcAfter": result.gc_after,
-        "repairs": result.repairs,
-        "repairCount": result.repairs.len(),
-        "unresolved": result.unresolved,
+        "repairs": repairs,
+        "repairCount": repairs.len(),
+        "unresolved": unresolved,
         "method": method,
         "species": species,
     })
@@ -5243,7 +5277,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// optimizing items additionally carry the optimizer fields (aa,
     /// codonCount, newCodons, caiBefore, caiAfter, gcBefore, gcAfter, repairs,
     /// repairCount, unresolved, method, species). `aa` includes a trailing
-    /// '*' for the stop codon and `codonCount` counts it. `path` appears when
+    /// '*' for the stop codon and `codonCount` counts it. repairs[].codonIndex
+    /// is 1-based (1 = first codon, including the stop) and each unresolved
+    /// entry is "<reason> <start>..<end>" with 1-based inclusive base offsets
+    /// within the optimized sequence. `path` appears when
     /// `output_path` was given; `regionView` after an apply=true project
     /// write-back. Failed items carry {ok: false, error}; when EVERY item
     /// fails the whole call returns an error.
@@ -6218,6 +6255,45 @@ mod tests {
 
     fn convert_req(items: Vec<ConvertItem>) -> ConvertSequenceRequest {
         ConvertSequenceRequest { items: Some(items), ..Default::default() }
+    }
+
+    #[test]
+    fn codon_preview_json_reports_1based_repairs_and_unresolved() {
+        let result = libregene_core::codon::OptimizeResult {
+            new_codons: vec!["GAA".to_string()],
+            cai_before: 0.5,
+            cai_after: 0.9,
+            gc_before: 40.0,
+            gc_after: 50.0,
+            repairs: vec![
+                libregene_core::codon::Repair {
+                    codon_index: 5,
+                    old: "GAG".to_string(),
+                    new: "GAA".to_string(),
+                    reason: "homopolymer".to_string(),
+                },
+                libregene_core::codon::Repair {
+                    codon_index: 0,
+                    old: "TTT".to_string(),
+                    new: "TTC".to_string(),
+                    reason: "repeat".to_string(),
+                },
+            ],
+            unresolved: vec![
+                "repeat 10..17".to_string(),
+                "gc_window 0..29".to_string(),
+                "unparseable entry".to_string(),
+            ],
+        };
+        let v = codon_preview_json(&result, "E*", 2, "best", "e_coli");
+        assert_eq!(v["repairs"][0]["codonIndex"], 6, "{v}");
+        assert_eq!(v["repairs"][0]["old"], "GAG", "{v}");
+        assert_eq!(v["repairs"][1]["codonIndex"], 1, "{v}");
+        assert_eq!(v["repairCount"], 2, "{v}");
+        assert_eq!(v["unresolved"][0], "repeat 11..18", "{v}");
+        assert_eq!(v["unresolved"][1], "gc_window 1..30", "{v}");
+        // Entries that don't match the "<reason> <s>..<e>" shape pass through.
+        assert_eq!(v["unresolved"][2], "unparseable entry", "{v}");
     }
 
     #[tokio::test]
