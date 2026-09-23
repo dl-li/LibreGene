@@ -2652,16 +2652,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const selectEnzymeSite = useCallback(
     (enzyme, entryId) => {
       // Sites wrapping the origin of a circular sequence (recEnd beyond the
-      // sequence length) fall back to the display window.
-      const recWraps = enzyme.recStart == null || enzyme.recEnd >= cleanSeq.length;
-      setSelStart(recWraps ? enzyme.displayStart : enzyme.recStart);
-      setSelEnd(recWraps ? enzyme.displayEnd : enzyme.recEnd);
+      // sequence length) fall back to the display window. For circular
+      // molecules wrap the coords into [0, tlen) so selStart > selEnd
+      // expresses the cross-origin selection (mirrors the tooltip path).
+      const tlen = cleanSeq.length;
+      const recWraps = enzyme.recStart == null || enzyme.recEnd >= tlen;
+      let start = recWraps ? enzyme.displayStart : enzyme.recStart;
+      let end = recWraps ? enzyme.displayEnd : enzyme.recEnd;
+      if (recWraps && topology === 'circular' && tlen > 0) {
+        start = ((start % tlen) + tlen) % tlen;
+        end = ((end % tlen) + tlen) % tlen;
+      }
+      setSelStart(start);
+      setSelEnd(end);
       setCursorIndex(null);
       setIsEnzymeSelection(true);
       setSelectedEnzymeIds([entryId ?? enzyme.id]);
       clearCursorTimer();
     },
-    [cleanSeq, clearCursorTimer],
+    [cleanSeq, topology, clearCursorTimer],
   );
 
   const openEnzymeMenu = useCallback(
@@ -5234,10 +5243,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
             // Start enzyme drag — immediately select the recognition site.
             // Sites wrapping the origin of a circular sequence (recEnd beyond
-            // the sequence length) fall back to the display window.
-            const recWraps = enzyme.recStart == null || enzyme.recEnd >= cleanSeq.length;
-            const recSelStart = recWraps ? enzyme.displayStart : enzyme.recStart;
-            const recSelEnd = recWraps ? enzyme.displayEnd : enzyme.recEnd;
+            // the sequence length) fall back to the display window. For
+            // circular molecules wrap the coords into [0, tlen) so
+            // selStart > selEnd expresses the cross-origin selection
+            // (mirrors the tooltip path).
+            const tlen = cleanSeq.length;
+            const recWraps = enzyme.recStart == null || enzyme.recEnd >= tlen;
+            let recSelStart = recWraps ? enzyme.displayStart : enzyme.recStart;
+            let recSelEnd = recWraps ? enzyme.displayEnd : enzyme.recEnd;
+            if (recWraps && topology === 'circular' && tlen > 0) {
+              recSelStart = ((recSelStart % tlen) + tlen) % tlen;
+              recSelEnd = ((recSelEnd % tlen) + tlen) % tlen;
+            }
             setSelStart(recSelStart);
             setSelEnd(recSelEnd);
             setCursorIndex(null);
@@ -5321,6 +5338,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     isEnzymeSelection,
     clearCursorTimer,
     cleanSeq,
+    topology,
     openEnzymeMenu,
     openEnzymeDetail,
   ]);
