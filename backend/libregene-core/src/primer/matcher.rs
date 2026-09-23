@@ -26,8 +26,9 @@ pub struct AnnealingSite {
     pub template_start: usize,
     /// Length of the perfectly-matching footprint (in bases).
     pub footprint_len: usize,
-    /// Whether the match includes any IUPAC-ambiguous base pairs.
-    pub has_ambiguous: bool,
+    /// Whether the 3'-most 5 bases of the footprint contain a mismatch or an
+    /// ambiguous (IUPAC-degenerate) pairing.
+    pub has_3_prime_mismatch: bool,
 }
 
 /// Build a regex character class for a single IUPAC base (direct match).
@@ -112,7 +113,6 @@ pub fn find_annealing_positions(
 
         let five_prime_part = &primer_upper[..plen - limit];
         let mut ext = 0usize;
-        let mut has_ambiguous = false;
 
         if use_complement {
             // Rev primer: 5' end extends RIGHT (higher template coords).
@@ -127,17 +127,10 @@ pub fn find_annealing_positions(
 
                 if bases_compatible(pbase, tbase, true) {
                     ext += 1;
-                    if iupac::iupac_expand(pbase).len() > 1 || iupac::iupac_expand(tbase).len() > 1 {
-                        has_ambiguous = true;
-                    }
                 } else {
                     break;
                 }
             }
-            // template_start is the anchor start (leftmost), template_end extends right
-            let template_start = anchor_start;
-            let footprint_len = limit + ext;
-            results.push(AnnealingSite { template_start, footprint_len, has_ambiguous });
         } else {
             // Fwd primer: 5' end extends LEFT (lower template coords).
             for (i, &pbase) in five_prime_part.iter().rev().enumerate() {
@@ -149,17 +142,42 @@ pub fn find_annealing_positions(
 
                 if bases_compatible(pbase, tbase, false) {
                     ext += 1;
-                    if iupac::iupac_expand(pbase).len() > 1 || iupac::iupac_expand(tbase).len() > 1 {
-                        has_ambiguous = true;
-                    }
                 } else {
                     break;
                 }
             }
-            let template_start = anchor_start - ext;
-            let footprint_len = limit + ext;
-            results.push(AnnealingSite { template_start, footprint_len, has_ambiguous });
         }
+
+        let template_start = if use_complement {
+            anchor_start
+        } else {
+            anchor_start - ext
+        };
+        let footprint_len = limit + ext;
+
+        // The 3'-most 5 aligned bases decide priming quality: flag a mismatch
+        // or an ambiguous (degenerate) pairing there. Issues further 5'-ward
+        // (deeper in the anchor or in the extension) do not set the flag.
+        let mut has_3_prime_mismatch = false;
+        for k in 0..footprint_len.min(5) {
+            let pbase = primer_upper[plen - 1 - k];
+            let tpos = if use_complement {
+                anchor_start + k
+            } else {
+                anchor_end - 1 - k
+            };
+            let mut tbase = template[tpos].to_ascii_uppercase();
+            if tbase == b'U' { tbase = b'T'; }
+            if !bases_compatible(pbase, tbase, use_complement)
+                || iupac::iupac_expand(pbase).len() > 1
+                || iupac::iupac_expand(tbase).len() > 1
+            {
+                has_3_prime_mismatch = true;
+                break;
+            }
+        }
+
+        results.push(AnnealingSite { template_start, footprint_len, has_3_prime_mismatch });
     }
 
     results.sort_by(|a, b| b.footprint_len.cmp(&a.footprint_len));
@@ -312,5 +330,63 @@ mod tests {
         let primer = b"CGTACGRTAG"; // R=A|G, 3' anchor = TACGRTAG
         let sites = find_annealing_positions(primer, template, 8, false);
         assert!(!sites.is_empty());
+    }
+
+    // ---- 3'-mismatch flag ----
+
+    #[test]
+    fn test_3prime_flag_perfect_match_is_false() {
+        let template = b"NNNNNCGTACGCTAGNNNNN";
+        let primer = b"CGTACGCTAG";
+        let sites = find_annealing_positions(primer, template, 8, false);
+        assert!(!sites.is_empty());
+        assert!(!sites[0].has_3_prime_mismatch);
+    }
+
+    #[test]
+    fn test_3prime_flag_mismatch_in_anchor() {
+        // 'X' is not a valid IUPAC base: the anchor regex falls back to a
+        // wildcard so the site still binds, but the pairing at the 3'
+        // penultimate base is effectively a mismatch.
+        let template = b"NNTACGCTAGNN";
+        let primer = b"CGTACGCTXG";
+        let sites = find_annealing_positions(primer, template, 8, false);
+        assert!(!sites.is_empty());
+        assert!(sites[0].has_3_prime_mismatch);
+    }
+
+    #[test]
+    fn test_3prime_flag_ambiguous_pair_in_anchor() {
+        // R (A|G) in the primer pairs with template A — compatible but
+        // ambiguous, and it sits 3 bases from the 3' end.
+        let template = b"NNTACGATAGNN";
+        let primer = b"CGTACGRTAG";
+        let sites = find_annealing_positions(primer, template, 8, false);
+        assert!(!sites.is_empty());
+        assert!(sites[0].has_3_prime_mismatch);
+    }
+
+    #[test]
+    fn test_3prime_flag_ambiguous_pair_in_anchor_rev() {
+        // Rev primer whose 3'-terminal base is R: it pairs with template C
+        // (G-C) at the left edge of the anchor footprint.
+        let template = b"NNCTAGCGTANN";
+        let primer = b"CGTACGCTAR";
+        let sites = find_annealing_positions(primer, template, 8, true);
+        assert!(!sites.is_empty());
+        assert!(sites[0].has_3_prime_mismatch);
+    }
+
+    #[test]
+    fn test_3prime_flag_ambiguous_only_in_far_5prime_extension_is_false() {
+        // Primer 15-mer; the degenerate R is the 5'-terminal base, reached
+        // only via extension — 14 bases away from the 3' end. The 3'-most 5
+        // bases are all exact, so the flag must stay false.
+        let template = b"NNAGTACGCTAGCATGCNN";
+        let primer = b"RGTACGCTAGCATGC";
+        let sites = find_annealing_positions(primer, template, 13, false);
+        assert!(!sites.is_empty());
+        assert_eq!(sites[0].footprint_len, 15, "extension should reach the R");
+        assert!(!sites[0].has_3_prime_mismatch);
     }
 }

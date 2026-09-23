@@ -179,8 +179,7 @@ fn search_one_strand(
         // Both show actual primer bases, no complementing needed.
         let final_rd = render_data;
 
-        let has_3prime = site.has_ambiguous
-            && site.footprint_len >= plen.saturating_sub(5);
+        let has_3prime = site.has_3_prime_mismatch;
 
         results.push(PrimerBindingSite {
             primer_id: primer_id.to_string(),
