@@ -382,3 +382,41 @@ fn roundtrip_order_location() {
     assert_eq!((f2.start, f2.end), (99, 249), "order() bounds survive re-save");
     assert_eq!(segments_of(f2), vec![(99, 149), (199, 249)]);
 }
+
+/// A primer with no binding sites must survive a save→reload instead of
+/// being silently dropped.
+#[test]
+fn roundtrip_primer_without_binding_site() {
+    let mut project = synthetic_project(vec![]);
+    project.primers = vec![
+        libregene_core::models::Primer {
+            id: "orphan_fwd".to_string(),
+            name: "OrphanFwd".to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "ACGTACGTACGT".to_string(),
+            binding_sites: Vec::new(),
+        },
+        libregene_core::models::Primer {
+            id: "orphan_rev".to_string(),
+            name: "OrphanRev".to_string(),
+            r#type: "rev".to_string(),
+            primer_seq: "TTGGCCAATTGG".to_string(),
+            binding_sites: Vec::new(),
+        },
+    ];
+
+    let tmp = std::env::temp_dir().join("libregene_orphan_primer_roundtrip.gbk");
+    libregene_core::file_io::gbk::write_gbk(&project, &tmp).expect("write gbk");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse gbk");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains("OrphanFwd"), "orphan fwd primer written:\n{written}");
+    assert_eq!(reloaded.primers.len(), 2, "both orphan primers survive");
+    let fwd = reloaded.primers.iter().find(|p| p.name == "OrphanFwd").expect("OrphanFwd");
+    assert_eq!(fwd.primer_seq, "ACGTACGTACGT");
+    assert_eq!(fwd.r#type, "fwd");
+    let rev = reloaded.primers.iter().find(|p| p.name == "OrphanRev").expect("OrphanRev");
+    assert_eq!(rev.primer_seq, "TTGGCCAATTGG");
+    assert_eq!(rev.r#type, "rev");
+}

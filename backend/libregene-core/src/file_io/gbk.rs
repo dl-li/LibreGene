@@ -587,8 +587,12 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
     for p in &project.primers {
         let best = match p.binding_sites.first() {
             Some(bs) => bs,
-            // Skip primers without binding sites — no valid template position to serialize.
-            None => continue,
+            // No binding site: persist via libregene qualifiers so the
+            // primer still survives a save→reload.
+            None => {
+                push_fallback_primer(record, p);
+                continue;
+            }
         };
         let ms = best.template_start;
         let me = best.template_end;
@@ -844,25 +848,32 @@ pub(crate) fn build_primer_qualifier_pairs(
 #[allow(dead_code)]
 fn serialize_primers_fallback(project: &ProjectData, record: &mut Seq) {
     for p in &project.primers {
-        let (ms, me, qualifier_pairs) = build_primer_qualifier_pairs(p);
-        let qualifiers: Vec<(Cow<'static, str>, Option<String>)> = qualifier_pairs
-            .into_iter()
-            .map(|(k, v)| (Cow::Owned(k), Some(v)))
-            .collect();
-
-        let loc = Location::Range((ms, Before(false)), (me + 1, After(false)));
-        let loc = if p.r#type == "rev" {
-            Location::Complement(Box::new(loc))
-        } else {
-            loc
-        };
-
-        record.features.push(GbFeature {
-            kind: Cow::Borrowed("primer_bind"),
-            location: loc,
-            qualifiers,
-        });
+        push_fallback_primer(record, p);
     }
+}
+
+/// Write one primer as a `primer_bind` feature carrying libregene qualifiers
+/// (label/id/type/seq). Used for primers without a binding site, where the
+/// SnapGene representation has no valid template position.
+fn push_fallback_primer(record: &mut Seq, p: &Primer) {
+    let (ms, me, qualifier_pairs) = build_primer_qualifier_pairs(p);
+    let qualifiers: Vec<(Cow<'static, str>, Option<String>)> = qualifier_pairs
+        .into_iter()
+        .map(|(k, v)| (Cow::Owned(k), Some(v)))
+        .collect();
+
+    let loc = Location::Range((ms, Before(false)), (me + 1, After(false)));
+    let loc = if p.r#type == "rev" {
+        Location::Complement(Box::new(loc))
+    } else {
+        loc
+    };
+
+    record.features.push(GbFeature {
+        kind: Cow::Borrowed("primer_bind"),
+        location: loc,
+        qualifiers,
+    });
 }
 
 // ---------------------------------------------------------------------------
