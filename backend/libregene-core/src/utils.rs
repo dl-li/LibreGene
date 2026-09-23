@@ -1,13 +1,35 @@
 pub fn complement_char(c: char) -> char {
     match c {
         'A' => 'T',
-        'T' => 'A',
+        'T' | 'U' => 'A',
         'G' => 'C',
         'C' => 'G',
+        'R' => 'Y',
+        'Y' => 'R',
+        'S' => 'S',
+        'W' => 'W',
+        'K' => 'M',
+        'M' => 'K',
+        'B' => 'V',
+        'V' => 'B',
+        'D' => 'H',
+        'H' => 'D',
+        'N' => 'N',
         'a' => 't',
-        't' => 'a',
+        't' | 'u' => 'a',
         'g' => 'c',
         'c' => 'g',
+        'r' => 'y',
+        'y' => 'r',
+        's' => 's',
+        'w' => 'w',
+        'k' => 'm',
+        'm' => 'k',
+        'b' => 'v',
+        'v' => 'b',
+        'd' => 'h',
+        'h' => 'd',
+        'n' => 'n',
         _ => c,
     }
 }
@@ -279,14 +301,39 @@ mod tests {
     }
 
     #[test]
+    fn test_reverse_complement_iupac() {
+        assert_eq!(reverse_complement("ACGT"), "ACGT");
+        assert_eq!(reverse_complement("ACGU"), "ACGT");
+        assert_eq!(
+            reverse_complement("ACGURYSWKMBDHVNacgu"),
+            "acgtNBDHVKMWSRYACGT"
+        );
+    }
+
+    #[test]
     fn test_complement() {
         assert_eq!(complement("ATGC"), "TACG");
+        assert_eq!(complement("ACGURYSWKMBDHVNacgu"), "TGCAYRSWMKVHDBNtgca");
     }
 
     #[test]
     fn test_complement_char() {
         assert_eq!(complement_char('A'), 'T');
         assert_eq!(complement_char('G'), 'C');
+        assert_eq!(complement_char('U'), 'A');
+        assert_eq!(complement_char('u'), 'a');
+        assert_eq!(complement_char('R'), 'Y');
+        assert_eq!(complement_char('y'), 'r');
+        assert_eq!(complement_char('S'), 'S');
+        assert_eq!(complement_char('W'), 'W');
+        assert_eq!(complement_char('K'), 'M');
+        assert_eq!(complement_char('m'), 'k');
+        assert_eq!(complement_char('B'), 'V');
+        assert_eq!(complement_char('v'), 'b');
+        assert_eq!(complement_char('D'), 'H');
+        assert_eq!(complement_char('h'), 'd');
+        assert_eq!(complement_char('N'), 'N');
+        assert_eq!(complement_char('n'), 'n');
     }
 
     #[test]
