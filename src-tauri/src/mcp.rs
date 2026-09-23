@@ -2549,7 +2549,7 @@ fn build_export_data(
         } else {
             vec![(ss, se)]
         };
-        let mut best: Option<(i64, i64)> = None;
+        let mut mapped: Vec<(i64, i64)> = Vec::new();
         for (pi, &(ps, pe)) in pieces.iter().enumerate() {
             let (wo, _) = windows[pi];
             for &(s, e) in &spans {
@@ -2563,17 +2563,18 @@ fn build_export_data(
                 } else {
                     (wo + (os - ps), wo + (oe - ps))
                 };
-                let replace = match best {
-                    None => true,
-                    Some((bs, be)) => ne - ns > be - bs,
-                };
-                if replace {
-                    best = Some((ns, ne));
-                }
+                mapped.push((ns, ne));
             }
         }
-        let Some((ns, ne)) = best else {
-            continue;
+        let merged = merge_sorted_segments(mapped);
+        let (ns, ne) = match merged.len() {
+            0 => continue,
+            1 => merged[0],
+            // Both arcs of an origin-wrapping site were exported but stay
+            // disjoint in the linear export (e.g. a full-circle export):
+            // keep the wrapped form (template_end < template_start) so every
+            // bound base survives — gbk.rs writes it as a join.
+            _ => (merged[merged.len() - 1].0, merged[0].1),
         };
         let mut site = site.clone();
         site.template_start = ns;
@@ -10525,8 +10526,50 @@ mod tests {
             build_export_data(&project, &[(90, 99), (0, 10)], false);
         assert_eq!(primers.len(), 1, "wrap-origin primer must be exported");
         let site = &primers[0].binding_sites[0];
-        // Arc 95..=99 lands at 5..=9 of the export (offset 90→0).
-        assert_eq!((site.template_start, site.template_end), (5, 10));
+        // Both arcs survive: 95..=99 lands at 5..=9 (offset 90→0) and 0..=4
+        // follows contiguously at 10..=14, merging into one 10 bp site.
+        assert_eq!((site.template_start, site.template_end), (5, 15));
+    }
+
+    #[test]
+    fn build_export_data_full_circle_export_keeps_wrapped_primer_site() {
+        // Full-sequence export of a 100 bp circle: the two arcs of a
+        // 95..=99,0..=4 site stay disjoint in the linear export coordinates,
+        // so the site must keep its wrapped form (template_end <
+        // template_start) covering all 10 bp — gbk.rs writes it as a join.
+        let seq = synthetic_dna(100, 5);
+        let site = libregene_core::models::PrimerBindingSite {
+            primer_id: "wp".to_string(),
+            strand: 1,
+            template_start: 95,
+            template_end: 5,
+            tm: 60.0,
+            gc_content: 0.5,
+            match_score: 10,
+            has_3_prime_mismatch: false,
+            five_prime_tail: String::new(),
+            three_prime_tail: String::new(),
+            alignment: Default::default(),
+        };
+        let project = ProjectData {
+            name: "wrap_primer".to_string(),
+            sequence: seq,
+            length: 100,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            primers: vec![Primer {
+                id: "wp".to_string(),
+                name: "wp".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: "AAAAAAAAAA".to_string(),
+                binding_sites: vec![site],
+            }],
+            ..Default::default()
+        };
+        let (_sequence, _features, primers) = build_export_data(&project, &[(0, 99)], false);
+        assert_eq!(primers.len(), 1, "wrap-origin primer must be exported");
+        let site = &primers[0].binding_sites[0];
+        assert_eq!((site.template_start, site.template_end), (95, 5));
     }
 
     // ------------------------------------------------------------------
