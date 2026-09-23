@@ -369,12 +369,18 @@ fn push_alignment_view(
 /// First amino-acid position (1-based) where a stored `/translation` and the
 /// DNA-derived translation disagree, with the stored and derived letters.
 /// A pure length mismatch reports the first position past the shared prefix.
+/// GenBank/SnapGene convention writes the initial residue as M even when the
+/// start codon is GTG/TTG (V/L internally), so a leading stored M against a
+/// derived V or L is not a disagreement.
 fn translation_diff_pos(stored: &str, derived: &str) -> Option<(usize, String, String)> {
     let s: Vec<char> = stored.to_ascii_uppercase().chars().collect();
     let d: Vec<char> = derived.to_ascii_uppercase().chars().collect();
     let n = s.len().min(d.len());
     for i in 0..n {
         if s[i] != d[i] {
+            if i == 0 && s[0] == 'M' && (d[0] == 'V' || d[0] == 'L') {
+                continue;
+            }
             return Some((i + 1, s[i].to_string(), d[i].to_string()));
         }
     }
@@ -2085,5 +2091,24 @@ mod tests {
         // Off by default: no section unless explicitly requested.
         let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
         assert!(!out.contains("DETECTED COMMON FEATURES"));
+    }
+
+    #[test]
+    fn translation_diff_honors_start_codon_met_convention() {
+        // GTG/TTG start codons derive V/L at position 1, but a stored
+        // /translation conventionally starts with M — not a disagreement.
+        assert_eq!(translation_diff_pos("MKF", "VKF"), None);
+        assert_eq!(translation_diff_pos("MKF", "LKF"), None);
+        assert_eq!(translation_diff_pos("MKF", "MKF"), None);
+        // A stored M against any other derived residue still reports.
+        assert_eq!(
+            translation_diff_pos("MKF", "AKF"),
+            Some((1, "M".to_string(), "A".to_string()))
+        );
+        // …and genuine differences past position 1 still report.
+        assert_eq!(
+            translation_diff_pos("MKF", "VKK"),
+            Some((3, "F".to_string(), "K".to_string()))
+        );
     }
 }

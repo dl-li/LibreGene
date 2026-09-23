@@ -97,9 +97,21 @@ pub fn refresh_feature_translations(project: &mut ProjectData) {
     }
     for f in project.features.iter_mut() {
         if f.ftype == "CDS" || f.ftype == "mRNA" {
-            f.translation = translate_feature(&project.sequence, f);
+            let derived = translate_feature(&project.sequence, f);
+            f.translation = preserve_start_met(&f.translation, derived);
         }
     }
+}
+
+/// GenBank/SnapGene convention: a `/translation` qualifier starts with M even
+/// when the start codon is GTG/TTG (valine/leucine internally). Keep a stored
+/// leading M when the derived first residue is V or L, so refreshing does not
+/// rewrite position 1 and produce a file differing from the original.
+fn preserve_start_met(stored: &str, mut derived: String) -> String {
+    if stored.starts_with('M') && (derived.starts_with('V') || derived.starts_with('L')) {
+        derived.replace_range(0..1, "M");
+    }
+    derived
 }
 
 #[cfg(test)]
@@ -205,6 +217,68 @@ mod tests {
         assert_eq!(p.features[0].translation, "MVS");
         assert_eq!(p.features[1].translation, "MVS");
         assert_eq!(p.features[2].translation, "keep");
+    }
+
+    #[test]
+    fn refresh_preserves_start_met_convention() {
+        // GTG start codon: the derived first residue is V, but a stored "M…"
+        // (GenBank/SnapGene convention) keeps its leading M while the
+        // remaining residues refresh from the sequence.
+        let mut p = ProjectData {
+            name: "t".to_string(),
+            definition: String::new(),
+            keywords: String::new(),
+            lab_host: String::new(),
+            snapgene_history: None,
+            sequence: "GTGAAATTT".to_string(),
+            length: 9,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![Feature {
+                ftype: "CDS".to_string(),
+                translation: "MXX".to_string(),
+                ..feat("cds", 0, 8, "+", vec![])
+            }],
+            primers: Vec::new(),
+            alignments: Vec::new(),
+            enzymes: Vec::new(),
+            methylation_systems: Vec::new(),
+            methylation_overlap: 0,
+            roi: None,
+            trace_path: None,
+        };
+        refresh_feature_translations(&mut p);
+        assert_eq!(p.features[0].translation, "MKF");
+    }
+
+    #[test]
+    fn refresh_without_stored_met_uses_derived_first_residue() {
+        // No stored leading M → the derived V from the GTG start codon stands.
+        let mut p = ProjectData {
+            name: "t".to_string(),
+            definition: String::new(),
+            keywords: String::new(),
+            lab_host: String::new(),
+            snapgene_history: None,
+            sequence: "GTGAAATTT".to_string(),
+            length: 9,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![Feature {
+                ftype: "CDS".to_string(),
+                translation: String::new(),
+                ..feat("cds", 0, 8, "+", vec![])
+            }],
+            primers: Vec::new(),
+            alignments: Vec::new(),
+            enzymes: Vec::new(),
+            methylation_systems: Vec::new(),
+            methylation_overlap: 0,
+            roi: None,
+            trace_path: None,
+        };
+        refresh_feature_translations(&mut p);
+        assert_eq!(p.features[0].translation, "VKF");
     }
 
     #[test]
