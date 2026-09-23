@@ -439,24 +439,34 @@ fn find_recognition_sites(
             None => seq,
         };
 
-        for m in fwd_re.find_iter(ext) {
+        // Advance by 1 after each hit: bordered sites (prefix == suffix, e.g.
+        // GCGC in GCGCGC) produce overlapping occurrences that find_iter skips.
+        let mut pos = 0;
+        while let Some(m) = fwd_re.find_at(ext, pos) {
             let start = m.start();
             if start < seq.len() {
                 hits.push(SiteHit { rec_start: start, is_bottom: false });
             }
+            pos = start + 1;
         }
-        for m in rc_re.find_iter(ext) {
+        let mut pos = 0;
+        while let Some(m) = rc_re.find_at(ext, pos) {
             let start = m.start();
             if start < seq.len() {
                 hits.push(SiteHit { rec_start: start, is_bottom: true });
             }
+            pos = start + 1;
         }
     } else {
-        for m in fwd_re.find_iter(seq) {
+        let mut pos = 0;
+        while let Some(m) = fwd_re.find_at(seq, pos) {
             hits.push(SiteHit { rec_start: m.start(), is_bottom: false });
+            pos = m.start() + 1;
         }
-        for m in rc_re.find_iter(seq) {
+        let mut pos = 0;
+        while let Some(m) = rc_re.find_at(seq, pos) {
             hits.push(SiteHit { rec_start: m.start(), is_bottom: true });
+            pos = m.start() + 1;
         }
     }
 
@@ -815,5 +825,45 @@ mod tests {
         assert_eq!(e.rec_end, 103);
         // Recognition sequence is the wrapped concatenation.
         assert_eq!(e.rec_seq, "GAAGAC");
+    }
+
+    // -------------------------------------------------------------------------
+    // Overlapping recognition sites (bordered sites like GCGC)
+    // -------------------------------------------------------------------------
+
+    /// GCGC has a true border (prefix GC == suffix GC): GCGCGC contains two
+    /// overlapping real sites at 0 and 2. GCGC is palindromic, so each
+    /// position is found on both strands and deduped to one hit per position.
+    #[test]
+    fn test_overlapping_sites_gcgc() {
+        let hits = find_recognition_sites(b"GCGCGC", "GCGC", false, &None);
+        let starts: Vec<usize> = hits.iter().map(|h| h.rec_start).collect();
+        assert_eq!(starts, vec![0, 0, 2, 2]);
+
+        let unique = deduplicate_hits(&hits, 4, true);
+        let starts: Vec<usize> = unique.iter().map(|h| h.rec_start).collect();
+        assert_eq!(starts, vec![0, 2]);
+    }
+
+    /// A non-self-overlapping site yields the same results as before.
+    #[test]
+    fn test_non_overlapping_site_unchanged() {
+        let hits = find_recognition_sites(b"NNGAATTCNN", "GAATTC", false, &None);
+        let unique = deduplicate_hits(&hits, 6, true);
+        assert_eq!(unique.len(), 1);
+        assert_eq!(unique[0].rec_start, 2);
+    }
+
+    /// Circular: wrap-around hits starting within the original sequence are
+    /// kept exactly once per start position, including overlapping ones.
+    #[test]
+    fn test_overlapping_sites_circular() {
+        let seq = b"GCGCGC";
+        let mut ext = seq.to_vec();
+        ext.extend_from_slice(&seq[..3]);
+        let hits = find_recognition_sites(seq, "GCGC", true, &Some(ext));
+        let unique = deduplicate_hits(&hits, 4, true);
+        let starts: Vec<usize> = unique.iter().map(|h| h.rec_start).collect();
+        assert_eq!(starts, vec![0, 2, 4]);
     }
 }

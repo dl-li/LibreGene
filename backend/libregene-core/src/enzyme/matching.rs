@@ -14,7 +14,14 @@ pub fn fuzzy_find_all(ctx: &[u8], site: &str) -> Vec<usize> {
         Ok(r) => r,
         Err(_) => return vec![],
     };
-    re.find_iter(ctx).map(|m| m.start()).collect()
+    let mut hits = Vec::new();
+    // Advance by 1 so overlapping occurrences (bordered sites) are all found.
+    let mut pos = 0;
+    while let Some(m) = re.find_at(ctx, pos) {
+        hits.push(m.start());
+        pos = m.start() + 1;
+    }
+    hits
 }
 
 #[cfg(test)]
@@ -38,5 +45,13 @@ mod tests {
     fn test_fuzzy_find_multiple() {
         let hits = fuzzy_find_all(b"GAATTCNNGAATTC", "GAATTC");
         assert_eq!(hits, vec![0, 8]);
+    }
+
+    #[test]
+    fn test_fuzzy_find_overlapping() {
+        // Bordered site (prefix GC == suffix GC): overlapping occurrences
+        // must all be reported.
+        let hits = fuzzy_find_all(b"GCGCGC", "GCGC");
+        assert_eq!(hits, vec![0, 2]);
     }
 }
