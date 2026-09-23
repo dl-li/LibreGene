@@ -219,3 +219,118 @@ fn roundtrip_protein_gpt() {
     assert_eq!(feat.color, "#ff0000");
     assert_eq!((feat.start, feat.end), (0, 236));
 }
+
+// ---------------------------------------------------------------------------
+// Multi-segment / cross-origin feature locations
+// ---------------------------------------------------------------------------
+
+fn synthetic_project(features: Vec<libregene_core::models::Feature>) -> libregene_core::models::ProjectData {
+    libregene_core::models::ProjectData {
+        name: "Synthetic".to_string(),
+        sequence: "ACGT".repeat(250), // 1000 bp
+        length: 1000,
+        topology: "circular".to_string(),
+        features,
+        ..Default::default()
+    }
+}
+
+fn make_feature(
+    name: &str,
+    start: i64,
+    end: i64,
+    segments: Vec<(i64, i64)>,
+    strand: &str,
+) -> libregene_core::models::Feature {
+    libregene_core::models::Feature {
+        id: name.to_string(),
+        name: name.to_string(),
+        start,
+        end,
+        color: "#60A5FA".to_string(),
+        ftype: "misc_feature".to_string(),
+        segments: segments
+            .into_iter()
+            .map(|(s, e)| libregene_core::models::Segment { start: s, end: e, color: None })
+            .collect(),
+        strand: strand.to_string(),
+        notes: String::new(),
+        translation: String::new(),
+        qualifiers: Vec::new(),
+    }
+}
+
+fn segments_of(f: &libregene_core::models::Feature) -> Vec<(i64, i64)> {
+    f.segments.iter().map(|s| (s.start, s.end)).collect()
+}
+
+/// Cross-origin features (both the file-parsed min/max form and the
+/// MCP/frontend first/last form) must be written as join() and survive a
+/// save→reload with identical segments.
+#[test]
+fn roundtrip_cross_origin_features() {
+    let project = synthetic_project(vec![
+        // min/max form (as parsed from files): start=0, end=999
+        make_feature("cross_minmax", 0, 999, vec![(900, 999), (0, 49)], "-"),
+        // first/last form with join-order segments (MCP/frontend)
+        make_feature("cross_firstlast", 900, 49, vec![(900, 999), (0, 49)], "+"),
+        // first/last form without segments
+        make_feature("cross_noseg", 900, 49, vec![], "+"),
+    ]);
+
+    let tmp = std::env::temp_dir().join("libregene_cross_origin_roundtrip.gbk");
+    libregene_core::file_io::gbk::write_gbk(&project, &tmp).expect("write gbk");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse gbk");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains("join(901..1000,1..50)"), "cross-origin join written:\n{written}");
+    assert!(!written.contains("901..50"), "no illegal reversed range");
+
+    let expected = vec![(900, 999), (0, 49)];
+    let mm = reloaded.features.iter().find(|f| f.name == "cross_minmax").expect("cross_minmax");
+    assert_eq!(segments_of(mm), expected);
+    assert_eq!(mm.strand, "-", "strand survives complement(join)");
+    let fl = reloaded.features.iter().find(|f| f.name == "cross_firstlast").expect("cross_firstlast");
+    assert_eq!(segments_of(fl), expected);
+    let ns = reloaded.features.iter().find(|f| f.name == "cross_noseg").expect("cross_noseg");
+    assert_eq!(segments_of(ns), expected);
+}
+
+/// A join(a,b) feature with a gap keeps both segments across a round trip.
+#[test]
+fn roundtrip_join_feature_with_gap() {
+    let project = synthetic_project(vec![
+        make_feature("gapped", 99, 399, vec![(99, 199), (299, 399)], "+"),
+    ]);
+
+    let tmp = std::env::temp_dir().join("libregene_gap_join_roundtrip.gbk");
+    libregene_core::file_io::gbk::write_gbk(&project, &tmp).expect("write gbk");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse gbk");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains("join(100..200,300..400)"), "gap join written:\n{written}");
+    let f = reloaded.features.iter().find(|f| f.name == "gapped").expect("gapped");
+    assert_eq!(segments_of(f), vec![(99, 199), (299, 399)]);
+}
+
+/// A plain single-range feature roundtrips unchanged (no join emitted).
+#[test]
+fn roundtrip_single_range_feature() {
+    let project = synthetic_project(vec![
+        make_feature("plain", 99, 199, vec![(99, 199)], "+"),
+    ]);
+
+    let tmp = std::env::temp_dir().join("libregene_single_range_roundtrip.gbk");
+    libregene_core::file_io::gbk::write_gbk(&project, &tmp).expect("write gbk");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse gbk");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains("100..200"), "plain range written:\n{written}");
+    assert!(!written.contains("join("), "no join for single range:\n{written}");
+    let f = reloaded.features.iter().find(|f| f.name == "plain").expect("plain");
+    assert_eq!((f.start, f.end), (99, 199));
+    assert_eq!(segments_of(f), vec![(99, 199)]);
+}

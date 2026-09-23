@@ -476,7 +476,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 
     // Add features — SnapGene-style with color and direction in /note
     for f in &project.features {
-        let loc = model_range_to_gb_location(f);
+        let loc = model_range_to_gb_location(f, project.sequence.len() as i64);
 
         let mut qualifiers: Vec<(Cow<'static, str>, Option<String>)> = Vec::new();
 
@@ -697,16 +697,19 @@ fn strand_from_gb_location(loc: &Location) -> String {
 
 /// Convert a model feature location to a `gb-io` [`Location`].
 ///
-/// Multi-segment features are written as the overall range (SnapGene style);
-/// the segment breakdown travels in a "This feature has N segments" note.
-fn model_range_to_gb_location(f: &Feature) -> Location {
-    // Model coordinates: 0-based inclusive start/end
-    // gb-io Range: 0-based, end-exclusive
-
-    let loc = Location::Range(
-        (f.start, Before(false)),
-        (f.end + 1, After(false)),
-    );
+/// Multi-segment features are written as a join() over their segments in
+/// stored order. A single-range feature whose start > end wraps the origin of
+/// a circular molecule and is written as join(start..len, 1..end). Model
+/// coordinates are 0-based inclusive; gb-io Range is 0-based end-exclusive.
+fn model_range_to_gb_location(f: &Feature, len: i64) -> Location {
+    let range = |s: i64, e: i64| Location::Range((s, Before(false)), (e + 1, After(false)));
+    let loc = if f.segments.len() > 1 {
+        Location::Join(f.segments.iter().map(|seg| range(seg.start, seg.end)).collect())
+    } else if f.start > f.end {
+        Location::Join(vec![range(f.start, len - 1), range(0, f.end)])
+    } else {
+        range(f.start, f.end)
+    };
     if f.strand == "-" {
         Location::Complement(Box::new(loc))
     } else {
