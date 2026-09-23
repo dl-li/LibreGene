@@ -24,24 +24,30 @@ const CACHE_PRUNE = 300;
 
 export const getX = (col) => startX + col * cw;
 
-export const complement = (c) =>
-  c === 'A'
-    ? 'T'
-    : c === 'T'
-      ? 'A'
-      : c === 'G'
-        ? 'C'
-        : c === 'C'
-          ? 'G'
-          : c === 'a'
-            ? 't'
-            : c === 't'
-              ? 'a'
-              : c === 'g'
-                ? 'c'
-                : c === 'c'
-                  ? 'g'
-                  : c;
+const IUPAC_COMPLEMENT_BASES = {
+  A: 'T',
+  T: 'A',
+  U: 'A',
+  G: 'C',
+  C: 'G',
+  R: 'Y',
+  Y: 'R',
+  S: 'S',
+  W: 'W',
+  K: 'M',
+  M: 'K',
+  B: 'V',
+  V: 'B',
+  D: 'H',
+  H: 'D',
+  N: 'N',
+};
+
+export const complement = (c) => {
+  const comp = IUPAC_COMPLEMENT_BASES[c.toUpperCase()];
+  if (!comp) return c;
+  return c === c.toLowerCase() ? comp.toLowerCase() : comp;
+};
 
 export const measureWidth = (text, font) => {
   if (!_ctx) return text.length * 8;
