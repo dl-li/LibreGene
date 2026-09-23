@@ -9,7 +9,7 @@ import {
 import { InlineNotice } from '@/components/ui/notice';
 import { ExternalLink, History, LoaderCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getSnapgeneHistory } from './tauriApi';
+import { getSnapgeneHistory } from '../../tauriApi';
 
 // Operation accent colors, following GenePad's history panel grouping.
 const OPERATION_TONES = {

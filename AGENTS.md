@@ -67,7 +67,7 @@ LibreGene/
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
 │   ├── chromatogram.js         # ab1 色谱：链取向（rev-comp 交换通道）、SVG 路径插值、比对列→read 序号映射
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
-│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/dotplot/codonOptimization/blast
+│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/dotplot/codonOptimization/blast/gcContent/snapgeneHistory
 │   └── components/ui/          # shadcn UI 组件
 ├── backend/libregene-core/src/ # Rust 核心库（models/project、orf、search、codon、digest、enzyme/、primer/、file_io/）
 └── src-tauri/src/
@@ -100,7 +100,7 @@ LibreGene/
 - 状态集中在 `App.jsx`，`SequenceEditor.jsx` 只管理 UI 状态
 - JSON 字段 camelCase（Rust serde `rename_all = "camelCase"`）
 - **分子类型模式**：`moleculeType`（`"dna" | "rna" | "protein"`，缺省 `"dna"`）决定编辑器形态。rna/protein 为单链：只渲染正链+特征层，导航只留 Edit/Features/Search，隐藏 DNA 专属插件（`dnaOnly: true`；RNA 用 `rnaOnly: true`）；长度单位 bp/nt/aa；protein 可直接存 `.gpt`，`.rna/.prot/.dna` 只读、必须 Save As
-- **插件机制**：编译期静态注册表（`src/plugins/index.js`），不做运行时动态加载——插件引擎在 Rust 内核；外部自动化扩展走 MCP。新插件须进注册表并在设置页可禁用（localStorage `disabledPlugins`）。禁用时 sidebar 项/注册表 dialog/nav 入口都要消失；`navMenuOnly` 插件由直接接线方自行门控
+- **插件机制**：编译期静态注册表（`src/plugins/index.js`），不做运行时动态加载——插件引擎在 Rust 内核；外部自动化扩展走 MCP。新插件须进注册表并在设置页可禁用（localStorage `disabledPlugins`）。禁用时 sidebar 项/注册表 dialog/nav 入口都要消失；`navMenuOnly` 插件由直接接线方自行门控。注册表通用钩子：`dialog`（ProjectWorkspace 统一挂载，可用性谓词 `dialogVisible({ projectId, moleculeType, isTauri })`）、`track`（编辑器行内轨道：`useLane(ctx)` 返回 `{ height } | null`，SequenceEditor 对注册表所有 track 插件无条件按序调用，`render(ctx, lane)` 渲染可见行；高度经 `alignLaneInfo.trackH` 折入 `chromBelow`）、`featuresMenuItem`（Features 菜单 checkbox，checked/onToggle 来自 App 构建的 `pluginToggles` prop 链）、`settingsField`（设置页数字输入，value/onChange 来自 `pluginSettings` prop）
 - **Constants**：`cw = 12`、`startX = 220`、`baseSeqY = 100`，坐标计算依赖这些常量；`measureWidth()` 用 Canvas 2D 缓存测量（`CACHE_MAX = 2000`）
 
 ### 后端（Rust）
@@ -172,7 +172,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 未适配（前端/UI 专有，MCP 不可用）：
 
 - **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
-- **GC 含量轨道**（Features 菜单 "Show GC Content" 开关，localStorage `showGcContent`/`gcWindowSize`（默认 11，设置页可调）；序列下方第一车道整行渲染蓝→白→红连续渐变带（每行一条 `linearGradient`，逐碱基 stop），颜色映射为非线性三次曲线（40–60% 平缓近白、<30%/>70% 陡峭，端点 0%=蓝/50%=白/100%=红，`editorConstants.js::gcContentColor`）；窗口 = 该碱基 ± floor((w-1)/2)，环状跨原点 wrap、线性端点截断；车道高度经 `alignLaneInfo.gcH` 折入 `chromBelow` 推开下方所有层，渲染时再向上偏移 6px 贴近序列文本，带纯黑 1px 描边）：纯渲染，UI 视图状态
+- **GC 含量轨道**（插件 `src/plugins/gcContent/`：`track` 钩子渲染 + `featuresMenuItem`/`settingsField` 钩子接 Features 菜单 "Show GC Content" 开关和设置页窗口大小；开关/窗口大小状态仍由 App 持有，localStorage key 常量由插件导出（`SHOW_GC_CONTENT_KEY`/`GC_WINDOW_SIZE_KEY`，默认 11）；序列下方第一车道整行渲染蓝→白→红连续渐变带（每行一条 `linearGradient`，逐碱基 stop），颜色映射为非线性三次曲线（40–60% 平缓近白、<30%/>70% 陡峭，端点 0%=蓝/50%=白/100%=红，`gcContent/track.jsx::gcContentColor`）；窗口 = 该碱基 ± floor((w-1)/2)，环状跨原点 wrap、线性端点截断；车道高度经 `alignLaneInfo.trackH` 折入 `chromBelow` 推开下方所有层，渲染时再向上偏移 6px 贴近序列文本，带纯黑 1px 描边）：纯渲染，UI 视图状态
 - **My Primers / My Enzymes 库**：存 localStorage，后端不可见
 - **酶 Provider 数据与筛选**（`enzyme_providers.json`：NEB/BestEnzyme/Thermo 的 buffer 兼容性、温度、甲基化、别名变体；`get_enzyme_providers` 命令 + 导航菜单 Provider 筛选，与 Enzyme Set 筛选取交集；Enzyme Database 弹窗双击行打开 `EnzymeDetailDialog` 显示别名/同裂酶/同尾酶/各 Provider 信息）：Provider 元数据仅展示用，不进 recompute
 - **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none|map}，Tauri 广播同步；导航栏 Diagrams 菜单左键切换背景（RNA 默认 Folding，DNA/Protein 默认 Map，未设置时单击即应用默认图），菜单内可单选背景并 Examine 各图；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
@@ -184,7 +184,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **Dotplot**（Diagrams 菜单 "Examine Dotplot" → `src/plugins/dotplot/`，k-mer 窗口点阵自比较 DNA/RNA 序列；Canvas 渲染，仅 Examine dialog、不做背景）：纯前端渲染。每个点对应一对窗口，按两个独立条件着色（可同时成立）：窗口序列完全一致 → 半透明绿色；窗口与对方的反向互补一致（反向重复）→ 半透明紫色；两者同时成立时两色叠加混合。底部状态栏拆分计数并附图例
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
-- **SnapGene 历史快照**（Edit 菜单 History 项 → `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
+- **SnapGene 历史快照**（插件 `src/plugins/snapgeneHistory/`，Edit 菜单 History 项（禁用插件时隐藏）→ `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见（可用性谓词 `dialogVisible`）；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
 - **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失/insertion/环状 join wrap 处曲线截断跳跃（查询序号不连续即断），match/mismatch 保持连续，参考 GenePad）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返
 
 ## 核心模型约定

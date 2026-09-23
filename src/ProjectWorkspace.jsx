@@ -43,7 +43,6 @@ import PrimerOverviewDialog from './components/PrimerOverviewDialog';
 import DetectFeaturesDialog from './DetectFeaturesDialog';
 import MyPrimersDialog from './MyPrimersDialog';
 import MyEnzymesDialog from './MyEnzymesDialog';
-import SnapshotsDialog from './SnapshotsDialog';
 import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
 import {
   loadProviderData,
@@ -94,9 +93,8 @@ export default function ProjectWorkspace({
   layoutParams,
   showFeatures,
   onToggleFeatures,
-  showGcContent,
-  onToggleGcContent,
-  gcWindowSize,
+  pluginToggles,
+  pluginSettings,
   alwaysExpandFeatures,
   showPrimers,
   onTogglePrimers,
@@ -178,7 +176,6 @@ export default function ProjectWorkspace({
   const [myPrimersOpen, setMyPrimersOpen] = useState(false);
   const [myEnzymesOpen, setMyEnzymesOpen] = useState(false);
   const [enzymeDbOpen, setEnzymeDbOpen] = useState(false);
-  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [myPrimerBinding, setMyPrimerBinding] = useState({ loading: false, results: [] });
   const [pluginDialogs, setPluginDialogs] = useState({});
   const openPrimerEditorRef = useRef(null);
@@ -1711,9 +1708,9 @@ export default function ProjectWorkspace({
               canRedo={canRedo}
               showFeatures={showFeatures}
               onToggleFeatures={onToggleFeatures}
-              showGcContent={showGcContent}
-              onToggleGcContent={onToggleGcContent}
-              gcWindowSize={gcWindowSize}
+              pluginToggles={pluginToggles}
+              pluginSettings={pluginSettings}
+              disabledPlugins={disabledPlugins}
               alwaysExpandFeatures={alwaysExpandFeatures}
               featureLabelsBelow={featureLabelsBelow}
               showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}
@@ -1774,10 +1771,11 @@ export default function ProjectWorkspace({
               }
               onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
               onOpenSnapshots={
+                !disabledPlugins.includes('snapgeneHistory') &&
                 isTauri &&
                 isDna &&
                 (/\.dna$/i.test(projectId || '') || /^snapshot-/.test(projectId || ''))
-                  ? () => setSnapshotsOpen(true)
+                  ? () => setPluginDialogs((prev) => ({ ...prev, snapshots: true }))
                   : undefined
               }
               blastEnabled={isTauri && (isDna || isProtein) && !disabledPlugins.includes('blast')}
@@ -1882,20 +1880,14 @@ export default function ProjectWorkspace({
         />
       )}
 
-      <SnapshotsDialog
-        open={snapshotsOpen}
-        onOpenChange={setSnapshotsOpen}
-        projectId={projectId}
-        onOpenSnapshot={onOpenSnapshot}
-      />
-
       {plugins
         .filter(
           (plugin) =>
             !disabledPlugins.includes(plugin.id) &&
             (isDna || !plugin.dnaOnly) &&
             (moleculeType === 'rna' || !plugin.rnaOnly) &&
-            (moleculeType !== 'protein' || !plugin.notForProtein),
+            (moleculeType !== 'protein' || !plugin.notForProtein) &&
+            (!plugin.dialogVisible || plugin.dialogVisible({ projectId, moleculeType, isTauri })),
         )
         .map((plugin) => {
           const DialogComp = plugin.dialog;
@@ -1910,6 +1902,8 @@ export default function ProjectWorkspace({
                   [plugin.dialogKey]: open,
                 }))
               }
+              projectId={projectId}
+              onOpenSnapshot={onOpenSnapshot}
               sequence={sequence}
               fileName={mapName}
               alignments={alignments}

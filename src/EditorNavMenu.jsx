@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
+import { plugins } from './plugins';
 
 const ENZYME_FILTER_OPTIONS = [
   { value: 'all', label: 'All Enzymes' },
@@ -171,8 +172,11 @@ export default function EditorNavMenu({
   onToLowercase,
   showFeatures,
   onToggleFeatures,
-  showGcContent = false,
-  onToggleGcContent,
+  // Per-plugin Features-menu checkbox state, keyed by plugin id:
+  // { [pluginId]: { checked, onToggle } } for plugins declaring
+  // featuresMenuItem in the registry.
+  pluginToggles = {},
+  disabledPlugins = [],
   showOrfs,
   onToggleOrfs,
   onCreateFeature,
@@ -429,11 +433,23 @@ export default function EditorNavMenu({
               Show ORFs
             </DropdownMenuCheckboxItem>
           )}
-          {moleculeType !== 'protein' && (
-            <DropdownMenuCheckboxItem checked={showGcContent} onCheckedChange={onToggleGcContent}>
-              Show GC Content
-            </DropdownMenuCheckboxItem>
-          )}
+          {plugins
+            .filter(
+              (p) =>
+                p.featuresMenuItem &&
+                !disabledPlugins.includes(p.id) &&
+                !(moleculeType === 'protein' && p.featuresMenuItem.notForProtein) &&
+                pluginToggles[p.id],
+            )
+            .map((p) => (
+              <DropdownMenuCheckboxItem
+                key={p.id}
+                checked={!!pluginToggles[p.id].checked}
+                onCheckedChange={pluginToggles[p.id].onToggle}
+              >
+                {p.featuresMenuItem.label}
+              </DropdownMenuCheckboxItem>
+            ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onCreateFeature}>
             <Plus /> Create Feature

@@ -6,6 +6,8 @@ import dotplotPlugin from './dotplot';
 import primerDesignPlugin from './primerDesign';
 import blastPlugin from './blast';
 import mapPlugin from './map';
+import gcContentPlugin from './gcContent';
+import snapgeneHistoryPlugin from './snapgeneHistory';
 
 export const plugins = [
   mapPlugin,
@@ -16,4 +18,6 @@ export const plugins = [
   dotplotPlugin,
   primerDesignPlugin,
   blastPlugin,
+  gcContentPlugin,
+  snapgeneHistoryPlugin,
 ];

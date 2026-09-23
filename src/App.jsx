@@ -28,6 +28,7 @@ import {
   isSequenceFilePath,
 } from './tauriApi';
 import { plugins } from './plugins';
+import { SHOW_GC_CONTENT_KEY, GC_WINDOW_SIZE_KEY } from './plugins/gcContent';
 import ProjectWorkspace from './ProjectWorkspace';
 import ScrollingLabel from './ScrollingLabel';
 import SettingsPage from './components/SettingsPage';
@@ -229,14 +230,14 @@ export default function App() {
   const [showFeatures, setShowFeatures] = useState(true);
   const [showGcContent, setShowGcContent] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('showGcContent')) || false;
+      return JSON.parse(localStorage.getItem(SHOW_GC_CONTENT_KEY)) || false;
     } catch {
       return false;
     }
   });
   const [gcWindowSize, setGcWindowSize] = useState(() => {
     try {
-      const v = JSON.parse(localStorage.getItem('gcWindowSize'));
+      const v = JSON.parse(localStorage.getItem(GC_WINDOW_SIZE_KEY));
       return Number.isFinite(v) && v >= 1 ? Math.round(v) : 11;
     } catch {
       return 11;
@@ -1091,7 +1092,7 @@ export default function App() {
       setShowGcContent((v) => {
         const next = !v;
         try {
-          localStorage.setItem('showGcContent', JSON.stringify(next));
+          localStorage.setItem(SHOW_GC_CONTENT_KEY, JSON.stringify(next));
         } catch {
           // storage may be unavailable; toggle still applies in-memory
         }
@@ -1104,11 +1105,25 @@ export default function App() {
     const v = Math.min(999, Math.max(1, Math.round(next)));
     setGcWindowSize(v);
     try {
-      localStorage.setItem('gcWindowSize', JSON.stringify(v));
+      localStorage.setItem(GC_WINDOW_SIZE_KEY, JSON.stringify(v));
     } catch {
       // storage may be unavailable; selection still applies in-memory
     }
   }, []);
+  // Generic per-plugin UI state handed to the nav menu (featuresMenuItem
+  // toggles), the editor (track lanes) and the settings page (settingsField).
+  const pluginToggles = useMemo(
+    () => ({
+      gcContent: { checked: showGcContent, onToggle: onToggleGcContent },
+    }),
+    [showGcContent, onToggleGcContent],
+  );
+  const pluginSettings = useMemo(
+    () => ({
+      gcContent: { value: gcWindowSize, onChange: onGcWindowSizeChange },
+    }),
+    [gcWindowSize, onGcWindowSizeChange],
+  );
   const onTogglePrimers = useCallback(() => setShowPrimers((v) => !v), []);
   const onToggleEnzymes = useCallback(() => setShowEnzymes((v) => !v), []);
   const onToggleAlwaysExpandFeatures = useCallback(
@@ -1180,9 +1195,8 @@ export default function App() {
       layoutParams,
       showFeatures,
       onToggleFeatures,
-      showGcContent,
-      onToggleGcContent,
-      gcWindowSize,
+      pluginToggles,
+      pluginSettings,
       alwaysExpandFeatures,
       showPrimers,
       onTogglePrimers,
@@ -1215,9 +1229,8 @@ export default function App() {
       layoutParams,
       showFeatures,
       onToggleFeatures,
-      showGcContent,
-      onToggleGcContent,
-      gcWindowSize,
+      pluginToggles,
+      pluginSettings,
       alwaysExpandFeatures,
       showPrimers,
       onTogglePrimers,
@@ -1651,8 +1664,7 @@ export default function App() {
           onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
           featureLabelsBelow={featureLabelsBelow}
           onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
-          gcWindowSize={gcWindowSize}
-          onGcWindowSizeChange={onGcWindowSizeChange}
+          pluginSettings={pluginSettings}
           methylationSystems={methylationSystems}
           setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap}

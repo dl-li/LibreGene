@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -30,8 +31,9 @@ export default function SettingsPage({
   onToggleAlwaysExpandFeatures,
   featureLabelsBelow = false,
   onFeatureLabelsBelowChange,
-  gcWindowSize = 11,
-  onGcWindowSizeChange,
+  // Per-plugin settings-field state, keyed by plugin id:
+  // { [pluginId]: { value, onChange } } for plugins declaring settingsField.
+  pluginSettings = {},
   methylationSystems,
   setMethylationSystems,
   methylationOverlap,
@@ -113,32 +115,46 @@ export default function SettingsPage({
 
               <Separator />
 
-              {/* ── GC 含量 ── */}
-              <div>
-                <div className={SECTION_TITLE}>GC Content</div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm text-muted-foreground shrink-0">Window size</Label>
-                  <Input
-                    className="w-16 h-8 px-2 py-0 text-sm text-right font-mono"
-                    type="number"
-                    min={1}
-                    max={999}
-                    value={gcWindowSize}
-                    onChange={(e) => {
-                      if (e.target.value === '') return;
-                      const v = Number(e.target.value);
-                      if (Number.isFinite(v)) onGcWindowSizeChange?.(v);
-                    }}
-                  />
-                  <span className="text-sm text-muted-foreground">bp</span>
-                </div>
-                <span className="block text-xs text-muted-foreground mt-1.5">
-                  Each position is colored by the GC fraction of the surrounding window (blue = 0%,
-                  white = 50%, red = 100%)
-                </span>
-              </div>
-
-              <Separator />
+              {/* ── 插件设置字段（注册表 settingsField 钩子，如 GC Content） ── */}
+              {plugins
+                .filter((p) => p.settingsField && !disabledPlugins.includes(p.id))
+                .map((p) => {
+                  const field = p.settingsField;
+                  const setting = pluginSettings[p.id];
+                  return (
+                    <Fragment key={p.id}>
+                      <div>
+                        <div className={SECTION_TITLE}>{p.name}</div>
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground shrink-0">
+                            {field.label}
+                          </Label>
+                          <Input
+                            className="w-16 h-8 px-2 py-0 text-sm text-right font-mono"
+                            type="number"
+                            min={field.min}
+                            max={field.max}
+                            value={setting?.value ?? ''}
+                            onChange={(e) => {
+                              if (e.target.value === '') return;
+                              const v = Number(e.target.value);
+                              if (Number.isFinite(v)) setting?.onChange?.(v);
+                            }}
+                          />
+                          {field.unit && (
+                            <span className="text-sm text-muted-foreground">{field.unit}</span>
+                          )}
+                        </div>
+                        {field.description && (
+                          <span className="block text-xs text-muted-foreground mt-1.5">
+                            {field.description}
+                          </span>
+                        )}
+                      </div>
+                      <Separator />
+                    </Fragment>
+                  );
+                })}
 
               {/* ── 甲基化 ── */}
               <div>
