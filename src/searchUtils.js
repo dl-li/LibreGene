@@ -1,3 +1,5 @@
+import { featureSelRange } from './editorConstants';
+
 const IUPAC_SETS = {
   A: new Set(['A']),
   C: new Set(['C']),
@@ -168,15 +170,11 @@ export function buildSearchResults(query, { seq, features, allEnzymes, primers }
     if (scope === 'all' || scope === 'feature')
       for (const f of features || []) {
         if (!f.name || !f.name.toLowerCase().includes(q)) continue;
-        const segs =
-          f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
-        let start = Infinity;
-        let end = -Infinity;
-        for (const s of segs) {
-          if (s.start < start) start = s.start;
-          if (s.end > end) end = s.end;
-        }
-        if (start <= end) results.push({ type: 'feature', start, end, ref: f });
+        // Join order (first segment's start .. last segment's end): for a
+        // cross-origin feature start > end expresses the wrap, matching how a
+        // feature click selects it.
+        const [start, end] = featureSelRange(f);
+        results.push({ type: 'feature', start, end, ref: f });
       }
     if (scope === 'all' || scope === 'enzyme')
       for (const e of allEnzymes || []) {
