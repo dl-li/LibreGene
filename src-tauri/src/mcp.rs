@@ -3005,7 +3005,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// severed between topCutIndex and topCutIndex+1 (topCutIndex = len on a
     /// circular sequence means between the last and the first base); strand is
     /// "top" or "bottom" (recognition orientation); unique = exactly one site
-    /// for that enzyme. Sites whose cuts fall OUTSIDE the recognition
+    /// for that enzyme. On circular molecules every coordinate stays within
+    /// 1..=len; a recognition sequence spanning the origin reads
+    /// recStart > recEnd. Sites whose cuts fall OUTSIDE the recognition
     /// sequence (type IIS enzymes like BbsI) carry
     /// `cutsOutsideRecognitionSite: true` plus a `note`; for those,
     /// topCutIndex/botCutIndex — not recStart/recEnd — give the actual break
@@ -3122,12 +3124,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .into_iter()
             .map(|n| {
                 let mut sites = by_name[n].clone();
-                sites.sort_by_key(|e| e.rec_start);
+                // Circular display frames can store rec_start/rec_end shifted
+                // by a whole sequence length (the engine's comment notes the
+                // frontend wraps indices mod seq_len); wrap at this boundary so
+                // MCP coordinates always land in 1..=len. A recognition
+                // spanning the origin then reads recStart > recEnd.
+                let wrap = |x: i64| -> i64 {
+                    if circular { x.rem_euclid(tlen) } else { x }
+                };
+                sites.sort_by_key(|e| wrap(e.rec_start));
                 serde_json::json!({
                     "name": n,
                     "sites": sites.iter().map(|e| {
-                        let rec_start = to1(e.rec_start);
-                        let rec_end = to1(e.rec_end);
+                        let rec_start = to1(wrap(e.rec_start));
+                        let rec_end = to1(wrap(e.rec_end));
                         let cuts: Vec<serde_json::Value> = e.cut_pairs.iter().map(|p| serde_json::json!({
                             "topCutIndex": cut_flanks(p.top_cut_index, tlen, circular).0,
                             "botCutIndex": cut_flanks(p.bot_cut_index, tlen, circular).0,
@@ -3136,11 +3146,24 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         // recognition sequence; flag those sites so the
                         // cut-vs-recognition offset does not have to be
                         // inferred from the coordinates alone.
-                        let outside = cuts.iter().any(|c| {
-                            let t = c["topCutIndex"].as_i64().unwrap_or(0);
-                            let b = c["botCutIndex"].as_i64().unwrap_or(0);
-                            t < rec_start || t > rec_end || b < rec_start || b > rec_end
-                        });
+                        let outside = if circular {
+                            // Compare in the engine's unwrapped frame: a cut is
+                            // inside the recognition when its modular distance
+                            // from rec_start falls in 1..=span+1 (the same
+                            // boundary semantics as the linear check below).
+                            let span = e.rec_end - e.rec_start;
+                            e.cut_pairs.iter().any(|p| {
+                                let dt = (p.top_cut_index - e.rec_start).rem_euclid(tlen);
+                                let db = (p.bot_cut_index - e.rec_start).rem_euclid(tlen);
+                                dt == 0 || db == 0 || dt > span + 1 || db > span + 1
+                            })
+                        } else {
+                            cuts.iter().any(|c| {
+                                let t = c["topCutIndex"].as_i64().unwrap_or(0);
+                                let b = c["botCutIndex"].as_i64().unwrap_or(0);
+                                t < rec_start || t > rec_end || b < rec_start || b > rec_end
+                            })
+                        };
                         let mut site = serde_json::json!({
                             "recStart": rec_start,
                             "recEnd": rec_end,
@@ -9714,6 +9737,93 @@ mod tests {
             site["note"].as_str().unwrap_or("").contains("type IIS"),
             "{v}"
         );
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_circular_origin_site_stays_in_range() {
+        // 60 bp circle with a BbsI (GAAGAC, non-palindromic) bottom-strand
+        // site GTCTTC at internal 0-based 0..5. Its cuts fall upstream
+        // (negative), so the engine shifts the display frame and stores
+        // rec_start/rec_end in [len, 2*len); MCP must wrap them back into
+        // 1..=len.
+        let mut seq = "ACGT".repeat(15);
+        seq.replace_range(0..6, "GTCTTC");
+        let mut project = ProjectData {
+            name: "circ".to_string(),
+            sequence: seq,
+            length: 60,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        let internal = project
+            .enzymes
+            .iter()
+            .find(|e| e.name == "BbsI")
+            .expect("BbsI site")
+            .clone();
+        assert_eq!(internal.recognition_strand, "bottom");
+        // Sanity: the engine really does store the shifted frame here.
+        assert!(internal.rec_start >= 60, "engine frame shifted: {internal:?}");
+        let server = handler_with_project(project).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "circ".to_string(),
+                enzymes: Some(vec!["BbsI".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let site = &v["enzymes"][0]["sites"][0];
+        assert_eq!(site["recStart"], 1, "{v}");
+        assert_eq!(site["recEnd"], 6, "{v}");
+        for c in site["cuts"].as_array().unwrap() {
+            let t = c["topCutIndex"].as_i64().unwrap();
+            let b = c["botCutIndex"].as_i64().unwrap();
+            assert!((1..=60).contains(&t), "topCutIndex in range: {v}");
+            assert!((1..=60).contains(&b), "botCutIndex in range: {v}");
+        }
+        // BbsI genuinely cuts outside its recognition sequence (upstream of a
+        // bottom-strand site), so the flag must survive the frame wrap.
+        assert_eq!(site["cutsOutsideRecognitionSite"], true, "{v}");
+    }
+
+    #[tokio::test]
+    async fn find_restriction_sites_circular_palindrome_inside_no_false_note() {
+        // HindIII AAGCTT at internal 0-based 55..60 — the recognition spans
+        // the origin (55..59,0) and its cuts stay inside the site. The
+        // wrapped comparison must not flag a false cutsOutsideRecognitionSite.
+        let mut seq = "ACGT".repeat(15);
+        seq.replace_range(55..60, "AAGCT");
+        seq.replace_range(0..1, "T");
+        let mut project = ProjectData {
+            name: "circ2".to_string(),
+            sequence: seq,
+            length: 60,
+            topology: "circular".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        assert!(project.enzymes.iter().any(|e| e.name == "HindIII"));
+        let server = handler_with_project(project).await;
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "circ2".to_string(),
+                enzymes: Some(vec!["HindIII".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let site = &v["enzymes"][0]["sites"][0];
+        let rec_start = site["recStart"].as_i64().unwrap();
+        let rec_end = site["recEnd"].as_i64().unwrap();
+        assert!((1..=60).contains(&rec_start), "{v}");
+        assert!((1..=60).contains(&rec_end), "{v}");
+        // Origin-spanning recognition reads recStart > recEnd after wrapping.
+        assert_eq!((rec_start, rec_end), (56, 1), "{v}");
+        assert_eq!(site["cutsOutsideRecognitionSite"], false, "{v}");
     }
 
     #[tokio::test]
