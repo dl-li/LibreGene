@@ -59,7 +59,7 @@ pub struct BufferActivity {
     pub activity: String,
 }
 
-/// One variant's product data under a supplier. All fields optional in the
+/// One variant's product data under a provider. All fields optional in the
 /// source JSON (e.g. some entries lack a catalog number).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,7 +79,7 @@ pub struct VariantInfo {
     pub catalog: String,
 }
 
-/// One supplier's product data for an enzyme: per-variant entries (e.g.
+/// One provider's product data for an enzyme: per-variant entries (e.g.
 /// BamHI vs BamHI-HF differ in buffer compatibility).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,7 +98,7 @@ pub struct EnzymeProviderEntry {
     pub providers: std::collections::HashMap<String, ProviderInfo>,
 }
 
-/// Enzyme that only exists in supplier catalogs (nicking/homing enzymes
+/// Enzyme that only exists in provider catalogs (nicking/homing enzymes
 /// absent from the main DB).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,7 +110,7 @@ pub struct ProviderOnlyEnzyme {
     pub providers: std::collections::HashMap<String, ProviderInfo>,
 }
 
-/// In-memory supplier database loaded from enzyme_providers.json.
+/// In-memory provider database loaded from enzyme_providers.json.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderData {

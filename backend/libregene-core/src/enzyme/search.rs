@@ -16,7 +16,7 @@ pub fn get_db() -> &'static EnzymeDb {
     })
 }
 
-/// Global supplier database (buffers/temps/catalog per provider), loaded once.
+/// Global provider database (buffers/temps/catalog per provider), loaded once.
 static PROVIDER_DB: OnceLock<ProviderData> = OnceLock::new();
 
 pub fn get_provider_data() -> &'static ProviderData {

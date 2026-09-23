@@ -2435,7 +2435,7 @@ async fn get_enzyme_database() -> Result<serde_json::Value, String> {
     serde_json::to_value(&db.enzymes).map_err(|e| e.to_string())
 }
 
-/// Return the supplier database (per-provider buffers, temps, catalog numbers).
+/// Return the provider database (per-provider buffers, temps, catalog numbers).
 #[tauri::command]
 async fn get_enzyme_providers() -> Result<serde_json::Value, String> {
     let data = libregene_core::enzyme::search::get_provider_data();

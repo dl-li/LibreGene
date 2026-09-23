@@ -173,7 +173,7 @@ export default function EnzymeDetailDialog({
         <div className="mt-4 space-y-2">
           {providerKeys.length === 0 && (
             <div className="text-sm text-muted-foreground">
-              No supplier data for this enzyme.
+              No provider data for this enzyme.
             </div>
           )}
           {providerKeys.map((key) => {

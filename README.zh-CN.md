@@ -58,7 +58,7 @@
 - **内置 900+ 酶数据库**（导出自 [Biopython](https://biopython.org) 的 `Bio.Restriction`），支持甲基化感知过滤
 - **分类清晰** — 唯一切点（unique）、双切点（twice）、平末端（blunt）和 IIS 型酶区分显示，切割位点同步标注在侧边滚动条上，方便快速定位
 - **自定义酶组** — 可定义自己的酶集合并随时切换
-- **供应商详细参数** — 内置来自 **New England Biolabs**、**赛默飞 FastDigest** 和 **愚公生物（百时美）** 的缓冲液兼容性、孵育温度、甲基化敏感性与失活信息
+- **供应商（Provider）详细参数** — 内置来自 **New England Biolabs**、**赛默飞 FastDigest** 和 **愚公生物（百时美）** 的缓冲液兼容性、孵育温度、甲基化敏感性与失活信息
 
 <p align="center">
   <img src="screenshots/enzymes.png" alt="酶切位点视图" width="700" />

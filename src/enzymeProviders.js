@@ -1,10 +1,10 @@
-// Supplier (provider) data for enzymes, loaded once from get_enzyme_providers.
+// Provider data for enzymes, loaded once from get_enzyme_providers.
 // All lookups are case-insensitive and match aliases as well as DB names.
 
 import { getEnzymeProviders } from './tauriApi';
 
 export const ENZYME_PROVIDER_OPTIONS = [
-  { value: 'all', label: 'All Suppliers' },
+  { value: 'all', label: 'All Providers' },
   { value: 'neb', label: 'NEB' },
   { value: 'bestenzyme', label: '愚公 (Yugong)' },
   { value: 'thermo', label: 'Thermo FastDigest' },

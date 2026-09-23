@@ -58,7 +58,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 - **Built-in 900+ enzyme database** (exported from [Biopython](https://biopython.org)'s `Bio.Restriction`) with methylation-aware filtering
 - **Clear categorization** — unique cutters, twice cutters, blunt ends and Type IIS enzymes are distinguished visually, and cut sites are marked on the feature scrollbar for quick navigation
 - **Custom enzyme sets** — define your own enzyme collections and switch between them
-- **Supplier detail data** — per-enzyme buffer compatibility, incubation temperature, methylation sensitivity and inactivation info from **New England Biolabs**, **Thermo Fisher FastDigest** and **Yugong Biotech (BestEnzymes)**
+- **Provider detail data** — per-enzyme buffer compatibility, incubation temperature, methylation sensitivity and inactivation info from **New England Biolabs**, **Thermo Fisher FastDigest** and **Yugong Biotech (BestEnzymes)**
 
 <p align="center">
   <img src="screenshots/enzymes.png" alt="Restriction enzyme view" width="700" />

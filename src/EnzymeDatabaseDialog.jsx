@@ -165,7 +165,7 @@ export default function EnzymeDatabaseDialog({
                     key={e.name}
                     className="border-b border-border/30 hover:bg-muted/50 cursor-pointer transition-colors"
                     onDoubleClick={() => setDetailRecord(e)}
-                    title="Double-click for supplier details"
+                    title="Double-click for provider details"
                   >
                     <td className="py-2 pr-3 whitespace-nowrap font-medium">{e.name}</td>
                     <td
