@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { InlineNotice } from '@/components/ui/notice';
 import {
   buildDotplot,
-  reverseComplement,
   normalizeSequence,
   tickStep,
   MIN_WINDOW,
@@ -16,18 +14,23 @@ import {
 
 const MARGIN = { top: 8, right: 12, bottom: 52, left: 64 };
 
+const DIRECT_COLOR = 'rgba(22, 163, 74, 0.6)'; // saturated green, semi-transparent
+const REVCOMP_COLOR = 'rgba(147, 51, 234, 0.6)'; // saturated purple, semi-transparent
+
 // Canvas-based plot: dots are drawn imperatively (hundreds of thousands of
 // SVG nodes froze WebKit), and the canvas stretches to its flex box so the
 // whole plot is always visible without scrolling. The plot itself is a
 // centered square with a mouse crosshair instead of grid lines.
-function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
+function DotplotCanvas({ seq, name, windowSize }) {
   const canvasRef = useRef(null);
   const hoverRef = useRef(null);
-  const { dots, truncated } = useMemo(
-    () => buildDotplot(seq1, seq2, windowSize),
-    [seq1, seq2, windowSize],
+  const { direct, revcomp, truncated } = useMemo(
+    () => buildDotplot(seq, seq, windowSize),
+    [seq, windowSize],
   );
-  const dotCount = dots.length / 2;
+  const directCount = direct.length / 2;
+  const revcompCount = revcomp.length / 2;
+  const dotCount = directCount + revcompCount;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -45,7 +48,6 @@ function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const fg = window.getComputedStyle(canvas).color;
-      const dot = document.documentElement.classList.contains('dark') ? '#38bdf8' : '#0284c7';
       ctx.font = '11px system-ui, sans-serif';
 
       // Centered square plot inside the canvas.
@@ -61,16 +63,16 @@ function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
       ctx.strokeStyle = fg;
       ctx.lineWidth = 1;
       ctx.strokeRect(x0 + 0.5, y0 + 0.5, side - 1, side - 1);
-      const stepX = tickStep(seq1.length);
-      const stepY = tickStep(seq2.length);
+      const stepX = tickStep(seq.length);
+      const stepY = tickStep(seq.length);
       ctx.beginPath();
-      for (let v = stepX; v < seq1.length; v += stepX) {
-        const x = x0 + (v / seq1.length) * side;
+      for (let v = stepX; v < seq.length; v += stepX) {
+        const x = x0 + (v / seq.length) * side;
         ctx.moveTo(x, y0 + side);
         ctx.lineTo(x, y0 + side + 4);
       }
-      for (let v = stepY; v < seq2.length; v += stepY) {
-        const y = y0 + (v / seq2.length) * side;
+      for (let v = stepY; v < seq.length; v += stepY) {
+        const y = y0 + (v / seq.length) * side;
         ctx.moveTo(x0 - 4, y);
         ctx.lineTo(x0, y);
       }
@@ -80,32 +82,43 @@ function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
       ctx.fillStyle = fg;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      for (let v = stepX; v < seq1.length; v += stepX) {
-        ctx.fillText(v.toLocaleString(), x0 + (v / seq1.length) * side, y0 + side + 8);
+      for (let v = stepX; v < seq.length; v += stepX) {
+        ctx.fillText(v.toLocaleString(), x0 + (v / seq.length) * side, y0 + side + 8);
       }
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      for (let v = stepY; v < seq2.length; v += stepY) {
-        ctx.fillText(v.toLocaleString(), x0 - 8, y0 + (v / seq2.length) * side);
+      for (let v = stepY; v < seq.length; v += stepY) {
+        ctx.fillText(v.toLocaleString(), x0 - 8, y0 + (v / seq.length) * side);
       }
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
       ctx.font = '12px system-ui, sans-serif';
-      ctx.fillText(`${name1} (${seq1.length.toLocaleString()} nt)`, x0 + side / 2, cssH - 8);
+      ctx.fillText(`${name} (${seq.length.toLocaleString()} nt)`, x0 + side / 2, cssH - 8);
       ctx.save();
       ctx.translate(16, y0 + side / 2);
       ctx.rotate(-Math.PI / 2);
-      ctx.fillText(`${name2} (${seq2.length.toLocaleString()} nt)`, 0, 0);
+      ctx.fillText(`${name} (${seq.length.toLocaleString()} nt)`, 0, 0);
       ctx.restore();
 
-      // Dots.
-      ctx.fillStyle = dot;
-      const cw = Math.max(side / seq1.length, 1.5);
-      const ch = Math.max(side / seq2.length, 1.5);
-      for (let k = 0; k < dotCount; k++) {
+      // Dots: green for direct window matches, purple for reverse-complement
+      // (inverted repeat) matches. Both are semi-transparent, so a window pair
+      // satisfying both conditions blends the two colors.
+      const cw = Math.max(side / seq.length, 1.5);
+      const ch = Math.max(side / seq.length, 1.5);
+      ctx.fillStyle = DIRECT_COLOR;
+      for (let k = 0; k < directCount; k++) {
         ctx.fillRect(
-          x0 + (dots[k * 2] / seq1.length) * side,
-          y0 + (dots[k * 2 + 1] / seq2.length) * side,
+          x0 + (direct[k * 2] / seq.length) * side,
+          y0 + (direct[k * 2 + 1] / seq.length) * side,
+          cw,
+          ch,
+        );
+      }
+      ctx.fillStyle = REVCOMP_COLOR;
+      for (let k = 0; k < revcompCount; k++) {
+        ctx.fillRect(
+          x0 + (revcomp[k * 2] / seq.length) * side,
+          y0 + (revcomp[k * 2 + 1] / seq.length) * side,
           cw,
           ch,
         );
@@ -114,8 +127,8 @@ function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
       // Mouse crosshair + coordinate readout.
       const hover = hoverRef.current;
       if (hover && hover.x >= x0 && hover.x <= x0 + side && hover.y >= y0 && hover.y <= y0 + side) {
-        const posX = Math.min(Math.floor(((hover.x - x0) / side) * seq1.length), seq1.length - 1);
-        const posY = Math.min(Math.floor(((hover.y - y0) / side) * seq2.length), seq2.length - 1);
+        const posX = Math.min(Math.floor(((hover.x - x0) / side) * seq.length), seq.length - 1);
+        const posY = Math.min(Math.floor(((hover.y - y0) / side) * seq.length), seq.length - 1);
         ctx.strokeStyle = fg;
         ctx.globalAlpha = 0.5;
         ctx.setLineDash([4, 4]);
@@ -161,18 +174,35 @@ function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
       ro.disconnect();
       mo.disconnect();
     };
-  }, [dots, dotCount, seq1, seq2, name1, name2]);
+  }, [direct, revcomp, directCount, revcompCount, seq, name]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5">
       <canvas ref={canvasRef} className="min-h-0 w-full flex-1 text-muted-foreground" />
-      <div className="flex shrink-0 items-center justify-between text-[11px] text-muted-foreground">
+      <div className="flex shrink-0 items-center justify-between gap-4 text-[11px] text-muted-foreground">
         <span>
           {dotCount === 0
             ? 'No matches at this window size'
-            : `${dotCount.toLocaleString()} matching ${windowSize}-mers`}
+            : `${dotCount.toLocaleString()} matching ${windowSize}-mers ` +
+              `(${directCount.toLocaleString()} direct, ${revcompCount.toLocaleString()} rev-comp)`}
         </span>
-        {truncated && <span>Showing the first {MAX_DOTS.toLocaleString()} dots</span>}
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <span
+              className="inline-block size-2.5 rounded-sm"
+              style={{ backgroundColor: DIRECT_COLOR }}
+            />
+            direct match
+          </span>
+          <span className="flex items-center gap-1">
+            <span
+              className="inline-block size-2.5 rounded-sm"
+              style={{ backgroundColor: REVCOMP_COLOR }}
+            />
+            rev-comp match
+          </span>
+          {truncated && <span>Showing the first {MAX_DOTS.toLocaleString()} dots</span>}
+        </span>
       </div>
     </div>
   );
@@ -180,14 +210,11 @@ function DotplotCanvas({ seq1, seq2, name1, name2, windowSize }) {
 
 export default function DotplotDialog({ open, onOpenChange, sequence, fileName }) {
   const [windowSize, setWindowSize] = useState(DEFAULT_WINDOW);
-  const [revComp, setRevComp] = useState(false);
 
-  const seq1 = useMemo(() => normalizeSequence(sequence || ''), [sequence]);
-  const seq2 = useMemo(() => (revComp ? reverseComplement(seq1) : seq1), [revComp, seq1]);
-  const name1 = fileName || 'Sequence 1';
-  const name2 = revComp ? `${name1} (rev-comp)` : `${name1} (self)`;
+  const seq = useMemo(() => normalizeSequence(sequence || ''), [sequence]);
+  const name = fileName || 'Sequence 1';
 
-  const tooShort = seq1.length > 0 && seq1.length < windowSize;
+  const tooShort = seq.length > 0 && seq.length < windowSize;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -212,10 +239,6 @@ export default function DotplotDialog({ open, onOpenChange, sequence, fileName }
                 className="w-40 accent-primary"
               />
             </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox checked={revComp} onCheckedChange={(v) => setRevComp(!!v)} />
-              Reverse complement (reveals inverted repeats)
-            </label>
           </div>
 
           {tooShort && (
@@ -224,14 +247,8 @@ export default function DotplotDialog({ open, onOpenChange, sequence, fileName }
             </InlineNotice>
           )}
 
-          {!tooShort && seq1.length > 0 && (
-            <DotplotCanvas
-              seq1={seq1}
-              seq2={seq2}
-              name1={name1}
-              name2={name2}
-              windowSize={windowSize}
-            />
+          {!tooShort && seq.length > 0 && (
+            <DotplotCanvas seq={seq} name={name} windowSize={windowSize} />
           )}
         </div>
       </DialogContent>
