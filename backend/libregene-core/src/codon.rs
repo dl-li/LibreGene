@@ -105,12 +105,25 @@ pub fn get_table(species: &str) -> Option<&'static CodonUsageTable> {
 
 /// Build a table from caller-supplied rows (Kazusa-format parse results),
 /// e.g. a user-defined custom table. Later duplicate codons win.
+/// Frequencies are normalized to sum to 1 within each amino-acid group —
+/// the API accepts raw frequencies and downstream math (match_usage)
+/// assumes per-group sums of 1.
 pub fn table_from_custom(rows: &[(char, String, f64)]) -> CodonUsageTable {
     let mut t = CodonUsageTable::new("custom".to_string());
     for (aa, codon, freq) in rows {
         let c = codon.to_ascii_uppercase().replace('U', "T");
         t.freqs.insert(c.clone(), *freq);
         t.aa_of.insert(c, *aa);
+    }
+    let mut group_sum: HashMap<char, f64> = HashMap::new();
+    for (codon, aa) in &t.aa_of {
+        let f = t.freqs.get(codon).copied().unwrap_or(0.0).max(0.0);
+        *group_sum.entry(*aa).or_insert(0.0) += f;
+    }
+    for (codon, f) in t.freqs.iter_mut() {
+        let aa = t.aa_of.get(codon).copied().unwrap_or('?');
+        let sum = group_sum.get(&aa).copied().unwrap_or(0.0);
+        *f = if sum > 0.0 { f.max(0.0) / sum } else { 0.0 };
     }
     t.finish();
     t
@@ -573,7 +586,7 @@ fn match_usage(codons: &[String], table: &CodonUsageTable) -> Vec<String> {
             .map(|(_, f)| (f * n as f64).floor() as usize)
             .collect();
         let sum: usize = rem_counts.iter().sum();
-        let leftover = n - sum;
+        let leftover = n.saturating_sub(sum);
         if leftover > 0 {
             let mut best_i = 0;
             for j in 1..codons_aa.len() {
@@ -1254,8 +1267,29 @@ mod tests {
     fn cai_zero_frequency_floor() {
         let t = table_from_custom(&[('E', "GAA".into(), 0.9), ('E', "GAG".into(), 0.0)]);
         let got = compute_cai(&[codons("GAG")[0].clone()], &t);
-        let expect = 0.001 / 0.9;
+        // Custom tables are normalized per group: GAA → 1.0, GAG → 0.0.
+        let expect = 0.001 / 1.0;
         assert!((got - expect).abs() < 1e-12, "{got} vs {expect}");
+    }
+
+    #[test]
+    fn custom_table_unnormalized_freqs_are_normalized_per_group() {
+        let t = table_from_custom(&[('E', "GAA".into(), 2.0), ('E', "GAG".into(), 1.0)]);
+        assert!((t.freqs["GAA"] - 2.0 / 3.0).abs() < 1e-12);
+        assert!((t.freqs["GAG"] - 1.0 / 3.0).abs() < 1e-12);
+        assert!((t.fmax[&'E'] - 2.0 / 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn match_usage_unnormalized_custom_table_no_underflow() {
+        // Raw freqs summing to 3 within one group used to make
+        // `n - sum` underflow (debug panic / release wrap).
+        let t = table_from_custom(&[('E', "GAA".into(), 2.0), ('E', "GAG".into(), 1.0)]);
+        let original = codons("GAAGAAGAAGAAGAAGAA");
+        let out = match_usage(&original, &t);
+        let n_gaa = out.iter().filter(|c| *c == "GAA").count();
+        let n_gag = out.iter().filter(|c| *c == "GAG").count();
+        assert_eq!((n_gaa, n_gag), (4, 2), "2:1 table → 4:2 split of 6, got {out:?}");
     }
 
     // ------------------------------------------------------------------
