@@ -643,7 +643,7 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
 /// All returned coordinates are 0-based inclusive.
 fn extract_location_bounds(loc: &Location) -> (Vec<Segment>, i64, i64) {
     match loc {
-        Location::Join(parts) => {
+        Location::Join(parts) | Location::Order(parts) => {
             let mut segs = Vec::with_capacity(parts.len());
             let mut start = i64::MAX;
             let mut end = i64::MIN;
@@ -682,6 +682,10 @@ fn extract_location_bounds(loc: &Location) -> (Vec<Segment>, i64, i64) {
             let seg_end = e - 1;
             let seg = Segment { start: *s, end: seg_end, color: None };
             (vec![seg], *s, seg_end)
+        }
+        Location::Between(s, _) => {
+            let seg = Segment { start: *s, end: *s, color: None };
+            (vec![seg], *s, *s)
         }
         _ => (vec![], 0, 0),
     }

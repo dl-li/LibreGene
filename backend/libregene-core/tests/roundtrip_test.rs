@@ -334,3 +334,51 @@ fn roundtrip_single_range_feature() {
     assert_eq!((f.start, f.end), (99, 199));
     assert_eq!(segments_of(f), vec![(99, 199)]);
 }
+
+/// An order(100..150,200..250) location must load with real bounds instead of
+/// collapsing to a point, and re-saving must not produce 1..1.
+#[test]
+fn roundtrip_order_location() {
+    let seq = "acgt".repeat(125); // 500 bp
+    let mut origin = String::from("ORIGIN\n");
+    for (i, chunk) in seq.as_bytes().chunks(60).enumerate() {
+        let line: Vec<String> = chunk
+            .chunks(10)
+            .map(|c| std::str::from_utf8(c).unwrap().to_string())
+            .collect();
+        origin.push_str(&format!("{:>9} {}\n", i * 60 + 1, line.join(" ")));
+    }
+    let gbk = format!(
+        "LOCUS       TestOrder              500 bp    DNA     circular SYN 23-SEP-2026\n\
+         DEFINITION  .\n\
+         ACCESSION   .\n\
+         VERSION     .\n\
+         KEYWORDS    .\n\
+         SOURCE      synthetic DNA construct\n\
+         \x20 ORGANISM  synthetic DNA construct\n\
+         FEATURES             Location/Qualifiers\n\
+         \x20    misc_feature    order(100..150,200..250)\n\
+         \x20                    /label=\"ordered\"\n\
+         {origin}//\n"
+    );
+
+    let tmp = std::env::temp_dir().join("libregene_order_location.gbk");
+    std::fs::write(&tmp, gbk).unwrap();
+    let project = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("parse order() gbk");
+
+    let f = project.features.iter().find(|f| f.name == "ordered").expect("ordered feature");
+    assert_eq!((f.start, f.end), (99, 249), "order() bounds");
+    assert_eq!(segments_of(f), vec![(99, 149), (199, 249)], "order() segments");
+
+    let tmp2 = std::env::temp_dir().join("libregene_order_location_out.gbk");
+    libregene_core::file_io::gbk::write_gbk(&project, &tmp2).expect("write gbk");
+    let written = std::fs::read_to_string(&tmp2).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp2).expect("re-parse gbk");
+    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_file(&tmp2);
+
+    assert!(!written.contains("1..1"), "order() must not collapse to 1..1:\n{written}");
+    let f2 = reloaded.features.iter().find(|f| f.name == "ordered").expect("ordered feature");
+    assert_eq!((f2.start, f2.end), (99, 249), "order() bounds survive re-save");
+    assert_eq!(segments_of(f2), vec![(99, 149), (199, 249)]);
+}
