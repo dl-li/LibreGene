@@ -69,7 +69,7 @@ LibreGene/
 │   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
 │   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/codonOptimization/blast
 │   └── components/ui/          # shadcn UI 组件
-├── backend/libregene-core/src/ # Rust 核心库（models/project、orf、search、codon、digest、enzyme/、primer/、file_io/）
+├── backend/libregene-core/src/ # Rust 核心库（models/project、align+align/blastn/、orf、search、codon、digest、enzyme/、primer/、file_io/）
 └── src-tauri/src/
     ├── lib.rs                  # Tauri commands + AppState + 共享 do_* 内核 + 系统托盘
     └── mcp.rs                  # 嵌入式 MCP server（工具 + 启停控制）
@@ -166,7 +166,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - 序列读取、坐标转换、自动标注（只读展示）、甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
 - 序列编辑 → `edit_sequence`；特征 → `set_feature`
 - 引物 → `add_primer` / `list_primers` / `check_primer_binding`；引物设计 → `design_primers`
-- ORF → `find_orfs`；序列比对 → `add_alignment`；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（统一批量转换：dna↔rna（T↔U，可选 revComp）、dna/rna→protein（翻译）、protein→dna/rna（逆转录+密码子优化）、dna→dna 密码子优化；逐项错误隔离，全部失败才 isError；单项调用可省略 `items` 直接顶层传参）
+- ORF → `find_orfs`；序列比对 → `add_alignment`（可选 `algorithm`: "blast" 默认（自 GenePad 移植的 BLAST 引擎，多段共线 HSP，分割/多命中 read 全对齐）或 "smith-waterman"（单局部块 + 至多一个侧翼）；用户未指明时用默认）；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（统一批量转换：dna↔rna（T↔U，可选 revComp）、dna/rna→protein（翻译）、protein→dna/rna（逆转录+密码子优化）、dna→dna 密码子优化；逐项错误隔离，全部失败才 isError；单项调用可省略 `items` 直接顶层传参）
 - 上述 DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError
 
 未适配（前端/UI 专有，MCP 不可用）：
@@ -183,7 +183,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
 - **SnapGene 历史快照**（Edit 菜单 History 项 → `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
-- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失/insertion/环状 join wrap 处曲线截断跳跃（查询序号不连续即断），match/mismatch 保持连续，参考 GenePad）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返
+- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失/环状 join wrap 处曲线截断跳跃（查询序号不连续即断），insertion（含比对引擎存入的首尾 junk/接缝插入段）碱基与峰占满独立槽位列（槽在锚列左侧；模板行同位渲染红色 `-` 占位，colVis/colRuns/colFromVis 三个 helper 统一所有轨道的 drift 列映射，行宽=模板网格+槽位扩展、底部 sticky 拖杆横滚），match/mismatch 保持连续，参考 GenePad）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返
 
 ## 核心模型约定
 

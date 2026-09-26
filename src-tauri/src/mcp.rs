@@ -339,6 +339,10 @@ struct AddAlignmentRequest {
     /// Extra template bp on each side of the focus window (default 0;
     /// clamped at the sequence ends).
     flank: Option<i64>,
+    /// Alignment engine: "blast" (default; NCBI blastn port — chains any
+    /// number of colinear segments, handles split/multi-hit reads) or
+    /// "smith-waterman" (single local block plus at most one flank).
+    algorithm: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -4387,6 +4391,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   sequence is extracted).
     /// Giving neither or both is an error. A name is always required.
     ///
+    /// `algorithm` selects the alignment engine: "blast" (default; BLAST
+    /// engine ported from GenePad's gene-core, modelled on the NCBI blastn
+    /// algorithm — finds every colinear segment, so split/multi-hit reads
+    /// and reads with unalignable junk tails align in full) or
+    /// "smith-waterman" (classic single local block plus at most one flank;
+    /// a read that spans two distant template loci may lose one of them).
+    /// Prefer the default unless the user asks for Smith-Waterman.
+    ///
     /// Returns {ok, message, projectId, regionView, significant, identity,
     /// strand, segmentCount, alignedLength, mismatches, insertions,
     /// deletions, mismatchDetails, deletionDetails, insertionDetails,
@@ -4571,6 +4583,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             request.name,
             seq,
             trace_path,
+            crate::parse_align_algorithm(request.algorithm.as_deref()),
         )
         .await
         {

@@ -36,6 +36,8 @@ export default function SettingsPage({
   setMethylationOverlap,
   primerSeedLength,
   setPrimerSeedLength,
+  alignmentAlgorithm = 'blast',
+  onAlignmentAlgorithmChange,
   tmParams,
   setTmParams,
   plugins = [],
@@ -182,6 +184,34 @@ export default function SettingsPage({
                     }}
                   />
                   <span className="text-sm text-muted-foreground">bp</span>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ── 序列比对 ── */}
+              <div>
+                <div className={SECTION_TITLE}>Alignment</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-muted-foreground shrink-0">Algorithm</Label>
+                    <Select
+                      value={alignmentAlgorithm}
+                      onValueChange={(v) => onAlignmentAlgorithmChange?.(v)}
+                    >
+                      <SelectTrigger className="w-44 h-8 px-2 py-0 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="blast">BLAST</SelectItem>
+                        <SelectItem value="smith-waterman">Smith-Waterman</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <span className="block text-xs text-muted-foreground">
+                    BLAST chains multiple colinear hits, so split or multi-hit reads align in full;
+                    Smith-Waterman returns a single local block plus at most one flank
+                  </span>
                 </div>
               </div>
 

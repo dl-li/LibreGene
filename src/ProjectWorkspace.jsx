@@ -85,6 +85,7 @@ export default function ProjectWorkspace({
   methylationSystems,
   methylationOverlap,
   primerSeedLength,
+  alignmentAlgorithm,
   tmParams,
   layoutParams,
   showFeatures,
@@ -1036,7 +1037,7 @@ export default function ProjectWorkspace({
       let lastData = null;
       for (const path of paths) {
         try {
-          const data = await addAlignment(path);
+          const data = await addAlignment(path, alignmentAlgorithm);
           if (operationGenRef.current !== gen) return null;
           if (data && data.error) {
             failed.push({ path, error: data.error });
@@ -1055,7 +1056,7 @@ export default function ProjectWorkspace({
       }
       return { added, failed };
     },
-    [onProjectsSync],
+    [onProjectsSync, alignmentAlgorithm],
   );
 
   const handleAddAlignment = useCallback(async () => {
@@ -1076,7 +1077,7 @@ export default function ProjectWorkspace({
     async (name, seq) => {
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
-      const data = await addAlignmentSeq(name, seq);
+      const data = await addAlignmentSeq(name, seq, alignmentAlgorithm);
       if (operationGenRef.current !== gen) return;
       if (data && data.error) throw new Error(data.error);
       if (data) {
@@ -1085,7 +1086,7 @@ export default function ProjectWorkspace({
         setIsDirty(true);
       }
     },
-    [onProjectsSync],
+    [onProjectsSync, alignmentAlgorithm],
   );
 
   const handleToggleAlignmentVisible = useCallback(

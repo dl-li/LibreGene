@@ -180,10 +180,16 @@ impl ProjectManager {
 
     /// Align `seq` against project `id`'s sequence and store the result.
     /// Returns the stored alignment, or None if there is no significant match.
-    pub fn add_alignment(&mut self, id: &str, name: &str, seq: &str) -> Option<crate::models::Alignment> {
+    pub fn add_alignment(
+        &mut self,
+        id: &str,
+        name: &str,
+        seq: &str,
+        algorithm: crate::align::AlignAlgorithm,
+    ) -> Option<crate::models::Alignment> {
         let p = self.projects.get(id)?;
         let circular = p.topology == "circular";
-        let mut aln = crate::align::align_read(&p.sequence, seq, circular)?;
+        let mut aln = crate::align::align_read_with(&p.sequence, seq, circular, algorithm)?;
         aln.name = name.to_string();
         aln.id = crate::align::next_alignment_id(&p.alignments);
         let p = self.projects.get_mut(id)?;

@@ -73,6 +73,10 @@ See `package.json` and `package-lock.json` for the full list and their respectiv
 ### SnapGene file format
 - The `.dna`/`.rna`/`.prot` parser in `backend/libregene-core/src/file_io/dna.rs` is an independent implementation based on the public unofficial SnapGene format documentation ([Binary sequence formats](https://incenp.org/dvlpt/docs/binary-sequence-formats/binary-sequence-formats.pdf), incenp.org); see also [plascad](https://github.com/David-OConnor/plascad) for another implementation of the same format
 
+### Local NCBI blastn alignment engine
+- **Source**: ported from GenePad's `gene-core` blast module (https://genepad.cn), contributed by the GenePad team
+- **Usage**: The local sequence-alignment engine in `backend/libregene-core/src/align/blastn/` is a BLAST engine reimplemented from the NCBI BLAST 2.9.0+ blastn algorithm (word scan → ungapped X-drop → gapped X-drop DP → HSP → Karlin-Altschul) with full-length fast paths for near-identical pairs, a circular-rotation search, and colinear multi-HSP chain normalization; behaviour tests are likewise ported from GenePad's vitest suites. Users may select it (or the original Smith-Waterman aligner) in Settings → Alignment.
+
 ## Rust / Cargo Dependencies
 
 This project uses Rust crates, each under its own license. Key dependencies include:

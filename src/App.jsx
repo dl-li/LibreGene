@@ -262,6 +262,19 @@ export default function App() {
   });
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
+  const [alignmentAlgorithm, setAlignmentAlgorithm] = useState(() => {
+    const v = localStorage.getItem('alignmentAlgorithm');
+    return v === 'smith-waterman' ? 'smith-waterman' : 'blast';
+  });
+  const onAlignmentAlgorithmChange = useCallback((next) => {
+    if (next !== 'blast' && next !== 'smith-waterman') return;
+    setAlignmentAlgorithm(next);
+    try {
+      localStorage.setItem('alignmentAlgorithm', next);
+    } catch {
+      // storage may be unavailable; selection still applies in-memory
+    }
+  }, []);
   const [tmParams, setTmParams] = useState({
     naConc: 0.05,
     mgConc: 0,
@@ -1138,6 +1151,7 @@ export default function App() {
       methylationSystems,
       methylationOverlap,
       primerSeedLength,
+      alignmentAlgorithm,
       tmParams,
       layoutParams,
       showFeatures,
@@ -1170,6 +1184,7 @@ export default function App() {
       methylationSystems,
       methylationOverlap,
       primerSeedLength,
+      alignmentAlgorithm,
       tmParams,
       layoutParams,
       showFeatures,
@@ -1613,6 +1628,8 @@ export default function App() {
           setMethylationOverlap={setMethylationOverlap}
           primerSeedLength={primerSeedLength}
           setPrimerSeedLength={setPrimerSeedLength}
+          alignmentAlgorithm={alignmentAlgorithm}
+          onAlignmentAlgorithmChange={onAlignmentAlgorithmChange}
           tmParams={tmParams}
           setTmParams={setTmParams}
           plugins={plugins}
