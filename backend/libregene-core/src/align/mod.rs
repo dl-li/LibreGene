@@ -1,9 +1,14 @@
-//! Smith–Waterman local alignment of a read against the project sequence.
+//! Smith–Waterman local alignment of a read against the project sequence,
+//! plus an NCBI blastn engine (`blastn`) the caller can select instead —
+//! SW returns one primary block (plus at most one flank), while blastn
+//! chains any number of colinear HSPs and handles multi-hit reads.
 //!
-//! Scoring: match +2, mismatch −1, linear gap −2. Non-ACGT bases never
+//! SW scoring: match +2, mismatch −1, linear gap −2. Non-ACGT bases never
 //! match. Circular templates are aligned as template concatenated with
 //! itself, then coordinates are mapped back via `% tlen` and the aligned
 //! range is split into non-wrapping segments at the origin.
+
+pub mod blastn;
 
 use crate::models::{
     AlignDeletion, AlignInsertion, AlignInsertionDetail, AlignMismatch, AlignSegment, Alignment,
@@ -828,6 +833,267 @@ fn better_reject(a: AlignReject, b: AlignReject) -> AlignReject {
 /// and the better orientation wins. Returns `None` when neither works.
 pub fn align_read(template: &str, read: &str, circular: bool) -> Option<Alignment> {
     align_read_checked(template, read, circular).ok()
+}
+
+/// Alignment algorithm selectable by the user. `BlastN` is the BLAST engine
+/// ported from GenePad's blast module (modelled on the NCBI blastn
+/// algorithm); `SmithWaterman` is the original local aligner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlignAlgorithm {
+    SmithWaterman,
+    BlastN,
+}
+
+impl AlignAlgorithm {
+    /// Parse the wire/UI spelling ("smith-waterman" | "blast"); accepts the
+    /// aliases "sw" and "blastn".
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "smith-waterman" | "sw" => Some(Self::SmithWaterman),
+            "blast" | "blastn" => Some(Self::BlastN),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SmithWaterman => "smith-waterman",
+            Self::BlastN => "blast",
+        }
+    }
+}
+
+impl Default for AlignAlgorithm {
+    fn default() -> Self {
+        Self::BlastN
+    }
+}
+
+/// `align_read_checked` with an explicit algorithm.
+pub fn align_read_checked_with(
+    template: &str,
+    read: &str,
+    circular: bool,
+    algorithm: AlignAlgorithm,
+) -> Result<Alignment, AlignReject> {
+    match algorithm {
+        AlignAlgorithm::SmithWaterman => align_read_checked(template, read, circular),
+        AlignAlgorithm::BlastN => blast_align_read(template, read, circular),
+    }
+}
+
+/// `align_read` with an explicit algorithm.
+pub fn align_read_with(
+    template: &str,
+    read: &str,
+    circular: bool,
+    algorithm: AlignAlgorithm,
+) -> Option<Alignment> {
+    align_read_checked_with(template, read, circular, algorithm).ok()
+}
+
+/// blastn path: full-length fast paths against the linear template first
+/// (they include a rotation search for circular references), then the local
+/// engine against the doubled template when circular — a read spanning the
+/// circular origin must stay colinear on the doubled subject, which the
+/// linear subject cannot offer. The colinear hit chain of the dominant
+/// strand becomes the multi-segment [`Alignment`].
+fn blast_align_read(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
+    let t = template.to_ascii_uppercase();
+    let r = read.to_ascii_uppercase();
+    let tlen = t.len();
+    if tlen == 0 || r.is_empty() {
+        return Err(AlignReject::NoSignificantAlignment);
+    }
+
+    let hits = blastn::full_length_hits(t.as_bytes(), r.as_bytes())
+        .map(|hit| vec![hit])
+        .or_else(|| {
+            let subject: Vec<u8> = if circular {
+                let mut s = Vec::with_capacity(2 * tlen);
+                s.extend_from_slice(t.as_bytes());
+                s.extend_from_slice(t.as_bytes());
+                s
+            } else {
+                t.as_bytes().to_vec()
+            };
+            let hits = blastn::local_hits(&subject, r.as_bytes());
+            (!hits.is_empty()).then_some(hits)
+        })
+        .ok_or(AlignReject::NoSignificantAlignment)?;
+
+    let minus = hits.first().is_some_and(|h| h.strand == blastn::Strand::Minus);
+    let oriented = if minus { crate::utils::reverse_complement(&r) } else { r.clone() };
+
+    let mut segments: Vec<AlignSegment> = Vec::new();
+    let mut insertions: Vec<AlignInsertion> = Vec::new();
+    let mut pending_ins = String::new();
+    let mut matched = 0usize;
+    let mut compared = 0usize;
+    let mut prev_q_last: Option<u64> = None;
+
+    // Leading read bases before the first hit (adapter/junk tail): stored as
+    // an insertion anchored at the first hit's first template column, exactly
+    // like GenePad's leading gapSegment — every read base must be either in a
+    // hit column or an insertion, or the chromatogram mapping would shift.
+    if hits[0].columns.iter().any(|c| c.query_base != b'-') {
+        let first_q = hits[0]
+            .columns
+            .iter()
+            .filter(|c| c.query_base != b'-')
+            .map(|c| c.query_position)
+            .min()
+            .unwrap_or(1);
+        if first_q > 1 {
+            pending_ins.push_str(&oriented[..(first_q - 1) as usize]);
+        }
+    }
+
+    fn push_template_col(
+        segments: &mut Vec<AlignSegment>,
+        insertions: &mut Vec<AlignInsertion>,
+        pending_ins: &mut String,
+        ref_position: u64,
+        base: u8,
+        tlen: usize,
+    ) {
+        let mapped = (ref_position as usize - 1) % tlen;
+        if !pending_ins.is_empty() {
+            insertions.push(AlignInsertion {
+                pos: mapped,
+                bases: std::mem::take(pending_ins),
+            });
+        }
+        // New segment on a circular wrap (mapped <= last end) or on a
+        // forward template gap between two colinear hits (last end + 1 <
+        // mapped); within one hit consecutive template columns are
+        // contiguous, so anything else extends the current segment.
+        let split = segments
+            .last()
+            .is_some_and(|s| mapped <= s.end || mapped > s.end + 1);
+        if split || segments.is_empty() {
+            segments.push(AlignSegment {
+                start: mapped,
+                end: mapped,
+                chars: String::new(),
+            });
+        }
+        let seg = segments.last_mut().unwrap();
+        seg.end = mapped;
+        seg.chars.push(base as char);
+    }
+
+    for hit in &hits {
+        // Read bases between the previous hit's last consumed base and this
+        // hit's first: the junction insertion (real inserted sequence plus
+        // any unalignable low-quality bases), anchored at the template
+        // column this hit resumes at.
+        if let Some(prev) = prev_q_last {
+            let q_first = hit
+                .columns
+                .iter()
+                .filter(|c| c.query_base != b'-')
+                .map(|c| c.query_position)
+                .min();
+            if let Some(first) = q_first {
+                if first > prev {
+                    pending_ins.push_str(&oriented[prev as usize..(first - 1) as usize]);
+                }
+            }
+        }
+        for col in &hit.columns {
+            match col.col_type {
+                blastn::ColType::Match => {
+                    matched += 1;
+                    compared += 1;
+                    push_template_col(
+                        &mut segments,
+                        &mut insertions,
+                        &mut pending_ins,
+                        col.ref_position,
+                        col.query_base,
+                        tlen,
+                    );
+                }
+                blastn::ColType::Mismatch => {
+                    compared += 1;
+                    push_template_col(
+                        &mut segments,
+                        &mut insertions,
+                        &mut pending_ins,
+                        col.ref_position,
+                        col.query_base,
+                        tlen,
+                    );
+                }
+                blastn::ColType::Deletion => push_template_col(
+                    &mut segments,
+                    &mut insertions,
+                    &mut pending_ins,
+                    col.ref_position,
+                    b'-',
+                    tlen,
+                ),
+                blastn::ColType::Insertion => pending_ins.push(col.query_base as char),
+            }
+        }
+        prev_q_last = hit
+            .columns
+            .iter()
+            .filter(|c| c.query_base != b'-')
+            .map(|c| c.query_position)
+            .max()
+            .or(prev_q_last);
+    }
+    // Trailing read bases after the last hit: anchored at the template column
+    // after the last segment. Skipped when that column wraps onto an already
+    // covered region (circular) or past the sequence end — the bases stay in
+    // `seq` but get no anchor column.
+    if let Some(last_q) = prev_q_last {
+        let tail = &oriented[(last_q as usize).min(oriented.len())..];
+        if !tail.is_empty() {
+            if let Some(last_seg) = segments.last() {
+                let pos = (last_seg.end + 1) % tlen;
+                // pos == 0: the last segment ends at the template end (linear)
+                // or the origin (circular) — no following column to anchor on.
+                let collides = pos == 0 || segments.iter().any(|s| pos >= s.start && pos <= s.end);
+                if !collides {
+                    insertions.push(AlignInsertion {
+                        pos,
+                        bases: tail.to_string(),
+                    });
+                }
+            }
+        }
+    }
+    // Trailing read-only bases (unaligned tail) are dropped, matching the SW
+    // path's convention.
+
+    let span: usize = segments.iter().map(|s| s.end - s.start + 1).sum();
+    let identity = if compared > 0 {
+        matched as f64 / compared as f64
+    } else {
+        0.0
+    };
+
+    if identity < MIN_IDENTITY {
+        return Err(AlignReject::LowIdentity { identity, span });
+    }
+    if span < MIN_ALIGNED_LEN {
+        return Err(AlignReject::TooShort { span });
+    }
+
+    Ok(Alignment {
+        id: String::new(),
+        name: String::new(),
+        length: r.len(),
+        strand: if minus { "-".to_string() } else { "+".to_string() },
+        identity,
+        segments,
+        insertions,
+        seq: oriented,
+        trace_path: None,
+    })
 }
 
 /// Next free incrementing alignment id (`aln-1`, `aln-2`, ...).

@@ -1428,6 +1428,13 @@ fn alignment_reject_message(r: libregene_core::align::AlignReject) -> String {
     }
 }
 
+/// Resolve the user-selectable alignment algorithm ("smith-waterman" |
+/// "blast"); unknown or missing values fall back to the default.
+pub(crate) fn parse_align_algorithm(s: Option<&str>) -> libregene_core::align::AlignAlgorithm {
+    s.and_then(libregene_core::align::AlignAlgorithm::parse)
+        .unwrap_or_default()
+}
+
 /// CAS/merge write-back for a freshly computed alignment (same discipline as
 /// do_add_primer): land the computed list wholesale only when the live
 /// alignment ids still match the snapshot the new alignment's id was
@@ -1458,6 +1465,7 @@ async fn commit_computed_alignment(
     pm.mark_dirty(project_id);
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn do_add_alignment_seq<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -1468,6 +1476,7 @@ async fn do_add_alignment_seq<R: Runtime>(
     name: String,
     seq: String,
     trace_path: Option<String>,
+    algorithm: libregene_core::align::AlignAlgorithm,
 ) -> Result<serde_json::Value, String> {
     let project_clone = {
         let pm = pm.read().await;
@@ -1491,8 +1500,9 @@ async fn do_add_alignment_seq<R: Runtime>(
     let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
         let mut p = project_clone;
         let circular = p.topology == "circular";
-        let mut aln = libregene_core::align::align_read_checked(&p.sequence, &clean_seq, circular)
-            .map_err(alignment_reject_message)?;
+        let mut aln =
+            libregene_core::align::align_read_checked_with(&p.sequence, &clean_seq, circular, algorithm)
+                .map_err(alignment_reject_message)?;
         aln.name = if name.trim().is_empty() {
             "alignment".to_string()
         } else {
@@ -3177,11 +3187,13 @@ async fn add_alignment(
     state: State<'_, AppState>,
     app_handle: AppHandle,
     path: String,
+    algorithm: Option<String>,
 ) -> Result<serde_json::Value, String> {
     // The drag-and-drop importer and the multi-file dialog both funnel here,
     // and the frontend extension filter is not a trust boundary — align with
     // the MCP-side add_alignment, which validates every path.
     let ext = validate_user_path(&path, SEQ_EXTS)?;
+    let algorithm = parse_align_algorithm(algorithm.as_deref());
     let project_id = match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
@@ -3211,8 +3223,13 @@ async fn add_alignment(
         }
         let mut p = project_clone;
         let circular = p.topology == "circular";
-        let mut aln = libregene_core::align::align_read_checked(&p.sequence, &read_project.sequence, circular)
-            .map_err(alignment_reject_message)?;
+        let mut aln = libregene_core::align::align_read_checked_with(
+            &p.sequence,
+            &read_project.sequence,
+            circular,
+            algorithm,
+        )
+        .map_err(alignment_reject_message)?;
         aln.name = name;
         aln.id = libregene_core::align::next_alignment_id(&p.alignments);
         if ext == "ab1" {
@@ -3256,11 +3273,13 @@ async fn add_alignment_seq(
     app_handle: AppHandle,
     name: String,
     seq: String,
+    algorithm: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let project_id = match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
+    let algorithm = parse_align_algorithm(algorithm.as_deref());
 
     do_add_alignment_seq(
         &app_handle,
@@ -3272,6 +3291,7 @@ async fn add_alignment_seq(
         name,
         seq,
         None,
+        algorithm,
     )
     .await
 }
@@ -4782,6 +4802,7 @@ mod tests {
                 "r1".to_string(),
                 read.clone(),
                 None,
+                libregene_core::align::AlignAlgorithm::SmithWaterman,
             ),
             do_add_alignment_seq(
                 app.handle(),
@@ -4793,6 +4814,7 @@ mod tests {
                 "r2".to_string(),
                 read.clone(),
                 None,
+                libregene_core::align::AlignAlgorithm::SmithWaterman,
             ),
         );
         a.unwrap();
