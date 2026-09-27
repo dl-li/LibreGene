@@ -4481,7 +4481,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const sy = getSeqY(row);
           const lane = alignLaneInfo.perRow[row]?.get(ti) ?? 0;
           const y =
-            sy + lp.featBaseOffset + alignLaneInfo.mainChromH + lane * lp.featTrackHeight + 8;
+            sy +
+            lp.featBaseOffset +
+            alignLaneInfo.trackH +
+            alignLaneInfo.mainChromH +
+            lane * lp.featTrackHeight +
+            8;
           const vis = colVis(col, row);
           const slotN = insReserve.get(ins.pos) || 0;
           const display =
