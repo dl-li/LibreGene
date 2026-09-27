@@ -4614,7 +4614,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
             // Hug the right edge of THIS row's read content (drifted last
             // column + trailing slot bases) — rows with fewer slots have
             // nearer labels; they don't share a common column.
-            const labelX = getX(colVis(v.colEnd, v.row)) + cw + 8;
+            const tailSlot =
+              v.colEnd + 1 < gridCpl
+                ? insReserve.get(v.row * gridCpl + v.colEnd + 1) || 0
+                : 0;
+            const labelX = getX(colVis(v.colEnd, v.row)) + (1 + tailSlot) * cw + 8;
             const clipId = `align-label-clip-${al.id}-${v.row}`;
             const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
             // Trace toggle: labels of alignments whose .ab1 resolved are
@@ -4720,6 +4724,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     charsPerLine,
     cleanSeq.length,
     colVis,
+    insReserve,
+    gridCpl,
   ]);
 
   // Track-plugin lanes (e.g. the GC-content gradient band): each active
