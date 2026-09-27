@@ -2283,7 +2283,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!ctm) return null;
       const svgPt = pt.matrixTransform(ctm.inverse());
       const xRel = svgPt.x - startX;
-      if (xRel < -cw / 2 || xRel > gridCpl * cw + cw / 2) return null;
+      if (xRel < -cw / 2 || xRel > (gridCpl + insTotal) * cw + cw / 2) return null;
       const xInCell = ((xRel % cw) + cw) % cw;
       const colBase = Math.floor(xRel / cw);
       const side = xInCell < cw / 2 ? 0 : 1;
@@ -2310,7 +2310,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!ctm) return null;
       const svgPt = pt.matrixTransform(ctm.inverse());
       const xRel = svgPt.x - startX;
-      if (xRel < -cw / 2 || xRel > gridCpl * cw + cw / 2) return null;
+      if (xRel < -cw / 2 || xRel > (gridCpl + insTotal) * cw + cw / 2) return null;
       let vis = Math.floor(xRel / cw);
       if (xRel < 0) vis = 0;
       if (vis > gridCpl + insTotal) vis = gridCpl + insTotal - 1;
@@ -3660,7 +3660,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!ctm) return;
       const svgPt = pt.matrixTransform(ctm.inverse());
       const xRel = svgPt.x - startX;
-      if (xRel < -cw / 2 || xRel > gridCpl * cw + cw / 2) return;
+      if (xRel < -cw / 2 || xRel > (gridCpl + insTotal) * cw + cw / 2) return;
       let vis = Math.floor(xRel / cw);
       if (xRel < 0) vis = 0;
       if (vis > gridCpl + insTotal) vis = gridCpl + insTotal - 1;
