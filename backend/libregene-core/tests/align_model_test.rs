@@ -57,6 +57,14 @@ fn every_read_base_appears_once_in_read_order() {
     for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
         let aln =
             align_read_checked_with(&template.sequence, &read.sequence, circular, algo).unwrap();
+        // One insertion per template column: duplicates would render on top of
+        // each other and the display walk would drop the later bases.
+        let mut positions: Vec<usize> = aln.insertions.iter().map(|i| i.pos).collect();
+        positions.sort_unstable();
+        let unique = positions.len();
+        positions.dedup();
+        assert_eq!(unique, positions.len(), "[{}] duplicate anchors", algo.as_str());
+
         let rebuilt = rebuild_read(&aln);
         assert_eq!(
             rebuilt, aln.seq,

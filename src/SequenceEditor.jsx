@@ -280,6 +280,14 @@ export function alignmentInsertUnion(alns, tlen) {
   return union;
 }
 
+/** An alignment's insertions deduped by template column — the same map the
+ *  display walk and the chromatogram numbering use, so a legacy model with
+ *  two entries at one column renders (and counts) exactly the bases the walk
+ *  keeps. */
+export function insertionBases(al) {
+  return new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
+}
+
 /** Every insertion anchor → the block that renders it: `{ anchor, width,
  *  offset, memberWidth }`, where `offset` is the cell offset of this anchor's
  *  sub-slot inside the block (the k-th base of an insertion sits at
@@ -1655,12 +1663,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       // Insertion anchors can sit outside every segment (read tails past the
       // last aligned base) — and a wide slot block spans rows — so every row
-      // touched by the anchor's reserved cells still needs a lane.
-      for (const ins of al.insertions || []) {
-        if (!ins.bases) continue;
-        const w = insReserve.get(ins.pos) || 0;
-        const s0 = streamOf(ins.pos) - w;
-        for (let s = s0; s <= s0 + w; s++) rows.add(Math.floor(s / charsPerLine));
+      // touched by the anchor's reserved cells still needs a lane. Deduped by
+      // anchor, matching the display walk and the trace numbering.
+      for (const [pos, bases] of insertionBases(al)) {
+        const blk = insBlocks.get(pos);
+        if (!blk) continue;
+        const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
+        for (let k = 0; k < Math.min(blk.memberWidth, bases.length); k++) {
+          rows.add(Math.floor((cell0 + k) / charsPerLine));
+        }
+        // The anchor column's own read base can sit on a row of its own.
+        rows.add(rowOf(pos));
       }
       for (const r of rows) {
         if (r < 0 || r >= numRows) continue;
@@ -4509,12 +4522,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // Each base sits on a pink plate — the template row shows '-' there, so
       // the plate marks the read bases that have no template column.
       const insByRow = new Map();
-      for (const ins of al.insertions || []) {
-        if (!ins.bases) continue;
-        const blk = insBlocks.get(ins.pos);
+      for (const [pos, insBases] of insertionBases(al)) {
+        const blk = insBlocks.get(pos);
         if (!blk) continue;
         const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
-        for (let k = 0; k < Math.min(blk.memberWidth, ins.bases.length); k++) {
+        for (let k = 0; k < Math.min(blk.memberWidth, insBases.length); k++) {
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (row < vs || row > ve) continue;
@@ -4523,7 +4535,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const x = getX(si % visCpl);
           bucket.bg.push(
             <rect
-              key={`ins-bg-${ins.pos}-${k}`}
+              key={`ins-bg-${pos}-${k}`}
               x={x}
               y={laneY(row) - 11}
               width={cw}
@@ -4535,7 +4547,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           );
           bucket.bases.push(
             <tspan
-              key={`${ins.pos}-${k}`}
+              key={`${pos}-${k}`}
               className="ins-base"
               x={x + cw / 2}
               textAnchor="middle"
@@ -4543,7 +4555,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               fillOpacity={0.55}
               style={{ userSelect: 'none', pointerEvents: 'none' }}
             >
-              {ins.bases[k]}
+              {insBases[k]}
             </tspan>,
           );
         }
@@ -4632,12 +4644,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (const v of Object.values(rowLabels)) {
         rowRight[v.row] = colVis(v.colEnd, v.row) + 1;
       }
-      for (const ins of al.insertions || []) {
-        if (!ins.bases) continue;
-        const blk = insBlocks.get(ins.pos);
+      for (const [pos, insBases] of insertionBases(al)) {
+        const blk = insBlocks.get(pos);
         if (!blk) continue;
         const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
-        for (let k = 0; k < Math.min(blk.memberWidth, ins.bases.length); k++) {
+        for (let k = 0; k < Math.min(blk.memberWidth, insBases.length); k++) {
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (rowRight[row] === undefined) continue;

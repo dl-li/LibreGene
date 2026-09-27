@@ -63,6 +63,21 @@ const SEED_K: usize = 15;
 /// Seeds more frequent than this are treated as repetitive and ignored.
 const MAX_SEED_HITS: usize = 100;
 
+/// Append read bases to an alignment's insertion model, merging into an
+/// existing anchor at the same template column. Two entries at one column
+/// would render on top of each other and, worse, the display walk (and the
+/// chromatogram peak numbering that rides on it) keeps only one of them, so
+/// the later bases would vanish and every peak after them would shift.
+fn push_insertion(insertions: &mut Vec<AlignInsertion>, pos: usize, bases: String) {
+    if bases.is_empty() {
+        return;
+    }
+    match insertions.iter_mut().find(|i| i.pos == pos) {
+        Some(existing) => existing.bases.push_str(&bases),
+        None => insertions.push(AlignInsertion { pos, bases }),
+    }
+}
+
 fn matches_base(a: u8, b: u8) -> bool {
     a == b && matches!(a, b'A' | b'C' | b'G' | b'T')
 }
@@ -529,10 +544,7 @@ fn build_alignment(
         }
         let mapped = (t_start + consumed) % tlen;
         if !pending_ins.is_empty() {
-            insertions.push(AlignInsertion {
-                pos: mapped,
-                bases: std::mem::take(&mut pending_ins),
-            });
+            push_insertion(&mut insertions, mapped, std::mem::take(&mut pending_ins));
         }
         let split = segments
             .last()
@@ -654,10 +666,7 @@ fn merge_flank(primary: BuiltAln, hit: FlankHit) -> Alignment {
     let second = second.aln;
     merged.identity = matched as f64 / cols as f64;
     if !hit.junction.is_empty() {
-        merged.insertions.push(AlignInsertion {
-            pos: hit.junction_pos,
-            bases: hit.junction,
-        });
+        push_insertion(&mut merged.insertions, hit.junction_pos, hit.junction);
     }
     merged.segments.extend(second.segments);
     merged.insertions.extend(second.insertions);
@@ -1023,10 +1032,7 @@ fn blast_align_read(template: &str, read: &str, circular: bool) -> Result<Alignm
     ) {
         let mapped = (ref_position as usize - 1) % tlen;
         if !pending_ins.is_empty() {
-            insertions.push(AlignInsertion {
-                pos: mapped,
-                bases: std::mem::take(pending_ins),
-            });
+            push_insertion(insertions, mapped, std::mem::take(pending_ins));
         }
         // New segment on a circular wrap (mapped <= last end) or on a
         // forward template gap between two colinear hits (last end + 1 <
@@ -1122,10 +1128,7 @@ fn blast_align_read(template: &str, read: &str, circular: bool) -> Result<Alignm
                 // or the origin (circular) — no following column to anchor on.
                 let collides = pos == 0 || segments.iter().any(|s| pos >= s.start && pos <= s.end);
                 if !collides {
-                    insertions.push(AlignInsertion {
-                        pos,
-                        bases: tail.to_string(),
-                    });
+                    push_insertion(&mut insertions, pos, tail.to_string());
                 }
             }
         }
