@@ -59,33 +59,61 @@ describe('buildColumnAnchors', () => {
     ]);
   });
 
-  it('breaks the trace only where a gap opens between the read\'s own cells', () => {
+  it('flags a display discontinuity before the base after a read deletion', () => {
+    // Column 11 is a deletion in the read: the display shows a dash there, so
+    // the trace must break before column 12 — and only there.
+    const aln = { segments: [{ start: 10, end: 14, chars: 'AC-TA' }], insertions: [] };
+    expect(buildColumnAnchors(aln).map((e) => [e.col, e.brk])).toEqual([
+      [10, false],
+      [11, false],
+      [13, true],
+      [14, false],
+    ]);
+  });
+
+  it('does not break for insertions, and breaks across a segment jump', () => {
+    const aln = {
+      segments: [
+        { start: 10, end: 11, chars: 'AC' },
+        { start: 40, end: 41, chars: 'GT' },
+      ],
+      insertions: [{ pos: 12, bases: 'GG' }],
+    };
+    expect(buildColumnAnchors(aln).map((e) => [e.col, e.ins, e.brk])).toEqual([
+      [10, false, false],
+      [11, false, false],
+      [12, true, false],
+      [12, true, false],
+      [40, false, true],
+      [41, false, false],
+    ]);
+  });
+
+  it('breaks the trace exactly where the anchors flag it, in read order', () => {
     const chrom = {
-      traceA: [0, 10, 0, 10, 0, 10],
-      traceC: [0, 0, 0, 0, 0, 0],
-      traceG: [0, 0, 0, 0, 0, 0],
-      traceT: [0, 0, 0, 0, 0, 0],
-      peakLocations: [0, 2, 4],
+      traceA: [0, 1, 2, 3, 4, 5, 6, 7],
+      traceC: [0, 0, 0, 0, 0, 0, 0, 0],
+      traceG: [0, 0, 0, 0, 0, 0, 0, 0],
+      traceT: [0, 0, 0, 0, 0, 0, 0, 0],
+      peakLocations: [0, 1, 2, 3, 4, 5, 6, 7],
     };
     const subpaths = (anchors) =>
       (buildTracePath(chrom, 'traceA', anchors, 10, 1).match(/M/g) || []).length;
-    // Adjacent cells stay one subpath — including a merged block, where the
-    // read's own cells are adjacent even though its samples jump around.
+    // One continuous run — including a minus-strand stretch, which runs right
+    // to left in read order (x decreasing base by base).
     expect(
       subpaths([
-        { x: 0, q: 0 },
-        { x: 12, q: 1 },
-        { x: 24, q: 8 },
-        { x: 36, q: 9 },
+        { x: 60, q: 0 },
+        { x: 48, q: 1 },
+        { x: 36, q: 2 },
       ]),
     ).toBe(1);
-    // An empty cell in between (a deletion, or padding reserved for another
-    // read) breaks the curve where the lane shows no base.
+    // A flagged deletion starts a new subpath.
     expect(
       subpaths([
         { x: 0, q: 0 },
         { x: 12, q: 1 },
-        { x: 36, q: 2 },
+        { x: 60, q: 2, brk: true },
       ]),
     ).toBe(2);
   });

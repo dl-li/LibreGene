@@ -4856,14 +4856,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
         if (!byRow.has(row)) byRow.set(row, []);
-        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q });
+        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q, brk: e.brk });
       }
-      for (const [row, rowAnchors] of byRow) {
-        // x order: the trace is a signal over the displayed columns, so it
-        // follows the cells left to right. A merged block pulls a read's
-        // inserted bases left of the matched columns between them; drawing in
-        // x order keeps the curve continuous with every peak on its own base.
-        const anchors = [...rowAnchors].sort((a, b) => a.x - b.x);
+      for (const [row, anchors] of byRow) {
+        // Read order, not x order: the trace follows the read's own bases (its
+        // peaks) and a minus-strand read runs right to left on screen, so
+        // sorting by x would reverse it. `brk` breaks the curve where the
+        // lane shows no base (deletion / segment jump / origin wrap).
         const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
         const y =
           getSeqY(row) +

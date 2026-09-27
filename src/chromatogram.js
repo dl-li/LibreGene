@@ -52,16 +52,15 @@ export function traceRangeMax(chrom, from, to) {
   return max;
 }
 
-// Build an SVG polyline path for one channel over the anchors [{ x, q }]
-// (pixel x, base query index, ascending in x). Trace samples are linearly
-// interpolated between consecutive peak positions so each base's peak lands
-// on its own pixel column. The polyline breaks exactly where the read lane
-// shows no base for a stretch: consecutive anchors further apart than
-// `maxAnchorGap` px (a deletion, a segment jump / origin wrap, or the padding
-// a merged block leaves for another read's longer insertion). Inside a merged
-// block the read's own cells are adjacent, so the curve stays continuous and
-// every peak sits on its base.
-export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnchorGap = 18) {
+// Build an SVG polyline path for one channel over the anchors [{ x, q, brk }]
+// in **read order** (the order the bases appear in the read, which is the
+// order of the peaks — a minus-strand read runs right to left on screen, so
+// sorting by x would reverse its trace). Each base's peak is emitted at its
+// own cell, so every peak sits on its base, and the polyline breaks exactly
+// where the read lane shows no base: `brk` marks an anchor whose template
+// column does not follow the previous hit (a read deletion, a segment jump or
+// an origin wrap) — i.e. where the lane shows dashes.
+export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY) {
   const trace = chrom[channelKey];
   const peaks = chrom.peakLocations;
   if (!trace.length || anchors.length === 0) return '';
@@ -86,7 +85,7 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnc
       continue;
     }
     const prev = anchors[i - 1];
-    if (a.x - prev.x > maxAnchorGap) {
+    if (a.brk) {
       open = false;
       emitPoint(a.x, peakA); // start a new subpath at this base's peak
       continue;
@@ -109,35 +108,43 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnc
 }
 
 // Walk an alignment's segments in join order producing one ordered entry per
-// chromatogram anchor: { col, q, ins, k } where `col` is the template column
-// the anchor hangs on, `q` the read index, `ins` marks insertion bases (extra
-// read bases before their template column — they consume q but have no
-// template column of their own) and `k` is the base's index within its
-// insertion run. Insertions anchored at a column the walk never visits
-// (junctions, read tails) are spliced in before the first walked column past
-// their anchor; q is assigned sequentially in the final order, so every read
-// base appears exactly once and q order always matches read order. Mirrors
-// GenePad's gapSegments design.
+// chromatogram anchor: { col, q, ins, k, brk } where `col` is the template
+// column the anchor hangs on, `q` the read index, `ins` marks insertion bases
+// (extra read bases before their template column — they consume q but have no
+// template column of their own), `k` is the base's index within its insertion
+// run, and `brk` marks a display discontinuity before this anchor: the aligned
+// template column is not the one right after the previous hit, so the read
+// lane shows dashes there (deletion / segment jump / origin wrap). Insertions
+// anchored at a column the walk never visits (junctions, read tails) are
+// spliced in before the first walked column past their anchor; q is assigned
+// sequentially in the final order, so every read base appears exactly once
+// and q order always matches read order. Mirrors GenePad's gapSegments design.
 export function buildColumnAnchors(alignment) {
   const insByPos = new Map((alignment.insertions || []).map((ins) => [ins.pos, ins.bases]));
   const walked = new Set();
   const ordered = [];
   const text = [];
+  let prevCol = null;
+  let brk = false;
   for (const seg of alignment.segments || []) {
     const chars = seg.chars || '';
     for (let i = 0; i < chars.length; i++) {
       const pos = seg.start + i;
+      if (prevCol !== null && pos !== prevCol + 1) brk = true;
       const ins = insByPos.get(pos);
       if (ins) {
         walked.add(pos);
         for (let k = 0; k < ins.length; k++) {
-          ordered.push({ col: pos, ins: true, k });
+          ordered.push({ col: pos, ins: true, k, brk: brk && k === 0 });
           text.push(ins[k]);
         }
+        brk = false;
       }
       if (chars[i] !== '-') {
-        ordered.push({ col: pos, ins: false, k: 0 });
+        ordered.push({ col: pos, ins: false, k: 0, brk });
         text.push(chars[i]);
+        brk = false;
+        prevCol = pos;
       }
     }
   }
@@ -146,7 +153,7 @@ export function buildColumnAnchors(alignment) {
     let idx = ordered.findIndex((e) => e.col > pos);
     if (idx < 0) idx = ordered.length;
     for (let k = 0; k < ins.length; k++) {
-      ordered.splice(idx + k, 0, { col: pos, ins: true, k });
+      ordered.splice(idx + k, 0, { col: pos, ins: true, k, brk: false });
       text.splice(idx + k, 0, ins[k]);
     }
   }
