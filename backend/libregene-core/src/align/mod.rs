@@ -863,6 +863,7 @@ fn deletion_at(tbytes: &[u8], start: usize, end: usize) -> AlignDeletion {
 /// aligned too and the better orientation wins.
 pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
     let mut aln = align_read_checked_raw(template, read, circular)?;
+    left_align_indels(&mut aln, &template.to_ascii_uppercase(), template.len());
     anchor_loose_ends(&mut aln, template.len());
     Ok(aln)
 }
@@ -961,6 +962,87 @@ pub fn align_read_checked_with(
     }
 }
 
+/// Slide every indel run to its 5'-most equivalent position. A gap can sit
+/// anywhere inside a repeat or homopolymer without changing the alignment
+/// score, and the DP's tie-breaking picks one of those positions arbitrarily —
+/// which is how two stretches that match each other end up drawn a few bases
+/// out of step. Sliding each run upstream while the swap stays score-neutral
+/// (the base before the run equals the run's last base) is the standard
+/// canonicalisation: it never changes the read's base order.
+fn left_align_indels(aln: &mut Alignment, template: &str, tlen: usize) {
+    let t = template.as_bytes();
+    if tlen == 0 {
+        return;
+    }
+    // Insertions: the run sits before template column `pos`; shift it upstream
+    // while the template base there equals the run's last base.
+    for ins in aln.insertions.iter_mut() {
+        if ins.bases.is_empty() {
+            continue;
+        }
+        let mut pos = ins.pos % tlen;
+        let mut bases: Vec<u8> = ins.bases.bytes().collect();
+        let mut shifts = 0usize;
+        while shifts < tlen {
+            let prev = (pos + tlen - 1) % tlen;
+            if t.get(prev) != bases.last() {
+                break;
+            }
+            let last = bases.pop().unwrap();
+            bases.insert(0, last);
+            pos = prev;
+            shifts += 1;
+        }
+        ins.pos = pos;
+        ins.bases = String::from_utf8_lossy(&bases).into_owned();
+    }
+    // Deletions: a '-' run covers template columns; shift it upstream while
+    // the base before the run equals the run's last base (a rotation of the
+    // template letters the run spans, so the read's bases are untouched).
+    for seg in aln.segments.iter_mut() {
+        let chars: Vec<u8> = seg.chars.bytes().collect();
+        if chars.is_empty() {
+            continue;
+        }
+        let mut out = chars.clone();
+        let mut i = 0usize;
+        while i < out.len() {
+            if out[i] != b'-' {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < out.len() && out[i] == b'-' {
+                i += 1;
+            }
+            let end = i; // exclusive
+            let mut vs = start;
+            let mut ve = end;
+            let mut guard = 0usize;
+            while vs > 0 && guard < tlen {
+                let before = (seg.start + vs - 1) % tlen;
+                let last = (seg.start + ve - 1) % tlen;
+                if t.get(before) != t.get(last) {
+                    break;
+                }
+                vs -= 1;
+                ve -= 1;
+                guard += 1;
+            }
+            if vs != start {
+                let moved = out[start..end].to_vec();
+                for k in vs..start {
+                    out[k + (end - start)] = out[k];
+                }
+                for (k, b) in moved.iter().enumerate() {
+                    out[vs + k] = *b;
+                }
+            }
+        }
+        seg.chars = String::from_utf8_lossy(&out).into_owned();
+    }
+}
+
 /// The read bases the display walk emits, in walk order: per segment column,
 /// insertions anchored there first, then the char unless it is a read gap,
 /// then any insertions the walk never reached. Mirrors the frontend's
@@ -1040,6 +1122,7 @@ pub fn align_read_with(
 /// strand becomes the multi-segment [`Alignment`].
 fn blast_align_read(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
     let mut aln = blast_align_read_raw(template, read, circular)?;
+    left_align_indels(&mut aln, &template.to_ascii_uppercase(), template.len());
     anchor_loose_ends(&mut aln, template.len());
     Ok(aln)
 }
@@ -1736,6 +1819,85 @@ mod tests {
         assert_eq!(walked_read(&aln), aln.seq);
         let inserted: usize = aln.insertions.iter().map(|i| i.bases.len()).sum();
         assert!(inserted >= 150, "inserted {inserted}: {:?}", aln.insertions);
+    }
+
+    #[test]
+    fn test_indels_are_left_aligned_in_repeats() {
+        let mut t = make_template_smx(3_000, 91);
+        // A clean homopolymer run; keep its flanks from being A so the run is
+        // the only ambiguous window.
+        t.replace_range(1000..1006, "AAAAAA");
+        for i in [999, 1006] {
+            if t.as_bytes()[i] == b'A' {
+                t.replace_range(i..i + 1, "C");
+            }
+        }
+        // One extra A beside the run: the gap can sit anywhere inside it.
+        let read = format!("{}A{}", &t[900..1000], &t[1000..1200]);
+        for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
+            let aln = align_read_checked_with(&t, &read, false, algo).unwrap();
+            assert_eq!(walked_read(&aln), aln.seq, "[{}]", algo.as_str());
+            let anchors: Vec<usize> = aln.insertions.iter().map(|i| i.pos).collect();
+            assert!(
+                !anchors.is_empty(),
+                "[{}] expected the extra base as an insertion: {:?}",
+                algo.as_str(),
+                aln.insertions
+            );
+            // Canonical (leftmost equivalent) placement: the run's left edge,
+            // so the unique stretch right of it stays aligned 1:1.
+            assert!(
+                anchors.iter().all(|p| *p == 1000),
+                "[{}] anchors {:?}",
+                algo.as_str(),
+                anchors
+            );
+        }
+    }
+
+    #[test]
+    fn test_left_align_moves_the_gap_without_changing_the_score() {
+        let mut t = make_template_smx(3_000, 91);
+        let run = "ACGT".repeat(6);
+        t.replace_range(1000..1000 + run.len(), &run);
+        // An extra repeat unit inside/next to the run: the gap is equivalent
+        // anywhere in the ambiguity window.
+        let read = format!("{}{}{}", &t[900..1012], "ACGT", &t[1012..1200]);
+
+        for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
+            let raw = match algo {
+                AlignAlgorithm::BlastN => blast_align_read_raw(&t, &read, false),
+                AlignAlgorithm::SmithWaterman => align_read_checked_raw(&t, &read, false),
+            }
+            .unwrap();
+            let mut norm = raw.clone();
+            left_align_indels(&mut norm, &t, t.len());
+
+            let diff_raw = alignment_diff(&raw, &t);
+            let diff_norm = alignment_diff(&norm, &t);
+            // Score-neutral: same mismatch count and same inserted bases.
+            assert_eq!(
+                diff_raw.mismatches.len(),
+                diff_norm.mismatches.len(),
+                "[{}] mismatches changed",
+                algo.as_str()
+            );
+            let ins_len = |a: &Alignment| a.insertions.iter().map(|i| i.bases.len()).sum::<usize>();
+            assert_eq!(ins_len(&raw), ins_len(&norm), "[{}] inserted bases changed", algo.as_str());
+            // The walk still rebuilds the read, in order.
+            assert_eq!(walked_read(&norm), norm.seq, "[{}]", algo.as_str());
+            // And no insertion can slide any further upstream.
+            for ins in &norm.insertions {
+                let prev = (ins.pos + t.len() - 1) % t.len();
+                assert_ne!(
+                    t.as_bytes()[prev],
+                    *ins.bases.as_bytes().last().unwrap(),
+                    "[{}] anchor {} is still slidable",
+                    algo.as_str(),
+                    ins.pos
+                );
+            }
+        }
     }
 
     #[test]
