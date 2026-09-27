@@ -4949,7 +4949,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               // 5' tail
               if (isTail && hasMis && drawMisLen > 0) {
                 if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-                else pts.push([getX(seg.colEnd + drawMisLen + 1), misY], [x2 + cw * 1.5, misY]);
+                else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw * 1.5, misY]);
               }
               pts.push([edge5x, cols[0].kind === 'match' ? matchY : misY]);
               for (const rc of cols) {
@@ -4962,7 +4962,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               // Fallback: straight line
               if (isTail && hasMis && drawMisLen > 0) {
                 if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-                else pts.push([getX(seg.colEnd + drawMisLen + 1), misY], [x2 + cw * 1.5, misY]);
+                else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw * 1.5, misY]);
               }
               if (isFwd) pts.push([x1 + cw / 2, matchY], [x2 + cw, matchY]);
               else pts.push([x2 + cw, matchY], [x1, matchY]);
@@ -5043,8 +5043,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                         <tspan
                           x={
                             isFwd
-                              ? getX(seg.colStart - drawMisLen - 1.5)
-                              : getX(seg.colEnd + drawMisLen + 2.5)
+                              ? x1 - (drawMisLen + 1.5) * cw
+                              : x2 + (drawMisLen + 2.5) * cw
                           }
                           y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
                           textAnchor="middle"
@@ -5056,9 +5056,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                         <tspan
                           key={`mis-${k}`}
                           x={
-                            (isFwd
-                              ? getX(seg.colStart - drawMisLen + k)
-                              : getX(seg.colEnd + drawMisLen - k)) +
+                            (isFwd ? x1 - (drawMisLen - k) * cw : x2 + (drawMisLen - k) * cw) +
                             cw / 2
                           }
                           y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
@@ -5102,10 +5100,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       return tail3.split('').map((c, k) => (
                         <tspan
                           key={`3t-${k}`}
-                          x={
-                            (isFwd ? getX(seg.colEnd + k + 1) : getX(seg.colStart - tailLen + k)) +
-                            cw / 2
-                          }
+                          x={(isFwd ? x2 + (k + 1) * cw : x1 - (tailLen - k) * cw) + cw / 2}
                           y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
                           textAnchor="middle"
                         >
