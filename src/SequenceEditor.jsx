@@ -4176,7 +4176,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
           fontWeight: '600',
         };
         if (isRev) {
-          const xr = getX(colVis(vs.colEnd + 1, vs.row));
+          // colEnd + 1 can fall on the next row's first column, whose drift
+          // counts slots that render in that row — clamp to this row's edge.
+          const xr =
+            vs.colEnd + 1 < gridCpl
+              ? getX(colVis(vs.colEnd + 1, vs.row))
+              : getX(colVis(gridCpl - 1, vs.row)) + cw;
           const lx = featureLabelsBelow ? xr : xr + 8;
           const lAnchor = featureLabelsBelow ? 'end' : 'start';
           return (
