@@ -3,10 +3,13 @@
 //! SW returns one primary block (plus at most one flank), while blastn
 //! chains any number of colinear HSPs and handles multi-hit reads.
 //!
-//! SW scoring: match +2, mismatch −1, linear gap −2. Non-ACGT bases never
-//! match. Circular templates are aligned as template concatenated with
-//! itself, then coordinates are mapped back via `% tlen` and the aligned
-//! range is split into non-wrapping segments at the origin.
+//! SW scoring: match +2, mismatch −1, affine gaps (Gotoh): open −5, extend
+//! −1. An extra gap run costs more than the +3 swing of one spurious match,
+//! so inserted sequence consolidates into a single block instead of
+//! fragmenting around chance matches. Non-ACGT bases never match. Circular
+//! templates are aligned as template concatenated with itself, then
+//! coordinates are mapped back via `% tlen` and the aligned range is split
+//! into non-wrapping segments at the origin.
 
 pub mod blastn;
 
@@ -17,7 +20,9 @@ use crate::models::{
 
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -1;
-const GAP: i32 = -2;
+const GAP_OPEN: i32 = -5;
+const GAP_EXT: i32 = -1;
+const NEG_INF: i32 = i32::MIN / 2;
 
 /// Minimum identity (fraction) for an alignment to be kept.
 pub const MIN_IDENTITY: f64 = 0.6;
@@ -102,38 +107,52 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
         return None;
     }
 
-    // H[i][j]: best local score ending with read prefix i / template prefix j.
-    // trace: 0 = stop, 1 = diag, 2 = up (read char vs template gap), 3 = left (template char vs read gap).
+    // Gotoh affine-gap local alignment. h floors at 0 (local); ix = gap in
+    // template (consumes a read base), iy = gap in read (consumes a template
+    // base). Per-cell trace byte packs the winning h source (bits 0-1:
+    // 0 = stop, 1 = diag, 2 = ix, 3 = iy) plus how each gap state was
+    // reached (bit 2: ix extended, bit 3: iy extended) so the traceback can
+    // follow a gap run without keeping the gap matrices around.
     let width = n + 1;
     let mut trace = vec![0u8; width * (m + 1)];
     let mut prev = vec![0i32; width];
     let mut cur = vec![0i32; width];
+    let mut prev_ix = vec![0i32; width];
+    let mut cur_ix = vec![0i32; width];
     let mut best = 0i32;
     let (mut bi, mut bj) = (0usize, 0usize);
 
     for i in 1..=m {
         cur[0] = 0;
+        cur_ix[0] = 0;
+        let mut iy = NEG_INF;
         for j in 1..=n {
             let s = if matches_base(r[i - 1], t[j - 1]) { MATCH } else { MISMATCH };
             let diag = prev[j - 1] + s;
-            let up = prev[j] + GAP;
-            let left = cur[j - 1] + GAP;
+            let ix_open = prev[j] + GAP_OPEN + GAP_EXT;
+            let ix_ext = prev_ix[j] + GAP_EXT;
+            let ix = ix_open.max(ix_ext);
+            let iy_open = cur[j - 1] + GAP_OPEN + GAP_EXT;
+            let iy_ext = iy + GAP_EXT;
+            iy = iy_open.max(iy_ext);
             let mut v = 0i32;
             let mut dir = 0u8;
             if diag > v {
                 v = diag;
                 dir = 1;
             }
-            if up > v {
-                v = up;
+            if ix > v {
+                v = ix;
                 dir = 2;
             }
-            if left > v {
-                v = left;
+            if iy > v {
+                v = iy;
                 dir = 3;
             }
             cur[j] = v;
-            trace[i * width + j] = dir;
+            cur_ix[j] = ix;
+            trace[i * width + j] =
+                dir | if ix_ext >= ix_open { 0b100 } else { 0 } | if iy_ext >= iy_open { 0b1000 } else { 0 };
             if v > best {
                 best = v;
                 bi = i;
@@ -141,6 +160,7 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
             }
         }
         std::mem::swap(&mut prev, &mut cur);
+        std::mem::swap(&mut prev_ix, &mut cur_ix);
     }
 
     if best <= 0 {
@@ -150,8 +170,11 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
     let mut t_aln = Vec::new();
     let mut r_aln = Vec::new();
     let (mut i, mut j) = (bi, bj);
-    while i > 0 && j > 0 {
-        match trace[i * width + j] {
+    let mut state = trace[i * width + j] & 0b11;
+    while i > 0 && j > 0 && state != 0 {
+        let code = trace[i * width + j];
+        let from = state;
+        match from {
             1 => {
                 t_aln.push(t[j - 1]);
                 r_aln.push(r[i - 1]);
@@ -170,6 +193,11 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
             }
             _ => break,
         }
+        state = match from {
+            2 if code & 0b100 != 0 => 2,
+            3 if code & 0b1000 != 0 => 3,
+            _ => trace[i * width + j] & 0b11,
+        };
     }
     t_aln.reverse();
     r_aln.reverse();
@@ -212,9 +240,12 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
     // prev/cur are indexed by absolute template column; only the band
     // window [lo, hi] is written per row and the left fringe is zeroed, so
     // out-of-band reads always see 0 (the window shifts right by ≤ 1/row).
+    // Same packed-trace Gotoh scheme as `smith_waterman`.
     let mut trace = vec![0u8; width * (m + 1)];
     let mut prev = vec![0i32; n + 1];
     let mut cur = vec![0i32; n + 1];
+    let mut prev_ix = vec![0i32; n + 1];
+    let mut cur_ix = vec![0i32; n + 1];
     let mut best = 0i32;
     let (mut bi, mut bj) = (0usize, 0usize);
     let mut edge = false;
@@ -226,27 +257,35 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
             continue;
         }
         cur[lo - 1] = 0;
+        cur_ix[lo - 1] = 0;
+        let mut iy = NEG_INF;
         for j in lo..=hi {
             let s = if matches_base(r[i - 1], t[j - 1]) { MATCH } else { MISMATCH };
             let diag_s = prev[j - 1] + s;
-            let up = prev[j] + GAP;
-            let left = cur[j - 1] + GAP;
+            let ix_open = prev[j] + GAP_OPEN + GAP_EXT;
+            let ix_ext = prev_ix[j] + GAP_EXT;
+            let ix = ix_open.max(ix_ext);
+            let iy_open = cur[j - 1] + GAP_OPEN + GAP_EXT;
+            let iy_ext = iy + GAP_EXT;
+            iy = iy_open.max(iy_ext);
             let mut v = 0i32;
             let mut dir = 0u8;
             if diag_s > v {
                 v = diag_s;
                 dir = 1;
             }
-            if up > v {
-                v = up;
+            if ix > v {
+                v = ix;
                 dir = 2;
             }
-            if left > v {
-                v = left;
+            if iy > v {
+                v = iy;
                 dir = 3;
             }
             cur[j] = v;
-            trace[i * width + (j - lo)] = dir;
+            cur_ix[j] = ix;
+            trace[i * width + (j - lo)] =
+                dir | if ix_ext >= ix_open { 0b100 } else { 0 } | if iy_ext >= iy_open { 0b1000 } else { 0 };
             if v > best {
                 best = v;
                 bi = i;
@@ -254,6 +293,7 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
             }
         }
         std::mem::swap(&mut prev, &mut cur);
+        std::mem::swap(&mut prev_ix, &mut cur_ix);
     }
 
     if best <= 0 {
@@ -263,7 +303,16 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
     let mut t_aln = Vec::new();
     let mut r_aln = Vec::new();
     let (mut i, mut j) = (bi, bj);
-    while i > 0 && j > 0 {
+    let mut state = {
+        let lo = lo_of(i);
+        let c = j.wrapping_sub(lo);
+        if c >= width {
+            0
+        } else {
+            trace[i * width + c] & 0b11
+        }
+    };
+    while i > 0 && j > 0 && state != 0 {
         let lo = lo_of(i);
         let c = j.wrapping_sub(lo);
         if c >= width {
@@ -273,7 +322,9 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
         if c == 0 || c == width - 1 {
             edge = true;
         }
-        match trace[i * width + c] {
+        let code = trace[i * width + c];
+        let from = state;
+        match from {
             1 => {
                 t_aln.push(t[j - 1]);
                 r_aln.push(r[i - 1]);
@@ -292,6 +343,19 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
             }
             _ => break,
         }
+        state = match from {
+            2 if code & 0b100 != 0 => 2,
+            3 if code & 0b1000 != 0 => 3,
+            _ => {
+                let lo = lo_of(i);
+                let c = j.wrapping_sub(lo);
+                if i == 0 || j == 0 || c >= width {
+                    0
+                } else {
+                    trace[i * width + c] & 0b11
+                }
+            }
+        };
     }
     // Best cell sitting on the band boundary is also untrusted.
     if (bj as i64 - (diag + bi as i64)).unsigned_abs() as usize >= band {
@@ -1216,6 +1280,33 @@ mod tests {
         assert_eq!(aln.insertions[0].pos, 100);
         assert_eq!(aln.insertions[0].bases, "GGGGG");
         assert!(aln.identity >= 0.6);
+    }
+
+    /// A long pure insertion must surface as ONE insertion block: with the
+    /// old linear gap penalty the aligner anchored scattered chance matches
+    /// inside the inserted chunk and shattered it into many 1-10 bp runs.
+    #[test]
+    fn test_long_insertion_consolidates() {
+        let t = make_template_smx(3000, 99);
+        let insert = make_template_smx(55, 12345);
+        let read = format!("{}{}{}", &t[500..1000], insert, &t[1000..2500]);
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.segments.len(), 1);
+        assert_eq!(aln.insertions.len(), 1, "{:?}", aln.insertions);
+        assert_eq!(aln.insertions[0].bases.len(), insert.len());
+        assert!(aln.insertions[0].pos.abs_diff(1000) <= 2);
+    }
+
+    /// Seeded path (matrix above FULL_SW_CELL_CAP): same consolidation.
+    #[test]
+    fn test_long_insertion_consolidates_seeded() {
+        let t = make_template_smx(9000, 7);
+        let insert = make_template_smx(120, 999);
+        let read = format!("{}{}{}", &t[2000..4000], insert, &t[4000..7000]);
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(aln.insertions.len(), 1, "{:?}", aln.insertions);
+        assert_eq!(aln.insertions[0].bases.len(), insert.len());
+        assert!(aln.insertions[0].pos.abs_diff(4000) <= 2);
     }
 
     #[test]
