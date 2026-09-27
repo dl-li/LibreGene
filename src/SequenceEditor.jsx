@@ -1489,7 +1489,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   );
 
   // Horizontal scrollbar bar (visible when the insertion slots widen the
-  // rows): mirrors the editor container's horizontal scroll position.
+  // rows): mirrors the editor container's horizontal scroll position. The
+  // bar and the content have different scroll ranges, so sync by ratio —
+  // 1:1 pixel sync leaves dead travel that snaps the thumb back.
   const hBarRef = useRef(null);
   const syncBarScroll = useCallback((from) => {
     const bar = hBarRef.current;
@@ -1497,7 +1499,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (!bar || !root) return;
     const a = from === 'bar' ? bar : root;
     const b = from === 'bar' ? root : bar;
-    if (Math.abs(a.scrollLeft - b.scrollLeft) > 1) b.scrollLeft = a.scrollLeft;
+    const aMax = a.scrollWidth - a.clientWidth;
+    const bMax = b.scrollWidth - b.clientWidth;
+    if (aMax <= 0 || bMax <= 0) return;
+    const target = (a.scrollLeft / aMax) * bMax;
+    if (Math.abs(target - b.scrollLeft) > 1) b.scrollLeft = target;
   }, []);
 
   // Split the template range [c0, c1] (row-local, inclusive) into visual
