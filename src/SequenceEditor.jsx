@@ -233,6 +233,11 @@ function alignmentGapSegments(al, tlen) {
  *  alignment is untouched, and the read lanes keep their own bases. */
 export const INSERT_MERGE_GAP = 5;
 
+/** Highlight plate behind a read base that needs attention: a mismatch, a
+ *  read gap, or a base sitting in an insertion cell (its template row shows
+ *  '-'). One colour for all three. */
+const BASE_HILITE_BG = '#fecaca';
+
 /** Per-anchor insertion width: the longest insertion anchored there across
  *  all alignments (GenePad's merged gap columns). */
 function perAnchorInsertWidths(alns, tlen) {
@@ -4464,7 +4469,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   y={y - 11}
                   width={cw}
                   height={14}
-                  fill="#fecaca"
+                  fill={BASE_HILITE_BG}
                   fillOpacity={0.6}
                   style={{ pointerEvents: 'none' }}
                 />
@@ -4501,6 +4506,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // width w anchored at `a` occupies stream [S(a)-w, S(a)-1] left of the
       // anchor column, and each insertion renders in its own sub-slot at
       // `offset`. A wide block spans rows, so every base lands on its own row.
+      // Each base sits on a pink plate — the template row shows '-' there, so
+      // the plate marks the read bases that have no template column.
       const insByRow = new Map();
       for (const ins of al.insertions || []) {
         if (!ins.bases) continue;
@@ -4511,12 +4518,26 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (row < vs || row > ve) continue;
-          if (!insByRow.has(row)) insByRow.set(row, []);
-          insByRow.get(row).push(
+          if (!insByRow.has(row)) insByRow.set(row, { bg: [], bases: [] });
+          const bucket = insByRow.get(row);
+          const x = getX(si % visCpl);
+          bucket.bg.push(
+            <rect
+              key={`ins-bg-${ins.pos}-${k}`}
+              x={x}
+              y={laneY(row) - 11}
+              width={cw}
+              height={14}
+              fill={BASE_HILITE_BG}
+              fillOpacity={0.6}
+              style={{ pointerEvents: 'none' }}
+            />,
+          );
+          bucket.bases.push(
             <tspan
               key={`${ins.pos}-${k}`}
               className="ins-base"
-              x={getX(si % visCpl) + cw / 2}
+              x={x + cw / 2}
               textAnchor="middle"
               fill="#1f2937"
               fillOpacity={0.55}
@@ -4527,9 +4548,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           );
         }
       }
-      for (const [row, els] of insByRow) {
+      for (const [row, { bg, bases }] of insByRow) {
         rows.push(
           <g key={`ins-${row}`}>
+            {bg}
             <text
               y={laneY(row)}
               fontFamily="Cascadia Code"
@@ -4538,7 +4560,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               fontWeight="350"
               style={{ userSelect: 'none' }}
             >
-              {els}
+              {bases}
             </text>
           </g>,
         );

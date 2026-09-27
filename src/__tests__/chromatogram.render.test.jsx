@@ -192,6 +192,19 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     const bases = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map((m) => m[1]);
     expect(bases.length).toBe(10);
     expect(bases.join('')).toBe('GG'.repeat(5));
+    // Every inserted base sits on a highlight plate (the same background the
+    // mismatch/gap columns use) occupying its own cell, so the plates line up
+    // with the template row's dashes.
+    const plates = [...html.matchAll(/<rect[^>]*#fecaca[^>]*>/g)].map((m) =>
+      Number(m[0].match(/ x="(-?\d+(?:\.\d+)?)"/)[1]),
+    );
+    expect(plates.length).toBe(10);
+    expect(plates).toEqual([...plates].sort((a, b) => a - b));
+    for (let i = 1; i < plates.length; i++) {
+      expect(plates[i] - plates[i - 1]).toBe(12);
+    }
+    // dashes are text-anchored mid-cell (× center), plates span the cell.
+    expect(dashes[0]).toBe(plates[0] + 6);
   });
 
   it('wraps a wide insertion block without overflowing the SVG width', () => {
