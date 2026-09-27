@@ -90,6 +90,45 @@ describe('buildColumnAnchors', () => {
     ).toBe(2);
   });
 
+  it('numbers bases by their index in the read, not by walk order', () => {
+    // A model saved before the aligner anchored its ends: the walk only
+    // covers seq[3..], so numbering has to start there — the chromatogram
+    // peaks are indexed by the read's own base number.
+    const aln = {
+      seq: 'TTTACGTAC',
+      segments: [{ start: 10, end: 15, chars: 'ACGTAC' }],
+      insertions: [],
+    };
+    expect(buildColumnAnchors(aln).map((e) => e.q)).toEqual([3, 4, 5, 6, 7, 8]);
+  });
+
+  it('draws a plain line between non-adjacent bases', () => {
+    const chrom = {
+      traceA: [0, 1, 2, 3, 4, 5, 6, 7],
+      traceC: [0, 0, 0, 0, 0, 0, 0, 0],
+      traceG: [0, 0, 0, 0, 0, 0, 0, 0],
+      traceT: [0, 0, 0, 0, 0, 0, 0, 0],
+      peakLocations: [0, 1, 2, 3, 4, 5, 6, 7],
+    };
+    const points = (anchors) =>
+      (buildTracePath(chrom, 'traceA', anchors, 10, 1).match(/[ML]/g) || []).length;
+    // Samples 0 and 4 are not neighbours (a merged block put them side by
+    // side): one straight segment, no interpolated samples in between.
+    expect(
+      points([
+        { x: 0, q: 0 },
+        { x: 12, q: 4 },
+      ]),
+    ).toBe(2);
+    // Consecutive bases keep their interpolation.
+    expect(
+      points([
+        { x: 0, q: 0 },
+        { x: 12, q: 1 },
+      ]),
+    ).toBeGreaterThan(2);
+  });
+
   it('keeps every read base accounted across split segments (no holes)', () => {
     // 3 read bases leading junk, two segments with a junction insertion of
     // 2 bases, 2 trailing bases. Total read bases = 5 hit + 3 + 2 + 2 = 12.

@@ -92,7 +92,13 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnc
       continue;
     }
     const peakPrev = peaks[prev.q] ?? 0;
-    const steps = Math.max(1, Math.round(a.x - prev.x));
+    // Interpolate the samples strictly between two *consecutive* bases. A
+    // merged insertion block can put non-adjacent samples side by side; for
+    // those, a plain line keeps every peak on its own base instead of
+    // redrawing the samples in between (which have cells of their own further
+    // along the row).
+    const adjacent = a.q - prev.q === 1 || a.q - prev.q === -1;
+    const steps = adjacent ? Math.max(1, Math.round(a.x - prev.x)) : 1;
     for (let s = 1; s <= steps; s++) {
       const x = prev.x + ((a.x - prev.x) * s) / steps;
       const sampleIdx = peakPrev + ((peakA - peakPrev) * s) / steps;
@@ -116,6 +122,7 @@ export function buildColumnAnchors(alignment) {
   const insByPos = new Map((alignment.insertions || []).map((ins) => [ins.pos, ins.bases]));
   const walked = new Set();
   const ordered = [];
+  const text = [];
   for (const seg of alignment.segments || []) {
     const chars = seg.chars || '';
     for (let i = 0; i < chars.length; i++) {
@@ -123,18 +130,38 @@ export function buildColumnAnchors(alignment) {
       const ins = insByPos.get(pos);
       if (ins) {
         walked.add(pos);
-        for (let k = 0; k < ins.length; k++) ordered.push({ col: pos, ins: true, k });
+        for (let k = 0; k < ins.length; k++) {
+          ordered.push({ col: pos, ins: true, k });
+          text.push(ins[k]);
+        }
       }
-      if (chars[i] !== '-') ordered.push({ col: pos, ins: false, k: 0 });
+      if (chars[i] !== '-') {
+        ordered.push({ col: pos, ins: false, k: 0 });
+        text.push(chars[i]);
+      }
     }
   }
   for (const [pos, ins] of insByPos) {
     if (walked.has(pos)) continue;
     let idx = ordered.findIndex((e) => e.col > pos);
     if (idx < 0) idx = ordered.length;
-    for (let k = 0; k < ins.length; k++) ordered.splice(idx + k, 0, { col: pos, ins: true, k });
+    for (let k = 0; k < ins.length; k++) {
+      ordered.splice(idx + k, 0, { col: pos, ins: true, k });
+      text.splice(idx + k, 0, ins[k]);
+    }
   }
+  // Bases are numbered by their index in the read: the chromatogram peaks are
+  // indexed that way. A model saved before the aligner anchored its ends can
+  // have dropped a stretch in front of the walked bases — locate the walk in
+  // the read and start numbering there, or every peak of that read would sit
+  // the same few bases to the left of its base.
+  const seq = alignment.seq || '';
+  const walkedText = text.join('');
   let q = 0;
+  if (walkedText && seq && walkedText !== seq) {
+    const at = seq.indexOf(walkedText);
+    if (at > 0) q = at;
+  }
   for (const e of ordered) e.q = q++;
   return ordered;
 }

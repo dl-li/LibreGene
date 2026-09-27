@@ -862,6 +862,12 @@ fn deletion_at(tbytes: &[u8], start: usize, end: usize) -> AlignDeletion {
 /// ≥ 0.9) is returned immediately; otherwise the reverse complement is
 /// aligned too and the better orientation wins.
 pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
+    let mut aln = align_read_checked_raw(template, read, circular)?;
+    anchor_loose_ends(&mut aln, template.len());
+    Ok(aln)
+}
+
+fn align_read_checked_raw(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
     let t = template.to_ascii_uppercase();
     let r = read.to_ascii_uppercase();
     let tlen = t.len();
@@ -955,6 +961,67 @@ pub fn align_read_checked_with(
     }
 }
 
+/// The read bases the display walk emits, in walk order: per segment column,
+/// insertions anchored there first, then the char unless it is a read gap,
+/// then any insertions the walk never reached. Mirrors the frontend's
+/// `buildColumnAnchors`.
+fn walked_read(aln: &Alignment) -> String {
+    let mut out = String::new();
+    let mut used = vec![false; aln.insertions.len()];
+    for seg in &aln.segments {
+        for (k, ch) in seg.chars.chars().enumerate() {
+            let col = seg.start + k;
+            for (i, ins) in aln.insertions.iter().enumerate() {
+                if !used[i] && ins.pos == col {
+                    used[i] = true;
+                    out.push_str(&ins.bases);
+                }
+            }
+            if ch != '-' {
+                out.push(ch);
+            }
+        }
+    }
+    for (i, ins) in aln.insertions.iter().enumerate() {
+        if !used[i] {
+            out.push_str(&ins.bases);
+        }
+    }
+    out
+}
+
+/// Anchor read bases the traceback left out at the ends of the model (short
+/// unalignable stretches the flank search rejects). The display numbers read
+/// bases by walking the model and indexes the chromatogram peaks with that
+/// number, so a dropped *leading* stretch would shift every peak of that read.
+fn anchor_loose_ends(aln: &mut Alignment, tlen: usize) {
+    if tlen == 0 || aln.seq.is_empty() || aln.segments.is_empty() {
+        return;
+    }
+    let walked = walked_read(aln);
+    if walked == aln.seq {
+        return;
+    }
+    let Some(start) = aln.seq.find(&walked) else {
+        return;
+    };
+    let lead = aln.seq[..start].to_string();
+    let trail = aln.seq[start + walked.len()..].to_string();
+    if !lead.is_empty() {
+        let pos = aln.segments[0].start % tlen;
+        push_insertion(&mut aln.insertions, pos, lead);
+    }
+    if !trail.is_empty() {
+        let pos = (aln.segments.last().unwrap().end + 1) % tlen;
+        // pos == 0 / an already covered column: no following column to hang
+        // the tail on (circular origin, or the template end).
+        let collides = pos == 0 || aln.segments.iter().any(|s| pos >= s.start && pos <= s.end);
+        if !collides {
+            push_insertion(&mut aln.insertions, pos, trail);
+        }
+    }
+}
+
 /// `align_read` with an explicit algorithm.
 pub fn align_read_with(
     template: &str,
@@ -972,6 +1039,12 @@ pub fn align_read_with(
 /// linear subject cannot offer. The colinear hit chain of the dominant
 /// strand becomes the multi-segment [`Alignment`].
 fn blast_align_read(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
+    let mut aln = blast_align_read_raw(template, read, circular)?;
+    anchor_loose_ends(&mut aln, template.len());
+    Ok(aln)
+}
+
+fn blast_align_read_raw(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
     let t = template.to_ascii_uppercase();
     let r = read.to_ascii_uppercase();
     let tlen = t.len();
@@ -1647,7 +1720,7 @@ mod tests {
     }
 
     #[test]
-    fn test_split_read_junk_tail_unchanged() {
+    fn test_split_read_junk_tail_anchored() {
         let t = make_template_smx(3_000, 67);
         // Matching body + a poly-A tail that aligns nowhere.
         let read = format!("{}{}", &t[1000..1500], "A".repeat(200));
@@ -1656,7 +1729,30 @@ mod tests {
         assert_eq!(aln.segments[0].start, 1000);
         assert!(aln.segments[0].end <= 1_510, "end {}", aln.segments[0].end);
         assert!(aln.identity >= 0.9, "identity {}", aln.identity);
-        assert!(!aln.insertions.iter().any(|i| i.bases.len() >= 20));
+        // The unalignable tail belongs to the read: it is anchored at the
+        // junction so the walk still emits every base in read order (the
+        // display numbers bases by that walk and indexes the chromatogram
+        // peaks with the number).
+        assert_eq!(walked_read(&aln), aln.seq);
+        let inserted: usize = aln.insertions.iter().map(|i| i.bases.len()).sum();
+        assert!(inserted >= 150, "inserted {inserted}: {:?}", aln.insertions);
+    }
+
+    #[test]
+    fn test_short_leading_junk_does_not_shift_the_walk() {
+        let t = make_template_smx(3_000, 68);
+        // 7 unalignable bases in front of a matching body — shorter than the
+        // split-read flank minimum, so they used to be dropped and every base
+        // after them shifted by 7 (the chromatogram rode on that numbering).
+        let read = format!("TTTTAAA{}", &t[800..1600]);
+        let aln = align_read(&t, &read, false).unwrap();
+        assert_eq!(walked_read(&aln), aln.seq);
+        let first = aln.segments[0].start % t.len();
+        assert!(
+            aln.insertions.iter().any(|i| i.pos == first && i.bases.len() >= 7),
+            "{:?}",
+            aln.insertions
+        );
     }
 
     #[test]
