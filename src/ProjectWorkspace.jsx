@@ -37,6 +37,7 @@ import { plugins } from './plugins';
 import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
 import { createEditHistory } from './editHistory';
 import { orientChromatogram } from './chromatogram';
+import { adjustAlignmentsForEdit } from './alignmentEdit';
 import SequenceEditDialog from './SequenceEditDialog';
 import FeatureScrollbar from './FeatureScrollbar';
 import MapView from './MapView';
@@ -1342,6 +1343,11 @@ export default function ProjectWorkspace({
       // Optimistic UI update
       setSequence(newSeq);
       setFeatures(mergedFeatures);
+      // Alignment models are anchored to template columns, so they have to be
+      // carried over with the edit too — otherwise the lanes (and the
+      // chromatogram riding on them) are drawn from the old model against the
+      // new sequence until the backend's recomputed models land.
+      setAlignments((prev) => adjustAlignmentsForEdit(prev, editStart, editEnd, oldLen, newLen));
       setIsDirty(true);
 
       // Send to backend for recomputation (enzymes, primer binding sites)
