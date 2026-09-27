@@ -4368,7 +4368,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const vs = Math.max(0, visibleRows.start - ROW_BUF);
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return alignmentTracks.map((al, ti) => {
-      const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
       const laneY = (row) =>
         getSeqY(row) +
         lp.featBaseOffset +
@@ -4387,12 +4386,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           chars.forEach((c, i) => {
             const col = v.colStart + i;
             const gIdx = rowStarts[v.row] + col;
-            if (
-              insMap.has(gIdx) ||
-              insMap.has(gIdx + 1) ||
-              c === '-' ||
-              c.toUpperCase() !== (sequence[gIdx] || '').toUpperCase()
-            ) {
+            // Insertion-adjacent columns are not flagged: inserted cells mark
+            // themselves, and a red wash behind the flanking matches just
+            // muddies the lane. Genuine mismatches and read gaps keep it.
+            if (c === '-' || c.toUpperCase() !== (sequence[gIdx] || '').toUpperCase()) {
               mismatches.push(col);
             }
           });
@@ -4454,10 +4451,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
           insByRow.get(row).push(
             <tspan
               key={`${ins.pos}-${k}`}
+              className="ins-base"
               x={getX(si % visCpl) + cw / 2}
               textAnchor="middle"
-              fontWeight="600"
-              fill="#b91c1c"
+              fill="#1f2937"
+              fillOpacity={0.55}
               style={{ userSelect: 'none', pointerEvents: 'none' }}
             >
               {ins.bases[k]}
@@ -6174,10 +6172,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
           {dashes.map((vis) => (
             <tspan
               key={`ins-${vis}`}
+              className="ins-dash"
               x={getX(vis) + cw / 2}
               textAnchor="middle"
-              fill="#b91c1c"
-              fillOpacity={0.45}
+              fill="#9CA3AF"
+              fillOpacity={0.7}
             >
               -
             </tspan>

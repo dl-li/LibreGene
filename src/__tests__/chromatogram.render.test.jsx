@@ -139,11 +139,11 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
       alignmentTracks: [aln],
       alignmentChromatograms: { 'aln-2': chrom },
     });
-    // Inserted bases render as red mono tspan characters in the slot columns
-    // (tspan, not nested <text> — text cannot nest in SVG and browsers drop
-    // the inner element entirely).
+    // Inserted bases render as plain-grey mono tspan characters in their slot
+    // cells (tspan, not nested <text> — text cannot nest in SVG and browsers
+    // drop the inner element entirely).
     const insChars = [
-      ...[...html.matchAll(/<tspan[^>]*fill="#b91c1c"[^>]*>([^<]+)/g)].map((m) => m[1]),
+      ...[...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map((m) => m[1]),
     ];
     expect(insChars.join('')).toContain('CCCCC');
     expect(insChars).toContain('A');
@@ -151,9 +151,9 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     expect(insChars.join('')).toContain('TTCCAAATTCAGAT');
     // No dot placeholders anywhere in the rendered output.
     expect(html).not.toContain('·');
-    // The template row mirrors every reserved slot with a red '-' placeholder
+    // The template row mirrors every reserved slot with a '-' placeholder
     // so the rows stay column-aligned (21 + 1 + 5 + 14 = 41).
-    const dashes = insChars.filter((c) => c === '-').length;
+    const dashes = [...html.matchAll(/class="ins-dash"/g)].length;
     expect(dashes).toBe(41);
     // Trace bands still render and stay NaN-free through the slots.
     const paths = extractChannelPaths(html);
@@ -183,7 +183,9 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     // startX + baseCpl*cw + startX = 220 + 60*12 + 220 = 1160
     expect(Math.max(...xs)).toBeLessThanOrEqual(1160);
     // Every junk base still renders exactly once.
-    const insChars = [...html.matchAll(/<tspan[^>]*fill="#b91c1c"[^>]*>([^<]+)/g)].map((m) => m[1]);
+    const insChars = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map(
+      (m) => m[1],
+    );
     expect(insChars.filter((c) => c === 'G').length).toBe(100);
     expect(html).not.toContain('·');
   });
