@@ -5950,17 +5950,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
     return (
       <g style={{ pointerEvents: 'none' }}>
-        {allSegs.map((seg) => (
-          <rect
-            key={`amp-${seg.row}-${seg.colStart}`}
-            x={getX(seg.colStart)}
-            y={getSeqY(seg.row) - 19}
-            width={(seg.colEnd - seg.colStart + 1) * cw}
-            height={28}
-            fill={amplimerGreen}
-            rx="1"
-          />
-        ))}
+        {allSegs.map((seg) =>
+          colRuns(seg.colStart, seg.colEnd, seg.row).map(([visStart, len]) => (
+            <rect
+              key={`amp-${seg.row}-${seg.colStart}-${visStart}`}
+              x={getX(visStart)}
+              y={getSeqY(seg.row) - 19}
+              width={len * cw}
+              height={28}
+              fill={amplimerGreen}
+              rx="1"
+            />
+          )),
+        )}
         {allSegs.map((seg) => {
           const rowStart = seg.row * gridCpl;
           const chars = cleanSeq
@@ -5978,7 +5980,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               {chars.map((c, i) => (
                 <tspan
                   key={i}
-                  x={getX(seg.colStart + i) + cw / 2}
+                  x={getX(colVis(seg.colStart + i, seg.row)) + cw / 2}
                   textAnchor="middle"
                   fill={bgColor}
                 >
@@ -5999,6 +6001,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     getSeqY,
     sp,
     topology,
+    colVis,
+    colRuns,
   ]);
 
   const renderedCursor = useMemo(() => {
