@@ -152,15 +152,15 @@ export function buildColumnAnchors(alignment) {
   }
   // Bases are numbered by their index in the read: the chromatogram peaks are
   // indexed that way. A model saved before the aligner anchored its ends can
-  // have dropped a stretch in front of the walked bases — locate the walk in
-  // the read and start numbering there, or every peak of that read would sit
-  // the same few bases to the left of its base.
+  // have dropped a stretch in front of the walked bases, which would put every
+  // peak of that read the same few bases to the left of its base. The walk
+  // covers a contiguous slice of the read, so a strict prefix/suffix test
+  // recovers the offset without guessing at repeats.
   const seq = alignment.seq || '';
   const walkedText = text.join('');
   let q = 0;
-  if (walkedText && seq && walkedText !== seq) {
-    const at = seq.indexOf(walkedText);
-    if (at > 0) q = at;
+  if (walkedText && seq && walkedText !== seq && seq.endsWith(walkedText)) {
+    q = seq.length - walkedText.length;
   }
   for (const e of ordered) e.q = q++;
   return ordered;

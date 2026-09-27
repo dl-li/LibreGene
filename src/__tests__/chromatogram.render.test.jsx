@@ -151,10 +151,12 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     expect(insChars.join('')).toContain('TTCCAAATTCAGAT');
     // No dot placeholders anywhere in the rendered output.
     expect(html).not.toContain('·');
-    // The template row mirrors every reserved slot with a '-' placeholder
-    // so the rows stay column-aligned (21 + 1 + 5 + 14 = 41).
+    // The template row mirrors only runs wider than INSERT_DASH_HIDE_MAX (5):
+    // the 21bp head and 14bp tail keep their dashes, the 1bp and 5bp runs are
+    // hidden so the row shows no tiny fragments (21 + 14 = 35). Every base
+    // still has its cell.
     const dashes = [...html.matchAll(/class="ins-dash"/g)].length;
-    expect(dashes).toBe(41);
+    expect(dashes).toBe(35);
     // Trace bands still render and stay NaN-free through the slots.
     const paths = extractChannelPaths(html);
     expect(paths.length).toBeGreaterThanOrEqual(4);
@@ -163,11 +165,10 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     }
   });
 
-  it('merges fragmented insertions into one template-row gap', () => {
-    // The shape an ambiguous/diverged stretch produces: small insertions a few
-    // bases apart. They must render as ONE gap in the template row — no
-    // isolated template piece shorter than the merge gap — with the inserted
-    // bases clustered in the lanes.
+  it('keeps small insertions unmerged and hides their template-row dashes', () => {
+    // Small insertions a few bases apart keep their own cells — a read's
+    // bases must stay in read order for its trace — and only the '-'
+    // placeholder is dropped, so the template row shows no fragments.
     const template = 'ACGT'.repeat(100); // 400 bases
     const positions = [100, 102, 104, 106, 108];
     const aln = {
@@ -181,27 +182,19 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
       insertions: positions.map((pos) => ({ pos, bases: 'GG' })),
     };
     const html = renderEditor({ sequence: template, alignmentTracks: [aln] });
-    const dashes = [...html.matchAll(/<tspan[^>]*class="ins-dash"[^>]*x="(-?\d+(?:\.\d+)?)"/g)].map(
-      (m) => Number(m[1]),
-    );
-    // 5 anchors × 2 bases, all within INSERT_MERGE_GAP → one 10-cell block.
-    expect(dashes.length).toBe(10);
-    expect(dashes).toEqual([...dashes].sort((a, b) => a - b));
-    for (let i = 1; i < dashes.length; i++) {
-      expect(dashes[i] - dashes[i - 1]).toBe(12); // cw, contiguous
-    }
+    expect([...html.matchAll(/class="ins-dash"/g)].length).toBe(0);
     const bases = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map((m) => m[1]);
     expect(bases.length).toBe(10);
     expect(bases.join('')).toBe('GG'.repeat(5));
-    // Every inserted base sits on its own pink plate, lined up with the dashes.
+    // Each inserted base keeps its own cell (pink plate), one per base, at its
+    // own anchor rather than gathered into one block.
     const plates = [...html.matchAll(/<rect[^>]*#fecaca[^>]*>/g)].map((m) =>
       Number(m[0].match(/ x="(-?\d+(?:\.\d+)?)"/)[1]),
     );
     expect(plates.length).toBe(10);
-    for (let i = 1; i < plates.length; i++) {
-      expect(plates[i] - plates[i - 1]).toBe(12);
-    }
-    expect(dashes[0]).toBe(plates[0] + 6);
+    expect(plates).toEqual([...plates].sort((a, b) => a - b));
+    const gaps = new Set(plates.slice(1).map((x, i) => x - plates[i]));
+    expect(gaps.size).toBeGreaterThan(1);
   });
 
   it('wraps a wide insertion block without overflowing the SVG width', () => {

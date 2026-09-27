@@ -1,11 +1,6 @@
 // Unit tests for the alignment lane drift layout (insertion slot expansion).
 import { describe, it, expect } from 'vitest';
-import {
-  alignmentInsertUnion,
-  alignmentLaneLayout,
-  buildStreamLayout,
-  insertionBlocks,
-} from '../SequenceEditor';
+import { alignmentInsertUnion, alignmentLaneLayout, buildStreamLayout } from '../SequenceEditor';
 
 const ins = (pos, bases) => ({ pos, bases });
 const seg = { start: 5, end: 50, chars: '' };
@@ -46,38 +41,6 @@ describe('alignmentInsertUnion', () => {
       100,
     );
     expect(union.size).toBe(0);
-  });
-
-  it('merges anchors within INSERT_MERGE_GAP columns into one block', () => {
-    // Small insertions a few bases apart would otherwise split the template
-    // row into isolated pieces shorter than the merge gap.
-    const union = alignmentInsertUnion(
-      [
-        {
-          segments: [{ start: 5, end: 90, chars: '' }],
-          insertions: [ins(10, 'AA'), ins(12, 'C'), ins(15, 'GG'), ins(30, 'T')],
-        },
-      ],
-      100,
-    );
-    expect([...union.entries()]).toEqual([
-      [10, 5],
-      [30, 1],
-    ]);
-  });
-
-  it('maps every anchor to its block with the sub-slot offset', () => {
-    const alns = [
-      {
-        segments: [{ start: 5, end: 90, chars: '' }],
-        insertions: [ins(10, 'AA'), ins(12, 'CCC'), ins(15, 'G')],
-      },
-    ];
-    const blocks = insertionBlocks(alns, 100);
-    expect(blocks.get(10)).toEqual({ anchor: 10, width: 6, offset: 0, memberWidth: 2 });
-    expect(blocks.get(12)).toEqual({ anchor: 10, width: 6, offset: 2, memberWidth: 3 });
-    expect(blocks.get(15)).toEqual({ anchor: 10, width: 6, offset: 5, memberWidth: 1 });
-    expect(alignmentInsertUnion(alns, 100).get(10)).toBe(6);
   });
 
   it('handles an empty union', () => {
