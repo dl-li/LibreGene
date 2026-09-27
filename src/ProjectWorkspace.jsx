@@ -1151,7 +1151,6 @@ export default function ProjectWorkspace({
     [onProjectsSync, alignments],
   );
 
-
   /**
    * 调整特征/注释放置位置以适配编辑后的序列。
    * 编辑会删除 [editStart, editEnd] 区间（oldLen 个碱基），
@@ -1318,15 +1317,38 @@ export default function ProjectWorkspace({
         mergedFeatures = [...adjustedFeatures, ...newFeats];
       }
 
+      // Post-edit selection: a deletion clears the (now stale) selection; an
+      // insertion leaves the freshly inserted bases selected.
+      const postCursor =
+        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? null : cursorIndex;
+      const postSelStart = mode === 'insert' ? cursorIndex : mode === 'delete' ? null : selStart;
+      const postSelEnd =
+        mode === 'insert' ? cursorIndex + newLen - 1 : mode === 'delete' ? null : selEnd;
+
       // Push new state to undo history (includes adjusted features for correct undo)
       editHistoryRef.current.push({
         sequence: newSeq,
         features: mergedFeatures,
         primers: primers || EMPTY_ARRAY,
-        cursorIndex,
-        selStart: mode === 'insert' ? null : selStart,
-        selEnd: mode === 'insert' ? null : selEnd,
+        cursorIndex: postCursor,
+        selStart: postSelStart,
+        selEnd: postSelEnd,
       });
+
+      // Apply the post-edit selection in the editor (replace keeps its range).
+      if (mode !== 'replace') {
+        setRestoreState({
+          version: ++undoVersionRef.current,
+          cursorIndex: postCursor,
+          selStart: postSelStart,
+          selEnd: postSelEnd,
+          selectionMode: postSelStart === null ? 'none' : 'text',
+          selectedPrimerIds: [],
+          isEnzymeSelection: false,
+          selectedEnzymeIds: [],
+          translationSel: null,
+        });
+      }
 
       // Optimistic UI update
       setSequence(newSeq);
