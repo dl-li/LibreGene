@@ -4838,8 +4838,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
       bands.push(
         <g key={key}>
           <line
-            x1={anchors[0].x - cw / 2}
-            x2={anchors[anchors.length - 1].x + cw / 2}
+            x1={Math.min(...anchors.map((a) => a.x)) - cw / 2}
+            x2={Math.max(...anchors.map((a) => a.x)) + cw / 2}
             y1={baseY}
             y2={baseY}
             stroke="#d6d3d1"
@@ -4897,10 +4897,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
         if (!byRow.has(row)) byRow.set(row, []);
-        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q });
+        // Read order, not x order: a merged block can pull an inserted base
+        // left of the base before it, and the path must break there (drawn by
+        // the `brk`/x-decrease rule) instead of interpolating backwards.
+        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q, brk: e.brk });
       }
       for (const [row, rowAnchors] of byRow) {
-        const anchors = [...rowAnchors].sort((a, b) => a.x - b.x);
+        const anchors = rowAnchors;
         const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
         const y =
           getSeqY(row) +
