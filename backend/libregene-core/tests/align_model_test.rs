@@ -104,3 +104,60 @@ fn rotation_hit_reports_segments_in_read_order() {
         .count();
     assert_eq!(drops, 1, "segments {:?}", aln.segments);
 }
+
+/// A read that spans the origin of a circular template, aligned through the
+/// local engine against the doubled subject: the chain must not cover the
+/// same template columns twice (that would render the read twice and make
+/// the walk/reconstruction ambiguous).
+#[test]
+fn circular_read_spanning_origin_has_no_overlapping_segments() {
+    let t = make_template_smx(3000, 21);
+    // Read covers ~1200 bp starting 2400: it wraps the origin.
+    let read = format!("{}{}", &t[2400..], &t[..600]);
+    for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
+        let aln = align_read_checked_with(&t, &read, true, algo).unwrap();
+        // Overlap check in the wrap-aware sense: sort arcs, ensure none lies
+        // inside another and that the union count matches the base count.
+        let mut covered = 0usize;
+        let mut seen = vec![false; t.len()];
+        for seg in &aln.segments {
+            for pos in seg.start..=seg.end {
+                assert!(
+                    !seen[pos % t.len()],
+                    "[{}] column {} covered by two segments: {:?}",
+                    algo.as_str(),
+                    pos,
+                    aln.segments
+                        .iter()
+                        .map(|s| (s.start, s.end))
+                        .collect::<Vec<_>>()
+                );
+                seen[pos % t.len()] = true;
+                if seg.chars.as_bytes()[pos - seg.start] != b'-' {
+                    covered += 1;
+                }
+            }
+        }
+        assert_eq!(
+            rebuild_read(&aln),
+            aln.seq,
+            "[{}] model must rebuild the read in order",
+            algo.as_str()
+        );
+        assert!(covered > 0);
+    }
+}
+
+fn make_template_smx(len: usize, seed: u64) -> String {
+    let mut x = seed;
+    (0..len)
+        .map(|_| {
+            x = x.wrapping_add(0x9E3779B97F4A7C15);
+            let mut z = x;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+            z ^= z >> 31;
+            b"ACGT"[(z & 3) as usize] as char
+        })
+        .collect()
+}

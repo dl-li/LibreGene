@@ -4458,9 +4458,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
         8;
       const rows = [];
       const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
+      // Segment pieces are keyed by position plus a running index: a model
+      // whose segments overlap (older engine output) would otherwise repeat a
+      // key, and React would drop or duplicate the lane content.
+      let piece = 0;
       for (const seg of segs) {
         for (const v of sp(seg.start, seg.end)) {
           if (v.row < vs || v.row > ve) continue;
+          const pieceKey = `${v.row}-${v.colStart}-${piece++}`;
           const y = laneY(v.row);
           const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
           const mismatches = [];
@@ -4475,7 +4480,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             }
           });
           rows.push(
-            <g key={`${v.row}-${v.colStart}`}>
+            <g key={pieceKey}>
               {mismatches.map((col) => (
                 <rect
                   key={col}
@@ -4973,6 +4978,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       const tailSeg = isFwd ? segs[0] : segs[segs.length - 1];
       const arrowSeg = isFwd ? segs[segs.length - 1] : segs[0];
+      // Same defence as the alignment lane: overlapping match segments in a
+      // stored model must not repeat a React key.
+      let segIdx = -1;
 
       let drawMisLen = misLen,
         showMisDots = false;
@@ -5089,7 +5097,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
             return (
               <g
-                key={`${seg.row}-${seg.colStart}`}
+                key={`${seg.row}-${seg.colStart}-${++segIdx}`}
                 opacity={isDimDuringDrag ? 0.2 : undefined}
                 style={isDimDuringDrag ? { pointerEvents: 'none' } : undefined}
               >
