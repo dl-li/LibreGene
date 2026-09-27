@@ -3698,8 +3698,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// such a mismatch the failure response carries `currentContent` — the
     /// authoritative current [start..end] bases — plus a ±20 bp `mismatch`
     /// context block; copy `currentContent` verbatim as `expected_old` and
-    /// retry instead of hand-building a long check string. Uses
-    /// the same primer+enzyme recompute path as update_sequence. Returns
+    /// retry instead of hand-building a long check string. Uses the same
+    /// recompute path as update_sequence: enzymes, primer binding sites,
+    /// feature translations AND every stored read alignment are rebuilt (an
+    /// edit moves the template under the reads), so alignment data read
+    /// earlier in the session may be superseded — re-read the region view if
+    /// you rely on it. A no-op edit is also the way to refresh alignments
+    /// stored by an older engine. Returns
     /// newLength, old/new region views, 30 bp sequence context on each side of
     /// the edit, and side-effect echo `removedFeatures`/`clippedFeatures`
     /// (both always present, empty arrays when none): removed lists features

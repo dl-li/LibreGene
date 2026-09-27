@@ -164,7 +164,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 - 项目/文件管理、Agent 标签绑定、子序列导出（`region`） → `open_project` / `save_file` / `close_project` / `list_projects`
 - 序列读取、坐标转换、自动标注（只读展示）、甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
-- 序列编辑 → `edit_sequence`；特征 → `set_feature`
+- 序列编辑（**连同所有已存比对一起自动重算**，旧引擎的模型可借一次空编辑刷新） → `edit_sequence`；特征 → `set_feature`
 - 引物 → `add_primer` / `list_primers` / `check_primer_binding`；引物设计 → `design_primers`
 - ORF → `find_orfs`；序列比对 → `add_alignment`（可选 `algorithm`: "blast" 默认（自 GenePad 移植的 BLAST 引擎，多段共线 HSP，分割/多命中 read 全对齐）或 "smith-waterman"（单局部块 + 至多一个侧翼）；用户未指明时用默认）；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（统一批量转换：dna↔rna（T↔U，可选 revComp）、dna/rna→protein（翻译）、protein→dna/rna（逆转录+密码子优化）、dna→dna 密码子优化；逐项错误隔离，全部失败才 isError；单项调用可省略 `items` 直接顶层传参）
 - 上述 DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError
