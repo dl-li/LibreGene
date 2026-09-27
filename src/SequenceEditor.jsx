@@ -226,20 +226,72 @@ function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
-/** Union of all alignments' insertion bases keyed by template column, each
- *  slot sized to the longest insertion anchored there (GenePad's merged gap
- *  columns: every inserted base gets a full column of the shared layout).
- *  Flank junk (unalignable read tails) reserves slots like any other
- *  insertion. */
-export function alignmentInsertUnion(alns, tlen) {
-  const union = new Map();
+/** Two insertions anchored no further apart than this many template columns
+ *  render as one block: reads whose small indels land a few bases apart (a
+ *  diverged/ambiguous stretch) would otherwise pepper the template row with
+ *  tiny dash fragments. Display-level consolidation only — the stored
+ *  alignment is untouched, and the read lanes keep their own bases. */
+export const INSERT_MERGE_GAP = 5;
+
+/** Per-anchor insertion width: the longest insertion anchored there across
+ *  all alignments (GenePad's merged gap columns). */
+function perAnchorInsertWidths(alns, tlen) {
+  const widths = new Map();
   for (const al of alns) {
     for (const ins of al.insertions || []) {
       if (!ins.bases || ins.pos < 0 || ins.pos >= tlen) continue;
-      union.set(ins.pos, Math.max(union.get(ins.pos) || 0, ins.bases.length));
+      widths.set(ins.pos, Math.max(widths.get(ins.pos) || 0, ins.bases.length));
     }
   }
+  return widths;
+}
+
+/** Cluster anchors within [`INSERT_MERGE_GAP`] columns into blocks; each
+ *  member keeps its own sub-slot so different reads never overlap. */
+function mergeInsertAnchors(widths) {
+  const anchors = [...widths.entries()].sort((a, b) => a[0] - b[0]);
+  const blocks = [];
+  for (const [pos, w] of anchors) {
+    const last = blocks[blocks.length - 1];
+    if (last && pos - last.lastPos <= INSERT_MERGE_GAP) {
+      last.members.push({ pos, width: w, offset: last.width });
+      last.width += w;
+      last.lastPos = pos;
+    } else {
+      blocks.push({ anchor: pos, width: w, lastPos: pos, members: [{ pos, width: w, offset: 0 }] });
+    }
+  }
+  return blocks;
+}
+
+/** Insertion blocks keyed by their anchor column, each sized to the total of
+ *  its members' slots. Flank junk (unalignable read tails) reserves slots
+ *  like any other insertion. */
+export function alignmentInsertUnion(alns, tlen) {
+  const union = new Map();
+  for (const b of mergeInsertAnchors(perAnchorInsertWidths(alns, tlen))) {
+    union.set(b.anchor, b.width);
+  }
   return union;
+}
+
+/** Every insertion anchor → the block that renders it: `{ anchor, width,
+ *  offset, memberWidth }`, where `offset` is the cell offset of this anchor's
+ *  sub-slot inside the block (the k-th base of an insertion sits at
+ *  `streamOf(anchor) - width + offset + k`). */
+export function insertionBlocks(alns, tlen) {
+  const map = new Map();
+  for (const b of mergeInsertAnchors(perAnchorInsertWidths(alns, tlen))) {
+    for (const m of b.members) {
+      map.set(m.pos, {
+        anchor: b.anchor,
+        width: b.width,
+        offset: m.offset,
+        memberWidth: m.width,
+      });
+    }
+  }
+  return map;
 }
 
 /** Shared drift-space layout for insertion slots: template rows keep their
@@ -1507,9 +1559,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
   }, [unmatchedPrimers, cdsWarnings]);
 
   // Insertion reserve: every inserted read base (flank junk included) gets a
-  // full cell in the shared visual stream (GenePad's merged gap columns).
+  // full cell in the shared visual stream (GenePad's merged gap columns);
+  // anchors within INSERT_MERGE_GAP columns share one block so small indels a
+  // few bases apart don't fragment the template row.
   const insReserve = useMemo(
     () => (isDna ? alignmentInsertUnion(alignmentTracks, cleanSeq.length) : new Map()),
+    [isDna, alignmentTracks, cleanSeq.length],
+  );
+  // Anchor → its block: { anchor, width, offset, memberWidth } for placing an
+  // insertion's own bases inside the merged block.
+  const insBlocks = useMemo(
+    () => (isDna ? insertionBlocks(alignmentTracks, cleanSeq.length) : new Map()),
     [isDna, alignmentTracks, cleanSeq.length],
   );
   // Visual stream: template columns + slot cells, exactly baseCpl cells per
@@ -1619,6 +1679,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cleanSeq.length,
     trackH,
     insReserve,
+    insBlocks,
+    rowOf,
     streamOf,
     charsPerLine,
   ]);
@@ -4435,15 +4497,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
         }
       }
       // Inserted read bases (internal junctions and unalignable flank junk
-      // alike) expand into the reserved slot cells: the w cells anchored at
-      // `pos` sit at stream [S(pos)-w, S(pos)-1], left of the anchor column.
-      // A wide block spans rows, so every base lands on its own stream row.
+      // alike) expand into their block's reserved cells: a merged block of
+      // width w anchored at `a` occupies stream [S(a)-w, S(a)-1] left of the
+      // anchor column, and each insertion renders in its own sub-slot at
+      // `offset`. A wide block spans rows, so every base lands on its own row.
       const insByRow = new Map();
       for (const ins of al.insertions || []) {
         if (!ins.bases) continue;
-        const slotN = insReserve.get(ins.pos) || 0;
-        const cell0 = streamOf(ins.pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, ins.bases.length); k++) {
+        const blk = insBlocks.get(ins.pos);
+        if (!blk) continue;
+        const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
+        for (let k = 0; k < Math.min(blk.memberWidth, ins.bases.length); k++) {
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (row < vs || row > ve) continue;
@@ -4493,6 +4557,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     streamOf,
     colVis,
     insReserve,
+    insBlocks,
     sequence,
     alignLaneInfo,
     cleanSeq.length,
@@ -4547,9 +4612,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       for (const ins of al.insertions || []) {
         if (!ins.bases) continue;
-        const slotN = insReserve.get(ins.pos) || 0;
-        const cell0 = streamOf(ins.pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, ins.bases.length); k++) {
+        const blk = insBlocks.get(ins.pos);
+        if (!blk) continue;
+        const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
+        for (let k = 0; k < Math.min(blk.memberWidth, ins.bases.length); k++) {
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (rowRight[row] === undefined) continue;
@@ -4682,6 +4748,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cleanSeq.length,
     colVis,
     insReserve,
+    insBlocks,
     visCpl,
     streamOf,
   ]);
@@ -4795,11 +4862,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const chrom = alignmentChromatograms[al.id];
       if (!chrom) return;
       // Ordered anchor entries (hit columns + insertion bases). Every entry
-      // maps to a stream cell: inserted bases fill the union slot cells left
-      // of their anchor column, exactly where the text lane renders them.
+      // maps to a stream cell: inserted bases fill the merged block's cells
+      // left of their anchor column, exactly where the text lane renders them.
       const byRow = new Map();
       for (const e of buildColumnAnchors(al)) {
-        const si = e.ins ? streamOf(e.col) - (insReserve.get(e.col) || 0) + e.k : streamOf(e.col);
+        let si = streamOf(e.col);
+        if (e.ins) {
+          const blk = insBlocks.get(e.col);
+          if (!blk) continue;
+          si = streamOf(blk.anchor) - blk.width + blk.offset + e.k;
+        }
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
         if (!byRow.has(row)) byRow.set(row, []);
@@ -4834,6 +4906,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     streamOf,
     colVis,
     insReserve,
+    insBlocks,
     cleanSeq.length,
     getSeqY,
     lp,

@@ -163,6 +163,37 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     }
   });
 
+  it('merges fragmented insertions into one template-row gap', () => {
+    // The shape an ambiguous/diverged stretch produces: small insertions a few
+    // bases apart. They must render as ONE gap in the template row instead of
+    // a dash-peppered stretch, with the inserted bases clustered in the lanes.
+    const template = 'ACGT'.repeat(100); // 400 bases
+    const positions = [100, 102, 104, 106, 108];
+    const aln = {
+      id: 'aln-4',
+      name: 'read-frag',
+      length: 300,
+      strand: '+',
+      identity: 1,
+      seq: template.substring(0, 200),
+      segments: [{ start: 0, end: 199, chars: template.substring(0, 200) }],
+      insertions: positions.map((pos) => ({ pos, bases: 'GG' })),
+    };
+    const html = renderEditor({ sequence: template, alignmentTracks: [aln] });
+    const dashes = [...html.matchAll(/<tspan[^>]*class="ins-dash"[^>]*x="(-?\d+(?:\.\d+)?)"/g)].map(
+      (m) => Number(m[1]),
+    );
+    // 5 anchors × 2 bases, all within INSERT_MERGE_GAP → one 10-cell block.
+    expect(dashes.length).toBe(10);
+    expect(dashes).toEqual([...dashes].sort((a, b) => a - b));
+    for (let i = 1; i < dashes.length; i++) {
+      expect(dashes[i] - dashes[i - 1]).toBe(12); // cw, contiguous
+    }
+    const bases = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map((m) => m[1]);
+    expect(bases.length).toBe(10);
+    expect(bases.join('')).toBe('GG'.repeat(5));
+  });
+
   it('wraps a wide insertion block without overflowing the SVG width', () => {
     // 100bp of leading junk: far wider than one 60-column row, so the block
     // must span rows instead of extending the row past the viewport.
