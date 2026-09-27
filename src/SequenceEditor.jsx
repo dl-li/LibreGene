@@ -2015,16 +2015,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const seg of segs) {
           if (seg.row !== row) continue;
           const drawMisLen = seg === segs[0] ? Math.min(ml, seg.colStart + 5) : 0;
-          const labelX = getX(seg.colStart - drawMisLen);
+          const bodyX1 = getX(colVis(seg.colStart, row));
+          const bodyX2 = getX(colVis(seg.colEnd, row)) + cw;
+          const labelX = bodyX1 - drawMisLen * cw;
           const off = pt * pp.trackGap;
           entries.push({
             x1: labelX,
-            x2: Math.max(labelX + nameW, getX(seg.colStart)),
+            x2: Math.max(labelX + nameW, bodyX1),
             topOffset: 69 + off,
           });
           entries.push({
-            x1: getX(seg.colStart),
-            x2: getX(seg.colEnd) + cw + pp.arrowHeadLen,
+            x1: bodyX1,
+            x2: bodyX2 + pp.arrowHeadLen,
             topOffset: 56 + off,
           });
         }
@@ -2032,7 +2034,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (entries.length) occ[row] = entries;
     }
     return occ;
-  }, [primersByRow, primerTracks, sp, pp.trackGap, pp.arrowHeadLen]);
+  }, [primersByRow, primerTracks, sp, pp.trackGap, pp.arrowHeadLen, colVis]);
 
   const { rowAbove, rowBelow, enzymeRowTracks } = useMemo(() => {
     // Per-row enzyme track assignment — cut-twice enzymes are expanded per pair
