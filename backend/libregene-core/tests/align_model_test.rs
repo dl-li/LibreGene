@@ -3,22 +3,12 @@
 //! their anchor column) to number the read bases one by one, and that
 //! numbering indexes the chromatogram peaks — so any lost or reordered base
 //! shifts every later peak and the trace no longer lines up with the sequence.
-//! Real data: ***REMOVED*** template (circular) + PVA-T1-T3 read, which starts
-//! mid-plasmid: the rotation fast path used to hand back subject-ordered
-//! columns (the read rotated to the template origin), so the rebuilt read
-//! began at the wrong base.
+//! The rotation fast path used to hand back subject-ordered columns (a read
+//! starting mid-template came back rotated to the template origin), so the
+//! rebuilt read began at the wrong base.
 
 use libregene_core::align::{align_read_checked_with, AlignAlgorithm};
 use libregene_core::models::Alignment;
-use std::path::Path;
-
-fn test_data(name: &str) -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("test_data")
-        .join(name)
-}
 
 /// Walk the display model the way the frontend does: per segment column in
 /// join order, insertions anchored there first, then the char unless it is a
@@ -50,13 +40,18 @@ fn rebuild_read(aln: &Alignment) -> String {
 
 #[test]
 fn every_read_base_appears_once_in_read_order() {
-    let template = libregene_core::file_io::gbk::parse_gbk(&test_data("***REMOVED***.gbk")).unwrap();
-    let read = libregene_core::file_io::ab1::parse_ab1(&test_data("PVA-T1-T3-1.86349.ab1")).unwrap();
-    let circular = template.topology == "circular";
+    // Circular template; the read starts mid-template, wraps the origin once,
+    // and carries a 34 bp insertion plus a couple of point mismatches.
+    let t = make_template_smx(4000, 7);
+    let mut read = format!("{}{}", &t[2500..], &t[..500]);
+    read.insert_str(1200, "GATTACAGATTACAGATTACAGATTACAGATTAC");
+    let mut bytes = read.into_bytes();
+    bytes[300] = if bytes[300] == b'A' { b'C' } else { b'A' };
+    bytes[800] = if bytes[800] == b'G' { b'T' } else { b'G' };
+    let read = String::from_utf8(bytes).unwrap();
 
     for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
-        let aln =
-            align_read_checked_with(&template.sequence, &read.sequence, circular, algo).unwrap();
+        let aln = align_read_checked_with(&t, &read, true, algo).unwrap();
         // One insertion per template column: duplicates would render on top of
         // each other and the display walk would drop the later bases.
         let mut positions: Vec<usize> = aln.insertions.iter().map(|i| i.pos).collect();
@@ -80,14 +75,12 @@ fn every_read_base_appears_once_in_read_order() {
 
 #[test]
 fn rotation_hit_reports_segments_in_read_order() {
-    // The read starts inside the plasmid, so the rotation fast path matches it
+    // The read starts inside the template, so the rotation fast path matches it
     // against a rotated copy: its columns must still come back starting at the
     // read's first base, with the subject wrapping once at the origin.
-    let template = libregene_core::file_io::gbk::parse_gbk(&test_data("***REMOVED***.gbk")).unwrap();
-    let read = libregene_core::file_io::ab1::parse_ab1(&test_data("PVA-T1-T3-1.86349.ab1")).unwrap();
-    let aln =
-        align_read_checked_with(&template.sequence, &read.sequence, true, AlignAlgorithm::BlastN)
-            .unwrap();
+    let t = make_template_smx(4000, 11);
+    let read = format!("{}{}", &t[2500..], &t[..500]);
+    let aln = align_read_checked_with(&t, &read, true, AlignAlgorithm::BlastN).unwrap();
 
     assert!(aln.segments.len() >= 2, "segments {:?}", aln.segments);
     let first = aln.segments[0].chars.chars().next().unwrap();

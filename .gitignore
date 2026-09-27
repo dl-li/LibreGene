@@ -9,10 +9,6 @@ __pycache__/
 .vscode/
 .sglock/
 
-# Unpublished research data — replace with synthetic sequences for CI
-test/***REMOVED***.*
-backend/test_data/***REMOVED***.*
-
 # Local-only examples, kept off GitHub
 examples/others/
 
