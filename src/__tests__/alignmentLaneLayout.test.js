@@ -3,13 +3,14 @@ import { describe, it, expect } from 'vitest';
 import { alignmentInsertUnion, alignmentLaneLayout } from '../SequenceEditor';
 
 const ins = (pos, bases) => ({ pos, bases });
+const seg = { start: 5, end: 50, chars: '' };
 
 describe('alignmentInsertUnion', () => {
   it('keeps the longest insertion per template column across alignments', () => {
     const union = alignmentInsertUnion(
       [
-        { insertions: [ins(10, 'AA'), ins(20, 'C')] },
-        { insertions: [ins(10, 'GGG')] },
+        { segments: [seg], insertions: [ins(10, 'AA'), ins(20, 'C')] },
+        { segments: [seg], insertions: [ins(10, 'GGG')] },
       ],
       100,
     );
@@ -18,8 +19,25 @@ describe('alignmentInsertUnion', () => {
     expect(union.size).toBe(2);
   });
 
+  it('excludes flank junk anchored outside the aligned range', () => {
+    const union = alignmentInsertUnion(
+      [
+        {
+          segments: [{ start: 10, end: 50, chars: '' }],
+          insertions: [ins(10, 'AA'), ins(60, 'CC'), ins(30, 'G')],
+        },
+      ],
+      100,
+    );
+    expect(union.size).toBe(1);
+    expect(union.get(30)).toBe(1);
+  });
+
   it('ignores out-of-range anchors', () => {
-    const union = alignmentInsertUnion([{ insertions: [ins(100, 'AAA'), ins(-1, 'C')] }], 100);
+    const union = alignmentInsertUnion(
+      [{ segments: [{ start: 10, end: 99, chars: '' }], insertions: [ins(100, 'AAA'), ins(-1, 'C')] }],
+      100,
+    );
     expect(union.size).toBe(0);
   });
 });

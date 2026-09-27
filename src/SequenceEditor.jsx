@@ -227,14 +227,31 @@ function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
+/** Insertions anchored at the very edge of an alignment's aligned range are
+ *  unalignable read tails (junk): they stay a dot marker and never reserve
+ *  slot columns. Internal insertions (mid-read, junctions) anchor inside
+ *  the covered range. Handles origin-wrapping segment lists, where the
+ *  covered arcs are [firstStart..tlen) and [0..lastEnd]. */
+export function isFlankInsertion(al, pos) {
+  const segs = al.segments || [];
+  if (!segs.length) return true;
+  const firstStart = segs[0].start;
+  const lastEnd = segs[segs.length - 1].end;
+  return firstStart <= lastEnd
+    ? pos <= firstStart || pos > lastEnd
+    : pos <= firstStart && pos > lastEnd;
+}
+
 /** Union of all alignments' insertion bases keyed by template column, each
  *  slot sized to the longest insertion anchored there (GenePad's merged gap
- *  columns: every inserted base gets a full column of the shared layout). */
+ *  columns: every inserted base gets a full column of the shared layout).
+ *  Flank junk is excluded — dots only, no slot expansion. */
 export function alignmentInsertUnion(alns, tlen) {
   const union = new Map();
   for (const al of alns) {
     for (const ins of al.insertions || []) {
       if (!ins.bases || ins.pos < 0 || ins.pos >= tlen) continue;
+      if (isFlankInsertion(al, ins.pos)) continue;
       union.set(ins.pos, Math.max(union.get(ins.pos) || 0, ins.bases.length));
     }
   }
@@ -1487,24 +1504,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     },
     [colVis, gridCpl, insTotal],
   );
-
-  // Horizontal scrollbar bar (visible when the insertion slots widen the
-  // rows): mirrors the editor container's horizontal scroll position. The
-  // bar and the content have different scroll ranges, so sync by ratio —
-  // 1:1 pixel sync leaves dead travel that snaps the thumb back.
-  const hBarRef = useRef(null);
-  const syncBarScroll = useCallback((from) => {
-    const bar = hBarRef.current;
-    const root = containerRef.current;
-    if (!bar || !root) return;
-    const a = from === 'bar' ? bar : root;
-    const b = from === 'bar' ? root : bar;
-    const aMax = a.scrollWidth - a.clientWidth;
-    const bMax = b.scrollWidth - b.clientWidth;
-    if (aMax <= 0 || bMax <= 0) return;
-    const target = (a.scrollLeft / aMax) * bMax;
-    if (Math.abs(target - b.scrollLeft) > 1) b.scrollLeft = target;
-  }, []);
 
   // Split the template range [c0, c1] (row-local, inclusive) into visual
   // runs [[visStart, len], ...] separated at slot columns.
@@ -4835,8 +4834,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // Ordered anchor entries (hit columns + insertion bases). Inserted
       // bases expand into the shared union-grid slot columns — full column
       // per base, exactly where the read lane renders them (GenePad's
-      // alignmentVisualColumns).
-      const entries = buildColumnAnchors(al);
+      // alignmentVisualColumns). Flank junk stays dot-only in the text
+      // lane, so its peaks are dropped here too.
+      const entries = buildColumnAnchors(al).filter(
+        (e) => !e.ins || !isFlankInsertion(al, e.col),
+      );
       const byRow = new Map();
       for (const e of entries) {
         const row = Math.floor(e.col / gridCpl);
@@ -6547,7 +6549,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
       )}
       <div
         ref={containerRef}
-        onScroll={() => syncBarScroll('root')}
         onContextMenu={handleContextMenu}
         onMouseDown={(e) => {
           // Blank margins outside the SVG: drop any selection/cursor. Clicks
@@ -6593,9 +6594,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
           >
             <style>{`
               @keyframes alignLabelScroll { from { transform: translateX(0); } to { transform: translateX(var(--align-label-scroll, 0px)); } }
-              .align-hbar::-webkit-scrollbar { height: 10px; }
-              .align-hbar::-webkit-scrollbar-thumb { background: #a8a29e; border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
-              .align-hbar::-webkit-scrollbar-track { background: transparent; }
             `}</style>
             {renderedCursor}
             {renderedDesignPicked}
@@ -6708,38 +6706,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onPrimerChange={onPrimerChange}
         />
       </div>
-      {insTotal > 0 && (
-        <div
-          ref={(el) => {
-            hBarRef.current = el;
-            if (el && containerRef.current) el.scrollLeft = containerRef.current.scrollLeft;
-          }}
-          onScroll={() => syncBarScroll('bar')}
-          onWheel={(e) => {
-            const bar = hBarRef.current;
-            if (!bar || !e.deltaY) return;
-            bar.scrollLeft += e.deltaY;
-          }}
-          className="align-hbar"
-          style={{
-            position: 'sticky',
-            bottom: 68,
-            zIndex: 25,
-            overflowX: 'auto',
-            overflowY: 'hidden',
-            width: 'min(92%, 900px)',
-            margin: '0 auto',
-            height: 14,
-            borderRadius: 7,
-            background: 'rgba(0,0,0,0.06)',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
-            scrollbarWidth: 'thin',
-            scrollbarColor: '#a8a29e transparent',
-          }}
-        >
-          <div style={{ width: svgWidth, height: 1 }} />
-        </div>
-      )}
     </>
   );
 });

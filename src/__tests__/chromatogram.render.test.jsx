@@ -110,11 +110,12 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     expect(widest.maxX - widest.minX).toBeGreaterThanOrEqual(650);
   });
 
-  it('expands insertions into slot columns with bases and trace anchors', () => {
-    // 1bp insertion at column 10, 5bp at column 100 (row 1 at cpl 60), and a
-    // 21bp junk tail at the alignment start. The lane layout must shrink the
-    // template grid by the slot count and render every inserted base as a
-    // full-width character; the trace must pass through the slot columns.
+  it('expands internal insertions into slot columns; flank junk stays dot-only', () => {
+    // 1bp insertion at column 10, 5bp at column 100 (row 1 at cpl 60) are
+    // internal and expand into full-width slot characters; the trace passes
+    // through the slots. A 21bp junk tail at the alignment start and a 14bp
+    // tail past the last aligned column stay dot markers: no slot columns,
+    // no red slot-base characters, no placeholder dashes.
     const template = 'ACGT'.repeat(100); // 400 bases
     const aligned = template.substring(0, 300);
     const chars =
@@ -131,8 +132,8 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
         { pos: 0, bases: 'GGGGGGGGGGGGGGGGGGGGG' },
         { pos: 10, bases: 'A' },
         { pos: 100, bases: 'CCCCC' },
-        // Trailing tail anchored past the last aligned column — rendered by
-        // the dedicated tail path, not while walking segment chars.
+        // Trailing tail anchored past the last aligned column — flank junk,
+        // rendered as a dot by the dedicated tail path, no slot bases.
         { pos: 300, bases: 'TTCCAAATTCAGAT' },
       ],
     };
@@ -149,14 +150,12 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     ];
     expect(insChars.join('')).toContain('CCCCC');
     expect(insChars).toContain('A');
-    expect(insChars.join('')).toContain('GGGGGGGGGGGGGGGGGGGGG');
-    // The template row mirrors each slot with red '-' placeholders so the
-    // rows stay column-aligned (21 + 1 + 5 + 14 = 41 dashes across rows).
+    expect(insChars.join('')).not.toContain('GGGGGGGGGGGGGGGGGGGGG');
+    expect(insChars.join('')).not.toContain('TTCCAAATTCAGAT');
+    // The template row mirrors each reserved slot with a red '-' placeholder
+    // so the rows stay column-aligned (1 + 5 = 6; flank junk reserves none).
     const dashes = insChars.filter((c) => c === '-').length;
-    expect(dashes).toBe(41);
-    // The tail bases appear exactly in order.
-    const joined = insChars.join('');
-    expect(joined).toContain('TTCCAAATTCAGAT');
+    expect(dashes).toBe(6);
     // Trace bands still render and stay NaN-free through the slots.
     const paths = extractChannelPaths(html);
     expect(paths.length).toBeGreaterThanOrEqual(4);
