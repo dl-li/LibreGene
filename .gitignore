@@ -23,3 +23,4 @@ examples/tasks/_mcp_test_run/
 
 # Local kimi-code config
 .kimi-code/
+.Rhistory

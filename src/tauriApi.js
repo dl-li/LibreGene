@@ -268,14 +268,14 @@ export async function computePrimerAlignment(
 // Alignments
 // ---------------------------------------------------------------------------
 
-export async function addAlignment(path) {
+export async function addAlignment(path, algorithm) {
   assertEditable();
-  return tauriInvoke('add_alignment', { path });
+  return tauriInvoke('add_alignment', { path, algorithm });
 }
 
-export async function addAlignmentSeq(name, seq) {
+export async function addAlignmentSeq(name, seq, algorithm) {
   assertEditable();
-  return tauriInvoke('add_alignment_seq', { name, seq });
+  return tauriInvoke('add_alignment_seq', { name, seq, algorithm });
 }
 
 export async function removeAlignment(alignmentId) {

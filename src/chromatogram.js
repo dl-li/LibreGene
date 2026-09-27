@@ -101,25 +101,51 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY, maxAnc
   return d;
 }
 
-// Map aligned template columns to read query indices. Walks segments in join
-// order accumulating read bases ('-' = read gap, consumes no query base) and
-// applying insertions (extra query bases before their template column).
-// Returns a Map<templateCol, queryIndex> for non-gap columns.
-export function buildColumnQueryMap(alignment) {
+// Walk an alignment's segments in join order producing one ordered entry per
+// chromatogram anchor: { col, q, ins, k } where `col` is the template column
+// the anchor hangs on, `q` the read index, `ins` marks insertion bases (extra
+// read bases before their template column — they consume q but have no
+// template column of their own) and `k` is the base's index within its
+// insertion run. Insertions anchored at a column the walk never visits
+// (junctions, read tails) are spliced in before the first walked column past
+// their anchor; q is assigned sequentially in the final order, so every read
+// base appears exactly once and q order always matches read order. Mirrors
+// GenePad's gapSegments design.
+export function buildColumnAnchors(alignment) {
   const insByPos = new Map((alignment.insertions || []).map((ins) => [ins.pos, ins.bases]));
-  const colToQuery = new Map();
-  let q = 0;
+  const walked = new Set();
+  const ordered = [];
   for (const seg of alignment.segments || []) {
     const chars = seg.chars || '';
     for (let i = 0; i < chars.length; i++) {
       const pos = seg.start + i;
       const ins = insByPos.get(pos);
-      if (ins) q += ins.length;
-      if (chars[i] !== '-') {
-        colToQuery.set(pos, q);
-        q += 1;
+      if (ins) {
+        walked.add(pos);
+        for (let k = 0; k < ins.length; k++) ordered.push({ col: pos, ins: true, k });
       }
+      if (chars[i] !== '-') ordered.push({ col: pos, ins: false, k: 0 });
     }
+  }
+  for (const [pos, ins] of insByPos) {
+    if (walked.has(pos)) continue;
+    let idx = ordered.findIndex((e) => e.col > pos);
+    if (idx < 0) idx = ordered.length;
+    for (let k = 0; k < ins.length; k++) ordered.splice(idx + k, 0, { col: pos, ins: true, k });
+  }
+  let q = 0;
+  for (const e of ordered) e.q = q++;
+  return ordered;
+}
+
+// Map aligned template columns to read query indices. Walks segments in join
+// order accumulating read bases ('-' = read gap, consumes no query base) and
+// applying insertions (extra query bases before their template column).
+// Returns a Map<templateCol, queryIndex> for non-gap columns.
+export function buildColumnQueryMap(alignment) {
+  const colToQuery = new Map();
+  for (const e of buildColumnAnchors(alignment)) {
+    if (!e.ins) colToQuery.set(e.col, e.q);
   }
   return colToQuery;
 }
