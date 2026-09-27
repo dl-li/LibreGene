@@ -1555,6 +1555,39 @@ async fn do_add_alignment_seq<R: Runtime>(
     }
 }
 
+async fn do_realign_alignments<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    algorithm: libregene_core::align::AlignAlgorithm,
+) -> Result<serde_json::Value, String> {
+    {
+        let mut pm = pm.write().await;
+        if !pm.realign_alignments(project_id, algorithm) {
+            return Err("No alignments to re-align".to_string());
+        }
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+
+    let pm = pm.read().await;
+    match pm.get_project_by_id(project_id) {
+        Some(p) => {
+            let params = ProjectParams {
+                enzyme_filter: Some("all".to_string()),
+                row_start: None,
+                row_end: None,
+                cpl: None,
+            };
+            Ok(filter_project(p, &params))
+        }
+        None => Ok(serde_json::json!({"error": "Project not found"})),
+    }
+}
+
 async fn do_remove_alignment<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -3340,6 +3373,34 @@ async fn remove_alignment(
     .await
 }
 
+/// Re-run every stored alignment of the project against the current sequence
+/// with the requested engine, so alignments computed by an older engine (or
+/// with different parameters) can be refreshed without re-adding the reads.
+#[tauri::command]
+async fn realign_alignments(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    algorithm: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
+    };
+    let algorithm = parse_align_algorithm(algorithm.as_deref());
+
+    do_realign_alignments(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        &state.agent_tabs,
+        Some(webview_window.label()),
+        &project_id,
+        algorithm,
+    )
+    .await
+}
+
 /// Load the chromatogram (trace channels + peak positions) of an .ab1 file.
 /// Traces are fetched lazily by the frontend and never travel inside the
 /// project payload — a single read is ~100 KB of sample data.
@@ -4258,6 +4319,7 @@ pub fn run() {
             add_alignment,
             add_alignment_seq,
             remove_alignment,
+            realign_alignments,
             get_chromatogram,
             get_snapgene_history,
             open_snapgene_snapshot,
@@ -4851,6 +4913,74 @@ mod tests {
         let ids: std::collections::HashSet<&str> =
             p.alignments.iter().map(|al| al.id.as_str()).collect();
         assert_eq!(ids.len(), p.alignments.len(), "ids must be unique");
+    }
+
+    #[tokio::test]
+    async fn realign_alignments_keeps_ids_and_marks_dirty() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        // Pseudo-random 400 bp template; the read is a 300 bp window.
+        let mut seq = String::new();
+        let mut x = 11u64;
+        for _ in 0..400 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seq.push(b"ACGT"[(x >> 33) as usize & 3] as char);
+        }
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: seq.clone(),
+                    length: 400,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let read = seq[50..350].to_string();
+        {
+            let mut pm_w = pm.write().await;
+            pm_w.add_alignment("p1", "r1", &read, libregene_core::align::AlignAlgorithm::SmithWaterman)
+                .expect("alignment");
+            // Simulate a stored result from an older engine.
+            let p = pm_w.get_project_mut_by_id("p1").unwrap();
+            p.alignments[0].insertions = vec![libregene_core::models::AlignInsertion {
+                pos: 3,
+                bases: "GGG".to_string(),
+            }];
+            pm_w.mark_clean("p1");
+        }
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+
+        let before_ids: Vec<String> = pm.read().await.get_project_by_id("p1").unwrap().alignments
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
+
+        let out = do_realign_alignments(
+            app.handle(),
+            &pm,
+            &wp,
+            &agent_tabs,
+            None,
+            "p1",
+            libregene_core::align::AlignAlgorithm::BlastN,
+        )
+        .await
+        .unwrap();
+        assert!(out["alignments"].as_array().is_some());
+
+        let pm = pm.read().await;
+        let p = pm.get_project_by_id("p1").unwrap();
+        let after_ids: Vec<String> = p.alignments.iter().map(|a| a.id.clone()).collect();
+        assert_eq!(before_ids, after_ids, "ids survive a re-align");
+        assert!(p.alignments[0].insertions.is_empty(), "{:?}", p.alignments[0].insertions);
+        assert!(pm.is_dirty("p1"), "re-align marks the project dirty");
     }
 
     #[tokio::test]

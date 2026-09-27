@@ -1175,6 +1175,12 @@ pub fn next_alignment_id(existing: &[Alignment]) -> String {
 /// that no longer aligns keeps its previous blocks so the display stays an
 /// honest stale snapshot rather than vanishing.
 pub fn realign_project(p: &mut crate::models::ProjectData) {
+    realign_project_with(p, AlignAlgorithm::default());
+}
+
+/// `realign_project` with an explicit algorithm (the UI's alignment-engine
+/// setting), for the on-demand "re-align" action.
+pub fn realign_project_with(p: &mut crate::models::ProjectData, algorithm: AlignAlgorithm) {
     if !p.is_dna() || p.sequence.is_empty() || p.alignments.is_empty() {
         return;
     }
@@ -1184,12 +1190,7 @@ pub fn realign_project(p: &mut crate::models::ProjectData) {
         if aln.seq.is_empty() {
             continue;
         }
-        if let Ok(mut fresh) = align_read_checked_with(
-            &template,
-            &aln.seq,
-            circular,
-            AlignAlgorithm::default(),
-        ) {
+        if let Ok(mut fresh) = align_read_checked_with(&template, &aln.seq, circular, algorithm) {
             fresh.id = aln.id.clone();
             fresh.name = aln.name.clone();
             fresh.trace_path = aln.trace_path.clone();
@@ -1346,6 +1347,38 @@ mod tests {
         assert_eq!(diff.mismatches.len(), 0);
         let ins_total: usize = aln.insertions.iter().map(|i| i.bases.len()).sum();
         assert_eq!(ins_total, 150);
+    }
+
+    #[test]
+    fn test_realign_project_with_explicit_algorithm() {
+        let t = make_template_smx(1200, 42);
+        let read = t[300..1000].to_string();
+        let aln = align_read_checked_with(&t, &read, false, AlignAlgorithm::BlastN).unwrap();
+        // A stored alignment from an older engine: stale blocks, no name/id
+        // beyond what the user sees.
+        let mut stale = aln.clone();
+        stale.id = "aln-7".to_string();
+        stale.name = "read-7".to_string();
+        stale.insertions = vec![AlignInsertion {
+            pos: 5,
+            bases: "GGGGGG".to_string(),
+        }];
+        stale.segments[0].chars = "-".repeat(stale.segments[0].chars.len());
+
+        let db = t.clone();
+        let mut p = crate::models::ProjectData {
+            sequence: db.clone(),
+            length: db.len() as i64,
+            alignments: vec![stale],
+            ..Default::default()
+        };
+        realign_project_with(&mut p, AlignAlgorithm::BlastN);
+        let aln = &p.alignments[0];
+        assert_eq!(aln.id, "aln-7");
+        assert_eq!(aln.name, "read-7");
+        assert!(aln.insertions.is_empty(), "{:?}", aln.insertions);
+        assert_eq!(alignment_diff(aln, &db).mismatches.len(), 0);
+        assert!(!aln.segments[0].chars.contains('-'));
     }
 
     #[test]

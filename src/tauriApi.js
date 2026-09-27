@@ -283,6 +283,12 @@ export async function removeAlignment(alignmentId) {
   return tauriInvoke('remove_alignment', { alignmentId });
 }
 
+/** Re-run every stored alignment against the current sequence with `algorithm`. */
+export async function realignAlignments(algorithm) {
+  assertEditable();
+  return tauriInvoke('realign_alignments', { algorithm });
+}
+
 /**
  * Load the chromatogram (trace channels + peak locations) of an .ab1 file.
  * Traces are fetched lazily per source path and cached frontend-side — they

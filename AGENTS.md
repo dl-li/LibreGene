@@ -133,7 +133,7 @@ get_features, add_feature, delete_feature, update_feature_ftype/color/name/stran
 get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
 design_primer_candidates, find_orfs, search_sequence, annotate_features, annotate_sequence,
 list_codon_species, preview_codon_optimization, apply_codon_optimization, get_enzyme_database, get_enzyme_providers,
-add_alignment, add_alignment_seq, remove_alignment, get_chromatogram, get_snapgene_history, open_snapgene_snapshot, set_methylation,
+add_alignment, add_alignment_seq, remove_alignment, realign_alignments, get_chromatogram, get_snapgene_history, open_snapgene_snapshot, set_methylation,
 get_projects, activate_project, delete_project, open_in_new_window, get_window_project_id, rekey_project,
 get_agent_tab_state, set_agent_tab_locked,
 compute_tm, blast_submit, get_mcp_config, set_mcp_config,
@@ -178,6 +178,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none|map}，Tauri 广播同步；导航栏 Diagrams 菜单左键切换背景（RNA 默认 Folding，DNA/Protein 默认 Map，未设置时单击即应用默认图），菜单内可单选背景并 Examine 各图；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
 - **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
 - **Agent 标签解锁按钮/导航控制条**：纯前端；锁定状态后端持有，MCP 不暴露
+- **Re-align（重算存量比对）**：UI 动作（Alignment 弹窗按钮 → `realign_alignments` 命令）；MCP 未暴露（Agent 可重新 open/add 得到同样效果）
 - **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态
 - **`add_alignment` 的 createdSites**：未实现；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
 - **自动标注弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联/窗口拖放打开**：纯前端/OS 集成
@@ -185,7 +186,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
 - **SnapGene 历史快照**（插件 `src/plugins/snapgeneHistory/`，Edit 菜单 History 项（禁用插件时隐藏）→ `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见（可用性谓词 `dialogVisible`）；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
-- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失/环状 join wrap 处曲线截断跳跃（查询序号不连续即断），read 中段/接缝 insertion 碱基与峰占满独立槽位列（槽在锚列左侧，插入碱基用普通灰字渲染；模板行同位渲染灰色 `-` 占位，插入两侧的匹配碱基不做额外标红），**所有插入（含首尾 junk）一律展开槽位、无圆点/悬停弹窗**，`buildStreamLayout`（`src/SequenceEditor.jsx`）把模板列与槽位列拼成一条可视单元流、每行恰好 `baseCpl` 个单元：`rowStarts`/`rowCounts`（行内模板列数与起止，宽槽位块跨行时中间行 `rowCounts===0`）、`streamOf`/`rowOf`/`colOfAbs`/`absFromStream`，helper `colVis`/`colFromVis`/`colRuns`/`sp` 统一所有轨道映射，行宽恒定不再横向溢出，match/mismatch 保持连续，参考 GenePad）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返。**模板序列编辑后所有比对自动重算**（`align::realign_project`，默认引擎，随 `recompute_after_sequence_change` 走 spawn_blocking + 序列 CAS、按 id 合并回写；read 不再可比对的保留旧快照）
+- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失/环状 join wrap 处曲线截断跳跃（查询序号不连续即断），read 中段/接缝 insertion 碱基与峰占满独立槽位列（槽在锚列左侧，插入碱基用普通灰字渲染；模板行同位渲染灰色 `-` 占位，插入两侧的匹配碱基不做额外标红），**所有插入（含首尾 junk）一律展开槽位、无圆点/悬停弹窗**，`buildStreamLayout`（`src/SequenceEditor.jsx`）把模板列与槽位列拼成一条可视单元流、每行恰好 `baseCpl` 个单元：`rowStarts`/`rowCounts`（行内模板列数与起止，宽槽位块跨行时中间行 `rowCounts===0`）、`streamOf`/`rowOf`/`colOfAbs`/`absFromStream`，helper `colVis`/`colFromVis`/`colRuns`/`sp` 统一所有轨道映射，行宽恒定不再横向溢出，match/mismatch 保持连续，参考 GenePad）：纯前端渲染。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返。**模板序列编辑后所有比对自动重算**（`align::realign_project`，默认引擎，随 `recompute_after_sequence_change` 走 spawn_blocking + 序列 CAS、按 id 合并回写；read 不再可比对的保留旧快照）；**存量比对不会自动重算**，Alignment 弹窗的 Re-align 按钮走 `realign_alignments` 命令（`ProjectManager::realign_alignments` → `align::realign_project_with`，用设置里当前引擎，保留 id/name/trace_path）按需刷新旧引擎算出的结果
 
 ## 核心模型约定
 
