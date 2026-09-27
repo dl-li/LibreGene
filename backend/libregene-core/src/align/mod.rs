@@ -1105,6 +1105,35 @@ pub fn next_alignment_id(existing: &[Alignment]) -> String {
     format!("aln-{}", n)
 }
 
+/// Re-run every stored alignment against the current template after a
+/// sequence edit. Each alignment keeps its id/name/trace_path (and its
+/// stored oriented read `seq`, which is the alignment input); an alignment
+/// that no longer aligns keeps its previous blocks so the display stays an
+/// honest stale snapshot rather than vanishing.
+pub fn realign_project(p: &mut crate::models::ProjectData) {
+    if !p.is_dna() || p.sequence.is_empty() || p.alignments.is_empty() {
+        return;
+    }
+    let circular = p.topology == "circular";
+    let template = p.sequence.clone();
+    for aln in &mut p.alignments {
+        if aln.seq.is_empty() {
+            continue;
+        }
+        if let Ok(mut fresh) = align_read_checked_with(
+            &template,
+            &aln.seq,
+            circular,
+            AlignAlgorithm::default(),
+        ) {
+            fresh.id = aln.id.clone();
+            fresh.name = aln.name.clone();
+            fresh.trace_path = aln.trace_path.clone();
+            *aln = fresh;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1201,6 +1230,49 @@ mod tests {
         assert_eq!(aln.segments[0].start, 50);
         assert_eq!(aln.segments[0].end, 119);
         assert!((aln.identity - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_realign_project_after_template_deletion() {
+        let t = make_template_smx(1200, 42);
+        let read = t[300..1000].to_string();
+        let aln = align_read_checked_with(&t, &read, false, AlignAlgorithm::BlastN).unwrap();
+        assert!(aln.insertions.is_empty());
+
+        // Delete 150 bp from the template; the read's now-unalignable middle
+        // must come back as one insertion at the junction.
+        let mut edited = t.clone();
+        edited.replace_range(600..750, "");
+        let mut p = crate::models::ProjectData {
+            sequence: edited.clone(),
+            length: edited.len() as i64,
+            alignments: vec![aln],
+            ..Default::default()
+        };
+        realign_project(&mut p);
+        let aln = &p.alignments[0];
+        let diff = alignment_diff(aln, &edited);
+        assert_eq!(diff.mismatches.len(), 0);
+        let ins_total: usize = aln.insertions.iter().map(|i| i.bases.len()).sum();
+        assert_eq!(ins_total, 150);
+    }
+
+    #[test]
+    fn test_realign_project_keeps_unalignable_read() {
+        let t = make_template_smx(400, 43);
+        let read = t[100..200].to_string();
+        let aln = align_read_checked_with(&t, &read, false, AlignAlgorithm::BlastN).unwrap();
+        let old_segments = aln.segments.len();
+        // A template the read has no hit against: the stale snapshot stays.
+        let other = make_template_smx(400, 99);
+        let mut p = crate::models::ProjectData {
+            sequence: other.to_string(),
+            length: other.len() as i64,
+            alignments: vec![aln],
+            ..Default::default()
+        };
+        realign_project(&mut p);
+        assert_eq!(p.alignments[0].segments.len(), old_segments);
     }
 
     #[test]

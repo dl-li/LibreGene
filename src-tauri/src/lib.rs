@@ -832,11 +832,18 @@ fn merge_recomputed_after_edit(live: &mut ProjectData, computed: ProjectData) ->
             f.translation = cf.translation.clone();
         }
     }
+    // Alignments recomputed against the edited template; merge by id so a
+    // concurrently added/removed alignment survives.
+    for ca in &computed.alignments {
+        if let Some(a) = live.alignments.iter_mut().find(|a| a.id == ca.id) {
+            *a = ca.clone();
+        }
+    }
     true
 }
 
-/// Clone the project, recompute enzymes/primers/translations off-lock, CAS
-/// write the computed fields back and broadcast. Shared by
+/// Clone the project, recompute enzymes/primers/translations/alignments
+/// off-lock, CAS write the computed fields back and broadcast. Shared by
 /// do_update_sequence and the MCP edit_sequence path (which writes the
 /// sequence inside its own critical section, then calls this).
 pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
@@ -880,6 +887,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
             enzyme::recompute(&mut p);
             primer::recompute(&mut p);
             libregene_core::translate::refresh_feature_translations(&mut p);
+            libregene_core::align::realign_project(&mut p);
             p
         })
         .await
@@ -902,9 +910,9 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
 /// Replace a project's sequence (and optionally its whole primer list, e.g.
 /// an undo/redo snapshot — `Some` replaces `p.primers` wholesale and binding
 /// sites are recomputed; `None` keeps the current primers), recompute
-/// enzymes/primers/translations off-lock, write the computed fields back
-/// under a sequence CAS (a stale recompute is dropped), mark dirty and
-/// broadcast.
+/// enzymes/primers/translations/alignments off-lock, write the computed
+/// fields back under a sequence CAS (a stale recompute is dropped), mark
+/// dirty and broadcast.
 #[allow(clippy::too_many_arguments)]
 async fn do_update_sequence<R: Runtime>(
     app_handle: &AppHandle<R>,
