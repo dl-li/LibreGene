@@ -415,6 +415,21 @@ fn find_rotation_offsets(ref_seq: &[u8], query_seq: &[u8]) -> Vec<usize> {
     offsets
 }
 
+/// Reorder a rotation hit's columns into the read's own 5'→3' order. The
+/// rotation search aligns a rotated query against the linear subject, so the
+/// columns come out in subject order with the query rotated; the display (and
+/// the frontend's per-base query numbering, which drives the chromatogram
+/// trace) needs read order. The subject coordinates simply wrap once at the
+/// rotation point, and the caller splits a segment there.
+fn columns_in_read_order(mut hit: ColumnHit) -> ColumnHit {
+    if let Some(k) = hit.columns.iter().position(|c| c.query_position == 1) {
+        if k > 0 {
+            hit.columns.rotate_left(k);
+        }
+    }
+    hit
+}
+
 fn full_length_rotated_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> Option<ColumnHit> {
     if query_seq.is_empty() {
         return None;
@@ -432,7 +447,7 @@ fn full_length_rotated_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> 
         let hit = full_length_ungapped_hit(ref_seq, &rotated, strand)
             .or_else(|| full_length_banded_hit(ref_seq, &rotated, strand));
         if let Some(hit) = hit {
-            let adjusted = rotate_query_columns(hit, offset, query_seq.len());
+            let adjusted = columns_in_read_order(rotate_query_columns(hit, offset, query_seq.len()));
             if best.as_ref().is_none_or(|current| adjusted.score > current.score) {
                 best = Some(adjusted);
             }
