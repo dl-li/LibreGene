@@ -2237,7 +2237,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const rowAnchorRef = useRef(null);
   useLayoutEffect(() => {
     const prev = rowAnchorRef.current;
-    rowAnchorRef.current = { rowY, rowAbove, charsPerLine };
+    rowAnchorRef.current = { rowY, rowAbove, gridCpl };
     if (!prev || !rowY.length || !prev.rowY.length) return;
     const scroller = scrollContainerRef?.current;
     // Use the last scroll-event value: after a shrink the DOM scrollTop may already
@@ -2250,13 +2250,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       else break;
     }
     const delta = st - (prev.rowY[r] - (prev.rowAbove[r] || 0));
-    const newR = Math.min(rowY.length - 1, Math.floor((r * prev.charsPerLine) / gridCpl));
+    const newR = Math.min(rowY.length - 1, Math.floor((r * prev.gridCpl) / gridCpl));
     const newTop = Math.max(0, rowY[newR] - (rowAbove[newR] || 0) + delta);
     if (Math.abs(newTop - st) < 1) return;
     if (scroller) scroller.scrollTop = newTop;
     else window.scrollTo(0, newTop);
     setScrollY(newTop);
-  }, [rowY, rowAbove, charsPerLine, scrollContainerRef]);
+  }, [rowY, rowAbove, charsPerLine, gridCpl, scrollContainerRef]);
 
   // --- selection: coordinate conversion & event handlers ---
   // Row tops (getSeqY(r) - rowAbove[r]) increase monotonically, so the row
