@@ -1486,6 +1486,12 @@ async fn do_add_alignment_seq<R: Runtime>(
         Some(p) => p,
         None => return Ok(serde_json::json!({"error": "Project not found"})),
     };
+    if !project_clone.is_dna() {
+        return Ok(serde_json::json!({"error": format!(
+            "Alignments are only supported for DNA projects; project '{}' is a {} project",
+            project_id, project_clone.molecule_type
+        )}));
+    }
     let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
 
     let clean_seq: String = seq
@@ -3207,6 +3213,12 @@ async fn add_alignment(
         Some(p) => p,
         None => return Ok(serde_json::json!({"error": "Project not found"})),
     };
+    if !project_clone.is_dna() {
+        return Ok(serde_json::json!({"error": format!(
+            "Alignments are only supported for DNA projects; project '{}' is a {} project",
+            project_id, project_clone.molecule_type
+        )}));
+    }
     let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
 
     let path_buf = std::path::PathBuf::from(&path);
