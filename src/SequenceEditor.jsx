@@ -4537,6 +4537,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       const short = middleTruncate(al.name);
       const truncated = short !== al.name;
+      // Right edge (exclusive visual column) of this read's content per row:
+      // the last aligned column plus every insertion cell rendered in that
+      // row — including the cells of an insertion anchored at the first
+      // column of the NEXT row, which occupy the tail of this one.
+      const rowRight = {};
+      for (const v of Object.values(rowLabels)) {
+        rowRight[v.row] = colVis(v.colEnd, v.row) + 1;
+      }
+      for (const ins of al.insertions || []) {
+        if (!ins.bases) continue;
+        const slotN = insReserve.get(ins.pos) || 0;
+        const cell0 = streamOf(ins.pos) - slotN;
+        for (let k = 0; k < Math.min(slotN, ins.bases.length); k++) {
+          const si = cell0 + k;
+          const row = Math.floor(si / visCpl);
+          if (rowRight[row] === undefined) continue;
+          rowRight[row] = Math.max(rowRight[row], (si % visCpl) + 1);
+        }
+      }
       return (
         <g key={al.id}>
           {Object.values(rowLabels).map((v) => {
@@ -4554,14 +4573,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
             const hKey = `${al.id}:${v.row}`;
             const labelHover = hoverAlignLabel === hKey;
             const hovered = truncated && labelHover;
-            // Hug the right edge of THIS row's read content (drifted last
-            // column + trailing slot bases) — rows with fewer slots have
-            // nearer labels; they don't share a common column.
-            const tailSlot =
-              v.colEnd + 1 < rowCounts[v.row]
-                ? insReserve.get(rowStarts[v.row] + v.colEnd + 1) || 0
-                : 0;
-            const labelX = getX(colVis(v.colEnd, v.row)) + (1 + tailSlot) * cw + 8;
+            // Hug the right edge of THIS row's read content — rows with fewer
+            // slots have nearer labels; they don't share a common column.
+            const labelX = getX(rowRight[v.row]) + 8;
             const clipId = `align-label-clip-${al.id}-${v.row}`;
             const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
             // Trace toggle: labels of alignments whose .ab1 resolved are
@@ -4668,8 +4682,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cleanSeq.length,
     colVis,
     insReserve,
-    rowStarts,
-    rowCounts,
+    visCpl,
+    streamOf,
   ]);
 
   // Track-plugin lanes (e.g. the GC-content gradient band): each active
