@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { getX } from '../../editorConstants';
+import { cw, getX } from '../../editorConstants';
 
 export const SHOW_GC_CONTENT_KEY = 'showGcContent';
 export const GC_WINDOW_SIZE_KEY = 'gcWindowSize';
@@ -58,32 +58,47 @@ export function useGcLane({ cleanSeq, topology, moleculeType, enabled, windowSiz
   }, [enabled, moleculeType, cleanSeq, windowSize, topology]);
 }
 
-// One rect per visible row filled with a horizontal gradient: per-base stops
-// at column centers make the whole track a continuous blue→white→red ramp.
-// The band is nudged up toward the sequence text; the reserved lane height
-// (alignLaneInfo.trackH) is unchanged so nothing else moves.
+// One gradient per row spanning the row's full visual width, filled into one
+// rect per contiguous run: per-base stops at drifted column centers make the
+// track a continuous blue→white→red ramp that breaks at insertion-slot
+// columns instead of shifting. The band is nudged up toward the sequence
+// text; the reserved lane height (alignLaneInfo.trackH) is unchanged so
+// nothing else moves.
 export function renderGcTrack(ctx, lane) {
   const fracs = lane?.fracs;
   if (!fracs) return null;
-  const { visibleRows, rowBuf, numRows, charsPerLine, seqLength, getSeqY, lp, idPrefix } = ctx;
+  const {
+    visibleRows,
+    rowBuf,
+    numRows,
+    gridCpl,
+    seqLength,
+    getSeqY,
+    lp,
+    idPrefix,
+    colVis,
+    colRuns,
+  } = ctx;
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
   const rows = [];
   for (let r = vs; r <= ve; r++) {
-    const rowStart = r * charsPerLine;
-    const rowEnd = Math.min(seqLength, (r + 1) * charsPerLine);
+    const rowStart = r * gridCpl;
+    const rowEnd = Math.min(seqLength, (r + 1) * gridCpl);
     const count = rowEnd - rowStart;
-    const x0 = getX(0);
-    const x1 = getX(count);
+    if (count <= 0) continue;
     const y = getSeqY(r) + lp.featBaseOffset - 6;
     const gid = `${idPrefix}-gc-${r}`;
+    const rowVisW = colVis(count - 1, r) + 1;
+    const x0 = getX(0);
+    const x1 = getX(rowVisW);
     const stops = [];
-    for (let pos = rowStart; pos < rowEnd; pos++) {
+    for (let i = 0; i < count; i++) {
       stops.push(
         <stop
-          key={pos}
-          offset={(pos - rowStart + 0.5) / count}
-          stopColor={gcContentColor(fracs[pos])}
+          key={i}
+          offset={(colVis(i, r) + 0.5) / rowVisW}
+          stopColor={gcContentColor(fracs[rowStart + i])}
         />,
       );
     }
@@ -94,15 +109,18 @@ export function renderGcTrack(ctx, lane) {
             {stops}
           </linearGradient>
         </defs>
-        <rect
-          x={x0}
-          y={y}
-          width={x1 - x0}
-          height={GC_TRACK_H}
-          fill={`url(#${gid})`}
-          stroke="#000000"
-          strokeWidth="1"
-        />
+        {colRuns(0, count - 1, r).map(([visStart, len]) => (
+          <rect
+            key={visStart}
+            x={getX(visStart)}
+            y={y}
+            width={len * cw}
+            height={GC_TRACK_H}
+            fill={`url(#${gid})`}
+            stroke="#000000"
+            strokeWidth="1"
+          />
+        ))}
       </g>,
     );
   }

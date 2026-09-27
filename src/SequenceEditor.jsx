@@ -4711,11 +4711,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
       visibleRows,
       rowBuf: ROW_BUF,
       numRows,
+      gridCpl,
       charsPerLine,
       seqLength: cleanSeq.length,
       getSeqY,
       lp,
       idPrefix: trackIdPrefix,
+      colVis,
+      colRuns,
     };
     return trackPlugins.map((plugin, i) =>
       trackLanes[i] && plugin.track.render ? (
@@ -4724,7 +4727,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     );
     // trackPlugins is a module constant, so spreading trackLanes keeps the
     // deps length fixed while keying on each lane's memoized identity.
-  }, [visibleRows, numRows, charsPerLine, cleanSeq.length, getSeqY, lp, trackIdPrefix, ...trackLanes]);
+  }, [visibleRows, numRows, gridCpl, charsPerLine, cleanSeq.length, getSeqY, lp, trackIdPrefix, colVis, colRuns, ...trackLanes]);
 
   // Chromatogram bands: the project's own trace directly under the top
   // strand (ab1 source files), and one warped trace band per alignment
