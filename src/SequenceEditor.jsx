@@ -226,13 +226,13 @@ function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
-/** Dash runs no wider than this are not drawn in the template row: a stretch
- *  with a handful of small insertions otherwise shows a dash fragment every
- *  few columns. The cells stay (the read's bases still render in them, on
- *  their pink plates) — only the '-' placeholder is dropped. Merging the
- *  cells into one block instead would reorder a read's own bases around the
- *  matched columns in between, which garbles its chromatogram trace. */
-export const INSERT_DASH_HIDE_MAX = 5;
+/** Two insertions anchored no further apart than this many template columns
+ *  render as one block. A stretch with several small insertions would
+ *  otherwise split the template row into isolated pieces of a few bases each
+ *  (and pepper it with tiny dash runs); merging keeps every template base
+ *  visible while leaving no fragment shorter than this. Display-level only —
+ *  the stored alignment is untouched. */
+export const INSERT_MERGE_GAP = 5;
 
 /** Highlight plate behind a read base that needs attention: a mismatch, a
  *  read gap, or a base sitting in an insertion cell (its template row shows
@@ -252,11 +252,52 @@ function perAnchorInsertWidths(alns, tlen) {
   return widths;
 }
 
-/** Insertion slots keyed by their anchor column, each sized to the longest
- *  insertion anchored there. Flank junk (unalignable read tails) reserves
- *  slots like any other insertion. */
+/** Cluster anchors within [`INSERT_MERGE_GAP`] columns into blocks; each
+ *  member keeps its own sub-slot so different reads never overlap. */
+function mergeInsertAnchors(widths) {
+  const anchors = [...widths.entries()].sort((a, b) => a[0] - b[0]);
+  const blocks = [];
+  for (const [pos, w] of anchors) {
+    const last = blocks[blocks.length - 1];
+    if (last && pos - last.lastPos <= INSERT_MERGE_GAP) {
+      last.members.push({ pos, width: w, offset: last.width });
+      last.width += w;
+      last.lastPos = pos;
+    } else {
+      blocks.push({ anchor: pos, width: w, lastPos: pos, members: [{ pos, width: w, offset: 0 }] });
+    }
+  }
+  return blocks;
+}
+
+/** Insertion blocks keyed by their anchor column, each sized to the total of
+ *  its members' slots. Flank junk (unalignable read tails) reserves slots
+ *  like any other insertion. */
 export function alignmentInsertUnion(alns, tlen) {
-  return perAnchorInsertWidths(alns, tlen);
+  const union = new Map();
+  for (const b of mergeInsertAnchors(perAnchorInsertWidths(alns, tlen))) {
+    union.set(b.anchor, b.width);
+  }
+  return union;
+}
+
+/** Every insertion anchor → the block that renders it: `{ anchor, width,
+ *  offset, memberWidth }`, where `offset` is the cell offset of this anchor's
+ *  sub-slot inside the block (the k-th base of an insertion sits at
+ *  `streamOf(anchor) - width + offset + k`). */
+export function insertionBlocks(alns, tlen) {
+  const map = new Map();
+  for (const b of mergeInsertAnchors(perAnchorInsertWidths(alns, tlen))) {
+    for (const m of b.members) {
+      map.set(m.pos, {
+        anchor: b.anchor,
+        width: b.width,
+        offset: m.offset,
+        memberWidth: m.width,
+      });
+    }
+  }
+  return map;
 }
 
 /** An alignment's insertions deduped by template column — the same map the
@@ -1539,6 +1580,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
     () => (isDna ? alignmentInsertUnion(alignmentTracks, cleanSeq.length) : new Map()),
     [isDna, alignmentTracks, cleanSeq.length],
   );
+  // Anchor → its block: { anchor, width, offset, memberWidth } for placing an
+  // insertion's own bases inside the merged block.
+  const insBlocks = useMemo(
+    () => (isDna ? insertionBlocks(alignmentTracks, cleanSeq.length) : new Map()),
+    [isDna, alignmentTracks, cleanSeq.length],
+  );
   // Visual stream: template columns + slot cells, exactly baseCpl cells per
   // row — the row width is constant and never overflows the viewport.
   const stream = useMemo(
@@ -1616,13 +1663,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const v of sp(seg.start, seg.end)) rows.add(v.row);
       }
       // Insertion anchors can sit outside every segment (read tails past the
-      // last aligned base) and a slot can span rows, so every row touched by
-      // the anchor's reserved cells still needs a lane. Deduped by anchor,
-      // matching the display walk and the trace numbering.
+      // last aligned base) — and a wide block spans rows — so every row
+      // touched by the anchor's reserved cells still needs a lane. Deduped by
+      // anchor, matching the display walk and the trace numbering.
       for (const [pos, bases] of insertionBases(al)) {
-        const slotN = insReserve.get(pos) || 0;
-        const cell0 = streamOf(pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, bases.length); k++) {
+        const blk = insBlocks.get(pos);
+        if (!blk) continue;
+        const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
+        for (let k = 0; k < Math.min(blk.memberWidth, bases.length); k++) {
           rows.add(Math.floor((cell0 + k) / charsPerLine));
         }
         // The anchor column's own read base can sit on a row of its own.
@@ -1650,6 +1698,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cleanSeq.length,
     trackH,
     insReserve,
+    insBlocks,
     rowOf,
     streamOf,
     charsPerLine,
@@ -4475,9 +4524,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // the plate marks the read bases that have no template column.
       const insByRow = new Map();
       for (const [pos, insBases] of insertionBases(al)) {
-        const slotN = insReserve.get(pos) || 0;
-        const cell0 = streamOf(pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, insBases.length); k++) {
+        const blk = insBlocks.get(pos);
+        if (!blk) continue;
+        const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
+        for (let k = 0; k < Math.min(blk.memberWidth, insBases.length); k++) {
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (row < vs || row > ve) continue;
@@ -4542,6 +4592,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     streamOf,
     colVis,
     insReserve,
+    insBlocks,
     sequence,
     alignLaneInfo,
     cleanSeq.length,
@@ -4595,9 +4646,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
         rowRight[v.row] = colVis(v.colEnd, v.row) + 1;
       }
       for (const [pos, insBases] of insertionBases(al)) {
-        const slotN = insReserve.get(pos) || 0;
-        const cell0 = streamOf(pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, insBases.length); k++) {
+        const blk = insBlocks.get(pos);
+        if (!blk) continue;
+        const cell0 = streamOf(blk.anchor) - blk.width + blk.offset;
+        for (let k = 0; k < Math.min(blk.memberWidth, insBases.length); k++) {
           const si = cell0 + k;
           const row = Math.floor(si / visCpl);
           if (rowRight[row] === undefined) continue;
@@ -4730,6 +4782,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cleanSeq.length,
     colVis,
     insReserve,
+    insBlocks,
     visCpl,
     streamOf,
   ]);
@@ -4847,17 +4900,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // left of their anchor column, exactly where the text lane renders them.
       const byRow = new Map();
       for (const e of buildColumnAnchors(al)) {
-        const si = e.ins ? streamOf(e.col) - (insReserve.get(e.col) || 0) + e.k : streamOf(e.col);
+        let si = streamOf(e.col);
+        if (e.ins) {
+          const blk = insBlocks.get(e.col);
+          if (!blk) continue;
+          si = streamOf(blk.anchor) - blk.width + blk.offset + e.k;
+        }
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
         if (!byRow.has(row)) byRow.set(row, []);
-        // Read order, not x order: a merged block can pull an inserted base
-        // left of the base before it, and the path must break there (drawn by
-        // the `brk`/x-decrease rule) instead of interpolating backwards.
-        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q, brk: e.brk });
+        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q });
       }
       for (const [row, rowAnchors] of byRow) {
-        const anchors = rowAnchors;
+        // x order: the trace is a signal over the displayed columns, so it
+        // follows the cells left to right. A merged block pulls a read's
+        // inserted bases left of the matched columns between them; drawing in
+        // x order keeps the curve continuous with every peak on its own base.
+        const anchors = [...rowAnchors].sort((a, b) => a.x - b.x);
         const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
         const y =
           getSeqY(row) +
@@ -4885,6 +4944,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     streamOf,
     colVis,
     insReserve,
+    insBlocks,
     cleanSeq.length,
     getSeqY,
     lp,
@@ -6202,7 +6262,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const dashByRow = new Map();
     if (insReserve.size > 0) {
       for (const [pos, n] of insReserve) {
-        if (n <= INSERT_DASH_HIDE_MAX) continue;
         const cell0 = streamOf(pos) - n;
         for (let k = 0; k < n; k++) {
           const si = cell0 + k;

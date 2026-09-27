@@ -59,43 +59,7 @@ describe('buildColumnAnchors', () => {
     ]);
   });
 
-  it('flags a display discontinuity before the base after a read deletion', () => {
-    // Column 11 is a deletion in the read: the display shows a dash there, so
-    // the trace must break before column 12 — and only there.
-    const aln = {
-      segments: [{ start: 10, end: 14, chars: 'AC-TA' }],
-      insertions: [],
-    };
-    const entries = buildColumnAnchors(aln);
-    expect(entries.map((e) => [e.col, e.brk])).toEqual([
-      [10, false],
-      [11, false],
-      [13, true],
-      [14, false],
-    ]);
-  });
-
-  it('does not break for insertions, and breaks across a segment jump', () => {
-    const aln = {
-      segments: [
-        { start: 10, end: 11, chars: 'AC' },
-        { start: 40, end: 41, chars: 'GT' },
-      ],
-      insertions: [{ pos: 12, bases: 'GG' }],
-    };
-    const entries = buildColumnAnchors(aln);
-    // Junction insertion at 12 (before the jump) and the jump itself.
-    expect(entries.map((e) => [e.col, e.ins, e.brk])).toEqual([
-      [10, false, false],
-      [11, false, false],
-      [12, true, false],
-      [12, true, false],
-      [40, false, true],
-      [41, false, false],
-    ]);
-  });
-
-  it('breaks the trace exactly where the anchors flag it', () => {
+  it('breaks the trace only where a gap opens between the read\'s own cells', () => {
     const chrom = {
       traceA: [0, 10, 0, 10, 0, 10],
       traceC: [0, 0, 0, 0, 0, 0],
@@ -105,29 +69,23 @@ describe('buildColumnAnchors', () => {
     };
     const subpaths = (anchors) =>
       (buildTracePath(chrom, 'traceA', anchors, 10, 1).match(/M/g) || []).length;
-    // Continuous bases share one subpath, including an inserted one.
+    // Adjacent cells stay one subpath — including a merged block, where the
+    // read's own cells are adjacent even though its samples jump around.
     expect(
       subpaths([
-        { x: 0, q: 0, brk: false },
-        { x: 12, q: 1, ins: true, brk: false },
-        { x: 24, q: 2, brk: false },
+        { x: 0, q: 0 },
+        { x: 12, q: 1 },
+        { x: 24, q: 8 },
+        { x: 36, q: 9 },
       ]),
     ).toBe(1);
-    // A flagged deletion starts a new subpath.
+    // An empty cell in between (a deletion, or padding reserved for another
+    // read) breaks the curve where the lane shows no base.
     expect(
       subpaths([
-        { x: 0, q: 0, brk: false },
-        { x: 12, q: 1, brk: false },
-        { x: 60, q: 2, brk: true },
-      ]),
-    ).toBe(2);
-    // A merged block that pulls a base left of its predecessor also breaks
-    // instead of drawing backwards.
-    expect(
-      subpaths([
-        { x: 40, q: 0, brk: false },
-        { x: 52, q: 1, brk: false },
-        { x: 10, q: 2, brk: false },
+        { x: 0, q: 0 },
+        { x: 12, q: 1 },
+        { x: 36, q: 2 },
       ]),
     ).toBe(2);
   });
