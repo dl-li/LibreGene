@@ -1349,12 +1349,24 @@ pub fn realign_project_with(p: &mut crate::models::ProjectData, algorithm: Align
         if aln.seq.is_empty() {
             continue;
         }
-        if let Ok(mut fresh) = align_read_checked_with(&template, &aln.seq, circular, algorithm) {
-            fresh.id = aln.id.clone();
-            fresh.name = aln.name.clone();
-            fresh.trace_path = aln.trace_path.clone();
-            *aln = fresh;
-        }
+        // Realign the read in its original orientation: the stored `seq` is
+        // already oriented for display, so feeding it straight back would make
+        // the engine report it on the plus strand — flipping `strand`, which
+        // is what the frontend orients the chromatogram by, and mirroring
+        // every peak of a minus-strand read. Rebuild the raw read from the
+        // stored strand and let the engine decide the orientation again.
+        let raw = if aln.strand == "-" {
+            crate::utils::reverse_complement(&aln.seq)
+        } else {
+            aln.seq.clone()
+        };
+        let Ok(mut fresh) = align_read_checked_with(&template, &raw, circular, algorithm) else {
+            continue;
+        };
+        fresh.id = aln.id.clone();
+        fresh.name = aln.name.clone();
+        fresh.trace_path = aln.trace_path.clone();
+        *aln = fresh;
     }
 }
 
@@ -1538,6 +1550,34 @@ mod tests {
         assert!(aln.insertions.is_empty(), "{:?}", aln.insertions);
         assert_eq!(alignment_diff(aln, &db).mismatches.len(), 0);
         assert!(!aln.segments[0].chars.contains('-'));
+    }
+
+    /// A minus-strand alignment must survive a re-align pointing the same way:
+    /// `strand` tells the frontend whether the chromatogram needs rev-comping,
+    /// so flipping it mirrors every peak of the read.
+    #[test]
+    fn test_realign_keeps_the_read_orientation() {
+        let t = make_template_smx(1_200, 42);
+        let raw = crate::utils::reverse_complement(&t[300..1000]);
+        for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
+            let aln = align_read_checked_with(&t, &raw, false, algo).unwrap();
+            assert_eq!(aln.strand, "-", "[{}] setup", algo.as_str());
+            let stored_seq = aln.seq.clone();
+            let mut p = crate::models::ProjectData {
+                sequence: t.clone(),
+                length: t.len() as i64,
+                alignments: vec![aln],
+                ..Default::default()
+            };
+            realign_project_with(&mut p, algo);
+            assert_eq!(
+                p.alignments[0].strand,
+                "-",
+                "[{}] the orientation must survive a re-align",
+                algo.as_str()
+            );
+            assert_eq!(p.alignments[0].seq, stored_seq, "[{}]", algo.as_str());
+        }
     }
 
     #[test]
