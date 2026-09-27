@@ -24,7 +24,6 @@ import {
   addAlignment,
   addAlignmentSeq,
   removeAlignment,
-  realignAlignments,
   getChromatogram,
   openAlignmentFileDialog,
   listenProjectUpdates,
@@ -1152,17 +1151,6 @@ export default function ProjectWorkspace({
     [onProjectsSync, alignments],
   );
 
-  const handleRealignAlignments = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const gen = ++operationGenRef.current;
-    const data = await realignAlignments(alignmentAlgorithm);
-    if (operationGenRef.current !== gen) return;
-    if (data && data.alignments) {
-      setAlignments(data.alignments);
-      if (data.projects) onProjectsSync(data.projects);
-      setIsDirty(true);
-    }
-  }, [onProjectsSync, alignmentAlgorithm]);
 
   /**
    * 调整特征/注释放置位置以适配编辑后的序列。
@@ -1929,8 +1917,6 @@ export default function ProjectWorkspace({
               alignments={alignments}
               onAddAlignment={handleAddAlignment}
               onRemoveAlignment={handleRemoveAlignment}
-              onRealignAlignments={handleRealignAlignments}
-              onRealignAlignments={handleRealignAlignments}
               features={features}
               onProjectChanged={refreshProject}
               watermark={background === 'folding'}

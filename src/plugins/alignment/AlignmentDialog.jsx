@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, LoaderCircle } from 'lucide-react';
 
 export default function AlignmentDialog({
   open,
@@ -9,7 +9,6 @@ export default function AlignmentDialog({
   alignments = [],
   onAddAlignment,
   onRemoveAlignment,
-  onRealignAlignments,
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -32,21 +31,6 @@ export default function AlignmentDialog({
       await onRemoveAlignment?.(id);
     } catch (e) {
       setError(String(e?.message || e));
-    }
-  };
-
-  // Stored alignments keep whatever the engine produced when they were added;
-  // re-running them applies the current engine (and its current parameters)
-  // without having to delete and re-add the reads.
-  const handleRealign = async () => {
-    setError('');
-    setBusy(true);
-    try {
-      await onRealignAlignments?.();
-    } catch (e) {
-      setError(String(e?.message || e));
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -107,30 +91,14 @@ export default function AlignmentDialog({
 
         {error && <div className="pt-2 text-xs text-destructive">{error}</div>}
 
-        <div className="flex items-center justify-between gap-4 pt-2">
+        <div className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted-foreground/60">
             Add a read or sequence file (.ab1, .fasta, .gbk…) to align against the template
           </span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleRealign}
-              disabled={busy || alignments.length === 0}
-              title="Re-run every alignment with the current engine"
-            >
-              {busy ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
-              Re-align
-            </Button>
-            <Button size="sm" onClick={handleAdd} disabled={busy}>
-              {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
-              Add…
-            </Button>
-          </div>
+          <Button size="sm" onClick={handleAdd} disabled={busy}>
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            Add…
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

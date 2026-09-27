@@ -198,25 +198,6 @@ impl ProjectManager {
         Some(aln)
     }
 
-    /// Re-run every stored alignment against the current sequence with the
-    /// given algorithm (the on-demand refresh for alignments computed by an
-    /// older engine). Returns true when the project was touched.
-    pub fn realign_alignments(
-        &mut self,
-        id: &str,
-        algorithm: crate::align::AlignAlgorithm,
-    ) -> bool {
-        let Some(p) = self.projects.get_mut(id) else {
-            return false;
-        };
-        if p.alignments.is_empty() {
-            return false;
-        }
-        crate::align::realign_project_with(p, algorithm);
-        self.dirty_projects.insert(id.to_string());
-        true
-    }
-
     /// Remove an alignment by its id. Returns true if one was removed.
     pub fn remove_alignment(&mut self, id: &str, alignment_id: &str) -> bool {
         if let Some(p) = self.projects.get_mut(id) {
