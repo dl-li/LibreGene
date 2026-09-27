@@ -21,6 +21,9 @@ const FULL_LENGTH_MIN_LENGTH_RATIO: f64 = 0.80;
 const FULL_LENGTH_MAX_BAND_CELLS: usize = 50_000_000;
 const ROTATION_WORD_SIZE: usize = 20;
 const ROTATION_MAX_CANDIDATES: usize = 32;
+/// Reference probes used to propose rotation candidates (spread over the whole
+/// subject so an indel inside the read cannot hide the correct offset).
+const ROTATION_PROBES: usize = 24;
 const NEG_INF: i32 = -1_000_000_000;
 
 /// Entry: one full-length hit when the pair is near-identical, else `None`.
@@ -215,9 +218,13 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
     let mut cur_iy = vec![NEG_INF; n + 1];
     prev_m[0] = 0;
 
-    // Compact band-local trace: 1 byte per active cell. traceStart[i] is the
-    // flat index of row i's first active column (j == lower_i):
-    //   1 = M (diagonal)  2/3 = Ix opened/extended  4/5 = Iy opened/extended
+    // Compact band-local trace: 1 byte per active cell. Bits 0-1 hold the
+    // winning state at the cell (0 = stop, 1 = M/diagonal, 2 = Ix = gap in the
+    // subject, 3 = Iy = gap in the query); bit 2 records whether Ix was
+    // reached by extending a run, bit 3 the same for Iy. The extension bits
+    // are what lets the traceback stay inside a gap run — without them a long
+    // insertion or deletion gets chopped into pieces with diagonal steps
+    // wherever the cell's winning state happened to be something else.
     let mut trace = vec![0_i8; (m + 1) * band_width];
     let (first_lower, first_upper) = row_bounds(0);
     for j in 1..=first_upper {
@@ -249,20 +256,24 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
             let ix_open = prev_m[j] + open_extend;
             let ix_ext = prev_ix[j] + BLAST_GAP_EXT;
             cur_ix[j] = ix_open.max(ix_ext);
-            let ix_code = if ix_open >= ix_ext { 2 } else { 3 };
 
             let iy_open = cur_m[j - 1] + open_extend;
             let iy_ext = cur_iy[j - 1] + BLAST_GAP_EXT;
             cur_iy[j] = iy_open.max(iy_ext);
-            let iy_code = if iy_open >= iy_ext { 4 } else { 5 };
 
-            let code = if cur_ix[j] > cur_m[j] && cur_ix[j] >= cur_iy[j] {
-                ix_code
+            let mut code = if cur_ix[j] > cur_m[j] && cur_ix[j] >= cur_iy[j] {
+                2
             } else if cur_iy[j] > cur_m[j] && cur_iy[j] > cur_ix[j] {
-                iy_code
+                3
             } else {
                 1
             };
+            if ix_ext >= ix_open {
+                code |= 0b100;
+            }
+            if iy_ext >= iy_open {
+                code |= 0b1000;
+            }
             trace[trace_idx(i, j, lower)] = code;
         }
 
@@ -278,9 +289,21 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
         return None;
     }
 
+    let code_at = |i: usize, j: usize| -> i8 {
+        let (lower, upper) = row_bounds(i);
+        if j < lower || j > upper {
+            0
+        } else {
+            trace[trace_idx(i, j, lower)]
+        }
+    };
+
     let mut columns = Vec::with_capacity(n.max(m));
     let mut i = m;
     let mut j = n;
+    // Walk the winning state cell by cell, honouring the extension bits so a
+    // gap run is traced as one run.
+    let mut state = code_at(i, j) & 0b11;
     while i > 0 || j > 0 {
         if i == 0 {
             // No query left: remaining ref is a leading deletion run.
@@ -292,6 +315,7 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                 query_position: 0,
             });
             j -= 1;
+            state = 0;
             continue;
         }
         if j == 0 {
@@ -304,14 +328,13 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                 query_position: i as u64,
             });
             i -= 1;
+            state = 0;
             continue;
         }
 
-        let (lower, upper) = row_bounds(i);
-        let in_band = j >= lower && j <= upper;
-        let t = if in_band { trace[trace_idx(i, j, lower)] } else { 1 };
-        match t {
-            2 | 3 => {
+        let code = code_at(i, j);
+        match state {
+            2 => {
                 columns.push(AlignColumn {
                     ref_base: b'-',
                     query_base: query_seq[i - 1],
@@ -320,8 +343,9 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                     query_position: i as u64,
                 });
                 i -= 1;
+                state = if code & 0b100 != 0 { 2 } else { code_at(i, j) & 0b11 };
             }
-            4 | 5 => {
+            3 => {
                 columns.push(AlignColumn {
                     ref_base: ref_seq[j - 1],
                     query_base: b'-',
@@ -330,6 +354,7 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                     query_position: 0,
                 });
                 j -= 1;
+                state = if code & 0b1000 != 0 { 3 } else { code_at(i, j) & 0b11 };
             }
             _ => {
                 let is_match = ref_seq[j - 1] == query_seq[i - 1];
@@ -342,6 +367,7 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                 });
                 i -= 1;
                 j -= 1;
+                state = code_at(i, j) & 0b11;
             }
         }
     }
@@ -375,16 +401,19 @@ fn find_rotation_offsets(ref_seq: &[u8], query_seq: &[u8]) -> Vec<usize> {
     doubled.extend_from_slice(query_seq);
     doubled.extend_from_slice(&query_seq[..ROTATION_WORD_SIZE - 1]);
 
-    let mut ref_positions = vec![
-        0,
-        ref_seq.len() / 4,
-        ref_seq.len() / 2,
-        ref_seq.len() * 3 / 4,
-        ref_seq.len().saturating_sub(ROTATION_WORD_SIZE),
-    ];
+    // Probe across the whole reference: a read carrying an indel (or a
+    // mismatch inside the probe word) shifts the subject↔query mapping by that
+    // indel's length after the indel site, so probing only a handful of
+    // positions can yield exclusively drifted offsets — the rotation then
+    // cannot line the read up and the DP has to absorb the difference with a
+    // large compensating insertion+deletion pair.
+    let max_pos = ref_seq.len() - ROTATION_WORD_SIZE;
+    let mut ref_positions: Vec<usize> = (0..ROTATION_PROBES)
+        .map(|k| k * max_pos / (ROTATION_PROBES - 1))
+        .collect();
     ref_positions.sort_unstable();
     ref_positions.dedup();
-    ref_positions.retain(|pos| *pos <= ref_seq.len() - ROTATION_WORD_SIZE);
+    ref_positions.retain(|pos| *pos <= max_pos);
 
     let mut offsets = Vec::new();
     let mut seen = std::collections::HashSet::new();
