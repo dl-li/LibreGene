@@ -67,26 +67,15 @@ export function useGcLane({ cleanSeq, topology, moleculeType, enabled, windowSiz
 export function renderGcTrack(ctx, lane) {
   const fracs = lane?.fracs;
   if (!fracs) return null;
-  const {
-    visibleRows,
-    rowBuf,
-    numRows,
-    gridCpl,
-    seqLength,
-    getSeqY,
-    lp,
-    idPrefix,
-    colVis,
-    colRuns,
-  } = ctx;
+  const { visibleRows, rowBuf, numRows, rowStarts, rowCounts, getSeqY, lp, idPrefix, colVis, colRuns } =
+    ctx;
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
   const rows = [];
   for (let r = vs; r <= ve; r++) {
-    const rowStart = r * gridCpl;
-    const rowEnd = Math.min(seqLength, (r + 1) * gridCpl);
-    const count = rowEnd - rowStart;
+    const count = rowCounts[r];
     if (count <= 0) continue;
+    const rowStart = rowStarts[r];
     const y = getSeqY(r) + lp.featBaseOffset - 6;
     const gid = `${idPrefix}-gc-${r}`;
     const rowVisW = colVis(count - 1, r) + 1;

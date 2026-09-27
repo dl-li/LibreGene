@@ -110,12 +110,11 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     expect(widest.maxX - widest.minX).toBeGreaterThanOrEqual(650);
   });
 
-  it('expands internal insertions into slot columns; flank junk stays dot-only', () => {
-    // 1bp insertion at column 10, 5bp at column 100 (row 1 at cpl 60) are
-    // internal and expand into full-width slot characters; the trace passes
-    // through the slots. A 21bp junk tail at the alignment start and a 14bp
-    // tail past the last aligned column stay dot markers: no slot columns,
-    // no red slot-base characters, no placeholder dashes.
+  it('expands every insertion, flank junk included, into slot columns', () => {
+    // 1bp insertion at column 10 and 5bp at column 100 are internal; the 21bp
+    // head and 14bp tail beyond the aligned range are junk — every insertion
+    // now expands into slot characters, so no dot markers remain and the
+    // trace passes through all of them.
     const template = 'ACGT'.repeat(100); // 400 bases
     const aligned = template.substring(0, 300);
     const chars =
@@ -132,8 +131,6 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
         { pos: 0, bases: 'GGGGGGGGGGGGGGGGGGGGG' },
         { pos: 10, bases: 'A' },
         { pos: 100, bases: 'CCCCC' },
-        // Trailing tail anchored past the last aligned column — flank junk,
-        // rendered as a dot by the dedicated tail path, no slot bases.
         { pos: 300, bases: 'TTCCAAATTCAGAT' },
       ],
     };
@@ -150,17 +147,44 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     ];
     expect(insChars.join('')).toContain('CCCCC');
     expect(insChars).toContain('A');
-    expect(insChars.join('')).not.toContain('GGGGGGGGGGGGGGGGGGGGG');
-    expect(insChars.join('')).not.toContain('TTCCAAATTCAGAT');
-    // The template row mirrors each reserved slot with a red '-' placeholder
-    // so the rows stay column-aligned (1 + 5 = 6; flank junk reserves none).
+    expect(insChars.join('')).toContain('GGGGGGGGGGGGGGGGGGGGG');
+    expect(insChars.join('')).toContain('TTCCAAATTCAGAT');
+    // No dot placeholders anywhere in the rendered output.
+    expect(html).not.toContain('·');
+    // The template row mirrors every reserved slot with a red '-' placeholder
+    // so the rows stay column-aligned (21 + 1 + 5 + 14 = 41).
     const dashes = insChars.filter((c) => c === '-').length;
-    expect(dashes).toBe(6);
+    expect(dashes).toBe(41);
     // Trace bands still render and stay NaN-free through the slots.
     const paths = extractChannelPaths(html);
     expect(paths.length).toBeGreaterThanOrEqual(4);
     for (const d of paths) {
       expect(d).not.toContain('NaN');
     }
+  });
+
+  it('wraps a wide insertion block without overflowing the SVG width', () => {
+    // 100bp of leading junk: far wider than one 60-column row, so the block
+    // must span rows instead of extending the row past the viewport.
+    const template = 'ACGT'.repeat(100); // 400 bases
+    const aln = {
+      id: 'aln-3',
+      name: 'read-junk',
+      length: 300,
+      strand: '+',
+      identity: 1,
+      seq: 'G'.repeat(100) + template.substring(0, 200),
+      segments: [{ start: 0, end: 199, chars: template.substring(0, 200) }],
+      insertions: [{ pos: 0, bases: 'G'.repeat(100) }],
+    };
+    const html = renderEditor({ sequence: template, alignmentTracks: [aln] });
+    const xs = [...html.matchAll(/ x="(-?\d+(?:\.\d+)?)"/g)].map((m) => Number(m[1]));
+    expect(xs.length).toBeGreaterThan(100);
+    // startX + baseCpl*cw + startX = 220 + 60*12 + 220 = 1160
+    expect(Math.max(...xs)).toBeLessThanOrEqual(1160);
+    // Every junk base still renders exactly once.
+    const insChars = [...html.matchAll(/<tspan[^>]*fill="#b91c1c"[^>]*>([^<]+)/g)].map((m) => m[1]);
+    expect(insChars.filter((c) => c === 'G').length).toBe(100);
+    expect(html).not.toContain('·');
   });
 });

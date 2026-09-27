@@ -20,7 +20,6 @@ import {
   featLabelW,
   enzLabelW,
   primerLabelW,
-  splitRange,
   sliceRange,
   rangeLen,
   featureSelRange,
@@ -227,31 +226,16 @@ function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
-/** Insertions anchored at the very edge of an alignment's aligned range are
- *  unalignable read tails (junk): they stay a dot marker and never reserve
- *  slot columns. Internal insertions (mid-read, junctions) anchor inside
- *  the covered range. Handles origin-wrapping segment lists, where the
- *  covered arcs are [firstStart..tlen) and [0..lastEnd]. */
-export function isFlankInsertion(al, pos) {
-  const segs = al.segments || [];
-  if (!segs.length) return true;
-  const firstStart = segs[0].start;
-  const lastEnd = segs[segs.length - 1].end;
-  return firstStart <= lastEnd
-    ? pos <= firstStart || pos > lastEnd
-    : pos <= firstStart && pos > lastEnd;
-}
-
 /** Union of all alignments' insertion bases keyed by template column, each
  *  slot sized to the longest insertion anchored there (GenePad's merged gap
  *  columns: every inserted base gets a full column of the shared layout).
- *  Flank junk is excluded — dots only, no slot expansion. */
+ *  Flank junk (unalignable read tails) reserves slots like any other
+ *  insertion. */
 export function alignmentInsertUnion(alns, tlen) {
   const union = new Map();
   for (const al of alns) {
     for (const ins of al.insertions || []) {
       if (!ins.bases || ins.pos < 0 || ins.pos >= tlen) continue;
-      if (isFlankInsertion(al, ins.pos)) continue;
       union.set(ins.pos, Math.max(union.get(ins.pos) || 0, ins.bases.length));
     }
   }
@@ -301,31 +285,113 @@ export function alignmentLaneLayout(insReserve) {
   return { slots, drift, slotBase, insTotal: acc };
 }
 
-/** Insertion placeholder dot in an alignment read lane; hover is lifted to
- *  the caller so every dot of an insertion group reacts together. */
-function InsDot({ x, onMouseDown, onMouseEnter, onMouseLeave }) {
-  return (
-    <tspan
-      x={x}
-      textAnchor="middle"
-      fill="#1f2937"
-      fillOpacity={0.55}
-      style={{ cursor: 'pointer' }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onMouseDown={onMouseDown}
-    >
-      ·
-    </tspan>
-  );
-}
-
-/** Map of insertion pos -> hover group index: each insertion is its own
- *  group (it renders as the adjacent pair of dot columns pos-1 and pos). */
-function insertionGroups(insertions) {
-  const groupOf = new Map();
-  insertions.forEach((ins, i) => groupOf.set(ins.pos, i));
-  return groupOf;
+/** Visual-stream layout: template columns and insertion-slot cells form one
+ *  unit stream. Template column abs sits at stream index S(abs) = abs +
+ *  drift(abs); the w slot cells anchored at abs occupy [S(abs)-w, S(abs)-1]
+ *  (left of their anchor). Every row holds exactly visCpl stream units, so
+ *  rows never overflow the viewport — a wide slot block simply spans rows,
+ *  and the middle rows of such a block contain no template columns at all
+ *  (rowCounts[row] === 0, rowStarts[row] = the block's anchor column). */
+export function buildStreamLayout(insReserve, seqLen, visCpl) {
+  const lane = alignmentLaneLayout(insReserve);
+  const streamLen = seqLen + lane.insTotal;
+  const numRows = Math.max(1, Math.ceil(streamLen / visCpl));
+  const rowStarts = new Array(numRows);
+  const rowCounts = new Array(numRows).fill(0);
+  let si = 0;
+  for (let abs = 0; abs < seqLen; abs++) {
+    si += insReserve.get(abs) || 0;
+    const row = Math.floor(si / visCpl);
+    if (rowCounts[row] === 0) rowStarts[row] = abs;
+    rowCounts[row]++;
+    si++;
+  }
+  for (let r = numRows - 1, next = seqLen; r >= 0; r--) {
+    if (rowCounts[r] === 0) rowStarts[r] = next;
+    else next = rowStarts[r];
+  }
+  const streamOf = (abs) => (abs >= seqLen ? streamLen : abs + lane.drift(abs));
+  // Clamped: the end-of-sequence insert point (abs === seqLen) can land one
+  // past the last row when streamLen is an exact multiple of visCpl.
+  const rowOf = (abs) => Math.min(numRows - 1, Math.floor(streamOf(abs) / visCpl));
+  const colOfAbs = (abs) => streamOf(abs) % visCpl;
+  // Largest template column whose stream index is <= si, clamped to
+  // [0, seqLen] (seqLen = the insert point past the last base).
+  const absFromStream = (s) => {
+    const t = Math.max(0, Math.min(streamLen, s));
+    if (t >= streamLen) return seqLen;
+    let lo = 0,
+      hi = seqLen - 1,
+      found = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (streamOf(mid) <= t) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return found;
+  };
+  const colVis = (col, row) => colOfAbs(rowStarts[row] + col);
+  // Smallest row-local template column reaching visual column `vis`; slot
+  // cells resolve to the anchor column right of them. May return
+  // rowCounts[row] (one past the last column) — callers clamp.
+  const colFromVis = (vis, row) => {
+    let lo = 0,
+      hi = rowCounts[row];
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (colVis(mid, row) < vis) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  // splitRange-shaped pieces ({row, colStart, colEnd, strOffset, len}), split
+  // where the stream crosses a row edge. s > e wraps the origin of a circular
+  // sequence (two linear halves, each with its own strOffset base).
+  const splitLinear = (s, e) => {
+    const out = [];
+    let cur = s;
+    while (cur <= e) {
+      const row = rowOf(cur);
+      let lo = cur,
+        hi = e;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (rowOf(mid) === row) lo = mid;
+        else hi = mid - 1;
+      }
+      out.push({
+        row,
+        colStart: cur - rowStarts[row],
+        colEnd: lo - rowStarts[row],
+        strOffset: cur - s,
+        len: lo - cur + 1,
+      });
+      cur = lo + 1;
+    }
+    return out;
+  };
+  const sp = (s, e) =>
+    s <= e ? splitLinear(s, e) : [...splitLinear(s, seqLen - 1), ...splitLinear(0, e)];
+  return {
+    laneLayout: lane,
+    insTotal: lane.insTotal,
+    streamLen,
+    numRows,
+    rowStarts,
+    rowCounts,
+    visCpl,
+    streamOf,
+    rowOf,
+    colOfAbs,
+    absFromStream,
+    colVis,
+    colFromVis,
+    sp,
+  };
 }
 
 /** Template sequence covered by a primer match (origin-crossing aware). */
@@ -939,24 +1005,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [openFeatureEditorRef]);
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
-  const [insPopover, setInsPopover] = useState(null); // { x, y, bases } for alignment insertions
   const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
-  const [hoverInsGroup, setHoverInsGroup] = useState(null); // `${alignmentId}:${insertionGroup}`
 
-  useEffect(() => {
-    if (!insPopover) return;
-    const close = () => setInsPopover(null);
-    const onKey = (e) => {
-      if (e.key === 'Escape') close();
-    };
-    const timer = setTimeout(() => window.addEventListener('mousedown', close), 0);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [insPopover]);
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const [scrollY, setScrollY] = useState(0);
   const [viewportH, setViewportH] = useState(900);
@@ -1456,57 +1506,39 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return out;
   }, [unmatchedPrimers, cdsWarnings]);
 
-  // Insertion reserve: every inserted read base gets a full column in the
-  // alignment lanes (GenePad's merged gap columns). The template grid keeps
-  // its original base count; the slots extend each row to the right and the
-  // editor scrolls horizontally to reach them.
+  // Insertion reserve: every inserted read base (flank junk included) gets a
+  // full cell in the shared visual stream (GenePad's merged gap columns).
   const insReserve = useMemo(
     () => (isDna ? alignmentInsertUnion(alignmentTracks, cleanSeq.length) : new Map()),
     [isDna, alignmentTracks, cleanSeq.length],
   );
-  const laneLayout = useMemo(() => alignmentLaneLayout(insReserve), [insReserve]);
-  const insTotal = laneLayout.insTotal;
-  const gridCpl = baseCpl;
-  // Full row width in columns: template grid + the insertion-slot extension.
-  const charsPerLine = baseCpl + insTotal;
-  const numRows = Math.max(1, Math.ceil(cleanSeq.length / gridCpl));
+  // Visual stream: template columns + slot cells, exactly baseCpl cells per
+  // row — the row width is constant and never overflows the viewport.
+  const stream = useMemo(
+    () => buildStreamLayout(insReserve, cleanSeq.length, baseCpl),
+    [insReserve, cleanSeq.length, baseCpl],
+  );
+  const { rowStarts, rowCounts, insTotal, streamOf, rowOf, colOfAbs, visCpl, absFromStream } = stream;
+  const charsPerLine = baseCpl;
+  const numRows = stream.numRows;
   numRowsRef.current = numRows;
   const svgWidth = startX + charsPerLine * cw + startX;
 
-  // --- drift-space column mapping (shared by every lane) ---
-  // Visual row-local column of template column `col` in row `row`: shifted
-  // right past the insertion slots anchored inside this row. Every lane
+  // --- stream column mapping (shared by every lane) ---
+  // Visual column of the row-local template column `col` in row `row`: its
+  // stream index modulo the row width. Slot cells sit between the template
+  // columns of a row (or fill pure-slot rows of a wide block). Every lane
   // (template chars, features, enzymes, primers, translation, chromatogram,
   // selection, cursor) goes through these so all tracks stay column-aligned.
-  const colVis = useCallback(
-    (col, row) => {
-      if (insTotal === 0) return col;
-      const abs = row * gridCpl + col;
-      return col + laneLayout.drift(abs) - laneLayout.drift(row * gridCpl - 1);
-    },
-    [laneLayout, gridCpl, insTotal],
-  );
+  const colVis = useCallback((col, row) => stream.colVis(col, row), [stream]);
 
-  // Inverse of colVis: template column whose drifted position is `vis`.
-  // Clicks on a slot column resolve to the slot's anchor column (the slot
+  // Inverse of colVis: template column whose stream cell reaches `vis`.
+  // Clicks on a slot cell resolve to the slot's anchor column (the cell
   // renders left of it).
-  const colFromVis = useCallback(
-    (vis, row) => {
-      if (insTotal === 0) return vis;
-      let lo = 0;
-      let hi = gridCpl;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (colVis(mid, row) < vis) lo = mid + 1;
-        else hi = mid;
-      }
-      return lo;
-    },
-    [colVis, gridCpl, insTotal],
-  );
+  const colFromVis = useCallback((vis, row) => stream.colFromVis(vis, row), [stream]);
 
   // Split the template range [c0, c1] (row-local, inclusive) into visual
-  // runs [[visStart, len], ...] separated at slot columns.
+  // runs [[visStart, len], ...] separated at slot cells.
   const colRuns = useCallback(
     (c0, c1, row) => {
       if (c1 < c0) return [];
@@ -1525,13 +1557,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [colVis, insTotal],
   );
 
-  const sp = useCallback(
-    (s, e) =>
-      s <= e
-        ? splitRange(s, e, gridCpl)
-        : [...splitRange(s, cleanSeq.length - 1, gridCpl), ...splitRange(0, e, gridCpl)],
-    [gridCpl, cleanSeq.length],
-  );
+  const sp = useCallback((s, e) => stream.sp(s, e), [stream]);
 
   // Track plugin lanes (e.g. the GC-content gradient band). Every registered
   // track hook runs unconditionally in registry order — React hooks rules
@@ -1563,9 +1589,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const v of sp(seg.start, seg.end)) rows.add(v.row);
       }
       // Insertion anchors can sit outside every segment (read tails past the
-      // last aligned base) — their rows still need a lane.
+      // last aligned base) — and a wide slot block spans rows — so every row
+      // touched by the anchor's reserved cells still needs a lane.
       for (const ins of al.insertions || []) {
-        if (ins.bases) rows.add(Math.floor(ins.pos / gridCpl));
+        if (!ins.bases) continue;
+        const w = insReserve.get(ins.pos) || 0;
+        const s0 = streamOf(ins.pos) - w;
+        for (let s = s0; s <= s0 + w; s++) rows.add(Math.floor(s / charsPerLine));
       }
       for (const r of rows) {
         if (r < 0 || r >= numRows) continue;
@@ -1588,6 +1618,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     chromatogram,
     cleanSeq.length,
     trackH,
+    insReserve,
+    streamOf,
+    charsPerLine,
   ]);
 
   // --- collision avoidance: features + primers ---
@@ -1718,8 +1751,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           return lb - la || a.matchStart - b.matchStart;
         });
         for (let r = 0; r < numRows; r++) {
-          const rs = r * gridCpl,
-            re = (r + 1) * gridCpl - 1;
+          const rs = rowStarts[r],
+            re = rowStarts[r] + rowCounts[r] - 1;
           const rowTracks = [];
           for (const p of sorted) {
             const ml = p.mismatchStr?.length || 0;
@@ -1768,11 +1801,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         if (!segs || segs.length < 2) continue;
         const segRows = new Set();
         for (const seg of segs) {
-          for (
-            let r = Math.floor(seg.start / gridCpl);
-            r <= Math.floor(seg.end / gridCpl);
-            r++
-          ) {
+          for (let r = rowOf(seg.start); r <= rowOf(seg.end); r++) {
             segRows.add(r);
           }
         }
@@ -1780,13 +1809,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const gStart = segs[di - 1].end + 1;
           const gEnd = segs[di].start - 1;
           if (gStart > gEnd) continue;
-          for (
-            let r = Math.floor(gStart / gridCpl);
-            r <= Math.floor(gEnd / gridCpl);
-            r++
-          ) {
-            const pieceStart = Math.max(gStart, r * gridCpl);
-            const pieceEnd = Math.min(gEnd, (r + 1) * gridCpl - 1);
+          for (let r = rowOf(gStart); r <= rowOf(gEnd); r++) {
+            const pieceStart = Math.max(gStart, rowStarts[r]);
+            const pieceEnd = Math.min(gEnd, rowStarts[r] + rowCounts[r] - 1);
+            if (pieceStart > pieceEnd) continue;
             const entry = { start: pieceStart - 0.5, end: pieceEnd + 0.5 };
             ((gapPiecesByFeatRow[f.id] || (gapPiecesByFeatRow[f.id] = {}))[r] ||
               (gapPiecesByFeatRow[f.id][r] = [])).push(entry);
@@ -1798,8 +1824,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // Per-row feature track assignment — features only reserve space where they actually overlap
       const fRowTracks = {};
       for (let r = 0; r < numRows; r++) {
-        const rs = r * gridCpl,
-          re = (r + 1) * gridCpl - 1;
+        const rs = rowStarts[r],
+          re = rowStarts[r] + rowCounts[r] - 1;
         const rowFeats = resultFeatures.filter((f) =>
           f.segments.some((seg) => !(seg.end < rs || seg.start > re)),
         );
@@ -1917,8 +1943,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   ? fseg.end + labelCols
                   : fseg.end;
               if (fve < vs || fvs > ve) continue;
-              const sr = Math.floor(fseg.start / gridCpl);
-              const er = Math.floor(fseg.end / gridCpl);
+              const sr = rowOf(fseg.start);
+              const er = rowOf(fseg.end);
               for (let r = sr; r <= er; r++) {
                 const ft = (fRowTracks[f.id] || {})[r] || 0;
                 // below-line labels hang one extra track lower, clear them too
@@ -1939,7 +1965,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         featureRowTracks: fRowTracks,
         revPrimerFeatOffsets: revFeatOff,
       };
-    }, [features, enrichedPrimers, numRows, charsPerLine, lp, featureLabelsBelow]);
+    }, [features, enrichedPrimers, numRows, rowOf, rowStarts, rowCounts, lp, featureLabelsBelow]);
 
   // --- adaptive row spacing (memoized with pre-indexed lookups) ---
   const enzymesByRow = useMemo(() => {
@@ -1948,14 +1974,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
       const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
       const rows = new Set();
       for (const cp of pairs) {
-        rows.add(Math.floor(cp.topCutIndex / gridCpl));
+        rows.add(rowOf(cp.topCutIndex));
       }
       for (const r of rows) {
         (map[r] || (map[r] = [])).push(e);
       }
     }
     return map;
-  }, [enzymes, charsPerLine]);
+  }, [enzymes, rowOf]);
 
   const primersByRow = useMemo(() => {
     const map = {};
@@ -1964,30 +1990,32 @@ const SequenceEditor = React.memo(function SequenceEditor({
       // Only include rows that actually render primer segments (the match range).
       // Tail characters beyond the match segment's row are truncated by rendering.
       for (const m of p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]) {
-        const sr = Math.floor(m.start / gridCpl);
-        const er = Math.floor(m.end / gridCpl);
+        const sr = rowOf(m.start);
+        const er = rowOf(m.end);
         for (let r = sr; r <= er; r++) {
+          if (rowCounts[r] === 0) continue;
           if (!map[r]) map[r] = [];
           if (!map[r].includes(p)) map[r].push(p);
         }
       }
     }
     return map;
-  }, [enrichedPrimers, charsPerLine]);
+  }, [enrichedPrimers, rowOf, rowCounts]);
 
   const featuresByRow = useMemo(() => {
     const map = {};
     for (const f of processedFeatures) {
       for (const seg of f.segments) {
-        const sr = Math.floor(seg.start / gridCpl);
-        const er = Math.floor(seg.end / gridCpl);
+        const sr = rowOf(seg.start);
+        const er = rowOf(seg.end);
         for (let r = sr; r <= er; r++) {
+          if (rowCounts[r] === 0) continue;
           (map[r] || (map[r] = [])).push({ feature: f, seg });
         }
       }
     }
     return map;
-  }, [processedFeatures, charsPerLine]);
+  }, [processedFeatures, rowOf, rowCounts]);
 
   // Pre-compute fwd primer occupied x-ranges per row so enzyme track assignment
   // can lift labels clear of a primer. Two tiers, both reserved up-front so
@@ -2046,7 +2074,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       for (const e of rEnz) {
         const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
         pairs.forEach((cp, pi) => {
-          if (Math.floor(cp.topCutIndex / gridCpl) === r) {
+          if (rowOf(cp.topCutIndex) === r) {
             expanded.push({
               key: pairs.length > 1 ? `${e.id}_p${pi}` : e.id,
               cutIndex: cp.topCutIndex,
@@ -2061,7 +2089,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       );
       const occupied = [];
       for (const item of sorted) {
-        const cs = item.cutIndex % gridCpl;
+        const cs = item.cutIndex - rowStarts[r];
         const ce = cs + Math.ceil(enzLabelW(item.name, item.isUnique) / cw);
         // Lift labels whose x-range overlaps a fwd primer label/body. The
         // enzyme text baseline sits (enzLabelBase-5)+lift above the sequence;
@@ -2110,13 +2138,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const p of rowPrimers) {
           const t = (primerTracks[p.id] || {})[r] || 0;
           if (p.isFwd) {
-            const hasTail = r === Math.floor(p.matchStart / gridCpl);
+            const hasTail = r === rowOf(p.matchStart);
             const extra = hasTail ? pp.fwdAboveExtra : pp.fwdAboveNonTailExtra;
             const h = pp.fwdAboveBase + t * pp.trackGap + extra;
             maxFwdPrimerH = Math.max(maxFwdPrimerH, h);
             ae = Math.max(ae, h);
           } else {
-            const hasTail = r === Math.floor(p.matchEnd / gridCpl);
+            const hasTail = r === rowOf(p.matchEnd);
             const extra = hasTail ? pp.revBelowExtra : pp.revBelowNonTailExtra;
             const featOff = (revPrimerFeatOffsets[p.id] || {})[r] || 0;
             be = Math.max(
@@ -2140,7 +2168,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         for (const e of rowEnz) {
           const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
           pairs.forEach((cp, pi) => {
-            if (Math.floor(cp.topCutIndex / gridCpl) !== r) return;
+            if (rowOf(cp.topCutIndex) !== r) return;
             const key = pairs.length > 1 ? `${e.id}_p${pi}` : e.id;
             const lift = (eTracks[key] || {})[r] || 0;
             maxEnzLift = Math.max(maxEnzLift, lift);
@@ -2196,7 +2224,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     featureRowTracks,
     revPrimerFeatOffsets,
     primerLabelOcc,
-    charsPerLine,
+    rowOf,
+    rowStarts,
     pp,
     lp,
     alignLaneInfo,
@@ -2216,7 +2245,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const scrollToSeqIndex = useCallback(
     (seqIndex) => {
       if (seqIndex == null || !rowY.length) return;
-      const row = Math.min(rowY.length - 1, Math.floor(seqIndex / gridCpl));
+      const row = Math.min(rowY.length - 1, rowOf(seqIndex));
       const scroller = scrollContainerRef?.current;
       const rowTop = rowY[row] - (rowAbove[row] || 0);
       const rowBottom = rowY[row] + (rowBelow[row] || 0);
@@ -2228,7 +2257,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       liveScrollTopRef.current = newTop;
       setScrollY(newTop);
     },
-    [rowY, rowAbove, rowBelow, charsPerLine, scrollContainerRef, viewportH],
+    [rowY, rowAbove, rowBelow, rowOf, scrollContainerRef, viewportH],
   );
   scrollToSeqIndexRef.current = scrollToSeqIndex;
 
@@ -2236,7 +2265,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const rowAnchorRef = useRef(null);
   useLayoutEffect(() => {
     const prev = rowAnchorRef.current;
-    rowAnchorRef.current = { rowY, rowAbove, gridCpl };
+    rowAnchorRef.current = { rowY, rowAbove, rowStarts };
     if (!prev || !rowY.length || !prev.rowY.length) return;
     const scroller = scrollContainerRef?.current;
     // Use the last scroll-event value: after a shrink the DOM scrollTop may already
@@ -2249,13 +2278,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
       else break;
     }
     const delta = st - (prev.rowY[r] - (prev.rowAbove[r] || 0));
-    const newR = Math.min(rowY.length - 1, Math.floor((r * prev.gridCpl) / gridCpl));
+    // Anchor by the row's first template column so a changed row layout
+    // (resize, insertion slots) restores to the same sequence position.
+    const newR = Math.min(rowY.length - 1, rowOf(prev.rowStarts[r]));
     const newTop = Math.max(0, rowY[newR] - (rowAbove[newR] || 0) + delta);
     if (Math.abs(newTop - st) < 1) return;
     if (scroller) scroller.scrollTop = newTop;
     else window.scrollTo(0, newTop);
     setScrollY(newTop);
-  }, [rowY, rowAbove, charsPerLine, gridCpl, scrollContainerRef]);
+  }, [rowY, rowAbove, rowStarts, rowOf, scrollContainerRef]);
 
   // --- selection: coordinate conversion & event handlers ---
   // Row tops (getSeqY(r) - rowAbove[r]) increase monotonically, so the row
@@ -2290,20 +2321,20 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!ctm) return null;
       const svgPt = pt.matrixTransform(ctm.inverse());
       const xRel = svgPt.x - startX;
-      if (xRel < -cw / 2 || xRel > (gridCpl + insTotal) * cw + cw / 2) return null;
+      if (xRel < -cw / 2 || xRel > charsPerLine * cw + cw / 2) return null;
       const xInCell = ((xRel % cw) + cw) % cw;
       const colBase = Math.floor(xRel / cw);
       const side = xInCell < cw / 2 ? 0 : 1;
-      const visCol = Math.max(0, Math.min(gridCpl + insTotal, colBase + side));
+      const visCol = Math.max(0, Math.min(charsPerLine, colBase + side));
       // Content-based row boundaries: top of current row → top of next row
       // Row spacing already ensures a gap between row content areas
       const row = rowAtSvgY(svgPt.y);
       if (row < 0) return null;
       const col = colFromVis(visCol, row);
-      const idx = row * gridCpl + col;
+      const idx = rowStarts[row] + col;
       return Math.max(0, Math.min(cleanSeq.length, idx));
     },
-    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, gridCpl, insTotal],
+    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, rowStarts],
   );
 
   // Returns which character the pointer is over (0-based char index), not the insertion point
@@ -2317,17 +2348,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!ctm) return null;
       const svgPt = pt.matrixTransform(ctm.inverse());
       const xRel = svgPt.x - startX;
-      if (xRel < -cw / 2 || xRel > (gridCpl + insTotal) * cw + cw / 2) return null;
+      if (xRel < -cw / 2 || xRel > charsPerLine * cw + cw / 2) return null;
       let vis = Math.floor(xRel / cw);
       if (xRel < 0) vis = 0;
-      if (vis > gridCpl + insTotal) vis = gridCpl + insTotal - 1;
+      if (vis > charsPerLine) vis = charsPerLine - 1;
       const row = rowAtSvgY(svgPt.y);
       if (row < 0) return null;
-      const col = Math.max(0, Math.min(gridCpl - 1, colFromVis(vis, row)));
-      const idx = row * gridCpl + col;
+      const col = Math.max(0, Math.min(rowCounts[row] - 1, colFromVis(vis, row)));
+      const idx = rowStarts[row] + col;
       return Math.max(0, Math.min(cleanSeq.length - 1, idx));
     },
-    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, gridCpl, insTotal],
+    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, rowStarts, rowCounts],
   );
 
   const handleSvgMouseDown = useCallback(
@@ -3126,8 +3157,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
         let ni = cursorIndex;
         if (e.key === 'ArrowLeft') ni = Math.max(0, cursorIndex - 1);
         else if (e.key === 'ArrowRight') ni = Math.min(cleanSeq.length, cursorIndex + 1);
-        else if (e.key === 'ArrowUp') ni = Math.max(0, cursorIndex - gridCpl);
-        else if (e.key === 'ArrowDown') ni = Math.min(cleanSeq.length, cursorIndex + gridCpl);
+        else if (e.key === 'ArrowUp') ni = absFromStream(streamOf(cursorIndex) - charsPerLine);
+        else if (e.key === 'ArrowDown') ni = absFromStream(streamOf(cursorIndex) + charsPerLine);
         if (ni !== cursorIndex) {
           setCursorIndex(ni);
           setSelStart(null);
@@ -3287,6 +3318,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selWraps,
     cleanSeq,
     charsPerLine,
+    streamOf,
+    absFromStream,
     resetCursorTimer,
     selectionMode,
     selectedPrimerIds,
@@ -3586,11 +3619,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return enzymes.filter((e) => {
       const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
       return pairs.some((cp) => {
-        const r = Math.floor(cp.topCutIndex / gridCpl);
+        const r = rowOf(cp.topCutIndex);
         return r >= visibleRows.start && r <= visibleRows.end;
       });
     });
-  }, [enzymes, visibleRows, charsPerLine]);
+  }, [enzymes, visibleRows, rowOf]);
   const svgHeight = rowY[rowY.length - 1] + Math.max(40, rowBelow[numRows - 1] + 24);
   avgRowPitchRef.current = numRows > 1 ? (rowY[numRows - 1] - rowY[0]) / (numRows - 1) : 60;
 
@@ -3603,12 +3636,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return processedFeatures.filter((f) =>
       f.segments.some((seg) => {
-        const sr = Math.floor(seg.start / gridCpl);
-        const er = Math.floor(seg.end / gridCpl);
+        const sr = rowOf(seg.start);
+        const er = rowOf(seg.end);
         return !(er < vs || sr > ve);
       }),
     );
-  }, [processedFeatures, visibleRows, numRows, charsPerLine]);
+  }, [processedFeatures, visibleRows, numRows, rowOf]);
 
   // Virtualize primers: only render those overlapping visible rows
   const visiblePrimers = useMemo(() => {
@@ -3618,14 +3651,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return enrichedPrimers.filter((p) => {
       if (p.matchStart === undefined || p.matchEnd === undefined) return false;
       const ml = p.mismatchStr?.length || 0;
-      const pad = Math.ceil(ml / gridCpl);
+      const pad = Math.ceil(ml / charsPerLine);
       return (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]).some((m) => {
-        const sr = Math.floor(m.start / gridCpl);
-        const er = Math.floor(m.end / gridCpl);
+        const sr = rowOf(m.start);
+        const er = rowOf(m.end);
         return !(er < vs - pad || sr > ve + pad);
       });
     });
-  }, [enrichedPrimers, visibleRows, numRows, charsPerLine]);
+  }, [enrichedPrimers, visibleRows, numRows, rowOf, charsPerLine]);
 
   // --- enzyme track assignment is now in the spacing memo (enzymeRowTracks) ---
 
@@ -3667,16 +3700,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!ctm) return;
       const svgPt = pt.matrixTransform(ctm.inverse());
       const xRel = svgPt.x - startX;
-      if (xRel < -cw / 2 || xRel > (gridCpl + insTotal) * cw + cw / 2) return;
+      if (xRel < -cw / 2 || xRel > charsPerLine * cw + cw / 2) return;
       let vis = Math.floor(xRel / cw);
       if (xRel < 0) vis = 0;
-      if (vis > gridCpl + insTotal) vis = gridCpl + insTotal - 1;
+      if (vis > charsPerLine) vis = charsPerLine - 1;
 
       const row = rowAtSvgY(svgPt.y);
       if (row < 0) return;
 
-      const col = Math.max(0, Math.min(gridCpl - 1, colFromVis(vis, row)));
-      const idx = row * gridCpl + col;
+      const col = Math.max(0, Math.min(rowCounts[row] - 1, colFromVis(vis, row)));
+      const idx = rowStarts[row] + col;
       const codon = cds.codonMap.get(idx);
       if (codon === undefined) return;
       const maxCodon = cds.trans.length - 1;
@@ -3690,7 +3723,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         return { featureId: drag.featureId, startCodon: drag.startCodon, endCodon: clamped };
       });
     },
-    [cdsFeatureData, charsPerLine, rowAtSvgY, colFromVis, gridCpl, insTotal],
+    [cdsFeatureData, charsPerLine, rowAtSvgY, colFromVis, rowStarts, rowCounts],
   );
 
   useEffect(() => {
@@ -3820,7 +3853,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
 
       visuals.sort(
-        (a, b) => a.row * gridCpl + a.colStart - (b.row * gridCpl + b.colStart),
+        (a, b) => rowStarts[a.row] + a.colStart - (rowStarts[b.row] + b.colStart),
       );
       if (!visuals.length) return null;
 
@@ -3889,7 +3922,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   let col = Math.floor((svgPt.x - startX) / cw);
                   col = colFromVis(col, v.row);
                   col = Math.max(v.colStart, Math.min(v.colEnd, col));
-                  const idx = v.row * gridCpl + col;
+                  const idx = rowStarts[v.row] + col;
                   const map = {};
                   for (const [featureId, cds] of Object.entries(cdsFeatureData)) {
                     const codon = cds.codonMap.get(idx);
@@ -3924,7 +3957,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                       let col = Math.floor((svgPt.x - startX) / cw);
                       col = colFromVis(col, v.row);
                       col = Math.max(v.colStart, Math.min(v.colEnd, col));
-                      const idx = v.row * gridCpl + col;
+                      const idx = rowStarts[v.row] + col;
                       const codon = cds.codonMap.get(idx);
                       if (codon !== undefined && codon !== null) {
                         startTranslationSelection(f.id, codon);
@@ -4036,8 +4069,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           {/* Feature translation — 1-letter AA centered on middle base of each codon */}
           {isTranslatable(f) &&
             (cdsFeatureData[f.id]?.trans || []).flatMap((t) => {
-              const r = Math.floor(t.templatePos2 / gridCpl);
-              const c = t.templatePos2 % gridCpl;
+              const r = rowOf(t.templatePos2);
+              const c = t.templatePos2 - rowStarts[r];
               const cov = visuals.find(
                 (v) => v.row === r && c >= v.colStart && c <= v.colEnd && v.type !== 'gap',
               );
@@ -4080,7 +4113,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     featureRowTracks,
     getSeqY,
     sp,
-    charsPerLine,
+    rowOf,
+    rowStarts,
     clearCursorTimer,
     lp,
     cdsFeatureData,
@@ -4177,10 +4211,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
         if (isRev) {
           // colEnd + 1 can fall on the next row's first column, whose drift
           // counts slots that render in that row — clamp to this row's edge.
+          const cols = rowCounts[vs.row];
+          if (cols === 0) return null;
           const xr =
-            vs.colEnd + 1 < gridCpl
+            vs.colEnd + 1 < cols
               ? getX(colVis(vs.colEnd + 1, vs.row))
-              : getX(colVis(gridCpl - 1, vs.row)) + cw;
+              : getX(colVis(cols - 1, vs.row)) + cw;
           const lx = featureLabelsBelow ? xr : xr + 8;
           const lAnchor = featureLabelsBelow ? 'end' : 'start';
           return (
@@ -4323,6 +4359,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     openFeatureMenu,
     featureLabelsBelow,
     abutColors,
+    rowCounts,
     colVis,
   ]);
 
@@ -4332,32 +4369,24 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return alignmentTracks.map((al, ti) => {
       const insMap = new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
-      const insGroupOf = insertionGroups(al.insertions || []);
-      // Insertions anchored outside every segment column (read tails past
-      // the last aligned base) never come up while walking segment chars —
-      // they need their own dot + slot-base rendering.
-      const tailIns = (al.insertions || []).filter(
-        (ins) => ins.bases && !al.segments.some((sg) => ins.pos >= sg.start && ins.pos <= sg.end),
-      );
+      const laneY = (row) =>
+        getSeqY(row) +
+        lp.featBaseOffset +
+        alignLaneInfo.trackH +
+        alignLaneInfo.mainChromH +
+        (alignLaneInfo.perRow[row]?.get(ti) ?? 0) * lp.featTrackHeight +
+        8;
       const rows = [];
       const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
       for (const seg of segs) {
         for (const v of sp(seg.start, seg.end)) {
           if (v.row < vs || v.row > ve) continue;
-          const sy = getSeqY(v.row);
-          const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
-          const y =
-            sy +
-            lp.featBaseOffset +
-            alignLaneInfo.trackH +
-            alignLaneInfo.mainChromH +
-            lane * lp.featTrackHeight +
-            8;
+          const y = laneY(v.row);
           const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
           const mismatches = [];
           chars.forEach((c, i) => {
             const col = v.colStart + i;
-            const gIdx = v.row * gridCpl + col;
+            const gIdx = rowStarts[v.row] + col;
             if (
               insMap.has(gIdx) ||
               insMap.has(gIdx + 1) ||
@@ -4369,23 +4398,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
           });
           rows.push(
             <g key={`${v.row}-${v.colStart}`}>
-              {mismatches.map((col) => {
-                const gI = v.row * gridCpl + col;
-                const insAt = insMap.has(gI) ? gI : insMap.has(gI + 1) ? gI + 1 : -1;
-                const hot = insAt >= 0 && hoverInsGroup === `${al.id}:${insGroupOf.get(insAt)}`;
-                return (
-                  <rect
-                    key={col}
-                    x={getX(colVis(col, v.row))}
-                    y={y - 11}
-                    width={cw}
-                    height={14}
-                    fill={hot ? '#fca5a5' : '#fecaca'}
-                    fillOpacity={hot ? 0.95 : 0.6}
-                    style={{ pointerEvents: 'none' }}
-                  />
-                );
-              })}
+              {mismatches.map((col) => (
+                <rect
+                  key={col}
+                  x={getX(colVis(col, v.row))}
+                  y={y - 11}
+                  width={cw}
+                  height={14}
+                  fill="#fecaca"
+                  fillOpacity={0.6}
+                  style={{ pointerEvents: 'none' }}
+                />
+              ))}
               <text
                 y={y}
                 fontFamily="Cascadia Code"
@@ -4396,74 +4420,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
               >
                 {chars.map((c, i) => {
                   const col = v.colStart + i;
-                  const gIdx = v.row * gridCpl + col;
-                  const vis = colVis(col, v.row);
-                  const insBases = insMap.get(gIdx);
-                  // Inserted read bases expand into the reserved slot
-                  // columns right of the anchoring template column.
-                  if (insBases) {
-                    const slotN = insReserve.get(gIdx) || 0;
-                    const display =
-                      (gIdx > 0 ? sequence[gIdx - 1] || '' : '') +
-                      insBases +
-                      (sequence[gIdx] || '');
-                    const anchorX = getX(vis) + cw / 2;
-                    const els = [
-                      <InsDot
-                        key={col}
-                        x={anchorX}
-                        onMouseEnter={() => {
-                          setHoverInsGroup(`${al.id}:${insGroupOf.get(gIdx)}`);
-                          setInsPopover({
-                            x: anchorX,
-                            y,
-                            bases: display,
-                          });
-                        }}
-                        onMouseLeave={() => {
-                          setHoverInsGroup(null);
-                          setInsPopover(null);
-                        }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          setInsPopover({
-                            x: anchorX,
-                            y,
-                            bases: display,
-                          });
-                        }}
-                      />,
-                    ];
-                    for (let k = 0; k < slotN; k++) {
-                      const ch = insBases[k] || '';
-                      if (!ch) continue;
-                      // Slot renders LEFT of the anchor column (model
-                      // semantics: extra read bases before column pos): the
-                      // k-th base sits at vis - slotN + k.
-                      // tspan (not nested <text>): text cannot nest in SVG,
-                      // and a tspan carries its own fill/weight while staying
-                      // centered on the slot column like every other base.
-                      els.push(
-                        <tspan
-                          key={`${col}-ins-${k}`}
-                          x={getX(vis - slotN + k) + cw / 2}
-                          y={y}
-                          textAnchor="middle"
-                          fontWeight="600"
-                          fill="#b91c1c"
-                          style={{ userSelect: 'none', pointerEvents: 'none' }}
-                        >
-                          {ch}
-                        </tspan>,
-                      );
-                    }
-                    return els;
-                  }
                   return (
                     <tspan
                       key={col}
-                      x={getX(vis) + cw / 2}
+                      x={getX(colVis(col, v.row)) + cw / 2}
                       textAnchor="middle"
                       fill="#1f2937"
                       fillOpacity={0.55}
@@ -4477,66 +4437,51 @@ const SequenceEditor = React.memo(function SequenceEditor({
           );
         }
       }
-      const tailRows = tailIns
-        .map((ins) => {
-          const row = Math.floor(ins.pos / gridCpl);
-          if (row < vs || row > ve) return null;
-          const col = ins.pos % gridCpl;
-          const sy = getSeqY(row);
-          const lane = alignLaneInfo.perRow[row]?.get(ti) ?? 0;
-          const y =
-            sy +
-            lp.featBaseOffset +
-            alignLaneInfo.trackH +
-            alignLaneInfo.mainChromH +
-            lane * lp.featTrackHeight +
-            8;
-          const vis = colVis(col, row);
-          const slotN = insReserve.get(ins.pos) || 0;
-          const display =
-            (ins.pos > 0 ? sequence[ins.pos - 1] || '' : '') +
-            ins.bases +
-            (sequence[ins.pos] || '');
-          const anchorX = getX(vis) + cw / 2;
-          const grp = `${al.id}:${insGroupOf.get(ins.pos)}`;
-          return (
-            <g key={`tail-${ins.pos}`}>
-              <InsDot
-                x={anchorX}
-                onMouseEnter={() => {
-                  setHoverInsGroup(grp);
-                  setInsPopover({ x: anchorX, y, bases: display });
-                }}
-                onMouseLeave={() => {
-                  setHoverInsGroup(null);
-                  setInsPopover(null);
-                }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  setInsPopover({ x: anchorX, y, bases: display });
-                }}
-              />
-              {Array.from({ length: slotN }, (_, k) => ins.bases[k] || '').map((ch, k) =>
-                ch ? (
-                  <tspan
-                    key={`tail-${ins.pos}-${k}`}
-                    x={getX(vis - slotN + k) + cw / 2}
-                    y={y}
-                    textAnchor="middle"
-                    fontWeight="600"
-                    fill="#b91c1c"
-                    style={{ userSelect: 'none', pointerEvents: 'none' }}
-                  >
-                    {ch}
-                  </tspan>
-                ) : null,
-              )}
-            </g>
+      // Inserted read bases (internal junctions and unalignable flank junk
+      // alike) expand into the reserved slot cells: the w cells anchored at
+      // `pos` sit at stream [S(pos)-w, S(pos)-1], left of the anchor column.
+      // A wide block spans rows, so every base lands on its own stream row.
+      const insByRow = new Map();
+      for (const ins of al.insertions || []) {
+        if (!ins.bases) continue;
+        const slotN = insReserve.get(ins.pos) || 0;
+        const cell0 = streamOf(ins.pos) - slotN;
+        for (let k = 0; k < Math.min(slotN, ins.bases.length); k++) {
+          const si = cell0 + k;
+          const row = Math.floor(si / visCpl);
+          if (row < vs || row > ve) continue;
+          if (!insByRow.has(row)) insByRow.set(row, []);
+          insByRow.get(row).push(
+            <tspan
+              key={`${ins.pos}-${k}`}
+              x={getX(si % visCpl) + cw / 2}
+              textAnchor="middle"
+              fontWeight="600"
+              fill="#b91c1c"
+              style={{ userSelect: 'none', pointerEvents: 'none' }}
+            >
+              {ins.bases[k]}
+            </tspan>,
           );
-        })
-        .filter(Boolean);
-      return <g key={al.id}>{[...rows, ...tailRows]}</g>;
+        }
+      }
+      for (const [row, els] of insByRow) {
+        rows.push(
+          <g key={`ins-${row}`}>
+            <text
+              y={laneY(row)}
+              fontFamily="Cascadia Code"
+              fontSize="13px"
+              fontStyle="italic"
+              fontWeight="350"
+              style={{ userSelect: 'none' }}
+            >
+              {els}
+            </text>
+          </g>,
+        );
+      }
+      return <g key={al.id}>{rows}</g>;
     });
   }, [
     alignmentTracks,
@@ -4545,13 +4490,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
     sp,
     getSeqY,
     lp,
-    gridCpl,
+    rowStarts,
+    visCpl,
+    streamOf,
     colVis,
     insReserve,
     sequence,
     alignLaneInfo,
     cleanSeq.length,
-    hoverInsGroup,
   ]);
 
   const renderedAlignmentLabels = useMemo(() => {
@@ -4614,8 +4560,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
             // column + trailing slot bases) — rows with fewer slots have
             // nearer labels; they don't share a common column.
             const tailSlot =
-              v.colEnd + 1 < gridCpl
-                ? insReserve.get(v.row * gridCpl + v.colEnd + 1) || 0
+              v.colEnd + 1 < rowCounts[v.row]
+                ? insReserve.get(rowStarts[v.row] + v.colEnd + 1) || 0
                 : 0;
             const labelX = getX(colVis(v.colEnd, v.row)) + (1 + tailSlot) * cw + 8;
             const clipId = `align-label-clip-${al.id}-${v.row}`;
@@ -4724,7 +4670,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     cleanSeq.length,
     colVis,
     insReserve,
-    gridCpl,
+    rowStarts,
+    rowCounts,
   ]);
 
   // Track-plugin lanes (e.g. the GC-content gradient band): each active
@@ -4734,7 +4681,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       visibleRows,
       rowBuf: ROW_BUF,
       numRows,
-      gridCpl,
+      rowStarts,
+      rowCounts,
+      baseCpl,
       charsPerLine,
       seqLength: cleanSeq.length,
       getSeqY,
@@ -4750,7 +4699,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     );
     // trackPlugins is a module constant, so spreading trackLanes keeps the
     // deps length fixed while keying on each lane's memoized identity.
-  }, [visibleRows, numRows, gridCpl, charsPerLine, cleanSeq.length, getSeqY, lp, trackIdPrefix, colVis, colRuns, ...trackLanes]);
+  }, [visibleRows, numRows, rowStarts, rowCounts, baseCpl, charsPerLine, cleanSeq.length, getSeqY, lp, trackIdPrefix, colVis, colRuns, ...trackLanes]);
 
   // Chromatogram bands: the project's own trace directly under the top
   // strand (ab1 source files), and one warped trace band per alignment
@@ -4812,8 +4761,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (chromatogram) {
       const peakCount = chromatogram.peakLocations.length;
       for (let r = vs; r <= ve; r++) {
-        const rowStart = r * gridCpl;
-        const rowEnd = Math.min(cleanSeq.length, (r + 1) * gridCpl, peakCount) - 1;
+        const cols = rowCounts[r];
+        if (cols === 0) continue;
+        const rowStart = rowStarts[r];
+        const rowEnd = Math.min(rowStart + cols, peakCount) - 1;
         if (rowEnd < rowStart) continue;
         const anchors = [];
         for (let pos = rowStart; pos <= rowEnd; pos++) {
@@ -4831,34 +4782,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alignmentTracks.forEach((al, ti) => {
       const chrom = alignmentChromatograms[al.id];
       if (!chrom) return;
-      // Ordered anchor entries (hit columns + insertion bases). Inserted
-      // bases expand into the shared union-grid slot columns — full column
-      // per base, exactly where the read lane renders them (GenePad's
-      // alignmentVisualColumns). Flank junk stays dot-only in the text
-      // lane, so its peaks are dropped here too.
-      const entries = buildColumnAnchors(al).filter(
-        (e) => !e.ins || !isFlankInsertion(al, e.col),
-      );
+      // Ordered anchor entries (hit columns + insertion bases). Every entry
+      // maps to a stream cell: inserted bases fill the union slot cells left
+      // of their anchor column, exactly where the text lane renders them.
       const byRow = new Map();
-      for (const e of entries) {
-        const row = Math.floor(e.col / gridCpl);
+      for (const e of buildColumnAnchors(al)) {
+        const si = e.ins ? streamOf(e.col) - (insReserve.get(e.col) || 0) + e.k : streamOf(e.col);
+        const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
         if (!byRow.has(row)) byRow.set(row, []);
-        byRow.get(row).push(e);
+        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q });
       }
-      for (const [row, rowEntries] of byRow) {
-        const anchors = [];
-        for (const e of rowEntries) {
-          if (!e.ins) {
-            anchors.push({ x: getX(colVis(e.col - row * gridCpl, row)) + cw / 2, q: e.q });
-            continue;
-          }
-          // Same slot placement as the text lane: LEFT of the anchor column.
-          const slotN = insReserve.get(e.col) || 0;
-          const vis = colVis(e.col - row * gridCpl, row);
-          anchors.push({ x: getX(vis - slotN + e.k) + cw / 2, q: e.q });
-        }
-        anchors.sort((a, b) => a.x - b.x);
+      for (const [row, rowAnchors] of byRow) {
+        const anchors = [...rowAnchors].sort((a, b) => a.x - b.x);
         const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
         const y =
           getSeqY(row) +
@@ -4880,7 +4816,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alignmentChromatograms,
     visibleRows,
     numRows,
-    gridCpl,
+    rowStarts,
+    rowCounts,
+    visCpl,
+    streamOf,
     colVis,
     insReserve,
     cleanSeq.length,
@@ -4902,8 +4841,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
       );
       if (p.renderCols) {
         for (const seg of segs) {
-          const lo = seg.row * gridCpl + seg.colStart;
-          const hi = seg.row * gridCpl + seg.colEnd;
+          const lo = rowStarts[seg.row] + seg.colStart;
+          const hi = rowStarts[seg.row] + seg.colEnd;
           seg.renderCols = p.renderCols.filter(
             (rc) => rc.templateCol >= lo && rc.templateCol <= hi,
           );
@@ -4922,7 +4861,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             showMisDots = true;
           }
         } else {
-          const max = gridCpl - 1 - tailSeg.colEnd + 5;
+          const max = rowCounts[tailSeg.row] - 1 - tailSeg.colEnd + 5;
           if (misLen > max) {
             drawMisLen = max;
             showMisDots = true;
@@ -4961,11 +4900,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
               const firstCol = cols[0],
                 lastCol = cols[cols.length - 1];
               edge5x = isFwd
-                ? getX(colVis(firstCol.templateCol % gridCpl, seg.row)) // fwd: left edge of leftmost
-                : getX(colVis(firstCol.templateCol % gridCpl, seg.row)) + cw; // rev: right edge
+                ? getX(colVis(firstCol.templateCol - rowStarts[seg.row], seg.row)) // fwd: left edge of leftmost
+                : getX(colVis(firstCol.templateCol - rowStarts[seg.row], seg.row)) + cw; // rev: right edge
               edge3x = isFwd
-                ? getX(colVis(lastCol.templateCol % gridCpl, seg.row)) + cw // fwd: right edge
-                : getX(colVis(lastCol.templateCol % gridCpl, seg.row)); // rev: left edge
+                ? getX(colVis(lastCol.templateCol - rowStarts[seg.row], seg.row)) + cw // fwd: right edge
+                : getX(colVis(lastCol.templateCol - rowStarts[seg.row], seg.row)); // rev: left edge
               // 5' tail
               if (isTail && hasMis && drawMisLen > 0) {
                 if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
@@ -4973,7 +4912,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               }
               pts.push([edge5x, cols[0].kind === 'match' ? matchY : misY]);
               for (const rc of cols) {
-                const cx = getX(colVis(rc.templateCol % gridCpl, seg.row)) + cw / 2;
+                const cx = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row)) + cw / 2;
                 const cy = rc.kind === 'match' ? matchY : misY;
                 pts.push([cx, cy]);
               }
@@ -5094,7 +5033,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                         rc.kind === 'mismatch' || rc.kind === 'gap' || rc.kind === 'insertion';
                       const y =
                         (isOffset ? misY : matchY) + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY);
-                      const x = getX(colVis(rc.templateCol % gridCpl, seg.row)) + cw / 2;
+                      const x = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row)) + cw / 2;
                       const isGap = rc.kind === 'gap';
                       const isIns = rc.kind === 'insertion';
                       return (
@@ -5279,6 +5218,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     primerDimActive,
     openPrimerMenu,
     alignLaneInfo,
+    rowStarts,
+    rowCounts,
     colVis,
     colRuns,
   ]);
@@ -5289,8 +5230,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     for (const e of visibleEnzymes) {
       const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
       pairs.forEach((cp, pi) => {
-        const row = Math.floor(cp.topCutIndex / gridCpl);
-        const cutX = getX(colVis(cp.topCutIndex % gridCpl, row));
+        const row = rowOf(cp.topCutIndex);
+        const cutX = getX(colVis(cp.topCutIndex - rowStarts[row], row));
         const sy = getSeqY(row);
         const enzLift =
           (enzymeRowTracks[pairs.length > 1 ? `${e.id}_p${pi}` : e.id] || {})[row] || 0;
@@ -5327,7 +5268,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       });
     }
     return entries;
-  }, [visibleEnzymes, enzymeRowTracks, lp, charsPerLine, getSeqY, colVis]);
+  }, [visibleEnzymes, enzymeRowTracks, lp, charsPerLine, getSeqY, colVis, rowOf, rowStarts]);
 
   // Batched enzyme lines
   const enzymeLinesPath = useMemo(() => {
@@ -5985,7 +5926,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           )),
         )}
         {allSegs.map((seg) => {
-          const rowStart = seg.row * gridCpl;
+          const rowStart = rowStarts[seg.row];
           const chars = cleanSeq
             .substring(rowStart + seg.colStart, rowStart + seg.colEnd + 1)
             .split('');
@@ -6022,6 +5963,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     getSeqY,
     sp,
     topology,
+    rowStarts,
     colVis,
     colRuns,
   ]);
@@ -6030,9 +5972,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     if (cursorIndex === null) return null;
     if (hasSelection && !isDragging) return null;
     if (selectionMode !== 'text' && selectionMode !== 'none') return null;
-    const row = Math.floor(cursorIndex / gridCpl);
-    const col = cursorIndex % gridCpl;
-    const x = getX(colVis(col, row));
+    const row = rowOf(cursorIndex);
+    const x = getX(colOfAbs(cursorIndex));
     const sy = getSeqY(row);
     const topY = sy - rowAbove[row];
     const botY =
@@ -6048,7 +5989,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     hasSelection,
     isDragging,
     charsPerLine,
-    gridCpl,
+    rowOf,
+    colOfAbs,
     colVis,
     numRows,
     getSeqY,
@@ -6060,13 +6002,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   const renderedHoverIndex = useMemo(() => {
     if (hoveredIndex === null || isDragging || isTranslationDragging) return null;
-    const row = Math.floor(hoveredIndex / gridCpl);
-    const col = hoveredIndex % gridCpl;
+    const row = rowOf(hoveredIndex);
     const sy = getSeqY(row);
     return (
       <g style={{ pointerEvents: 'none' }}>
         <text
-          x={getX(colVis(col, row)) + cw / 2}
+          x={getX(colOfAbs(hoveredIndex)) + cw / 2}
           y={sy - 22}
           fontFamily={monoFont}
           fontSize="9px"
@@ -6083,7 +6024,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         </text>
       </g>
     );
-  }, [hoveredIndex, isDragging, isTranslationDragging, gridCpl, getSeqY, colVis]);
+  }, [hoveredIndex, isDragging, isTranslationDragging, rowOf, colOfAbs, getSeqY]);
 
   const renderedSelectionInfo = useMemo(() => {
     if (!isDragging || !hasSelection || cursorIndex === null) return null;
@@ -6091,12 +6032,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const len = selEnd - selStart + 1;
     const tm = selectionTm;
     const showTm = tm !== null && tm >= 40 && tm <= 75;
-    const row = Math.floor(cursorIndex / gridCpl);
-    const col = cursorIndex % gridCpl;
+    const row = rowOf(cursorIndex);
     const sy = getSeqY(row);
     const botY =
       row === numRows - 1 ? sy + rowBelow[row] + 24 : getSeqY(row + 1) - rowAbove[row + 1];
-    const x = getX(colVis(col, row));
+    const x = getX(colOfAbs(cursorIndex));
     const fontSize = '11px';
     const fontStr = `600 ${fontSize} ${monoFont}`;
     let label = `${len} ${seqUnit}`;
@@ -6130,8 +6070,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     selEnd,
     cleanSeq,
     charsPerLine,
-    gridCpl,
-    colVis,
+    rowOf,
+    colOfAbs,
     getSeqY,
     numRows,
     rowBelow,
@@ -6192,11 +6132,30 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const renderedSeqBg = useMemo(() => {
     const vs = Math.max(0, visibleRows.start - ROW_BUF);
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
+    // '-' placeholders in the template row keep it column-aligned with the
+    // read lane's inserted bases (GenePad renders the same dashes in the
+    // reference row). Each slot cell belongs to its own stream row, so a wide
+    // insertion block scatters its dashes across rows just like its bases.
+    const dashByRow = new Map();
+    if (insReserve.size > 0) {
+      for (const [pos, n] of insReserve) {
+        const cell0 = streamOf(pos) - n;
+        for (let k = 0; k < n; k++) {
+          const si = cell0 + k;
+          const row = Math.floor(si / visCpl);
+          if (row < vs || row > ve) continue;
+          if (!dashByRow.has(row)) dashByRow.set(row, []);
+          dashByRow.get(row).push(si % visCpl);
+        }
+      }
+    }
     const rows = [];
     for (let r = vs; r <= ve; r++) {
-      const rowStart = r * gridCpl;
-      const rowEnd = Math.min(cleanSeq.length, (r + 1) * gridCpl);
-      const chunk = cleanSeq.substring(rowStart, rowEnd);
+      const count = rowCounts[r];
+      const rowStart = rowStarts[r];
+      const chunk = count > 0 ? cleanSeq.substring(rowStart, rowStart + count) : '';
+      const dashes = dashByRow.get(r) || [];
+      if (!chunk && !dashes.length) continue;
       const sy = getSeqY(r);
       rows.push(
         <text
@@ -6212,35 +6171,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
               {c}
             </tspan>
           ))}
-          {insReserve.size > 0 &&
-            [...insReserve].map(([pos, n]) => {
-              // '-' placeholders in the template row keep it column-aligned
-              // with the read lane's inserted bases (GenePad renders the same
-              // dashes in the reference row).
-              if (pos < rowStart || pos >= rowEnd) return null;
-              const slotN = insReserve.get(pos) || 0;
-              const vis = colVis(pos - rowStart, r);
-              const out = [];
-              for (let k = 0; k < slotN; k++) {
-                out.push(
-                  <tspan
-                    key={`ins-${pos}-${k}`}
-                    x={getX(vis - slotN + k) + cw / 2}
-                    textAnchor="middle"
-                    fill="#b91c1c"
-                    fillOpacity={0.45}
-                  >
-                    -
-                  </tspan>,
-                );
-              }
-              return out;
-            })}
+          {dashes.map((vis) => (
+            <tspan
+              key={`ins-${vis}`}
+              x={getX(vis) + cw / 2}
+              textAnchor="middle"
+              fill="#b91c1c"
+              fillOpacity={0.45}
+            >
+              -
+            </tspan>
+          ))}
         </text>,
       );
     }
     return rows;
-  }, [visibleRows, charsPerLine, numRows, cleanSeq, getSeqY, colVis, insReserve]);
+  }, [visibleRows, charsPerLine, numRows, cleanSeq, getSeqY, colVis, insReserve, rowStarts, rowCounts, streamOf, visCpl]);
 
   // Selection overlay: only renders selected characters in white (grouped by row)
   const renderedSeqSel = useMemo(() => {
@@ -6254,7 +6200,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return Object.entries(byRow).map(([rowStr, rowSegs]) => {
       const row = parseInt(rowStr, 10);
       const sy = getSeqY(row);
-      const rowStart = row * gridCpl;
+      const rowStart = rowStarts[row];
       return (
         <text
           key={`sel-${row}`}
@@ -6284,7 +6230,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         </text>
       );
     });
-  }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp, isEnzymeSelection, colVis]);
+  }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp, isEnzymeSelection, rowStarts, colVis]);
 
   // --- translation (codon) selection render ---
   const renderedTranslationSelection = useMemo(() => {
@@ -6308,8 +6254,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
     const byRow = {};
     for (const pos of selectedBases) {
-      const row = Math.floor(pos / gridCpl);
-      const col = pos % gridCpl;
+      const row = rowOf(pos);
+      const col = pos - rowStarts[row];
       (byRow[row] || (byRow[row] = [])).push(col);
     }
 
@@ -6318,7 +6264,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     for (const [rowStr, cols] of Object.entries(byRow)) {
       const row = parseInt(rowStr, 10);
       const sy = getSeqY(row);
-      const rowStart = row * gridCpl;
+      const rowStart = rowStarts[row];
       cols.sort((a, b) => a - b);
 
       const flush = (cs, ce) => {
@@ -6381,6 +6327,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     getSeqY,
     cleanSeq,
     currentSelColor,
+    rowOf,
+    rowStarts,
     colRuns,
     colVis,
   ]);
@@ -6620,29 +6568,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
             {renderedSelectionInfo}
             {renderedHoverIndex}
           </svg>
-          {insPopover && (
-            <div
-              onMouseDown={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                left: insPopover.x,
-                top: insPopover.y + 10,
-                transform: 'translateX(-50%)',
-                zIndex: 30,
-                background: '#FFFFFF',
-                border: '1px solid #fca5a5',
-                borderRadius: 8,
-                padding: '4px 10px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-                fontFamily: monoFont,
-                fontSize: '12px',
-                color: '#1f2937',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {insPopover.bases}
-            </div>
-          )}
         </div>
         <FeatureInfoDialog
           feature={featureInfoFeature}

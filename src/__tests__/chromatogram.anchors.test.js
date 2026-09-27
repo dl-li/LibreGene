@@ -1,7 +1,7 @@
 // Unit tests for the alignment→chromatogram anchor mapping.
 import { describe, it, expect } from 'vitest';
 import { buildColumnAnchors, buildColumnQueryMap } from '../chromatogram';
-import { alignmentLaneLayout } from '../SequenceEditor';
+import { buildStreamLayout } from '../SequenceEditor';
 
 describe('buildColumnAnchors', () => {
   it('maps a simple single-segment alignment 1:1', () => {
@@ -86,13 +86,12 @@ describe('buildColumnAnchors', () => {
 });
 
 describe('anchor ↔ lane-layout correspondence invariant', () => {
-  // Replicates the SequenceEditor column math: for each anchor entry the
-  // visual column is `col + drift(col)` for hit columns and `slotBase + k`
-  // for insertion bases (both row-local after subtracting rowDrift).
-  const visualColumn = (entry, layout, rowStart, rowDrift) =>
+  // Replicates the SequenceEditor stream math: hit columns land on their own
+  // stream cell, insertion base k on the slot cell left of its anchor column.
+  const cellOf = (entry, stream, insReserve) =>
     entry.ins
-      ? layout.slotBase.get(entry.col) + entry.k - rowDrift - rowStart
-      : entry.col + layout.drift(entry.col) - rowDrift - rowStart;
+      ? stream.streamOf(entry.col) - (insReserve.get(entry.col) || 0) + entry.k
+      : stream.streamOf(entry.col);
 
   it('covers every read base exactly once in read order, no column overlap', () => {
     // Split read with all the hard cases: leading junk tail (21), two
@@ -122,26 +121,26 @@ describe('anchor ↔ lane-layout correspondence invariant', () => {
     }
 
     const insReserve = new Map(aln.insertions.map((i) => [i.pos, i.bases.length]));
-    const layout = alignmentLaneLayout(insReserve);
-    const gridCpl = 60;
-    // Group by row, check per-row strict visual-column monotonicity.
+    const visCpl = 60;
+    const stream = buildStreamLayout(insReserve, templateLen, visCpl);
+    // Group by stream row, check per-row strict visual-column monotonicity.
     const byRow = new Map();
     for (const e of entries) {
-      const row = Math.floor(e.col / gridCpl);
+      const si = cellOf(e, stream, insReserve);
+      const row = Math.floor(si / visCpl);
       if (!byRow.has(row)) byRow.set(row, []);
-      byRow.get(row).push(e);
+      byRow.get(row).push({ e, vis: si % visCpl });
     }
+    expect(byRow.size).toBeGreaterThan(5);
     for (const [row, rowEntries] of byRow) {
-      // Editor rule: drift measured to the column before the row start.
-      const rowDrift = layout.drift(row * gridCpl - 1);
-      const rowStart = row * gridCpl;
+      expect(row).toBeLessThan(stream.numRows);
       let prev = -1;
       let prevQ = -1;
-      for (const e of rowEntries) {
-        const v = visualColumn(e, layout, rowStart, rowDrift);
-        expect(Number.isFinite(v)).toBe(true);
-        expect(v).toBeGreaterThan(prev); // strictly increasing → no overlaps
-        prev = v;
+      for (const { e, vis } of rowEntries) {
+        expect(Number.isFinite(vis)).toBe(true);
+        expect(vis).toBeGreaterThan(prev); // strictly increasing → no overlaps
+        expect(vis).toBeLessThan(visCpl); // never overflows the row
+        prev = vis;
         expect(e.q).toBeGreaterThan(prevQ);
         prevQ = e.q;
       }
