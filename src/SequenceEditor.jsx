@@ -4301,6 +4301,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 fill="none"
                 stroke={bgColor}
                 strokeWidth="5"
+                strokeLinejoin="round"
+                strokeLinecap="round"
               >
                 {labelText}
               </text>
@@ -4357,6 +4359,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
               fill="none"
               stroke={bgColor}
               strokeWidth="5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
             >
               {labelText}
             </text>
