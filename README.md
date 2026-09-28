@@ -26,6 +26,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 - **Clean, minimal display** — CDS and mRNA features are translated on the fly, amino acids rendered right under the sequence
 - **Auto-detection** — paste a sequence into the *New Sequence* dialog and common features (promoters, resistance markers, ori, tags…) are detected via the [pLannotate](https://github.com/mmcguffi/pLannotate) feature database and can be annotated with one click
 - **ORF search** — scan open reading frames on both strands, all six frames, and display them inline
+- **GC content track** — per-base sliding-window GC% rendered as a blue→white→red gradient band below the sequence, with adjustable window size
 - Compound (multi-segment) features, custom colors, strand toggling, enriched GenBank I/O that preserves colors and primers
 
 <p align="center">
