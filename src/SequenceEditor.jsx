@@ -4235,7 +4235,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           (alignLaneInfo.counts[vs.row] > 0 ? ALIGN_FEAT_GAP : 0);
         const y = sy + lp.featBaseOffset + rowTo;
         const textProps = {
-          y: featureLabelsBelow ? y + 18 : y + 4,
+          y: featureLabelsBelow ? y + 19 : y + 4,
           fontSize: '12px',
           fontFamily: 'TeX Gyre Heros',
           fontWeight: '600',
