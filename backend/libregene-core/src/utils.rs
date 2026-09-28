@@ -62,6 +62,33 @@ pub fn to_dna(seq: &str) -> String {
         .collect()
 }
 
+/// 7-hex-char sequence hash (git-commit-style), FNV-1a 64-bit over the
+/// uppercased ASCII-alphabetic characters of the sequence only —
+/// case-insensitive, independent of annotations/primers/whitespace.
+pub fn sequence_hash(seq: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in seq.bytes() {
+        if b.is_ascii_alphabetic() {
+            h ^= b.to_ascii_uppercase() as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("{:016x}", h)[..7].to_string()
+}
+
+/// (hash(seq), hash(rev-comp)) — rev-comp hash 仅对核苷酸（dna/rna）有定义；
+/// protein 返回 None。RNA 的 rev-comp 必须仍在 RNA 字母表里：
+/// to_rna(reverse_complement(to_dna(seq)))，否则反向保存的 RNA 文件哈希对不上。
+pub fn orientation_hashes(sequence: &str, molecule_type: &str) -> (String, Option<String>) {
+    let h = sequence_hash(sequence);
+    let rh = match molecule_type {
+        "protein" => None,
+        "rna" => Some(sequence_hash(&to_rna(&reverse_complement(&to_dna(sequence))))),
+        _ => Some(sequence_hash(&reverse_complement(sequence))),
+    };
+    (h, rh)
+}
+
 /// Map one 0-based inclusive span after replacing `[edit_start, edit_end]`
 /// with `new_len` bases; `None` when the span collapses to nothing. Shared by
 /// `adjust_features_for_edit` and `features_edit_impact` so both stay in sync.
@@ -360,6 +387,56 @@ mod tests {
         assert_eq!(to_dna("AUGCu"), "ATGCt");
         assert_eq!(to_rna("AAA"), "AAA");
         assert_eq!(to_dna("UUU"), "TTT");
+    }
+
+    #[test]
+    fn sequence_hash_is_stable_7_hex() {
+        let h = sequence_hash("ACGTACGT");
+        assert_eq!(h.len(), 7);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(h, sequence_hash("ACGTACGT"));
+        assert_ne!(h, sequence_hash("ACGTACGA"));
+    }
+
+    #[test]
+    fn sequence_hash_ignores_case_whitespace_and_digits() {
+        assert_eq!(sequence_hash("acgtacgt"), sequence_hash("ACGTACGT"));
+        assert_eq!(sequence_hash("acgt ACGT 12\nacgt"), sequence_hash("ACGTACGTACGT"));
+        // Multi-byte UTF-8 must not panic and contributes nothing.
+        assert_eq!(sequence_hash("AC\u{FFFD}GT"), sequence_hash("ACGT"));
+    }
+
+    #[test]
+    fn orientation_hashes_revcomp_duality() {
+        let seq = "ACGTGGCCATTA";
+        let (h, rh) = orientation_hashes(seq, "dna");
+        assert_eq!(h, sequence_hash(seq));
+        assert_eq!(rh.as_deref(), Some(sequence_hash(&reverse_complement(seq)).as_str()));
+        // A reverse-complemented file swaps the pair.
+        let rc = reverse_complement(seq);
+        let (h2, rh2) = orientation_hashes(&rc, "dna");
+        assert_eq!(h2, rh.clone().unwrap());
+        assert_eq!(rh2.unwrap(), h);
+        // Empty molecule type behaves as dna.
+        assert_eq!(orientation_hashes(seq, ""), orientation_hashes(seq, "dna"));
+    }
+
+    #[test]
+    fn orientation_hashes_rna_revcomp_stays_in_rna_alphabet() {
+        let (h, rh) = orientation_hashes("AUGC", "rna");
+        assert_eq!(h, sequence_hash("AUGC"));
+        // rev-comp must be GCAU (U alphabet), not GCAT — a reverse-saved RNA
+        // file hashes identically.
+        assert_eq!(rh.as_deref(), Some(sequence_hash("GCAU").as_str()));
+        let rc_rna = to_rna(&reverse_complement(&to_dna("AUGC")));
+        assert_eq!(orientation_hashes(&rc_rna, "rna"), (rh.unwrap(), Some(h)));
+    }
+
+    #[test]
+    fn orientation_hashes_protein_has_no_revcomp() {
+        let (h, rh) = orientation_hashes("MVSKGEEDNM", "protein");
+        assert_eq!(h, sequence_hash("MVSKGEEDNM"));
+        assert_eq!(rh, None);
     }
 
     fn feat(id: &str, start: i64, end: i64, segments: Vec<(i64, i64)>) -> crate::models::Feature {

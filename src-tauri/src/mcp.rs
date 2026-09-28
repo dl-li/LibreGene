@@ -7,6 +7,14 @@
 //! live. Every mutation tool returns a uniform `{ok, message, projectId,
 //! regionView?}` envelope (plus tool-specific fields).
 //!
+//! Sequence-change detection: every project-targeting tool response carries
+//! `sequenceHash`/`revCompHash` — 7-hex hashes of the current biological
+//! sequence and its reverse complement (case-insensitive, annotations/
+//! primers/whitespace ignored; `revCompHash` is null for proteins). Comparing
+//! them across calls detects any sequence edit; a project and its
+//! reverse-complemented file share one (sequenceHash, revCompHash) pair.
+//! Text digests carry the same values as a `SEQHASH:` header line.
+//!
 //! Coordinate conventions (stated again in every tool description). This MCP
 //! layer is agent-facing, so all coordinates in tool inputs and outputs are
 //! **1-based inclusive** (the GenBank convention); the internal model and the
@@ -1161,6 +1169,15 @@ fn fail_envelope(project_id: &str, message: String) -> serde_json::Value {
     })
 }
 
+/// Inject the `sequenceHash`/`revCompHash` pair into a tool response JSON.
+fn insert_seq_hashes(v: &mut serde_json::Value, hashes: &(String, Option<String>)) {
+    v["sequenceHash"] = serde_json::json!(hashes.0);
+    v["revCompHash"] = match &hashes.1 {
+        Some(h) => serde_json::json!(h),
+        None => serde_json::Value::Null,
+    };
+}
+
 /// Stored feature coordinates rendered GenBank-style in the 1-based inclusive
 /// MCP convention (e.g. "100..200", "complement(50..80)", "join(1..100,200..300)").
 fn stored_location(f: &Feature) -> String {
@@ -1407,13 +1424,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         serde_json::json!({ "projectId": id, "locked": true }),
                     );
                 }
-                Ok(Json(serde_json::json!({
+                let mut v = serde_json::json!({
                     "ok": true,
                     "projectId": id,
                     "locked": true,
                     "reused": true,
                     "message": format!("Project '{}' is already open and bound as your agent tab (re-locked)", id),
-                })))
+                });
+                if let Some(h) = self.project_seq_hashes(id).await {
+                    insert_seq_hashes(&mut v, &h);
+                }
+                Ok(Json(v))
             }
             Reuse::NotBound => Err(ErrorData::invalid_params(
                 format!(
@@ -1439,6 +1460,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         } else {
             format!("{}: {}", p.name, desc)
         })
+    }
+
+    /// (sequenceHash, revCompHash) of the project's CURRENT in-memory
+    /// sequence, re-read from pm — call after a mutation so the hash reflects
+    /// the edit. Never call while holding a pm guard (lock recursion).
+    async fn project_seq_hashes(&self, project_id: &str) -> Option<(String, Option<String>)> {
+        let pm = self.pm.read().await;
+        pm.get_project_by_id(project_id)
+            .map(|p| libregene_core::utils::orientation_hashes(&p.sequence, &p.molecule_type))
     }
 
     /// Resolve the project and reject non-DNA projects for DNA-only tools.
@@ -1710,6 +1740,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 result.unresolved.len(),
             ));
         }
+        // After apply this is the post-mutation hash; a preview leaves the
+        // sequence unchanged, so the same read serves both.
+        if let Some(h) = self.project_seq_hashes(&id).await {
+            insert_seq_hashes(&mut v, &h);
+        }
         Ok(v)
     }
 
@@ -1743,6 +1778,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| format!("task join error: {}", e))??;
 
         let mut v = standalone_result_json(&conv, from, to);
+        // Hashes describe the INPUT sequence (whitespace/case-insensitive, so
+        // hashing the raw text equals hashing the cleaned form).
+        insert_seq_hashes(&mut v, &libregene_core::utils::orientation_hashes(&sequence, from));
         if let Some(op) = &item.output_path {
             let written = write_convert_output(op, &conv.sequence, to, None, None)?;
             v["path"] = serde_json::json!(written);
@@ -1833,6 +1871,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             v["sequence"] = serde_json::json!(new_sequence);
             v["length"] = serde_json::json!(new_sequence.len());
             v["message"] = serde_json::json!(message);
+            insert_seq_hashes(
+                &mut v,
+                &libregene_core::utils::orientation_hashes(&project.sequence, "dna"),
+            );
             if let Some(op) = &item.output_path {
                 let mut source_project = project.clone();
                 source_project.sequence = new_sequence.clone();
@@ -1873,6 +1915,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| format!("task join error: {}", e))??;
 
         let mut v = standalone_result_json(&conv, &from, &to);
+        // Hashes describe the input file's parsed sequence.
+        insert_seq_hashes(
+            &mut v,
+            &libregene_core::utils::orientation_hashes(&project.sequence, &from),
+        );
         if let Some(op) = &item.output_path {
             // Label the minimal project's CDS after the source file (e.g.
             // CAR.gpt → a "CAR" CDS), saving a rename step downstream.
@@ -2697,10 +2744,24 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// id-or-null}. `activeId` is the project the USER is currently viewing —
     /// informational only; it does not influence tool routing, and when
     /// several agents work in parallel you should avoid touching it.
+    /// Each project entry also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview).
     #[tool]
     async fn list_projects(&self) -> Result<Json<serde_json::Value>, ErrorData> {
         let pm = self.pm.read().await;
-        let projects = pm.list_projects();
+        let mut projects = pm.list_projects();
+        for entry in projects.iter_mut() {
+            if let Some(p) = entry
+                .get("id")
+                .and_then(|v| v.as_str())
+                .and_then(|id| pm.get_project_by_id(id))
+            {
+                insert_seq_hashes(
+                    entry,
+                    &libregene_core::utils::orientation_hashes(&p.sequence, &p.molecule_type),
+                );
+            }
+        }
         let active_id = pm.active_id().map(|s| s.to_string());
         Ok(Json(serde_json::json!({
             "projects": projects,
@@ -2729,12 +2790,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// follow the molecule type: DNA projects get bp + PRIMERS/ENZYMES/
     /// methylation/auto-annotation; RNA/protein projects use nt/aa and omit all
     /// DNA-only sections (features still render). Returns {projectId, text}.
+    /// The response carries `sequenceHash`/`revCompHash` (7-hex hashes of the
+    /// current biological sequence and its reverse complement,
+    /// case-insensitive, ignoring features/primers/alignments; revCompHash is
+    /// null for proteins) — compare across calls to detect any sequence
+    /// change; a project and its reverse-complemented file share one
+    /// (sequenceHash, revCompHash) pair. The `text` digest carries the same
+    /// values as a `SEQHASH:` header line.
     #[tool]
     async fn get_project_overview(
         &self,
         Parameters(request): Parameters<OverviewRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
+        let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
@@ -2748,7 +2817,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
+        let mut v = serde_json::json!({ "projectId": id, "text": text });
+        insert_seq_hashes(&mut v, &hashes);
+        Ok(Json(v))
     }
 
     /// Compact text digest of a region of a project. start/end are 1-based
@@ -2773,12 +2844,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// notes below the block. Reads whose covered window exceeds 500 bp get an
     /// omission note instead of the rows (use ALIGNMENT DIFFS or a narrower
     /// window). Returns {projectId, text}.
+    /// The response also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview; the digest `text` carries the same values as a
+    /// `SEQHASH:` header line).
     #[tool]
     async fn get_region_view(
         &self,
         Parameters(request): Parameters<RegionRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
+        let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
@@ -2791,7 +2866,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        Ok(Json(serde_json::json!({ "projectId": id, "text": text })))
+        let mut v = serde_json::json!({ "projectId": id, "text": text });
+        insert_seq_hashes(&mut v, &hashes);
+        Ok(Json(v))
     }
 
     /// Read bases of a project's sequence, or resolve a coordinate. Exactly
@@ -2836,45 +2913,56 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// This tool is for INSPECTING bases only: if you need to hand this
     /// sequence (or part of it) to another tool or file, write it to a file
     /// with save_file's `region` instead of copying the text.
+    /// The response also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview).
     #[tool]
     async fn read_sequence(
         &self,
         Parameters(request): Parameters<SequenceRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project_light(request.project_id).await?;
+        let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        // Reads never mutate, so the resolve-time hash stays valid; the
+        // closure also serves fail paths that run inside a lock below (no
+        // lock acquisition allowed there).
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            insert_seq_hashes(&mut v, &seq_hashes);
+            Json(v)
+        };
         let window_active = request.start.is_some() || request.end.is_some();
         let coord_active = request.position.is_some()
             || request.feature_id.is_some()
             || request.feature_offset.is_some()
             || request.aa_position.is_some();
         if window_active == coord_active {
-            return Ok(Json(fail_envelope(
-                &id,
+            return Ok(fail(
                 "Provide exactly one input form: `start` + `end` (window read); `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-            )));
+            ));
         }
 
         if window_active {
             let (s, e) = match (request.start, request.end) {
                 (Some(s), Some(e)) => (from1(s), from1(e)),
                 _ => {
-                    return Ok(Json(fail_envelope(
-                        &id,
+                    return Ok(fail(
                         "start and end are both required (1-based inclusive)".to_string(),
-                    )))
+                    ))
                 }
             };
             let text = read_sequence(&project, s, e)
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
             let bases = libregene_core::digest::read_sequence_bases(&project, s, e)
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
-            return Ok(Json(serde_json::json!({
+            let mut v = serde_json::json!({
                 "projectId": id,
                 "sequence": bases,
                 "text": text,
                 "startContext": position_context_json(s, &project.sequence, &project.features),
                 "endContext": position_context_json(e, &project.sequence, &project.features),
-            })));
+            });
+            insert_seq_hashes(&mut v, &seq_hashes);
+            return Ok(Json(v));
         }
 
         // Coordinate mode: resolve the input form to an absolute 0-based
@@ -2891,18 +2979,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let has_feature_offset = request.feature_id.is_some() && request.feature_offset.is_some();
         let has_aa_position = request.feature_id.is_some() && request.aa_position.is_some();
         if has_position + has_feature_offset as u8 + has_aa_position as u8 != 1 {
-            return Ok(Json(fail_envelope(
-                &id,
+            return Ok(fail(
                 "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-            )));
+            ));
         }
 
         if let Some(pos1) = request.position {
             if pos1 < 1 || pos1 > len {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     format!("position {} out of bounds (1..={})", pos1, len),
-                )));
+                ));
             }
             position = pos1 - 1;
             input_json = serde_json::json!({ "kind": "template", "position": pos1 });
@@ -2919,13 +3005,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         // range-checked at parse time; reject before the
                         // sequence indexing below panics.
                         if pos0 < 0 || pos0 >= len {
-                            return Ok(Json(fail_envelope(
-                                &id,
+                            return Ok(fail(
                                 format!(
                                     "feature '{}' coordinates fall outside the sequence (length {})",
                                     f.name, len
                                 ),
-                            )));
+                            ));
                         }
                         position = pos0;
                         input_json = serde_json::json!({
@@ -2935,7 +3020,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         });
                         codon_positions_opt = None;
                     }
-                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                    Err(e) => return Ok(fail(e)),
                 }
             } else if let Some(aa1) = request.aa_position {
                 match libregene_core::coords::codon_from_aa(f, sequence, aa1) {
@@ -2950,20 +3035,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         });
                         codon_positions_opt = Some(positions);
                     }
-                    Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                    Err(e) => return Ok(fail(e)),
                 }
             } else {
                 // Unreachable because of the mutual-exclusion check above.
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-                )));
+                ));
             }
         } else {
-            return Ok(Json(fail_envelope(
-                &id,
+            return Ok(fail(
                 "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
-            )));
+            ));
         }
 
         let flank = request.flank.unwrap_or(30).clamp(0, MAX_FLANK);
@@ -2989,6 +3072,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 positions.iter().map(|p| p + 1).collect::<Vec<_>>()
             );
         }
+        insert_seq_hashes(&mut v, &seq_hashes);
         Ok(Json(v))
     }
 
@@ -3002,12 +3086,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// query itself, e.g. "AT" or a restriction site) skip the reverse scan.
     /// DNA-only: rejects RNA/protein projects (single-strand, no reverse
     /// strand to search).
+    /// The response also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview).
     #[tool]
     async fn search_sequence(
         &self,
         Parameters(request): Parameters<SearchRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
+        let hashes = self.project_seq_hashes(&id).await;
         let matches = crate::do_search_sequence(&self.pm, &id, request.query)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
@@ -3021,7 +3108,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })
             })
             .collect();
-        Ok(Json(serde_json::json!({ "projectId": id, "matches": matches })))
+        let mut v = serde_json::json!({ "projectId": id, "matches": matches });
+        if let Some(h) = &hashes {
+            insert_seq_hashes(&mut v, h);
+        }
+        Ok(Json(v))
     }
 
     /// List restriction-enzyme recognition sites on a project's sequence.
@@ -3075,6 +3166,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// the downstream fragment — the sticky ends never overlap the recognition
     /// sequence, so the site survives digestion on the upstream side.
     /// DNA-only: rejects RNA/protein projects (no restriction sites).
+    /// The response also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview).
     #[tool]
     async fn find_restriction_sites(
         &self,
@@ -3090,6 +3183,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 None,
             ));
         }
+        let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let wanted: Option<Vec<String>> = request.enzymes.map(|v| {
             v.into_iter()
                 .map(|s| s.trim().to_string())
@@ -3152,7 +3246,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     })
                     .collect::<Vec<_>>()
                     .join("; ");
-                return Ok(Json(fail_envelope(&id, msg)));
+                let mut v = fail_envelope(&id, msg);
+                insert_seq_hashes(&mut v, &hashes);
+                return Ok(Json(v));
             }
         }
         let filter_active = !requested.is_empty() || !no_site.is_empty() || !unknown.is_empty();
@@ -3242,6 +3338,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         enzymes_json.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
         let mut resp = serde_json::json!({ "projectId": id, "enzymes": enzymes_json });
+        insert_seq_hashes(&mut resp, &hashes);
         if !unknown.is_empty() {
             resp["unknownEnzymes"] = unknown
                 .iter()
@@ -3264,6 +3361,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// templateStart..templateEnd, GenBank-style). bindingSiteCount is the
     /// number of recomputed binding sites (0 when the primer does not bind);
     /// sites are best-first (Tm descending, as the UI orders them).
+    /// The response also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview).
     #[tool]
     async fn list_primers(
         &self,
@@ -3299,7 +3398,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })
             })
             .collect();
-        Ok(Json(serde_json::json!({ "projectId": id, "primers": primers })))
+        let mut v = serde_json::json!({ "projectId": id, "primers": primers });
+        insert_seq_hashes(
+            &mut v,
+            &libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type),
+        );
+        Ok(Json(v))
     }
 
     // -----------------------------------------------------------------------
@@ -3331,7 +3435,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// regionView is the compact overview digest of the opened project
     /// (enzyme cutters collapsed to a count line); a reused binding returns
     /// {ok, message, projectId, locked, reused: true} WITHOUT regionView —
-    /// call get_project_overview if you need the digest.
+    /// call get_project_overview if you need the digest. Both forms carry
+    /// `sequenceHash`/`revCompHash` (see get_project_overview).
     #[tool]
     async fn open_project(
         &self,
@@ -3421,7 +3526,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         let summary = self.project_summary(&id).await.unwrap_or_else(|| format!("Opened {}", id));
         let region = self.digest_region(&id, None, true).await;
-        Ok(Json(ok_envelope(&id, summary, region)))
+        let mut v = ok_envelope(&id, summary, region);
+        if let Some(h) = self.project_seq_hashes(&id).await {
+            insert_seq_hashes(&mut v, &h);
+        }
+        Ok(Json(v))
     }
 
     /// Save a project (addressed by the required `project_id`) to a file on
@@ -3494,6 +3603,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// project over the exported region's bounding box. The exported sequence
     /// itself is NOT echoed — read it back with open_project/read_sequence on
     /// the written file.
+    /// The response also carries `sequenceHash`/`revCompHash` of the project's
+    /// current in-memory sequence (see get_project_overview) — they describe
+    /// the project, not the exported region.
     #[tool]
     async fn save_file(
         &self,
@@ -3501,6 +3613,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
+        let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            insert_seq_hashes(&mut v, &seq_hashes);
+            Json(v)
+        };
         let path = request.path.clone();
         // Overwrite rule: a pre-existing target that is not the project's own
         // source file needs an explicit overwrite flag.
@@ -3508,13 +3626,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             && !request.overwrite.unwrap_or(false)
             && std::path::Path::new(&path).exists()
         {
-            return Ok(Json(fail_envelope(
-                &id,
+            return Ok(fail(
                 format!(
                     "{} already exists — pass overwrite: true to replace it, or choose a different path",
                     path
                 ),
-            )));
+            ));
         }
 
         let Some(spec) = request.region else {
@@ -3523,12 +3640,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .await
                 .map_err(|e| ErrorData::internal_error(e, None))?;
             if let Some(err) = Self::payload_error(&payload) {
-                return Ok(Json(fail_envelope(&id, err)));
+                return Ok(fail(err));
             }
             let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
             crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
             let region = self.digest_region(&id, None, true).await;
             let mut env = ok_envelope(&id, format!("Saved {}", path), region);
+            insert_seq_hashes(&mut env, &seq_hashes);
             if let Some(b) = bytes_written {
                 env["bytesWritten"] = serde_json::json!(b);
             }
@@ -3537,26 +3655,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         // Region mode: subsequence export.
         if path == id && !request.overwrite.unwrap_or(false) {
-            return Ok(Json(fail_envelope(
-                &id,
+            return Ok(fail(
                 format!(
                     "{} is the project's own source file — a region export would replace the full file with just the fragment; pass overwrite: true if that is really intended, or choose a different path",
                     path
                 ),
-            )));
+            ));
         }
         let ext = crate::validate_user_path(&path, crate::CODON_OUTPUT_EXTS)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         let is_protein = project.molecule_type == "protein";
         let wants_gpt = ext == "gpt";
         if wants_gpt != is_protein {
-            return Ok(Json(fail_envelope(
-                &id,
-                format!(
-                    "molecule type '{}' exports as {} (DNA/RNA → .gbk/.gb/.genbank, protein → .gpt)",
-                    project.molecule_type,
-                    if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
-                ),
+            return Ok(fail(format!(
+                "molecule type '{}' exports as {} (DNA/RNA → .gbk/.gb/.genbank, protein → .gpt)",
+                project.molecule_type,
+                if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
             )));
         }
         let unit = match project.molecule_type.as_str() {
@@ -3625,6 +3739,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if !primer_names.is_empty() {
             v["primers"] = serde_json::json!(primer_names);
         }
+        insert_seq_hashes(&mut v, &seq_hashes);
         Ok(Json(v))
     }
 
@@ -3634,7 +3749,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// file on disk is untouched. A project with unsaved changes is refused
     /// unless `force: true` (save first with save_file, or force to discard).
     /// Mirrors delete_project; the UI updates via broadcast. Returns {ok,
-    /// message, projectId}.
+    /// message, projectId}. The response also carries
+    /// `sequenceHash`/`revCompHash` (see get_project_overview) of the project
+    /// state just before closing.
     #[tool]
     async fn close_project(
         &self,
@@ -3642,6 +3759,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = request.project_id.clone();
         self.require_agent_tab(&id).await?;
+        let hashes = self.project_seq_hashes(&id).await;
         // The dirty/force check runs inside do_delete_project's pm write
         // critical section, so a concurrent mutation cannot slip in between
         // the check and the removal (TOCTOU).
@@ -3660,13 +3778,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
             if err == "project not found" {
                 return Err(ErrorData::invalid_params(format!("Project not found: {}", id), None));
             }
-            return Ok(Json(fail_envelope(&id, err)));
+            let mut v = fail_envelope(&id, err);
+            if let Some(h) = &hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            return Ok(Json(v));
         }
-        Ok(Json(serde_json::json!({
+        let mut v = serde_json::json!({
             "ok": true,
             "message": format!("Closed project {}", id),
             "projectId": id,
-        })))
+        });
+        if let Some(h) = &hashes {
+            insert_seq_hashes(&mut v, h);
+        }
+        Ok(Json(v))
     }
 
     /// Replace sequence [start..end] (1-based inclusive) with `replacement`
@@ -3728,7 +3854,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// such as an .rna file inserted into a DNA project would otherwise
     /// silently pollute the sequence — the enzyme recompute does not
     /// recognize U); when any base is converted the response carries a
-    /// `note` field describing the direction and count.
+    /// `note` field describing the direction and count. The response also
+    /// carries `sequenceHash`/`revCompHash` of the NEW sequence (see
+    /// get_project_overview).
     #[tool]
     async fn edit_sequence(
         &self,
@@ -3736,6 +3864,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project_light(request.project_id).await?;
         self.require_agent_tab(&id).await?;
+        let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            insert_seq_hashes(&mut v, &seq_hashes);
+            Json(v)
+        };
         let len = project.length;
         // Validate the raw 1-based inclusive inputs BEFORE any arithmetic on
         // them (from1 / end+1 would overflow on extreme i64 inputs); the
@@ -3743,21 +3877,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // and the wrap check's `u_end + 1` cannot overflow either.
         let (u_start, u_end) = (request.start, request.end);
         if u_start < 1 || u_start > len + 1 || u_end < 0 || u_end > len {
-            return Ok(Json(fail_envelope(
-                &id,
-                format!(
-                    "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
-                    u_start, u_end, len
-                ),
+            return Ok(fail(format!(
+                "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                u_start, u_end, len
             )));
         }
         if u_start > u_end + 1 {
-            return Ok(Json(fail_envelope(
-                &id,
-                format!(
-                    "invalid range {}..{}: start > end+1; ranges must not wrap (a pure insertion before base N is start=N, end=N-1)",
-                    u_start, u_end
-                ),
+            return Ok(fail(format!(
+                "invalid range {}..{}: start > end+1; ranges must not wrap (a pure insertion before base N is start=N, end=N-1)",
+                u_start, u_end
             )));
         }
         let start = from1(u_start);
@@ -3765,18 +3893,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path) {
             (Some(_), Some(_)) => {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Provide exactly one of `replacement` or `replacement_path`, not both"
                         .to_string(),
-                )));
+                ));
             }
             (None, None) => {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Provide exactly one of `replacement` (sequence string, empty = delete) or `replacement_path` (sequence file)"
                         .to_string(),
-                )));
+                ));
             }
             (Some(s), None) => (s, None),
             (None, Some(path)) => {
@@ -3796,19 +3922,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         // project (e.g. a protein .gpt into a DNA project
                         // would corrupt the sequence).
                         if project.molecule_type == "protein" && data.molecule_type != "protein" {
-                            return Ok(Json(fail_envelope(
-                                &id,
-                                format!(
-                                    "replacement_path is a {} file but the project is protein — pass a protein file (.gpt/.prot)",
-                                    data.molecule_type
-                                ),
+                            return Ok(fail(format!(
+                                "replacement_path is a {} file but the project is protein — pass a protein file (.gpt/.prot)",
+                                data.molecule_type
                             )));
                         }
                         if project.molecule_type != "protein" && data.molecule_type == "protein" {
-                            return Ok(Json(fail_envelope(
-                                &id,
+                            return Ok(fail(
                                 "replacement_path is a protein file (.gpt/.prot) but the project is DNA/RNA — pass a nucleotide sequence file".to_string(),
-                            )));
+                            ));
                         }
                         (
                             data.sequence,
@@ -3816,12 +3938,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         )
                     }
                     Err(e) => {
-                        return Ok(Json(fail_envelope(
-                            &id,
-                            format!(
-                                "Failed to read replacement sequence file (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
-                                e
-                            ),
+                        return Ok(fail(format!(
+                            "Failed to read replacement sequence file (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
+                            e
                         )));
                     }
                 }
@@ -3838,20 +3957,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if project.molecule_type == "protein" {
             let body = replacement.strip_suffix('*').unwrap_or(&replacement);
             if replacement.matches('*').count() > 1 || !body.chars().all(|c| c.is_ascii_alphabetic()) {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Invalid protein replacement: only amino-acid letters (A-Z) and an optional trailing '*' (stop codon) are allowed".to_string(),
-                )));
+                ));
             }
         } else if !replacement.is_empty()
             && !replacement
                 .chars()
                 .all(|c| c.is_ascii() && !libregene_core::primer::iupac::iupac_expand(c as u8).is_empty())
         {
-            return Ok(Json(fail_envelope(
-                &id,
+            return Ok(fail(
                 "Invalid DNA/RNA replacement: only IUPAC nucleotide bases (ACGTURYSWKMBDHVN) are allowed".to_string(),
-            )));
+            ));
         }
 
         // U and T both pass the IUPAC check above, but a cross-alphabet
@@ -3886,21 +4003,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
             None | Some("+") | Some(".") => false,
             Some("-") => true,
             Some(other) => {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!(
-                        "Invalid strand '{}': must be \"+\" (default, insert as given) or \"-\" (reverse-complement before inserting)",
-                        other
-                    ),
+                return Ok(fail(format!(
+                    "Invalid strand '{}': must be \"+\" (default, insert as given) or \"-\" (reverse-complement before inserting)",
+                    other
                 )));
             }
         };
         if reverse {
             if !project.is_dna() {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "strand \"-\" (reverse complement) is only supported on DNA projects".to_string(),
-                )));
+                ));
             }
             replacement = libregene_core::utils::reverse_complement(&replacement);
         }
@@ -3919,7 +4032,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let (new_seq, context_before, context_after, impact) = {
             let mut pm = self.pm.write().await;
             let Some(p) = pm.get_project_mut_by_id(&id) else {
-                return Ok(Json(fail_envelope(&id, "Project not found".to_string())));
+                return Ok(fail("Project not found".to_string()));
             };
             // The resolve-time bounds check ran against a snapshot; a
             // concurrent edit may have shrunk the sequence since — re-check
@@ -3927,12 +4040,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let live_len = p.sequence.len() as i64;
             let out_of_bounds = if is_insertion { start > live_len } else { end >= live_len };
             if out_of_bounds {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!(
-                        "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
-                        u_start, u_end, live_len
-                    ),
+                return Ok(fail(format!(
+                    "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                    u_start, u_end, live_len
                 )));
             }
             let current: String = if is_insertion {
@@ -3971,6 +4081,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         "expectedLength": exp.len(),
                         "currentLength": cur.len(),
                     });
+                    insert_seq_hashes(&mut v, &seq_hashes);
                     return Ok(Json(v));
                 }
             }
@@ -4155,6 +4266,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(rv) = new_region {
             v["regionView"] = serde_json::json!(rv);
         }
+        insert_seq_hashes(
+            &mut v,
+            &libregene_core::utils::orientation_hashes(&new_seq, &project.molecule_type),
+        );
         Ok(Json(v))
     }
 
@@ -4174,7 +4289,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// replaces the segment breakdown — the two forms are mutually exclusive
     /// and neither touches the strand. strand must be ".", "+" or "-"; color
     /// is hex and also recolors existing segments. Returns {ok, message,
-    /// projectId, regionView} around the feature.
+    /// projectId, regionView} around the feature. The response also carries
+    /// `sequenceHash`/`revCompHash` (see get_project_overview).
     #[tool]
     async fn set_feature(
         &self,
@@ -4182,21 +4298,28 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.resolve_project_id(request.project_id.clone()).await?;
         self.require_agent_tab(&id).await?;
+        let seq_hashes = self.project_seq_hashes(&id).await;
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            Json(v)
+        };
 
         if let Some(feature_id) = request.feature_id.clone() {
             // ---- update mode ----
             if !self.feature_exists(&id, &feature_id).await {
-                return Ok(Json(fail_envelope(&id, format!("Feature not found: {}", feature_id))));
+                return Ok(fail(format!("Feature not found: {}", feature_id)));
             }
             if request.notes.is_some() {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "notes update is not supported by set_feature (notes can only be set when creating a feature)".to_string(),
-                )));
+                ));
             }
             if let Some(n) = &request.name {
                 if n.is_empty() {
-                    return Ok(Json(fail_envelope(&id, "name must not be empty".to_string())));
+                    return Ok(fail("name must not be empty".to_string()));
                 }
             }
             if request.name.is_none()
@@ -4207,14 +4330,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 && request.end.is_none()
                 && request.segments.is_none()
             {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Nothing to update: give at least one of name/ftype/color/strand/start+end/segments".to_string(),
-                )));
+                ));
             }
             if let Some(s) = &request.strand {
                 if !matches!(s.as_str(), "." | "+" | "-") {
-                    return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
+                    return Ok(fail("Invalid strand: must be ., +, or -".to_string()));
                 }
             }
             let has_span = request.start.is_some()
@@ -4224,7 +4346,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let span = resolve_feature_span(request.start, request.end, request.segments)
                     .map_err(|e| ErrorData::invalid_params(e, None))?;
                 if let Err(e) = self.span_within_bounds(&id, &span.0, span.1, span.2).await {
-                    return Ok(Json(fail_envelope(&id, e)));
+                    return Ok(fail(e));
                 }
                 Some(span)
             } else {
@@ -4265,7 +4387,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::invalid_params(e, None))?;
             if let Some(err) = Self::payload_error(&payload) {
-                return Ok(Json(fail_envelope(&id, err)));
+                return Ok(fail(err));
             }
             let message = {
                 let pm = self.pm.read().await;
@@ -4284,26 +4406,28 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     .unwrap_or_else(|| format!("Updated feature {}", feature_id))
             };
             let region = self.digest_feature_region(&id, &feature_id).await;
-            return Ok(Json(ok_envelope(&id, message, region)));
+            let mut v = ok_envelope(&id, message, region);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            return Ok(Json(v));
         }
 
         // ---- create mode ----
         let name = match request.name.clone() {
             Some(n) if !n.is_empty() => n,
             _ => {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "name is required when creating a feature (omit feature_id = create; pass feature_id to update)".to_string(),
-                )))
+                ))
             }
         };
         let ftype = match request.ftype.clone() {
             Some(t) if !t.is_empty() => t,
             _ => {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "ftype is required when creating a feature (omit feature_id = create; pass feature_id to update)".to_string(),
-                )))
+                ))
             }
         };
         let (segments, start, end) = resolve_feature_span(
@@ -4314,10 +4438,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| ErrorData::invalid_params(e, None))?;
         let strand = request.strand.clone().unwrap_or_else(|| "+".to_string());
         if !matches!(strand.as_str(), "." | "+" | "-") {
-            return Ok(Json(fail_envelope(&id, "Invalid strand: must be ., +, or -".to_string())));
+            return Ok(fail("Invalid strand: must be ., +, or -".to_string()));
         }
         if let Err(e) = self.span_within_bounds(&id, &segments, start, end).await {
-            return Ok(Json(fail_envelope(&id, e)));
+            return Ok(fail(e));
         }
 
         let feature_id = next_id("feature");
@@ -4348,7 +4472,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .await
         .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
+            return Ok(fail(err));
         }
         let region = self.digest_feature_region(&id, &feature_id).await;
         let mut v = ok_envelope(
@@ -4357,6 +4481,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             region,
         );
         v["featureId"] = serde_json::json!(feature_id);
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut v, h);
+        }
         Ok(Json(v))
     }
 
@@ -4373,7 +4500,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// of contiguous 3'-end bases matching the template (the anneal core; a
     /// non-pairing 5' tail is excluded).
     /// DNA-only: rejects RNA/protein projects (single-strand molecules carry
-    /// no primers).
+    /// no primers). The response also carries `sequenceHash`/`revCompHash`
+    /// (see get_project_overview).
     #[tool]
     async fn add_primer(
         &self,
@@ -4381,11 +4509,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
+        let seq_hashes = self.project_seq_hashes(&id).await;
         let primer_id = next_id("primer");
         let name = request.name.clone();
         let clean_seq = match clean_primer_input(&request.name, &request.r#type, &request.seq) {
             Ok(s) => s,
-            Err(e) => return Ok(Json(fail_envelope(&id, e))),
+            Err(e) => {
+                let mut v = fail_envelope(&id, e);
+                if let Some(h) = &seq_hashes {
+                    insert_seq_hashes(&mut v, h);
+                }
+                return Ok(Json(v));
+            }
         };
         let primer = Primer {
             id: primer_id.clone(),
@@ -4398,7 +4533,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
+            let mut v = fail_envelope(&id, err);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            return Ok(Json(v));
         }
         let (sites, region) = {
             let pm = self.pm.read().await;
@@ -4445,6 +4584,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             region_view,
         );
         env["bindingSites"] = serde_json::json!(sites);
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut env, h);
+        }
         Ok(Json(env))
     }
 
@@ -4537,7 +4679,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// On failure returns {ok: false, message, projectId, significant: false};
     /// a message starting with "No significant alignment found" states the
     /// reason (identity below the 0.60 minimum, or aligned span below the
-    /// 50 bp minimum).
+    /// 50 bp minimum). The response also carries
+    /// `sequenceHash`/`revCompHash` of the template (see get_project_overview).
     #[tool]
     async fn add_alignment(
         &self,
@@ -4545,6 +4688,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
+        let seq_hashes = self.project_seq_hashes(&id).await;
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            Json(v)
+        };
         let name = request.name.clone();
         let compact = request.compact.unwrap_or(false);
 
@@ -4552,10 +4703,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // coordinates ((s, e), s > e wraps the origin on circular templates).
         let focus: Option<(i64, i64)> = {
             if request.region.is_some() && request.feature_id.is_some() {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "region and feature_id are mutually exclusive".to_string(),
-                )));
+                ));
             }
             let flank = request.flank.unwrap_or(0).clamp(0, MAX_FLANK);
             let pm = self.pm.read().await;
@@ -4566,19 +4716,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let circular = p.topology == "circular";
             if let Some(r) = &request.region {
                 if r.start < 1 || r.start > len || r.end < 1 || r.end > len {
-                    return Ok(Json(fail_envelope(
-                        &id,
-                        format!(
-                            "region {}..{} out of bounds for sequence of length {} (1-based inclusive)",
-                            r.start, r.end, len
-                        ),
+                    return Ok(fail(format!(
+                        "region {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                        r.start, r.end, len
                     )));
                 }
                 if r.start > r.end && !circular {
-                    return Ok(Json(fail_envelope(
-                        &id,
+                    return Ok(fail(
                         "region start > end wraps the origin and is only allowed on circular sequences".to_string(),
-                    )));
+                    ));
                 }
                 let s = r.start.saturating_sub(1).saturating_sub(flank).max(0);
                 let e = r.end.saturating_sub(1).saturating_add(flank).min(len - 1);
@@ -4587,12 +4733,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let f = match p.features.iter().find(|f| &f.id == fid) {
                     Some(f) => f,
                     None => {
-                        return Ok(Json(fail_envelope(
-                            &id,
-                            format!(
-                                "feature '{}' not found in project; list feature ids with get_project_overview",
-                                fid
-                            ),
+                        return Ok(fail(format!(
+                            "feature '{}' not found in project; list feature ids with get_project_overview",
+                            fid
                         )));
                     }
                 };
@@ -4607,16 +4750,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut trace_path: Option<String> = None;
         let seq = match (request.bases, request.path) {
             (Some(_), Some(_)) => {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Provide exactly one of `bases` or `path`, not both".to_string(),
-                )));
+                ));
             }
             (None, None) => {
-                return Ok(Json(fail_envelope(
-                    &id,
+                return Ok(fail(
                     "Provide exactly one of `bases` (sequence string) or `path` (sequence file)".to_string(),
-                )));
+                ));
             }
             (Some(bases), None) => bases,
             (None, Some(path)) => {
@@ -4634,12 +4775,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 match parsed {
                     Ok(data) => data.sequence,
                     Err(e) => {
-                        return Ok(Json(fail_envelope(
-                            &id,
-                            format!(
-                                "Failed to read alignment sequence file (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
-                                e
-                            ),
+                        return Ok(fail(format!(
+                            "Failed to read alignment sequence file (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
+                            e
                         )));
                     }
                 }
@@ -4662,17 +4800,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         {
             Ok(p) => p,
             Err(e) if e.starts_with("No significant alignment found") => {
-                return Ok(Json(serde_json::json!({
+                let mut v = serde_json::json!({
                     "ok": false,
                     "message": e,
-                    "projectId": id,
+                    "projectId": id.clone(),
                     "significant": false,
-                })));
+                });
+                if let Some(h) = &seq_hashes {
+                    insert_seq_hashes(&mut v, h);
+                }
+                return Ok(Json(v));
             }
             Err(e) => return Err(ErrorData::internal_error(e, None)),
         };
         if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
+            return Ok(fail(err));
         }
         let (summary, alignments, region, coverage_note) = {
             let pm = self.pm.read().await;
@@ -4761,6 +4903,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 last["coverageNote"] = serde_json::json!(note);
             }
         }
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut env, h);
+        }
         Ok(Json(env))
     }
 
@@ -4775,27 +4920,38 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// returned; otherwise returns {projectId, orfs: [Feature]} with all
     /// coordinates 1-based inclusive (start/end and segments).
     /// DNA-only: rejects RNA/protein projects (single-strand, no ORFs).
+    /// The response also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview).
     #[tool]
     async fn find_orfs(
         &self,
         Parameters(request): Parameters<FindOrfsRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
+        let seq_hashes = self.project_seq_hashes(&id).await;
         let orfs = crate::do_find_orfs(&self.pm, &id, request.min_aa)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         if !request.add_as_features.unwrap_or(false) {
             let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
-            return Ok(Json(serde_json::json!({ "projectId": id, "orfs": orfs_json })));
+            let mut v = serde_json::json!({ "projectId": id, "orfs": orfs_json });
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            return Ok(Json(v));
         }
         self.require_agent_tab(&id).await?;
         if orfs.is_empty() {
-            return Ok(Json(serde_json::json!({
+            let mut v = serde_json::json!({
                 "ok": true,
                 "message": "No ORFs found",
                 "projectId": id,
-            })));
+            });
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            return Ok(Json(v));
         }
         let min_s = orfs.iter().map(|f| f.start).min().unwrap_or(0);
         let max_e = orfs.iter().map(|f| f.end).max().unwrap_or(0);
@@ -4811,10 +4967,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .await
         .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
-            return Ok(Json(fail_envelope(&id, err)));
+            let mut v = fail_envelope(&id, err);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            return Ok(Json(v));
         }
         let region = self.digest_region(&id, Some((min_s, max_e)), true).await;
-        Ok(Json(ok_envelope(&id, "Added ORFs as CDS features".to_string(), region)))
+        let mut v = ok_envelope(&id, "Added ORFs as CDS features".to_string(), region);
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut v, h);
+        }
+        Ok(Json(v))
     }
 
     /// Design primer candidates — same modes/parameters as the
@@ -4904,13 +5068,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   accidental tail pairing.
     /// `tmBasis` always restates this basis.
     /// DNA-only: rejects RNA/protein projects (no primer design on
-    /// single-strand molecules).
+    /// single-strand molecules). The response also carries
+    /// `sequenceHash`/`revCompHash` of the template (see get_project_overview).
     #[tool]
     async fn design_primers(
         &self,
         Parameters(request): Parameters<DesignPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
+        let seq_hashes = self.project_seq_hashes(&id).await;
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            Json(v)
+        };
         let seg = request.seg.map(|s| libregene_core::models::Segment {
             start: from1(s.start),
             end: from1(s.end),
@@ -4936,26 +5109,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
         for (label, s) in [("seg", &seg), ("seg2", &seg2)] {
             let Some(s) = s else { continue };
             if s.start < 0 || s.end < 0 || s.start >= tlen || s.end >= tlen {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!(
-                        "{} {}..{} out of bounds for sequence of length {} (1-based inclusive)",
-                        label,
-                        s.start + 1,
-                        s.end + 1,
-                        tlen
-                    ),
+                return Ok(fail(format!(
+                    "{} {}..{} out of bounds for sequence of length {} (1-based inclusive)",
+                    label,
+                    s.start + 1,
+                    s.end + 1,
+                    tlen
                 )));
             }
             if s.start > s.end && (!circular || request.mode == "mutagenesis") {
-                return Ok(Json(fail_envelope(
-                    &id,
-                    format!(
-                        "{} {}..{}: start > end wraps the origin — only allowed on circular templates in amplify/oepcr mode",
-                        label,
-                        s.start + 1,
-                        s.end + 1
-                    ),
+                return Ok(fail(format!(
+                    "{} {}..{}: start > end wraps the origin — only allowed on circular templates in amplify/oepcr mode",
+                    label,
+                    s.start + 1,
+                    s.end + 1
                 )));
             }
         }
@@ -4978,7 +5145,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             *slot = Some(format!("{}{}", protect, site));
                             enzyme_sites.push((name.clone(), site));
                         }
-                        Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                        Err(e) => return Ok(fail(e)),
                     }
                 }
             }
@@ -5049,6 +5216,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         &format!("seg {}..{} (1-based inclusive)", seg_ref.start + 1, seg_ref.end + 1),
                     );
                     let mut v = fail_envelope(&id, e);
+                    if let Some(h) = &seq_hashes {
+                        insert_seq_hashes(&mut v, h);
+                    }
                     let lo = seg_ref.start.max(0) as usize;
                     let hi = ((seg_ref.end + 1).min(sequence.len() as i64)) as usize;
                     if lo < hi {
@@ -5158,6 +5328,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 }
             }
         }
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut v, h);
+        }
         Ok(Json(v))
     }
 
@@ -5200,18 +5373,26 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (templateEnd), inclusive. To obtain the amplicon itself (as a file),
     /// use save_file's fwd_primer/rev_primer region mode.
     /// DNA-only: rejects RNA/protein projects (no primer binding on
-    /// single-strand molecules).
+    /// single-strand molecules). The response also carries
+    /// `sequenceHash`/`revCompHash` of the template (see get_project_overview).
     #[tool]
     async fn check_primer_binding(
         &self,
         Parameters(request): Parameters<CheckPrimerBindingRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
+        let seq_hashes = self.project_seq_hashes(&id).await;
         let mut primers: Vec<Primer> = Vec::with_capacity(request.primers.len());
         for p in request.primers {
             let clean_seq = match clean_primer_input(&p.name, &p.r#type, &p.seq) {
                 Ok(s) => s,
-                Err(e) => return Ok(Json(fail_envelope(&id, e))),
+                Err(e) => {
+                    let mut v = fail_envelope(&id, e);
+                    if let Some(h) = &seq_hashes {
+                        insert_seq_hashes(&mut v, h);
+                    }
+                    return Ok(Json(v));
+                }
             };
             primers.push(Primer {
                 id: p.name.clone(),
@@ -5251,6 +5432,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         v["tmBasis"] = serde_json::json!(
             "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLen/Tm (expected for tailed primers — see per-site alignedTemplate/matchMask)"
         );
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut v, h);
+        }
         Ok(Json(v))
     }
 
@@ -5323,6 +5507,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// sequences move between tools as files, not pasted text. When
     /// `output_path` already exists, `overwrite: true` is required (same rule
     /// as save_file).
+    /// Each result also carries `sequenceHash`/`revCompHash` (see
+    /// get_project_overview) of the INPUT sequence: project mode → the
+    /// project after a possible apply; input_path → the input file's
+    /// sequence; sequence → the given text.
     #[tool]
     async fn convert_sequence(
         &self,
@@ -11289,5 +11477,105 @@ mod tests {
         // Rejected primers were not persisted.
         let pm = server.pm.read().await;
         assert!(pm.get_project_by_id("feat").unwrap().primers.is_empty());
+    }
+
+    fn assert_hex7(v: &serde_json::Value) -> String {
+        let s = v.as_str().expect("hash is a string");
+        assert_eq!(s.len(), 7, "{s}");
+        assert!(s.chars().all(|c| c.is_ascii_hexdigit()), "{s}");
+        s.to_string()
+    }
+
+    #[tokio::test]
+    async fn read_sequence_carries_sequence_hashes() {
+        let project = edit_test_project();
+        let seq = project.sequence.clone();
+        let server = handler_with_project(project).await;
+        let out = server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: Some(1),
+                end: Some(50),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        let h = assert_hex7(&v["sequenceHash"]);
+        let rh = assert_hex7(&v["revCompHash"]);
+        assert_eq!(h, libregene_core::utils::sequence_hash(&seq));
+        assert_eq!(
+            rh,
+            libregene_core::utils::sequence_hash(&libregene_core::utils::reverse_complement(&seq))
+        );
+        assert_ne!(h, rh);
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_response_hash_matches_new_sequence() {
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: Some(1),
+                end: Some(20),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let before = out.0["sequenceHash"].as_str().unwrap().to_string();
+
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 61,
+                end: 60,
+                replacement: Some("AAACCCGGGTTT".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        let after = assert_hex7(&v["sequenceHash"]);
+        assert_hex7(&v["revCompHash"]);
+        assert_ne!(before, after);
+        let pm = server.pm.read().await;
+        let live = &pm.get_project_by_id("edit_test").unwrap().sequence;
+        assert_eq!(after, libregene_core::utils::sequence_hash(live));
+        assert_eq!(live.len(), 212);
+    }
+
+    #[tokio::test]
+    async fn protein_project_rev_comp_hash_is_null() {
+        let server = handler_with_project(protein_test_project()).await;
+        let out = server
+            .read_sequence(Parameters(SequenceRequest {
+                project_id: "prot".to_string(),
+                start: Some(1),
+                end: Some(10),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_hex7(&v["sequenceHash"]);
+        assert!(v.get("revCompHash").is_some(), "{v}");
+        assert!(v["revCompHash"].is_null(), "{v}");
+    }
+
+    #[tokio::test]
+    async fn list_projects_entries_carry_sequence_hashes() {
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server.list_projects().await.unwrap();
+        let v = out.0;
+        let entry = v["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "edit_test")
+            .expect("edit_test listed");
+        assert_hex7(&entry["sequenceHash"]);
+        assert_hex7(&entry["revCompHash"]);
     }
 }

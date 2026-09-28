@@ -566,6 +566,16 @@ pub fn project_digest(
     }
     out.push_str(&locus);
     out.push('\n');
+    let (seq_hash, rev_comp_hash) =
+        crate::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+    match rev_comp_hash {
+        Some(rh) => {
+            let _ = writeln!(out, "SEQHASH: {} (rev-comp {})", seq_hash, rh);
+        }
+        None => {
+            let _ = writeln!(out, "SEQHASH: {}", seq_hash);
+        }
+    }
     if is_dna {
         out.push_str(
             "COORDS: 1-based inclusive (features, primers, read ranges); enzyme cuts shown as N^N+1 = between bases N and N+1\n",
@@ -1253,6 +1263,29 @@ mod tests {
         ));
         assert!(out.contains("COORDS: 1-based inclusive"));
         assert!(out.contains("FEATURES (1-based, inclusive):\n"));
+    }
+
+    #[test]
+    fn digest_header_carries_seqhash() {
+        let p = synthetic_project();
+        let (h, rh) = crate::utils::orientation_hashes(&p.sequence, &p.molecule_type);
+        let expected = format!("SEQHASH: {} (rev-comp {})\n", h, rh.unwrap());
+        // Overview and region views both carry the header line, right after
+        // the LOCUS line.
+        let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+        assert!(out.contains(&expected), "{out}");
+        assert!(out.find("SEQHASH:").unwrap() < out.find("COORDS:").unwrap(), "{out}");
+        let region = project_digest(&p, &DigestOptions::default(), Some((0, 10))).unwrap();
+        assert!(region.contains(&expected), "{region}");
+        // Protein digests omit the rev-comp part.
+        let prot = project_digest(&protein_project(), &DigestOptions::default(), None).unwrap();
+        let (ph, prh) = crate::utils::orientation_hashes(
+            &protein_project().sequence,
+            &protein_project().molecule_type,
+        );
+        assert!(prh.is_none());
+        assert!(prot.contains(&format!("SEQHASH: {}\n", ph)), "{prot}");
+        assert!(!prot.contains("(rev-comp"), "{prot}");
     }
 
     fn protein_project() -> ProjectData {
