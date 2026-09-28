@@ -8,7 +8,7 @@ import { findOrfs as findOrfsCommand } from '../../tauriApi';
 const MIN_AA = 75;
 
 // Lighter variants of the primer F/R theme colors (#166534 / #4A148C)
-export const ORF_COLORS = { fwd: '#8BB29A', rev: '#A58AC6' };
+export const ORF_COLORS = { fwd: '#70C2A6', rev: '#A877CF' };
 
 // The backend returns real Feature JSON with qualifiers [["orf","true"]];
 // restore the virtual `orf: true` flag the renderer keys off (ORFs get the

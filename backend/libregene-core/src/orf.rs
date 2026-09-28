@@ -9,8 +9,8 @@ use std::collections::HashSet;
 
 use crate::models::{Feature, Segment};
 
-const ORF_FWD: &str = "#8BB29A";
-const ORF_REV: &str = "#A58AC6";
+const ORF_FWD: &str = "#70C2A6";
+const ORF_REV: &str = "#A877CF";
 
 fn rev_comp(seq: &[u8]) -> Vec<u8> {
     seq.iter()
