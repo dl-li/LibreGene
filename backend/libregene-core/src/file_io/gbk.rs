@@ -12,7 +12,7 @@
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use chrono::Datelike;
 
@@ -117,6 +117,63 @@ pub(crate) fn primer_from_qualifier_values(
 }
 
 // ---------------------------------------------------------------------------
+// Trace file paths
+//
+// `/libregene_trace_file` is stored relative to the .gbk file whenever the
+// .ab1 is reachable from the .gbk's directory, so a folder holding both
+// survives being moved/renamed. Absolute values from older files still parse.
+// ---------------------------------------------------------------------------
+
+/// Lexically resolve `.`/`..` components (no filesystem access, no symlink
+/// resolution). The frontend-side path validation rejects `..`, so parsed
+//  relative paths must be normalized before they reach the model.
+fn normalize_path(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Resolve a stored trace path (possibly relative) against the .gbk's dir.
+fn resolve_trace_path(value: &str, gbk_path: &Path) -> String {
+    let p = Path::new(value);
+    if p.is_absolute() {
+        return value.to_string();
+    }
+    let base = gbk_path.parent().unwrap_or_else(|| Path::new("."));
+    normalize_path(&base.join(p)).to_string_lossy().into_owned()
+}
+
+/// Express `trace` relative to the .gbk's directory when both can be
+/// canonicalized; otherwise keep the original (absolute) value.
+fn relativize_trace_path(trace: &str, gbk_path: &Path) -> String {
+    let Some(dir) = gbk_path.parent() else {
+        return trace.to_string();
+    };
+    let (Ok(t), Ok(d)) = (Path::new(trace).canonicalize(), dir.canonicalize()) else {
+        return trace.to_string();
+    };
+    let tc: Vec<_> = t.components().collect();
+    let dc: Vec<_> = d.components().collect();
+    let common = tc.iter().zip(dc.iter()).take_while(|(a, b)| a == b).count();
+    let mut rel = PathBuf::new();
+    for _ in common..dc.len() {
+        rel.push("..");
+    }
+    for comp in &tc[common..] {
+        rel.push(comp.as_os_str());
+    }
+    rel.to_string_lossy().into_owned()
+}
+
+// ---------------------------------------------------------------------------
 // Parse
 // ---------------------------------------------------------------------------
 
@@ -196,7 +253,8 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
                     .qualifier_values("libregene_trace_file")
                     .next()
                     .map(|s| s.lines().map(|l| l.trim()).collect::<String>())
-                    .filter(|s| !s.is_empty());
+                    .filter(|s| !s.is_empty())
+                    .map(|s| resolve_trace_path(&s, path));
                 alignment_reads.push((name, cleaned, trace_path));
                 continue;
             }
@@ -550,7 +608,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     serialize_primers_snapgene(project, &mut record);
 
     // Serialize alignments as misc_features with libregene_align_* qualifiers
-    serialize_alignments_gbk(project, &mut record);
+    serialize_alignments_gbk(project, &mut record, path);
 
     let file = File::create(path)?;
     let mut writer = SeqWriter::new(file);
@@ -560,7 +618,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 /// Serialize alignments as `misc_feature`s spanning the first segment
 /// (full length when there are no segments). The read sequence and strand
 /// travel in custom qualifiers; position is recomputed on parse.
-fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq) {
+fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq, gbk_path: &Path) {
     for a in &project.alignments {
         let (start, end) = match a.segments.first() {
             Some(seg) => (seg.start as i64, seg.end as i64),
@@ -574,7 +632,10 @@ fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq) {
             (Cow::Borrowed("libregene_align_seq"), Some(a.seq.clone())),
         ];
         if let Some(path) = &a.trace_path {
-            qualifiers.push((Cow::Borrowed("libregene_trace_file"), Some(path.clone())));
+            qualifiers.push((
+                Cow::Borrowed("libregene_trace_file"),
+                Some(relativize_trace_path(path, gbk_path)),
+            ));
         }
         record.features.push(GbFeature {
             kind: Cow::Borrowed("misc_feature"),
