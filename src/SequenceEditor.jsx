@@ -1882,7 +1882,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           // track down, so nothing in the next track sits under this feature.
           // Below mode uses no half-column margins: abutting (non-overlapping)
           // features may share a track.
-          const hangsBelow = featureLabelsBelow && !f.orf;
+          const hangsBelow = featureLabelsBelow;
           // Below-mode labels are never truncated: reserve the exact rendered
           // label width instead of the padded estimate.
           const labelCols = hangsBelow
@@ -1952,7 +1952,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           for (const f of resultFeatures) {
             for (const fseg of f.segments) {
               const isFRev = f.strand === '-';
-              const hangsBelow = featureLabelsBelow && !f.orf;
+              const hangsBelow = featureLabelsBelow;
               const labelCols = hangsBelow
                 ? Math.ceil(
                     primerLabelW(
@@ -1980,7 +1980,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               for (let r = sr; r <= er; r++) {
                 const ft = (fRowTracks[f.id] || {})[r] || 0;
                 // below-line labels hang one extra track lower, clear them too
-                const tracksToClear = ft + (featureLabelsBelow && !f.orf ? 2 : 1);
+                const tracksToClear = ft + (featureLabelsBelow ? 2 : 1);
                 revFeatOff[p.id][r] = Math.max(
                   revFeatOff[p.id][r] || 0,
                   tracksToClear * lp.featTrackHeight,
@@ -2237,7 +2237,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               (t + nAlign) * lp.featTrackHeight +
               (nAlign > 0 ? ALIGN_FEAT_GAP : 0) +
               lp.featLabelPad +
-              (featureLabelsBelow && !f.orf ? lp.featLabelBelowExtra : 0),
+              (featureLabelsBelow ? lp.featLabelBelowExtra : 0),
           );
         }
       }
