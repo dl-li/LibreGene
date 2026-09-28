@@ -29,7 +29,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 - Compound (multi-segment) features, custom colors, strand toggling, enriched GenBank I/O that preserves colors and primers
 
 <p align="center">
-  <img src="screenshots/orf.png" alt="ORF search results" width="49%" />
+  <img src="screenshots/orf-and-gc-content.png" alt="ORF search results with GC content track" width="49%" />
   <img src="screenshots/new-project-dialog.png" alt="New project dialog with auto-detected features" width="49%" />
 </p>
 

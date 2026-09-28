@@ -29,7 +29,7 @@
 - 支持复合（多段）特征、自定义颜色、链方向切换，增强型 GenBank 读写可保留颜色和引物注释
 
 <p align="center">
-  <img src="screenshots/orf.png" alt="ORF 搜索结果" width="49%" />
+  <img src="screenshots/orf-and-gc-content.png" alt="ORF 搜索结果与 GC 含量轨道" width="49%" />
   <img src="screenshots/new-project-dialog.png" alt="新建项目对话框：自动检测特征" width="49%" />
 </p>
 
