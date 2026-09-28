@@ -5149,6 +5149,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   fill="none"
                   stroke={bgColor}
                   strokeWidth="6"
+                  strokeLinecap="round"
                   strokeLinejoin="round"
                 />
                 {isArrow && (
@@ -5183,6 +5184,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
                   fill="none"
                   stroke={bgColor}
                   strokeWidth="5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
                   style={{
                     opacity: isHovered && !isSelectedPrimer ? 0 : 1,
                     transition: springAnim,
@@ -5633,7 +5636,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
               : nameContent;
             return (
               <>
-                <text {...enzText} fill="none" stroke={bgColor} strokeWidth="5">
+                <text
+                  {...enzText}
+                  fill="none"
+                  stroke={bgColor}
+                  strokeWidth="5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                >
                   {content}
                 </text>
                 <text {...enzText} fill={labelColor} stroke="none">
@@ -5766,6 +5776,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
               fill="none"
               stroke={bgColor}
               strokeWidth="5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
               fontSize="14px"
               fontFamily={monoFont}
               fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}
