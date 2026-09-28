@@ -190,10 +190,12 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
                     .to_string();
                 // GenBank writer line-wraps qualifier values; rejoin.
                 let cleaned: String = aseq.chars().filter(|c| c.is_ascii_alphabetic()).collect();
+                // The writer line-wraps qualifier values; rejoin wrapped lines
+                // before trimming so paths split mid-way still resolve.
                 let trace_path = f
                     .qualifier_values("libregene_trace_file")
                     .next()
-                    .map(|s| s.trim().to_string())
+                    .map(|s| s.lines().map(|l| l.trim()).collect::<String>())
                     .filter(|s| !s.is_empty());
                 alignment_reads.push((name, cleaned, trace_path));
                 continue;
