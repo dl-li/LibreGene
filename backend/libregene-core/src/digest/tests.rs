@@ -1,0 +1,1174 @@
+use super::lines::translation_diff_pos;
+use super::range::{pos_in_range, seg_in_range};
+use super::*;
+use crate::models::{CutPair, Enzyme, Feature, Primer, PrimerBindingSite, ProjectData, Segment};
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+fn synthetic_project() -> ProjectData {
+    let mut p = ProjectData {
+        name: "TestPlasmid".to_string(),
+        definition: String::new(),
+        keywords: String::new(),
+        lab_host: String::new(),
+        snapgene_history: None,
+        sequence: "ACGT".repeat(15),
+        length: 60,
+        trace_path: None,
+        topology: "circular".to_string(),
+        molecule_type: "dna".to_string(),
+        features: vec![
+            Feature {
+                id: "f1".into(),
+                name: "repA".into(),
+                start: 10,
+                end: 30,
+                color: "#60A5FA".into(),
+                ftype: "CDS".into(),
+                segments: vec![Segment {
+                    start: 10,
+                    end: 30,
+                    color: None,
+                }],
+                strand: "-".into(),
+                notes: String::new(),
+                translation: String::new(),
+                qualifiers: Vec::new(),
+            },
+            Feature {
+                id: "f2".into(),
+                name: "segFeat".into(),
+                start: 0,
+                end: 49,
+                color: "#F87171".into(),
+                ftype: "regulatory".into(),
+                segments: vec![
+                    Segment {
+                        start: 0,
+                        end: 5,
+                        color: None,
+                    },
+                    Segment {
+                        start: 40,
+                        end: 49,
+                        color: None,
+                    },
+                ],
+                strand: "+".into(),
+                notes: String::new(),
+                translation: String::new(),
+                qualifiers: Vec::new(),
+            },
+        ],
+        primers: vec![
+            Primer {
+                id: "p1".into(),
+                name: "P1".into(),
+                r#type: "fwd".into(),
+                primer_seq: "ACGTACGTAC".into(),
+                binding_sites: vec![
+                    PrimerBindingSite {
+                        primer_id: "p1".into(),
+                        strand: 1,
+                        template_start: 2,
+                        template_end: 12,
+                        tm: 58.3,
+                        gc_content: 0.5,
+                        match_score: 10,
+                        has_3_prime_mismatch: false,
+                        five_prime_tail: String::new(),
+                        three_prime_tail: String::new(),
+                        alignment: Default::default(),
+                    },
+                    PrimerBindingSite {
+                        primer_id: "p1".into(),
+                        strand: -1,
+                        template_start: 50,
+                        template_end: 60,
+                        tm: 60.1,
+                        gc_content: 0.5,
+                        match_score: 10,
+                        has_3_prime_mismatch: true,
+                        five_prime_tail: String::new(),
+                        three_prime_tail: String::new(),
+                        alignment: Default::default(),
+                    },
+                ],
+            },
+            Primer {
+                id: "p2".into(),
+                name: "orphan".into(),
+                r#type: "rev".into(),
+                primer_seq: "GGGGGG".into(),
+                binding_sites: Vec::new(),
+            },
+        ],
+        alignments: Vec::new(),
+        enzymes: vec![
+            Enzyme {
+                id: "ecori".into(),
+                name: "EcoRI".into(),
+                rec_seq: "GAATTC".into(),
+                rec_start: 4,
+                rec_end: 9,
+                display_start: 4,
+                display_end: 14,
+                cut_index: 10,
+                bot_cut_index: 14,
+                cut_pairs: vec![CutPair {
+                    top_cut_index: 10,
+                    bot_cut_index: 14,
+                }],
+                recognition_strand: "top".into(),
+                comp_seq: String::new(),
+                rec_seq_pattern: "GAATTC".into(),
+                spacers: None,
+                is_unique: true,
+                truncated: false,
+                is_methylation_sensitive: false,
+                methylation_blocked: false,
+                methylated_offsets: Vec::new(),
+                methylation_sources: Vec::new(),
+                methylation_required: false,
+                methyl_required_offsets: Vec::new(),
+                methyl_required_sources: Vec::new(),
+                cut_type: "5overhang".into(),
+                cut_twice: false,
+                is_palindromic: true,
+            },
+            // BsaI: two recognition sites
+            Enzyme {
+                id: "bsai_0".into(),
+                name: "BsaI".into(),
+                rec_seq: "GGTCTC".into(),
+                rec_start: 14,
+                rec_end: 19,
+                display_start: 14,
+                display_end: 24,
+                cut_index: 20,
+                bot_cut_index: 24,
+                cut_pairs: vec![CutPair {
+                    top_cut_index: 20,
+                    bot_cut_index: 24,
+                }],
+                recognition_strand: "top".into(),
+                comp_seq: String::new(),
+                rec_seq_pattern: "GGTCTC".into(),
+                spacers: None,
+                is_unique: false,
+                truncated: false,
+                is_methylation_sensitive: false,
+                methylation_blocked: false,
+                methylated_offsets: Vec::new(),
+                methylation_sources: Vec::new(),
+                methylation_required: false,
+                methyl_required_offsets: Vec::new(),
+                methyl_required_sources: Vec::new(),
+                cut_type: "5overhang".into(),
+                cut_twice: false,
+                is_palindromic: true,
+            },
+            Enzyme {
+                id: "bsai_1".into(),
+                name: "BsaI".into(),
+                rec_seq: "GGTCTC".into(),
+                rec_start: 34,
+                rec_end: 39,
+                display_start: 34,
+                display_end: 44,
+                cut_index: 40,
+                bot_cut_index: 44,
+                cut_pairs: vec![CutPair {
+                    top_cut_index: 40,
+                    bot_cut_index: 44,
+                }],
+                recognition_strand: "top".into(),
+                comp_seq: String::new(),
+                rec_seq_pattern: "GGTCTC".into(),
+                spacers: None,
+                is_unique: false,
+                truncated: false,
+                is_methylation_sensitive: false,
+                methylation_blocked: false,
+                methylated_offsets: Vec::new(),
+                methylation_sources: Vec::new(),
+                methylation_required: false,
+                methyl_required_offsets: Vec::new(),
+                methyl_required_sources: Vec::new(),
+                cut_type: "5overhang".into(),
+                cut_twice: false,
+                is_palindromic: true,
+            },
+            // BbsI: one site, cut-twice (two cut pairs)
+            Enzyme {
+                id: "bbsi".into(),
+                name: "BbsI".into(),
+                rec_seq: "GAAGAC".into(),
+                rec_start: 10,
+                rec_end: 15,
+                display_start: 10,
+                display_end: 34,
+                cut_index: 15,
+                bot_cut_index: 19,
+                cut_pairs: vec![
+                    CutPair {
+                        top_cut_index: 15,
+                        bot_cut_index: 19,
+                    },
+                    CutPair {
+                        top_cut_index: 30,
+                        bot_cut_index: 34,
+                    },
+                ],
+                recognition_strand: "top".into(),
+                comp_seq: String::new(),
+                rec_seq_pattern: "GAAGAC".into(),
+                spacers: None,
+                is_unique: true,
+                truncated: false,
+                is_methylation_sensitive: false,
+                methylation_blocked: false,
+                methylated_offsets: Vec::new(),
+                methylation_sources: Vec::new(),
+                methylation_required: false,
+                methyl_required_offsets: Vec::new(),
+                methyl_required_sources: Vec::new(),
+                cut_type: "5overhang".into(),
+                cut_twice: true,
+                is_palindromic: true,
+            },
+        ],
+        methylation_systems: vec!["dam".into(), "dcm".into()],
+        methylation_overlap: 2,
+        roi: Some((5, 20)),
+    };
+    // Three names that cut 3+ times
+    for name in ["AatII", "HaeII", "EcoRV"] {
+        for i in 0..3 {
+            p.enzymes.push(Enzyme {
+                id: format!("{}_{}", name, i),
+                name: name.into(),
+                rec_seq: "GGCC".into(),
+                rec_start: i * 10,
+                rec_end: i * 10 + 3,
+                display_start: i * 10,
+                display_end: i * 10 + 4,
+                cut_index: i * 10 + 2,
+                bot_cut_index: i * 10 + 6,
+                cut_pairs: vec![CutPair {
+                    top_cut_index: i * 10 + 2,
+                    bot_cut_index: i * 10 + 6,
+                }],
+                recognition_strand: "top".into(),
+                comp_seq: String::new(),
+                rec_seq_pattern: "GGCC".into(),
+                spacers: None,
+                is_unique: false,
+                truncated: false,
+                is_methylation_sensitive: false,
+                methylation_blocked: false,
+                methylated_offsets: Vec::new(),
+                methylation_sources: Vec::new(),
+                methylation_required: false,
+                methyl_required_offsets: Vec::new(),
+                methyl_required_sources: Vec::new(),
+                cut_type: "blunt".into(),
+                cut_twice: false,
+                is_palindromic: true,
+            });
+        }
+    }
+    p
+}
+
+#[test]
+fn overview_contains_header_and_coords() {
+    let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
+    assert!(out.starts_with(
+        "LOCUS       TestPlasmid    60 bp    circular DNA    methylation: Dam,Dcm    ROI: 6..21\n"
+    ));
+    assert!(out.contains("COORDS: 1-based inclusive"));
+    assert!(out.contains("FEATURES (1-based, inclusive):\n"));
+}
+
+#[test]
+fn digest_header_carries_seqhash() {
+    let p = synthetic_project();
+    let (h, rh) = crate::utils::orientation_hashes(&p.sequence, &p.molecule_type);
+    let expected = format!("SEQHASH: {} (rev-comp {})\n", h, rh.unwrap());
+    // Overview and region views both carry the header line, right after
+    // the LOCUS line.
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(out.contains(&expected), "{out}");
+    assert!(out.find("SEQHASH:").unwrap() < out.find("COORDS:").unwrap(), "{out}");
+    let region = project_digest(&p, &DigestOptions::default(), Some((0, 10))).unwrap();
+    assert!(region.contains(&expected), "{region}");
+    // Protein digests omit the rev-comp part.
+    let prot = project_digest(&protein_project(), &DigestOptions::default(), None).unwrap();
+    let (ph, prh) = crate::utils::orientation_hashes(
+        &protein_project().sequence,
+        &protein_project().molecule_type,
+    );
+    assert!(prh.is_none());
+    assert!(prot.contains(&format!("SEQHASH: {}\n", ph)), "{prot}");
+    assert!(!prot.contains("(rev-comp"), "{prot}");
+}
+
+fn protein_project() -> ProjectData {
+    let mut p = synthetic_project();
+    p.name = "TestProtein".to_string();
+    p.sequence = "MAAA".repeat(10);
+    p.length = 40;
+    p.topology = "linear".to_string();
+    p.molecule_type = "protein".to_string();
+    p
+}
+
+#[test]
+fn overview_protein_uses_aa_and_omits_dna_sections() {
+    // Protein projects keep features but drop every DNA-only section,
+    // even when the underlying model still carries primers/enzymes.
+    let out = project_digest(&protein_project(), &DigestOptions::default(), None).unwrap();
+    assert!(out.starts_with("LOCUS       TestProtein    40 aa    linear Protein"));
+    assert!(!out.contains("methylation:"));
+    assert!(!out.contains("PRIMERS"));
+    assert!(!out.contains("ENZYMES"));
+    assert!(!out.contains("UNIQUE CUTTERS"));
+    assert!(!out.contains("cuts shown as N^N+1"));
+    assert!(out.contains("FEATURES (1-based, inclusive):\n"));
+    assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
+    // Region views also skip the enzyme layer for non-DNA.
+    let region = project_digest(&protein_project(), &DigestOptions::default(), Some((0, 39))).unwrap();
+    assert!(!region.contains("ENZYMES CUTTING IN REGION"));
+    // Auto-annotation runs on protein projects too, matching the aa
+    // sequence against the database's translated CDS features; the
+    // MAAA-repeat test protein matches nothing.
+    let opts = DigestOptions {
+        include_auto_annotation: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&protein_project(), &opts, None).unwrap();
+    assert!(out.contains("DETECTED COMMON FEATURES (auto):\n(none)"));
+}
+
+#[test]
+fn overview_protein_auto_annotation_detects_cds_translation() {
+    let mut p = protein_project();
+    p.sequence = crate::annotate::db_protein_for_test("KanR_(3)").unwrap();
+    p.length = p.sequence.len() as i64;
+    let opts = DigestOptions {
+        include_auto_annotation: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, None).unwrap();
+    assert!(
+        out.contains("DETECTED COMMON FEATURES (auto):\n        KanR | CDS"),
+        "KanR protein should be detected, got:\n{out}"
+    );
+}
+
+#[test]
+fn overview_rna_uses_nt() {
+    let mut p = synthetic_project();
+    p.name = "TestRNA".to_string();
+    p.sequence = "ACGU".repeat(15);
+    p.length = 60;
+    p.topology = "linear".to_string();
+    p.molecule_type = "rna".to_string();
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(out.starts_with("LOCUS       TestRNA    60 nt    linear RNA"));
+    assert!(!out.contains("PRIMERS"));
+    assert!(!out.contains("ENZYMES"));
+}
+
+#[test]
+fn read_sequence_protein_uses_aa_units() {
+    let p = protein_project();
+    let out = read_sequence(&p, 0, 9).unwrap();
+    assert!(out.contains("COORDS: 1-based inclusive. Window 1..10 (10 aa) of 40 aa linear (wrap: false)"));
+    assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "MAAAMAAAMA");
+    // Read-limit error message uses the mapped unit too.
+    let big = ProjectData {
+        name: "bigProt".into(),
+        sequence: "M".repeat(MAX_READ_BASES + 10),
+        length: (MAX_READ_BASES + 10) as i64,
+        topology: "linear".into(),
+        molecule_type: "protein".into(),
+        ..Default::default()
+    };
+    let err = read_sequence_bases(&big, 0, (MAX_READ_BASES + 9) as i64).unwrap_err();
+    assert!(err.contains("aa"), "error should use aa units: {err}");
+}
+
+#[test]
+fn overview_renders_segmented_and_complement_features() {
+    let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
+    assert!(out.contains("complement(11..31)"));
+    assert!(out.contains("join(1..6,41..50)"));
+    assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
+    assert!(out.contains("segFeat  [#F87171]  (id: f2)"));
+}
+
+#[test]
+fn overview_renders_primer_sites_and_unbound() {
+    let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
+    assert!(out.contains("primer_bind     3..12   P1  [Tm 58.3, + strand]  (id: p1)"));
+    assert!(out.contains("primer_bind     51..60   P1  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
+    assert!(out.contains("Primers without binding sites: orphan (id: p2)"));
+}
+
+#[test]
+fn overview_lists_unique_cutters_and_summarizes_multi_cutters() {
+    let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
+    assert!(out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
+    assert!(out.contains("EcoRI"));
+    assert!(out.contains("top 10^11 bot 14^15"));
+    assert!(out.contains("GAATTC"));
+    assert!(out.contains("5' overhang"));
+    // Multi-cut enzymes (BsaI 2 sites, BbsI cut-twice, + 3 names with 3+
+    // sites) collapse into a single summary line.
+    assert!(!out.contains("TWICE CUTTERS:"));
+    assert!(!out.contains("BsaI"));
+    assert!(!out.contains("BbsI"));
+    assert!(out.contains("... and 5 enzymes with >1 cut"));
+}
+
+#[test]
+fn overview_max_features_caps_feature_lines() {
+    let opts = DigestOptions {
+        max_features: Some(1),
+        feature_filter: None,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&synthetic_project(), &opts, None).unwrap();
+    assert!(out.contains("... and 1 more features"));
+    assert!(out.matches("CDS").count() == 1);
+}
+
+#[test]
+fn overview_feature_filter_narrows_by_name() {
+    let opts = DigestOptions {
+        max_features: None,
+        feature_filter: Some("seg".into()),
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&synthetic_project(), &opts, None).unwrap();
+    assert!(out.contains("segFeat"));
+    assert!(!out.contains("repA"));
+}
+
+#[test]
+fn region_view_excludes_non_overlapping_features() {
+    let out = project_digest(
+        &synthetic_project(),
+        &DigestOptions::default(),
+        Some((0, 1)),
+    )
+    .unwrap();
+    assert!(out.contains("REGION: 1..2"));
+    // CDS 10..30 does not overlap 0..1
+    assert!(!out.contains("complement(11..31)"));
+    // join(0..5, 40..49) overlaps via 0..5
+    assert!(out.contains("join(1..6,41..50)"));
+    // no enzyme cuts within 0..1
+    assert!(!out.contains("ENZYMES CUTTING IN REGION"));
+}
+
+#[test]
+fn region_view_circular_wrap_covers_origin() {
+    // 30..5 wraps: [30..59] ∪ [0..5]
+    let out = project_digest(
+        &synthetic_project(),
+        &DigestOptions::default(),
+        Some((30, 5)),
+    )
+    .unwrap();
+    assert!(out.contains("REGION: 31..6"));
+    // CDS 10..30 touches 30 (inclusive); join 0..5 touches origin
+    assert!(out.contains("complement(11..31)"));
+    assert!(out.contains("join(1..6,41..50)"));
+    // BsaI second site cuts at 40/44 in [30..59]
+    assert!(out.contains("ENZYMES CUTTING IN REGION"));
+    assert!(out.contains("BsaI"));
+    // P1 sites 2..11 (overlaps 0..5) and 50..59 (in [30..59])
+    assert!(out.contains("P1  [Tm 58.3"));
+    assert!(out.contains("P1  [Tm 60.1"));
+}
+
+#[test]
+fn read_sequence_bases_plain_and_wrap() {
+    let p = synthetic_project();
+    assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "ACGTACGTAC");
+    assert_eq!(read_sequence_bases(&p, 55, 4).unwrap(), "TACGTACGTA");
+    assert!(read_sequence_bases(&p, 0, 100).is_err());
+}
+
+#[test]
+fn read_sequence_bases_non_ascii_sequence_no_panic() {
+    // Sequences can carry multi-byte UTF-8 (e.g. from from_utf8_lossy in
+    // parsers); byte-based slicing must not panic on char boundaries.
+    let p = ProjectData {
+        name: "nonAscii".into(),
+        sequence: "ACGT\u{FFFD}ACGT".into(),
+        length: 9,
+        trace_path: None,
+        topology: "circular".into(),
+        ..Default::default()
+    };
+    let out = read_sequence_bases(&p, 0, 8).unwrap();
+    assert_eq!(out, "ACGT\u{FFFD}AC");
+    // Wrapped window splits a multi-byte char at the boundary; lossy
+    // decoding must replace the partial bytes instead of panicking.
+    let wrapped = read_sequence_bases(&p, 6, 2).unwrap();
+    assert!(!wrapped.is_empty());
+}
+
+#[test]
+fn read_sequence_linear_window() {
+    let out = read_sequence(&synthetic_project(), 0, 19).unwrap();
+    assert!(out.contains("COORDS: 1-based inclusive. Window 1..20 (20 bp)"));
+    assert!(out.contains("ACGTACGTAC GTACGTACGT"));
+}
+
+#[test]
+fn read_sequence_small_window_omits_ruler() {
+    // A ≤60 bp window fits one sequence line: the 6-column ruler is
+    // omitted, the per-line position prefix still anchors coordinates.
+    let out = read_sequence(&synthetic_project(), 0, 19).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "small window must skip the ruler: {:?}", out);
+    assert!(
+        lines[1].starts_with("     1 "),
+        "sequence line keeps its position prefix: {:?}",
+        lines[1]
+    );
+}
+
+#[test]
+fn read_sequence_ruler_threshold_boundary() {
+    let big = ProjectData {
+        name: "big".into(),
+        sequence: "ACGT".repeat(30),
+        length: 120,
+        trace_path: None,
+        topology: "linear".into(),
+        ..Default::default()
+    };
+    // Exactly 60 bp (one full line): still compact, no ruler.
+    let out = read_sequence(&big, 0, 59).unwrap();
+    assert_eq!(out.lines().count(), 2, "60 bp window: {:?}", out);
+    // 61 bp spills onto a second line: the ruler comes back.
+    let out = read_sequence(&big, 0, 60).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 4, "61 bp window keeps the ruler: {:?}", out);
+    assert!(lines[1].contains("11"), "ruler line present: {:?}", lines[1]);
+}
+
+#[test]
+fn read_sequence_circular_wrap() {
+    // positions 55..59 = TACGT, 0..4 = ACGTA
+    let out = read_sequence(&synthetic_project(), 55, 4).unwrap();
+    assert!(out.contains("Window 56..5 (10 bp) of 60 bp circular (wrap: true)"));
+    assert!(out.contains("TACGTACGTA"));
+}
+
+#[test]
+fn read_sequence_circular_wrap_coordinates_normalized() {
+    // 70 bp wrap window on a 120 bp circular template: ruler and per-line
+    // coordinates must wrap at tlen instead of exceeding it.
+    let big = ProjectData {
+        name: "big".into(),
+        sequence: "ACGT".repeat(30),
+        length: 120,
+        trace_path: None,
+        topology: "circular".into(),
+        ..Default::default()
+    };
+    let out = read_sequence(&big, 100, 49).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 4, "header + ruler + 2 lines: {:?}", out);
+    assert!(lines[1].contains("111"), "ruler normalized: {:?}", lines[1]);
+    assert!(!lines[1].contains("121"), "ruler must not exceed tlen: {:?}", lines[1]);
+    assert!(
+        lines[3].starts_with("    41 "),
+        "second line coordinate wraps to 41: {:?}",
+        lines[3]
+    );
+}
+
+#[test]
+fn read_sequence_rejects_bad_ranges() {
+    let linear = ProjectData {
+        name: "lin".into(),
+        sequence: "ACGT".repeat(10),
+        length: 40,
+        trace_path: None,
+        topology: "linear".into(),
+        ..Default::default()
+    };
+    assert!(read_sequence(&linear, 30, 5).is_err());
+    assert!(read_sequence(&linear, 0, 100).is_err());
+    assert!(read_sequence(&linear, -1, 5).is_err());
+}
+
+#[test]
+fn read_sequence_caps_huge_windows() {
+    let big = ProjectData {
+        name: "big".into(),
+        sequence: "A".repeat(MAX_READ_BASES + 10),
+        length: (MAX_READ_BASES + 10) as i64,
+        topology: "linear".into(),
+        ..Default::default()
+    };
+    let err = read_sequence(&big, 0, (MAX_READ_BASES + 9) as i64).unwrap_err();
+    assert!(err.contains("read limit"));
+}
+
+#[test]
+fn overview_renders_alignments() {
+    let mut p = synthetic_project();
+    p.alignments.push(crate::models::Alignment {
+        id: "aln-1".into(),
+        name: "read1".into(),
+        length: 70,
+        strand: "+".into(),
+        identity: 0.9857,
+        segments: vec![crate::models::AlignSegment {
+            start: 50,
+            end: 59,
+            chars: "ACGTACGTAC".into(),
+        }],
+        insertions: Vec::new(),
+        seq: String::new(),
+        trace_path: None,
+    });
+    p.alignments.push(crate::models::Alignment {
+        id: "aln-2".into(),
+        name: "wrapped".into(),
+        length: 60,
+        strand: "-".into(),
+        identity: 1.0,
+        segments: vec![
+            crate::models::AlignSegment {
+                start: 55,
+                end: 59,
+                chars: "ACGTA".into(),
+            },
+            crate::models::AlignSegment {
+                start: 0,
+                end: 4,
+                chars: "ACGTA".into(),
+            },
+        ],
+        insertions: Vec::new(),
+        seq: String::new(),
+        trace_path: None,
+    });
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(out.contains("ALIGNMENTS (1-based, inclusive):\n"));
+    assert!(out.contains("read1"));
+    assert!(out.contains("51..60"));
+    assert!(out.contains("+ strand  [identity 98.6%, significant]  (id: aln-1)"));
+    assert!(out.contains("join(56..60,1..5)"));
+    assert!(out.contains("- strand  [identity 100.0%, significant]  (id: aln-2)"));
+
+    // Region view lists only overlapping alignments.
+    let region = project_digest(&p, &DigestOptions::default(), Some((10, 30))).unwrap();
+    assert!(!region.contains("ALIGNMENTS"));
+    let region = project_digest(&p, &DigestOptions::default(), Some((45, 55))).unwrap();
+    assert!(region.contains("read1"));
+    assert!(region.contains("wrapped"));
+    let region = project_digest(&p, &DigestOptions::default(), Some((0, 4))).unwrap();
+    assert!(!region.contains("read1"));
+    assert!(region.contains("wrapped"));
+}
+
+/// aln-1 covers 10..29 with a mismatch at 15, a 2 bp deletion at 18..19
+/// and a 2 bp insertion before 25 (template is "ACGT"*15, so t[15]=T,
+/// t[18..19]=GT).
+fn project_with_diff_alignment() -> ProjectData {
+    let mut p = synthetic_project();
+    let mut chars: Vec<char> = p.sequence[10..=29].chars().collect();
+    chars[5] = 'A'; // mismatch at 15 (T > A)
+    chars[8] = '-'; // deletion at 18..19
+    chars[9] = '-';
+    p.alignments.push(crate::models::Alignment {
+        id: "aln-1".into(),
+        name: "read1".into(),
+        length: 21,
+        strand: "+".into(),
+        identity: 0.9,
+        segments: vec![crate::models::AlignSegment {
+            start: 10,
+            end: 29,
+            chars: chars.iter().collect(),
+        }],
+        insertions: vec![crate::models::AlignInsertion {
+            pos: 25,
+            bases: "GG".into(),
+        }],
+        seq: String::new(),
+        trace_path: None,
+    });
+    p
+}
+
+#[test]
+fn region_view_lists_alignment_diffs_in_window() {
+    let p = project_with_diff_alignment();
+    let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+    assert!(out.contains("ALIGNMENT DIFFS IN REGION (1-based inclusive):\n"), "{out}");
+    assert!(out.contains("read1  (id: aln-1):\n"), "{out}");
+    assert!(out.contains("mismatch at 16: T > A"), "{out}");
+    assert!(out.contains("deletion at 19: 2 bp (GT)"), "{out}");
+    assert!(out.contains("insertion between 25 and 26: GG (2 bp)"), "{out}");
+
+    // Window overlapping the read but left of every diff.
+    let out = project_digest(&p, &DigestOptions::default(), Some((10, 12))).unwrap();
+    assert!(out.contains("read1  (id: aln-1): no differences in window\n"), "{out}");
+    assert!(!out.contains("mismatch at 16"), "{out}");
+
+    // Partial window: mismatch + overlapping deletion in, insertion out.
+    let out = project_digest(&p, &DigestOptions::default(), Some((14, 18))).unwrap();
+    assert!(out.contains("mismatch at 16: T > A"), "{out}");
+    assert!(out.contains("deletion at 19: 2 bp (GT)"), "{out}");
+    assert!(!out.contains("insertion between 25 and 26"), "{out}");
+
+    // Whole-project digests never render the section.
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(out.contains("ALIGNMENTS (1-based, inclusive):\n"), "{out}");
+    assert!(!out.contains("ALIGNMENT DIFFS IN REGION"), "{out}");
+}
+
+#[test]
+fn region_view_alignment_diffs_circular_wrap() {
+    let mut p = project_with_diff_alignment();
+    // aln-2 wraps the origin (56..59 + 0..5): a 4 bp deletion straddling
+    // the origin (58,59,0,1 — merged into one entry) and a mismatch at 2.
+    p.alignments.push(crate::models::Alignment {
+        id: "aln-2".into(),
+        name: "wrapped".into(),
+        length: 10,
+        strand: "+".into(),
+        identity: 0.7,
+        segments: vec![
+            crate::models::AlignSegment {
+                start: 56,
+                end: 59,
+                chars: "AC--".into(),
+            },
+            crate::models::AlignSegment {
+                start: 0,
+                end: 5,
+                chars: "--ATAC".into(),
+            },
+        ],
+        insertions: Vec::new(),
+        seq: String::new(),
+        trace_path: None,
+    });
+
+    // Wrapping window 55..4 covers both diffs; aln-1 (10..29) stays out.
+    let out = project_digest(&p, &DigestOptions::default(), Some((55, 4))).unwrap();
+    assert!(out.contains("wrapped  (id: aln-2):\n"), "{out}");
+    assert!(out.contains("mismatch at 3: G > A"), "{out}");
+    assert!(out.contains("deletion at 59: 4 bp (GTAC)"), "{out}");
+    assert!(!out.contains("read1"), "{out}");
+
+    // Wrapping window 56..1: the straddling deletion still overlaps, the
+    // mismatch at 2 does not.
+    let out = project_digest(&p, &DigestOptions::default(), Some((56, 1))).unwrap();
+    assert!(out.contains("deletion at 59: 4 bp (GTAC)"), "{out}");
+    assert!(!out.contains("mismatch at 3"), "{out}");
+}
+
+#[test]
+fn region_view_shows_alignment_column_view() {
+    let p = project_with_diff_alignment();
+    let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+    assert!(
+        out.contains(
+            "ALIGNMENT VIEW IN REGION (per-read column view; rows: template / match mask / read; mask: | match, . mismatch, - read gap; insertions and uncovered template listed below; 1-based inclusive):\n"
+        ),
+        "{out}"
+    );
+    assert!(out.contains("        read1  (id: aln-1, + strand):\n"), "{out}");
+    // Template / mask / read rows over the covered columns 10..29
+    // (1-based 11..30); the row prefix is the 1-based start column.
+    assert!(out.contains("11  GTACGTACGTACGTACGTAC"), "{out}");
+    assert!(out.contains("|||||.||--||||||||||"), "{out}");
+    assert!(out.contains("GTACGAAC--ACGTACGTAC"), "{out}");
+    assert!(out.contains("insertion between 25 and 26: +2 bp (GG)"), "{out}");
+    // Region views only — overviews never render the section.
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(!out.contains("ALIGNMENT VIEW IN REGION"), "{out}");
+}
+
+#[test]
+fn region_view_column_view_circular_wrap_and_uncovered() {
+    let mut p = project_with_diff_alignment();
+    p.alignments.push(crate::models::Alignment {
+        id: "aln-2".into(),
+        name: "wrapped".into(),
+        length: 10,
+        strand: "+".into(),
+        identity: 0.7,
+        segments: vec![
+            crate::models::AlignSegment {
+                start: 56,
+                end: 59,
+                chars: "AC--".into(),
+            },
+            crate::models::AlignSegment {
+                start: 0,
+                end: 5,
+                chars: "--ATAC".into(),
+            },
+        ],
+        insertions: Vec::new(),
+        seq: String::new(),
+        trace_path: None,
+    });
+    // Wrapping window 55..4: position 55 is uncovered, columns 56..59 and
+    // 0..4 are covered (deletions at 58,59,0,1; mismatch at 2).
+    let out = project_digest(&p, &DigestOptions::default(), Some((55, 4))).unwrap();
+    assert!(out.contains("        wrapped  (id: aln-2, + strand):\n"), "{out}");
+    assert!(out.contains("57  ACGTACGTA"), "{out}");
+    assert!(out.contains("||----.||"), "{out}");
+    assert!(out.contains("AC----ATA"), "{out}");
+    assert!(out.contains("uncovered template 56..56 (1 bp)"), "{out}");
+    assert!(!out.contains("read1"), "{out}");
+}
+
+#[test]
+fn region_view_column_view_caps_wide_windows() {
+    let mut p = synthetic_project();
+    let seq = "ACGT".repeat(140); // 560 bp
+    p.sequence = seq.clone();
+    p.length = seq.len() as i64;
+    p.alignments.push(crate::models::Alignment {
+        id: "aln-1".into(),
+        name: "wide".into(),
+        length: 501,
+        strand: "+".into(),
+        identity: 1.0,
+        segments: vec![crate::models::AlignSegment {
+            start: 0,
+            end: 500,
+            chars: "ACGT".repeat(126)[..501].to_string(),
+        }],
+        insertions: Vec::new(),
+        seq: String::new(),
+        trace_path: None,
+    });
+    let out = project_digest(&p, &DigestOptions::default(), Some((0, 500))).unwrap();
+    assert!(
+        out.contains("column view omitted (covered window 501 bp exceeds the 500 bp cap"),
+        "{out}"
+    );
+    assert!(!out.contains("1  ACGT"), "view rows must not render for wide windows: {out}");
+}
+
+#[test]
+fn overview_warns_on_translation_dna_mismatch() {
+    let mut p = synthetic_project();
+    // Plus-strand CDS 0..14 (5 codons) of "ACGT"*15 → derived "TYVRT".
+    p.features.clear();
+    p.features.push(Feature {
+        id: "f-plus".into(),
+        name: "plusCDS".into(),
+        start: 0,
+        end: 14,
+        color: "#60A5FA".into(),
+        ftype: "CDS".into(),
+        segments: Vec::new(),
+        strand: "+".into(),
+        notes: String::new(),
+        translation: "MVSKL".into(),
+        qualifiers: Vec::new(),
+    });
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(
+        out.contains("WARNING: /translation of CDS 'plusCDS' (id: f-plus) disagrees with the DNA sequence at aa 1 (stored M, derived T)"),
+        "{out}"
+    );
+
+    // A stored translation that matches the DNA emits no warning.
+    p.features[0].translation = "TYVRT".into();
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(!out.contains("WARNING:"), "{out}");
+
+    // Minus-strand CDS: derived = reverse-complement translation "RTYVR";
+    // a mismatch at the last residue is reported at its own position.
+    p.features[0].strand = "-".into();
+    p.features[0].translation = "RTYVS".into();
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(
+        out.contains("disagrees with the DNA sequence at aa 5 (stored S, derived R)"),
+        "{out}"
+    );
+    p.features[0].translation = "RTYVR".into();
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(!out.contains("WARNING:"), "{out}");
+
+    // Region views skip the check.
+    let out = project_digest(&p, &DigestOptions::default(), Some((0, 14))).unwrap();
+    assert!(!out.contains("WARNING:"), "{out}");
+}
+
+#[test]
+fn overview_notes_consensus_mismatches() {
+    let mut p = synthetic_project();
+    let mut chars: Vec<char> = p.sequence[10..=29].chars().collect();
+    chars[5] = 'A'; // mismatch at 15 (T > A)
+    let mut chars2 = chars.clone();
+    chars2[5] = 'A';
+    chars2[10] = 'C'; // mismatch at 20 (A > C) — appears in one read only
+    let mut chars3: Vec<char> = p.sequence[10..=29].chars().collect();
+    chars3[12] = 'T'; // mismatch at 22 (G > T) — appears in one read only
+    for (id, name, c) in [
+        ("aln-1", "read1", &chars),
+        ("aln-2", "read2", &chars2),
+        ("aln-3", "read3", &chars3),
+    ] {
+        p.alignments.push(crate::models::Alignment {
+            id: id.into(),
+            name: name.into(),
+            length: 20,
+            strand: "+".into(),
+            identity: 0.9,
+            segments: vec![crate::models::AlignSegment {
+                start: 10,
+                end: 29,
+                chars: c.iter().collect(),
+            }],
+            insertions: Vec::new(),
+            seq: String::new(),
+            trace_path: None,
+        });
+    }
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(
+        out.contains("MISMATCH CONSENSUS (positions where ≥2 reads share the same mismatch — template may be outdated): 16 T>A (2 reads)"),
+        "{out}"
+    );
+    assert!(!out.contains("21 A>C"), "{out}");
+    assert!(!out.contains("23 G>T"), "{out}");
+    // Region views never render the consensus section.
+    let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+    assert!(!out.contains("MISMATCH CONSENSUS"), "{out}");
+}
+
+#[test]
+fn binding_site_helpers_agree_with_range() {
+    // site covering [2..11]
+    assert!(seg_in_range(2, 11, 30, 5, true));
+    assert!(!seg_in_range(2, 11, 12, 20, false));
+    assert!(seg_in_range(50, 59, 30, 5, true));
+    assert!(pos_in_range(40, 30, 5, true));
+    assert!(!pos_in_range(20, 30, 5, true));
+}
+
+#[test]
+fn cut_notation_is_1based_flanking_bases() {
+    // An internal cut index C severs between 0-based bases C-1 and C,
+    // i.e. between the 1-based bases C and C+1.
+    assert_eq!(cut_notation(10, 60, false), "10^11");
+    assert_eq!(cut_notation(10, 60, true), "10^11");
+    // A cut at the origin of a circular molecule sits between the last
+    // and the first base.
+    assert_eq!(cut_notation(0, 60, true), "60^1");
+    // A cut at the very end of a linear molecule.
+    assert_eq!(cut_notation(60, 60, false), "60^61");
+}
+
+#[test]
+fn compact_enzymes_collapses_cutter_lists() {
+    let p = synthetic_project();
+    let opts = DigestOptions {
+        compact_enzymes: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, None).unwrap();
+    // EcoRI unique + BsaI/BbsI (2 multi names) + 3 triple-cut names
+    assert!(out.contains("ENZYMES (compact): 1 single-cut, 5 multi-cut"));
+    assert!(!out.contains("UNIQUE CUTTERS"));
+    assert!(!out.contains("EcoRI"));
+    let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
+    assert!(region.contains("ENZYMES CUTTING IN REGION (compact): "));
+    assert!(!region.contains("BsaI"));
+}
+
+#[test]
+fn compact_cutters_collapses_unique_cutter_list() {
+    let p = synthetic_project();
+    // compactCutters=true (get_project_overview default): single count line,
+    // no per-enzyme rows; multi-cut summary line stays.
+    let opts = DigestOptions {
+        compact_cutters: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, None).unwrap();
+    assert!(out.contains(
+        "UNIQUE CUTTERS: 1 single-cut enzymes (pass compactCutters=false for full list)"
+    ));
+    assert!(!out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
+    assert!(!out.contains("EcoRI"));
+    assert!(out.contains("... and 5 enzymes with >1 cut"));
+    // compactCutters=false: the full per-enzyme list is back.
+    let opts = DigestOptions {
+        compact_cutters: false,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, None).unwrap();
+    assert!(out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
+    assert!(out.contains("EcoRI"));
+    // compact_cutters is overview-only: region views ignore it.
+    let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
+    assert!(region.contains("ENZYMES CUTTING IN REGION"));
+}
+
+#[test]
+fn overview_prints_primers_none_placeholder() {
+    let mut p = synthetic_project();
+    p.primers.clear();
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(out.contains("PRIMERS (none)\n"));
+    // region views never emit the placeholder (a primer may exist elsewhere)
+    let region = project_digest(&p, &DigestOptions::default(), Some((0, 10))).unwrap();
+    assert!(!region.contains("PRIMERS"));
+}
+
+fn seq_from_gbk(gbk: &str) -> String {
+    let mut out = String::new();
+    let mut in_seq = false;
+    for line in gbk.lines() {
+        if line.starts_with("ORIGIN") {
+            in_seq = true;
+            continue;
+        }
+        if in_seq {
+            if line.starts_with("//") {
+                break;
+            }
+            out.extend(line.chars().filter(|c| c.is_ascii_alphabetic()));
+        }
+    }
+    out
+}
+
+#[test]
+fn overview_auto_annotation_marks_existing_features() {
+    let gbk = include_str!("../../../../examples/pUC19 Annotated.gbk");
+    let seq = seq_from_gbk(gbk);
+    assert_eq!(seq.len(), 2686);
+    let mut p = ProjectData {
+        name: "pUC19".into(),
+        sequence: seq,
+        length: 2686,
+        trace_path: None,
+        topology: "circular".into(),
+        ..Default::default()
+    };
+    // The project already carries AmpR and the ori at the engine's known
+    // coords (AmpR ~1625..2485, rep_origin ~866..1454).
+    p.features = vec![
+        Feature {
+            id: "f-amp".into(),
+            name: "AmpR".into(),
+            start: 1625,
+            end: 2485,
+            color: "#60A5FA".into(),
+            ftype: "CDS".into(),
+            segments: vec![Segment {
+                start: 1625,
+                end: 2485,
+                color: None,
+            }],
+            strand: "-".into(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        },
+        Feature {
+            id: "f-ori".into(),
+            name: "my ori".into(),
+            start: 866,
+            end: 1454,
+            color: "#F87171".into(),
+            ftype: "rep_origin".into(),
+            segments: vec![Segment {
+                start: 866,
+                end: 1454,
+                color: None,
+            }],
+            strand: "+".into(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        },
+    ];
+    let opts = DigestOptions {
+        include_auto_annotation: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, None).unwrap();
+    assert!(out.contains("DETECTED COMMON FEATURES (auto):\n"));
+    let amp_line = out
+        .lines()
+        .find(|l| l.contains("AmpR | CDS"))
+        .expect("AmpR auto line");
+    assert!(amp_line.contains("(already annotated)"), "line: {amp_line}");
+    let ori_line = out
+        .lines()
+        .find(|l| l.contains(" | rep_origin | "))
+        .expect("rep_origin auto line");
+    assert!(ori_line.contains("(already annotated)"), "line: {ori_line}");
+    // Fragments are omitted entirely; remaining unannotated hits
+    // (MCS, lac promoter, CAP binding site, ...) stay unmarked.
+    assert!(!out.contains("(fragment)"), "fragments leaked:\n{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.contains("| promoter |") && !l.contains("(already annotated)")),
+        "expected an unmarked promoter line:\n{out}"
+    );
+    // Region views never append the section.
+    let region = project_digest(&p, &opts, Some((0, 100))).unwrap();
+    assert!(!region.contains("DETECTED COMMON FEATURES"));
+}
+
+#[test]
+fn overview_auto_annotation_empty_prints_none() {
+    // "ACGT"*15 hits nothing in the embedded SnapGene database.
+    let p = synthetic_project();
+    let opts = DigestOptions {
+        include_auto_annotation: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, None).unwrap();
+    assert!(out.contains("DETECTED COMMON FEATURES (auto):\n(none)\n"));
+    // Off by default: no section unless explicitly requested.
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    assert!(!out.contains("DETECTED COMMON FEATURES"));
+}
+
+#[test]
+fn translation_diff_honors_start_codon_met_convention() {
+    // GTG/TTG start codons derive V/L at position 1, but a stored
+    // /translation conventionally starts with M — not a disagreement.
+    assert_eq!(translation_diff_pos("MKF", "VKF"), None);
+    assert_eq!(translation_diff_pos("MKF", "LKF"), None);
+    assert_eq!(translation_diff_pos("MKF", "MKF"), None);
+    // A stored M against any other derived residue still reports.
+    assert_eq!(
+        translation_diff_pos("MKF", "AKF"),
+        Some((1, "M".to_string(), "A".to_string()))
+    );
+    // …and genuine differences past position 1 still report.
+    assert_eq!(
+        translation_diff_pos("MKF", "VKK"),
+        Some((3, "F".to_string(), "K".to_string()))
+    );
+}
