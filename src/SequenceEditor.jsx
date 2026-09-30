@@ -21,12 +21,10 @@ import {
   enzLabelW,
   primerLabelW,
   sliceRange,
-  rangeLen,
   featureSelRange,
   rangeLocString1based,
   enzymeActiveBlue,
   amplimerGreen,
-  peptideMassKda,
 } from './editorConstants';
 import {
   BASE_HILITE_BG,
@@ -59,10 +57,11 @@ import { TRACE_CHANNELS, traceRangeMax, buildTracePath, buildColumnAnchors } fro
 import { getRelatedEnzymes } from './enzymeRelated';
 import EnzymeDetailDialog from './EnzymeDetailDialog';
 import { loadProviderData, buildProviderIndex } from './enzymeProviders';
-import { CircularMap, LinearMap } from './MapView';
-import FornaView from './plugins/rnaFold/FornaView';
-import useRnaFold, { MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
 import { buildSearchResults } from './searchUtils';
+import WarningBadge from './editor/WarningBadge';
+import MapWatermark from './editor/MapWatermark';
+import FoldWatermark from './editor/FoldWatermark';
+import SelectionLengthBadge from './editor/SelectionLengthBadge';
 import { showContextMenu } from './contextMenu';
 import {
   collectAnnotations,
@@ -71,7 +70,6 @@ import {
   parseMetaFromPasteEvent,
 } from './clipboardAnnotations';
 import {
-  AlertTriangle,
   Bot,
   Check,
   Copy,
@@ -87,106 +85,6 @@ import {
   Tag,
 } from 'lucide-react';
 
-// ---------------------------------------------------------------------------
-// WarningBadge — floating indicator in bottom-right corner for various
-// warnings (e.g. primers with no binding sites, CDS non-triplet length).
-// Click to expand, mouse-leave to close.
-// ---------------------------------------------------------------------------
-function WarningBadge({ warnings }) {
-  const [expanded, setExpanded] = useState(false);
-  const ref = useRef(null);
-
-  const onClick = useCallback(() => setExpanded((v) => !v), []);
-
-  useEffect(() => {
-    if (!expanded) return;
-    const el = ref.current;
-    if (!el) return;
-    const handler = () => setExpanded(false);
-    el.addEventListener('mouseleave', handler);
-    return () => el.removeEventListener('mouseleave', handler);
-  }, [expanded]);
-
-  const primerWarnings = warnings.filter((w) => w.type === 'primer');
-  const cdsLenWarnings = warnings.filter((w) => w.type === 'cds_len');
-  const cdsTransWarnings = warnings.filter((w) => w.type === 'cds_trans');
-
-  return (
-    <div ref={ref} style={{ position: 'fixed', bottom: 14, right: 28, zIndex: 40 }}>
-      {!expanded && (
-        <div
-          onClick={onClick}
-          style={{
-            backgroundColor: '#fef3c7',
-            color: '#92400e',
-            border: '1px solid #fde68a',
-            borderRadius: 8,
-            fontSize: '11px',
-            lineHeight: '1.2',
-            padding: '3px 7px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 3,
-          }}
-        >
-          <AlertTriangle className="size-3.5" />
-          <span>{warnings.length}</span>
-        </div>
-      )}
-      {expanded && (
-        <div
-          onClick={onClick}
-          style={{
-            backgroundColor: '#fef3c7',
-            color: '#92400e',
-            border: '1px solid #fde68a',
-            borderRadius: 8,
-            fontSize: '12px',
-            lineHeight: '1.4',
-            padding: '6px 10px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-            maxWidth: 320,
-            cursor: 'pointer',
-          }}
-        >
-          {primerWarnings.length > 0 && (
-            <>
-              <div className="flex items-center gap-1.5 mb-1">
-                <AlertTriangle className="size-3.5 shrink-0" />
-                <span className="font-semibold">Unmatched Primers</span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
-                {primerWarnings.map((w) => (
-                  <li key={w.id} style={{ fontFamily: monoFont, fontSize: '11px' }}>
-                    {w.name}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          {(cdsLenWarnings.length > 0 || cdsTransWarnings.length > 0) && (
-            <>
-              {primerWarnings.length > 0 && <div style={{ height: 6 }} />}
-              <div className="flex items-center gap-1.5 mb-1">
-                <AlertTriangle className="size-3.5 shrink-0" />
-                <span className="font-semibold">Check Translation:</span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
-                {[...cdsLenWarnings, ...cdsTransWarnings].map((w) => (
-                  <li key={w.id} style={{ fontFamily: monoFont, fontSize: '11px' }}>
-                    {w.name}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Extra vertical gap between alignment lanes and the feature tracks below.
 const ALIGN_FEAT_GAP = 10;
 
@@ -199,227 +97,6 @@ const CHROM_GAP = 4;
 // (src/plugins/*/index.js `track` hook, e.g. the GC-content plugin). Module
 // constant so the lane hooks below always run in a stable order.
 const trackPlugins = plugins.filter((p) => p.track);
-
-// ---------------------------------------------------------------------------
-// MapWatermark — non-interactive plasmid map rendered as a faint overlay on
-// top of the editor (toggled from the Map dialog footer). Lives outside the
-// main container because `contain: layout style` breaks position: fixed.
-// ---------------------------------------------------------------------------
-const noop = () => {};
-
-const MapWatermark = React.memo(function MapWatermark({ length, features, topology, name, sel }) {
-  if (!length) return null;
-  return (
-    <div
-      aria-hidden
-      className="[&_*]:pointer-events-none"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        pointerEvents: 'none',
-      }}
-    >
-      <div style={{ width: 680, opacity: 0.1 }}>
-        {topology === 'circular' ? (
-          <CircularMap
-            length={length}
-            features={features}
-            name={name}
-            selection={sel}
-            bg="transparent"
-            onSelect={noop}
-            onClear={noop}
-            onFeatureOpen={noop}
-            hideLabels
-          />
-        ) : (
-          <LinearMap
-            length={length}
-            features={features}
-            name={name}
-            selection={sel}
-            onSelect={noop}
-            onClear={noop}
-            onFeatureOpen={noop}
-            hideLabels
-          />
-        )}
-      </div>
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// FoldWatermark — non-interactive RNA secondary structure rendered as a faint
-// overlay (toggled from the RNA Folding dialog footer; mutually exclusive
-// with the map watermark). Same fixed-overlay rationale as MapWatermark.
-// Selected bases are highlighted: dark-brown circle, letter in bgColor.
-// ---------------------------------------------------------------------------
-const FoldWatermark = React.memo(function FoldWatermark({ sequence, selStart, selEnd }) {
-  const { result } = useRnaFold(sequence, !!sequence && sequence.length <= MAX_INTERACTIVE_NT);
-  // Sized to the viewport (the overlay is fixed and centered; forna re-fits
-  // via its own resize handling).
-  const [vp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
-  const selRanges = useMemo(() => {
-    if (selStart == null || selEnd == null) return null;
-    if (selStart <= selEnd) return [[selStart, selEnd]];
-    // Circular wrap-around selection: highlight both arms.
-    return [
-      [selStart, sequence.length - 1],
-      [0, selEnd],
-    ];
-  }, [selStart, selEnd, sequence.length]);
-  if (!sequence || !result) return null;
-  return (
-    <div
-      aria-hidden
-      className="[&_*]:pointer-events-none"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        pointerEvents: 'none',
-      }}
-    >
-      <div style={{ width: Math.round(vp.w * 0.85), opacity: 0.1 }}>
-        <FornaView
-          sequence={sequence}
-          structure={result.structure}
-          height={Math.round(vp.h * 0.8)}
-          settleMs={4000}
-          interactive={false}
-          selectionRanges={selRanges}
-          selectionTextColor={bgColor}
-        />
-      </div>
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// SelectionLengthBadge — top-right badge showing "xx bp" for the current
-// selection (text / enzyme / primer / amplimer).  The second line shows GC%
-// for nucleic acids or the peptide molecular weight (kDa) for proteins.
-// ---------------------------------------------------------------------------
-function SelectionLengthBadge({
-  selectionMode,
-  isEnzymeSelection,
-  selStart,
-  selEnd,
-  cleanSeq,
-  selectedPrimerIds,
-  enrichedPrimers,
-  enzymeActiveBlue,
-  amplimerGreen,
-  hasWarningBelow,
-  topology = 'linear',
-  unit = 'bp',
-  showGc = true,
-  showMw = false,
-}) {
-  // Compute the display length + colour and the sequence for GC calculation.
-  let len, bg, seqToCopy;
-
-  if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
-    const fp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[0]);
-    const rp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[1]);
-    if (!fp || !rp) return null;
-    const fwdPrimer = fp.isFwd ? fp : rp;
-    const revPrimer = fp.isFwd ? rp : fp;
-    if (!fwdPrimer || !revPrimer) return null;
-    const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
-    const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
-    let intervening;
-    if (fwdPrimer.matchEnd < revPrimer.matchStart) {
-      intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
-    } else if (topology === 'circular') {
-      intervening =
-        cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
-    } else {
-      // Linear template: primers overlapping / facing away — no valid amplicon
-      return null;
-    }
-    len = fSeq.length + intervening.length + rSeq.length;
-    seqToCopy = fSeq + intervening + reverseComplement(rSeq);
-    bg = amplimerGreen;
-  } else if (selectionMode === 'primer' && selectedPrimerIds.length === 1) {
-    const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
-    if (!p) return null;
-    seqToCopy =
-      p.primerSeq ||
-      (p.matchStart !== undefined && p.matchEnd !== undefined ? matchedSeqOf(p, cleanSeq) : '');
-    len =
-      (p.primerSeq || '').length ||
-      (p.matchStart !== undefined && p.matchEnd !== undefined
-        ? matchedSeqOf(p, cleanSeq).length
-        : 0);
-    bg = p.isFwd === false ? '#4A148C' : '#166534';
-  } else if (isEnzymeSelection) {
-    if (selStart === null || selEnd === null) return null;
-    len = rangeLen(selStart, selEnd, cleanSeq.length);
-    seqToCopy = sliceRange(cleanSeq, selStart, selEnd);
-    bg = enzymeActiveBlue;
-  } else if (selectionMode === 'text' && selStart !== null && selEnd !== null) {
-    len = rangeLen(selStart, selEnd, cleanSeq.length);
-    seqToCopy = sliceRange(cleanSeq, selStart, selEnd);
-    bg = '#3E2723';
-  } else {
-    return null;
-  }
-
-  // Second line: GC% for nucleic acids, molecular weight for peptides.
-  let line2 = null;
-  if (showGc) {
-    const gc = (seqToCopy.match(/[GC]/gi) || []).length;
-    const gcPct = seqToCopy.length > 0 ? Math.round((gc / seqToCopy.length) * 100) : 0;
-    line2 = `${gcPct}% GC`;
-  } else if (showMw) {
-    const kda = peptideMassKda(seqToCopy);
-    line2 = `${kda < 1 ? kda.toFixed(2) : kda.toFixed(1)} kDa`;
-  }
-
-  // Measure the default label width so the badge has stable width
-  const line1 = `${len} ${unit}`;
-  const w1 = measureWidth(line1, `600 11px ${monoFont}`);
-  const w2 = showGc
-    ? measureWidth('100% GC', `600 11px ${monoFont}`)
-    : line2
-      ? measureWidth(line2, `600 11px ${monoFont}`)
-      : 0;
-  const minBadgeWidth = Math.max(w1, w2) + 10;
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: hasWarningBelow ? 42 : 14,
-        right: 28,
-        zIndex: 40,
-        backgroundColor: bg,
-        color: bgColor,
-        border: `1px solid ${bg}`,
-        borderRadius: 5,
-        fontSize: '11px',
-        lineHeight: '1.2',
-        padding: '1px 5px',
-        fontFamily: monoFont,
-        minWidth: minBadgeWidth,
-        textAlign: 'center',
-        userSelect: 'none',
-      }}
-    >
-      <div>{line1}</div>
-      {line2 && <div>{line2}</div>}
-    </div>
-  );
-}
 
 const SequenceEditor = React.memo(function SequenceEditor({
   sequence,
