@@ -161,26 +161,8 @@ export async function updateSequence(sequence, features, primers) {
 }
 
 // ---------------------------------------------------------------------------
-// ROI
-// ---------------------------------------------------------------------------
-
-export async function setROI(start, end) {
-  assertEditable();
-  return tauriInvoke('set_roi', { start, end });
-}
-
-export async function clearROI() {
-  assertEditable();
-  return tauriInvoke('clear_roi');
-}
-
-// ---------------------------------------------------------------------------
 // Features
 // ---------------------------------------------------------------------------
-
-export async function getFeatures() {
-  return tauriInvoke('get_features');
-}
 
 export async function addFeature(feature, locationStr) {
   assertEditable();
@@ -220,10 +202,6 @@ export async function updateFeatureStrand(featureId, strand) {
 // ---------------------------------------------------------------------------
 // Primers
 // ---------------------------------------------------------------------------
-
-export async function getPrimers() {
-  return tauriInvoke('get_primers');
-}
 
 export async function addPrimer(primer) {
   assertEditable();
@@ -476,10 +454,6 @@ export async function annotateFeatures() {
   return tauriInvoke('annotate_features');
 }
 
-export async function searchSequence(query) {
-  return tauriInvoke('search_sequence', { query });
-}
-
 /**
  * Generate primer design candidates in the backend.
  * @param {object} args
@@ -710,7 +684,7 @@ export function listenFileOpened(callback) {
 }
 
 // Mirrors SEQ_EXTS in src-tauri/src/lib.rs — keep the two lists in sync.
-export const SEQ_FILE_EXTS = [
+const SEQ_FILE_EXTS = [
   'gbk',
   'gb',
   'genbank',
