@@ -4,9 +4,7 @@ import {
   startX,
   bgColor,
   monoFont,
-  springAnim,
   getX,
-  complement,
   measureWidth,
   featLabelW,
   sliceRange,
@@ -21,13 +19,9 @@ import {
   alignmentGapSegments,
   insertionBases,
 } from './editor/alignmentLayout';
-import { ensureReadableColor } from './editor/colors';
 import {
-  isIISEnzyme,
   matchedSeqOf,
   reverseComplement,
-  safePrimerColor,
-  splitEnzName,
   truncatedLabel,
 } from './editor/seqUtils';
 import { buildCDSData, isTranslatable } from './editor/translation';
@@ -36,6 +30,14 @@ import useEnrichedPrimers from './editor/useEnrichedPrimers';
 import useTrackPacking from './editor/useTrackPacking';
 import useEnzymeGeometry from './editor/useEnzymeGeometry';
 import useEditorViewport, { useViewportMapping } from './editor/useEditorViewport';
+import { renderFeatures, renderFeatureLabels } from './editor/layers/features.jsx';
+import { renderPrimers } from './editor/layers/primers.jsx';
+import {
+  renderEnzymeLines,
+  renderEnzymeLabels,
+  renderEnzymeOverlay,
+  renderTooltips,
+} from './editor/layers/enzymes.jsx';
 import { plugins } from './plugins';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
@@ -2079,556 +2081,133 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [scrollContainerRef, updateSeqDragSelection, updateTranslationDrag]);
 
-  const renderedFeatures = useMemo(() => {
-    if (!visibleFeatures.length) return null;
-    return visibleFeatures.map((f) => {
-      const isHovered = hoveredFeature === f.id;
-      const isExpanded = alwaysExpandFeatures || isHovered;
-      const dataSegs = f.segments;
+  const renderedFeatures = useMemo(
+    () =>
+      renderFeatures({
+        visibleFeatures,
+        hoveredFeature,
+        alwaysExpandFeatures,
+        sp,
+        abutColors,
+        rowStarts,
+        getSeqY,
+        alignLaneInfo,
+        featureRowTracks,
+        lp,
+        ALIGN_FEAT_GAP,
+        colRuns,
+        colFromVis,
+        colVis,
+        solidLineCols,
+        isDraggingRef,
+        featureLeaveRef,
+        setHoveredFeature,
+        translationDragRef,
+        cdsFeatureData,
+        svgRef,
+        setHoveredCodon,
+        openFeatureMenu,
+        featureSelRef,
+        setSelStart,
+        setSelEnd,
+        setCursorIndex,
+        clearCursorTimer,
+        setSelectionMode,
+        setSelectedPrimerIds,
+        setTranslationSel,
+        setIsTranslationDragging,
+        isPrimerDraggingRef,
+        primerDragRef,
+        primerDimTimerRef,
+        setPrimerDimActive,
+        setCreateFeatureLoc,
+        setFeatureInfoFeature,
+        rowOf,
+        hoveredCodon,
+        startTranslationSelection,
+      }),
+    [
+      visibleFeatures,
+      hoveredFeature,
+      featureRowTracks,
+      getSeqY,
+      sp,
+      rowOf,
+      rowStarts,
+      clearCursorTimer,
+      lp,
+      cdsFeatureData,
+      solidLineCols,
+      colRuns,
+      colVis,
+      colFromVis,
+      setSelectionMode,
+      setTranslationSel,
+      startTranslationSelection,
+      alignLaneInfo,
+      alwaysExpandFeatures,
+      hoveredCodon,
+      openFeatureMenu,
+      abutColors,
+    ],
+  );
 
-      const visuals = [];
-      const seenRows = new Set();
-      for (let di = 0; di < dataSegs.length; di++) {
-        const ds = dataSegs[di];
-        if (di > 0) {
-          const prevEnd = dataSegs[di - 1].end;
-          if (ds.start > prevEnd + 1) {
-            for (const vs of sp(prevEnd + 1, ds.start - 1)) {
-              const showL = !seenRows.has(vs.row);
-              seenRows.add(vs.row);
-              visuals.push({
-                type: 'gap',
-                row: vs.row,
-                colStart: vs.colStart,
-                colEnd: vs.colEnd,
-                showLabel: showL,
-                color: abutColors.feat[f.id] || f.color || ensureReadableColor('#60A5FA'),
-              });
-            }
-          }
-        }
-        for (const vs of sp(ds.start, ds.end)) {
-          const showLabel = !seenRows.has(vs.row);
-          seenRows.add(vs.row);
-          const segColor =
-            abutColors.seg[f.id]?.[di] ||
-            dataSegs[di].color ||
-            f.color ||
-            ensureReadableColor('#60A5FA');
-          visuals.push({
-            type: 'solid',
-            row: vs.row,
-            colStart: vs.colStart,
-            colEnd: vs.colEnd,
-            showLabel,
-            color: segColor,
-          });
-        }
-      }
-
-      visuals.sort(
-        (a, b) => rowStarts[a.row] + a.colStart - (rowStarts[b.row] + b.colStart),
-      );
-      if (!visuals.length) return null;
-
-      return (
-        <g key={f.id}>
-          {visuals.map((v) =>
-            // Insertion slots split the visual range into runs; each run
-            // draws its own bars so features stay aligned with the shifted
-            // template characters.
-            colRuns(v.colStart, v.colEnd, v.row).map(([visStart, len]) => {
-            const x = getX(visStart);
-            const w = len * cw;
-            const sy = getSeqY(v.row);
-            const rowTo =
-              alignLaneInfo.chromBelow[v.row] +
-              (((featureRowTracks[f.id] || {})[v.row] || 0) + alignLaneInfo.counts[v.row]) *
-                lp.featTrackHeight +
-              (alignLaneInfo.counts[v.row] > 0 ? ALIGN_FEAT_GAP : 0);
-            const y = sy + lp.featBaseOffset + rowTo;
-            const isGap = v.type === 'gap';
-            // Cut gap-connector portions where another feature solidly
-            // occupies this row+track, so the faint line doesn't cross it.
-            // This run's span in template columns (colVis is strictly
-            // increasing, so colFromVis of the run start is exact).
-            const runTStart = colFromVis(visStart, v.row);
-            let colParts = [[runTStart, runTStart + len - 1]];
-            if (isGap) {
-              const solids = solidLineCols.get(
-                `${v.row}:${(featureRowTracks[f.id] || {})[v.row] || 0}`,
-              );
-              if (solids) {
-                for (const s of solids) {
-                  const next = [];
-                  for (const [a, b] of colParts) {
-                    if (s.colEnd < a || s.colStart > b) {
-                      next.push([a, b]);
-                      continue;
-                    }
-                    if (s.colStart > a) next.push([a, s.colStart - 1]);
-                    if (s.colEnd < b) next.push([s.colEnd + 1, b]);
-                  }
-                  colParts = next;
-                  if (!colParts.length) break;
-                }
-              }
-            }
-
-            return (
-              <g
-                key={`${v.type}-${v.row}-${v.colStart}-${visStart}`}
-                onMouseEnter={() => {
-                  if (isDraggingRef.current) return;
-                  clearTimeout(featureLeaveRef.current);
-                  setHoveredFeature(f.id);
-                }}
-                onMouseMove={(e) => {
-                  if (isDraggingRef.current || translationDragRef.current) return;
-                  const cds = cdsFeatureData[f.id];
-                  if (!cds || !svgRef.current) return;
-                  const pt = svgRef.current.createSVGPoint();
-                  pt.x = e.clientX;
-                  pt.y = e.clientY;
-                  const ctm = svgRef.current.getScreenCTM();
-                  if (!ctm) return;
-                  const svgPt = pt.matrixTransform(ctm.inverse());
-                  let col = Math.floor((svgPt.x - startX) / cw);
-                  col = colFromVis(col, v.row);
-                  col = Math.max(v.colStart, Math.min(v.colEnd, col));
-                  const idx = rowStarts[v.row] + col;
-                  const map = {};
-                  for (const [featureId, cds] of Object.entries(cdsFeatureData)) {
-                    const codon = cds.codonMap.get(idx);
-                    if (codon !== undefined) map[featureId] = codon;
-                  }
-                  const next =
-                    Object.keys(map).length === 0 ? null : { key: `${idx}`, map };
-                  setHoveredCodon((prev) => (prev?.key === next?.key ? prev : next));
-                }}
-                onMouseLeave={() => {
-                  setHoveredCodon(null);
-                  featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250);
-                }}
-                onContextMenu={(e) => openFeatureMenu(e, f)}
-                onMouseDown={(e) => {
-                  if (e.button !== 0) return;
-                  e.stopPropagation();
-                  e.preventDefault();
-
-                  // Translatable features: start codon-unit selection
-                  const cds = cdsFeatureData[f.id];
-                  if (cds) {
-                    // Compute clicked template index from the known visual row/column
-                    // instead of re-detecting the row, which can be unreliable over the
-                    // feature bar that sits below the sequence text.
-                    const pt = svgRef.current.createSVGPoint();
-                    pt.x = e.clientX;
-                    pt.y = e.clientY;
-                    const ctm = svgRef.current.getScreenCTM();
-                    if (ctm) {
-                      const svgPt = pt.matrixTransform(ctm.inverse());
-                      let col = Math.floor((svgPt.x - startX) / cw);
-                      col = colFromVis(col, v.row);
-                      col = Math.max(v.colStart, Math.min(v.colEnd, col));
-                      const idx = rowStarts[v.row] + col;
-                      const codon = cds.codonMap.get(idx);
-                      if (codon !== undefined && codon !== null) {
-                        startTranslationSelection(f.id, codon);
-                        return;
-                      }
-                    }
-                  }
-
-                  const [fStart, fEnd] = featureSelRange(f);
-                  setSelStart(fStart);
-                  setSelEnd(fEnd);
-                  setCursorIndex(fEnd + 1);
-                  featureSelRef.current = f.orf
-                    ? null
-                    : { id: f.id, selStart: fStart, selEnd: fEnd };
-                  clearCursorTimer();
-                  // Clear primer / translation selection
-                  setSelectionMode('text');
-                  setSelectedPrimerIds([]);
-                  setTranslationSel(null);
-                  translationDragRef.current = null;
-                  setIsTranslationDragging(false);
-                  isPrimerDraggingRef.current = false;
-                  primerDragRef.current = null;
-                  if (primerDimTimerRef.current) {
-                    clearTimeout(primerDimTimerRef.current);
-                    primerDimTimerRef.current = null;
-                  }
-                  setPrimerDimActive(false);
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  if (f.orf) return;
-                  setCreateFeatureLoc(null);
-                  setFeatureInfoFeature(f);
-                }}
-                className="cursor-pointer"
-              >
-                <rect
-                  x={x}
-                  y={isExpanded && !isGap && !f.orf ? sy - 18 : y}
-                  width={w}
-                  height={isExpanded && !isGap && !f.orf ? y - (sy - 18) : 0}
-                  fill={v.color}
-                  fillOpacity={isExpanded && !f.orf ? (isGap ? 0 : 0.15) : 0}
-                  style={{ transition: springAnim, pointerEvents: 'none' }}
-                />
-                {alwaysExpandFeatures && isHovered && !isGap && !f.orf && (
-                  <rect
-                    x={x + 0.75}
-                    y={sy - 18 + 0.75}
-                    width={w - 1.5}
-                    height={y - (sy - 18) - 1.5}
-                    fill="none"
-                    stroke={v.color}
-                    strokeWidth={1.5}
-                    style={{ pointerEvents: 'none' }}
-                  />
-                )}
-                {f.orf ? (
-                  <>
-                    {colParts.map(([a, b]) => (
-                      <line
-                        key={`gl-${a}`}
-                        x1={getX(colVis(a, v.row))}
-                        x2={getX(colVis(b, v.row)) + cw}
-                        y1={y}
-                        y2={y}
-                        stroke={v.color}
-                        strokeWidth="13"
-                        opacity={isGap ? 0.25 : 1}
-                      />
-                    ))}
-                    <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="13" />
-                  </>
-                ) : (
-                  <>
-                    {colParts.map(([a, b]) => (
-                      <line
-                        key={`bl-${a}`}
-                        x1={getX(colVis(a, v.row))}
-                        x2={getX(colVis(b, v.row)) + cw}
-                        y1={y}
-                        y2={y}
-                        stroke={isExpanded ? 'transparent' : bgColor}
-                        strokeWidth="7"
-                      />
-                    ))}
-                    {colParts.map(([a, b]) => (
-                      <line
-                        key={`cl-${a}`}
-                        x1={getX(colVis(a, v.row))}
-                        x2={getX(colVis(b, v.row)) + cw}
-                        y1={y}
-                        y2={y}
-                        stroke={v.color}
-                        strokeWidth="5"
-                        opacity={isGap ? 0.25 : 1}
-                      />
-                    ))}
-                    <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="10" />
-                  </>
-                )}
-              </g>
-            );
-            }),
-          )}
-
-          {/* Feature translation — 1-letter AA centered on middle base of each codon */}
-          {isTranslatable(f) &&
-            (cdsFeatureData[f.id]?.trans || []).flatMap((t) => {
-              const r = rowOf(t.templatePos2);
-              const c = t.templatePos2 - rowStarts[r];
-              const cov = visuals.find(
-                (v) => v.row === r && c >= v.colStart && c <= v.colEnd && v.type !== 'gap',
-              );
-              if (!cov) return [];
-              const sy = getSeqY(r);
-              const rowTo =
-                alignLaneInfo.chromBelow[r] +
-                (((featureRowTracks[f.id] || {})[r] || 0) + alignLaneInfo.counts[r]) *
-                  lp.featTrackHeight +
-                (alignLaneInfo.counts[r] > 0 ? ALIGN_FEAT_GAP : 0);
-              const y = sy + lp.featBaseOffset + rowTo;
-              const hoveredIdx = hoveredCodon?.map?.[f.id];
-              const isCodonHovered = hoveredIdx === t.codonIndex;
-              return (
-                <text
-                  key={`tr-${t.templatePos2}`}
-                  x={getX(colVis(c, r)) + cw / 2}
-                  y={y}
-                  fontSize={10}
-                  fontWeight="900"
-                  fontFamily={monoFont}
-                  fill={f.orf ? bgColor : cov.color}
-                  stroke={f.orf ? 'none' : bgColor}
-                  strokeWidth={f.orf ? 0 : 3}
-                  paintOrder="stroke"
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {isCodonHovered ? t.codonIndex + 1 : t.aa}
-                </text>
-              );
-            })}
-        </g>
-      );
-    });
-  }, [
-    visibleFeatures,
-    hoveredFeature,
-    featureRowTracks,
-    getSeqY,
-    sp,
-    rowOf,
-    rowStarts,
-    clearCursorTimer,
-    lp,
-    cdsFeatureData,
-    solidLineCols,
-    colRuns,
-    colVis,
-    colFromVis,
-    setSelectionMode,
-    setTranslationSel,
-    startTranslationSelection,
-    alignLaneInfo,
-    alwaysExpandFeatures,
-    hoveredCodon,
-    openFeatureMenu,
-    abutColors,
-  ]);
-
-  const renderedFeatureLabels = useMemo(() => {
-    if (!visibleFeatures.length) return null;
-    const seen = new Set();
-    const labelsFor = (f) => {
-      const isRev = f.strand === '-';
-      const isFwd = f.strand === '+';
-      const isHovered = hoveredFeature === f.id;
-      const { full: fullText, short: shortText } = truncatedLabel(
-        f.name,
-        isRev,
-        isFwd,
-        featureLabelsBelow ? Infinity : 12,
-      );
-      const labelText = isHovered ? fullText : shortText;
-
-      const rowLabels = {};
-      const seenRows = new Set();
-
-      for (let di = 0; di < f.segments.length; di++) {
-        const ds = f.segments[di];
-        if (di > 0) {
-          const prevEnd = f.segments[di - 1].end;
-          if (ds.start > prevEnd + 1) {
-            for (const vs of sp(prevEnd + 1, ds.start - 1)) {
-              if (!seenRows.has(vs.row) || isRev) {
-                seenRows.add(vs.row);
-                rowLabels[vs.row] = {
-                  ...vs,
-                  color: abutColors.feat[f.id] || f.color || ensureReadableColor('#60A5FA'),
-                };
-              }
-            }
-          }
-        }
-        for (const vs of sp(ds.start, ds.end)) {
-          if (!seenRows.has(vs.row) || isRev) {
-            seenRows.add(vs.row);
-            // label takes the color of the bar segment nearest to it
-            rowLabels[vs.row] = {
-              ...vs,
-              color:
-                abutColors.seg[f.id]?.[di] || ds.color || f.color || ensureReadableColor('#60A5FA'),
-            };
-          }
-        }
-      }
-
-      return Object.values(rowLabels).map((vs) => {
-        const key = `${f.id}-${vs.row}`;
-        if (seen.has(key)) return null;
-        seen.add(key);
-        const labelColor = vs.color;
-        const sy = getSeqY(vs.row);
-        const rowTo =
-          alignLaneInfo.chromBelow[vs.row] +
-          (((featureRowTracks[f.id] || {})[vs.row] || 0) + alignLaneInfo.counts[vs.row]) *
-            lp.featTrackHeight +
-          (alignLaneInfo.counts[vs.row] > 0 ? ALIGN_FEAT_GAP : 0);
-        const y = sy + lp.featBaseOffset + rowTo;
-        const textProps = {
-          y: featureLabelsBelow ? y + 19 : y + 4,
-          fontSize: '12px',
-          fontFamily: 'TeX Gyre Heros',
-          fontWeight: '600',
-        };
-        if (isRev) {
-          // colEnd + 1 can fall on the next row's first column, whose drift
-          // counts slots that render in that row — clamp to this row's edge.
-          const cols = rowCounts[vs.row];
-          if (cols === 0) return null;
-          const xr =
-            vs.colEnd + 1 < cols
-              ? getX(colVis(vs.colEnd + 1, vs.row))
-              : getX(colVis(cols - 1, vs.row)) + cw;
-          const lx = featureLabelsBelow ? xr : xr + 8;
-          const lAnchor = featureLabelsBelow ? 'end' : 'start';
-          return (
-            <g
-              key={key}
-              onMouseEnter={() => {
-                if (isDraggingRef.current) return;
-                clearTimeout(featureLeaveRef.current);
-                setHoveredFeature(f.id);
-              }}
-              onMouseLeave={() => {
-                featureLeaveRef.current = setTimeout(() => setHoveredFeature(null), 250);
-              }}
-              onContextMenu={(e) => openFeatureMenu(e, f)}
-              onMouseDown={(e) => {
-                if (e.button !== 0) return;
-                e.stopPropagation();
-                e.preventDefault();
-
-                const [fStart, fEnd] = featureSelRange(f);
-                setSelStart(fStart);
-                setSelEnd(fEnd);
-                setCursorIndex(fEnd + 1);
-                featureSelRef.current = { id: f.id, selStart: fStart, selEnd: fEnd };
-                clearCursorTimer();
-                setSelectionMode('text');
-                setSelectedPrimerIds([]);
-                setTranslationSel(null);
-                translationDragRef.current = null;
-                setIsTranslationDragging(false);
-                isPrimerDraggingRef.current = false;
-                primerDragRef.current = null;
-                if (primerDimTimerRef.current) {
-                  clearTimeout(primerDimTimerRef.current);
-                  primerDimTimerRef.current = null;
-                }
-                setPrimerDimActive(false);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setCreateFeatureLoc(null);
-                setFeatureInfoFeature(f);
-              }}
-              className="cursor-pointer"
-            >
-              <text
-                x={lx}
-                {...textProps}
-                textAnchor={lAnchor}
-                fill="none"
-                stroke={bgColor}
-                strokeWidth="5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              >
-                {labelText}
-              </text>
-              <text x={lx} {...textProps} textAnchor={lAnchor} fill={labelColor} stroke="none">
-                {labelText}
-              </text>
-            </g>
-          );
-        }
-        const x = getX(colVis(vs.colStart, vs.row));
-        const lx = featureLabelsBelow ? x : x - 8;
-        const lAnchor = featureLabelsBelow ? 'start' : 'end';
-        return (
-          <g
-            key={key}
-            onMouseEnter={() => setHoveredFeature(f.id)}
-            onMouseLeave={() => setHoveredFeature(null)}
-            onContextMenu={(e) => openFeatureMenu(e, f)}
-            onMouseDown={(e) => {
-              if (e.button !== 0) return;
-              e.stopPropagation();
-              e.preventDefault();
-
-              const [fStart, fEnd] = featureSelRange(f);
-              setSelStart(fStart);
-              setSelEnd(fEnd);
-              setCursorIndex(fEnd + 1);
-              featureSelRef.current = { id: f.id, selStart: fStart, selEnd: fEnd };
-              clearCursorTimer();
-              setSelectionMode('text');
-              setSelectedPrimerIds([]);
-              setTranslationSel(null);
-              translationDragRef.current = null;
-              setIsTranslationDragging(false);
-              isPrimerDraggingRef.current = false;
-              primerDragRef.current = null;
-              if (primerDimTimerRef.current) {
-                clearTimeout(primerDimTimerRef.current);
-                primerDimTimerRef.current = null;
-              }
-              setPrimerDimActive(false);
-            }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              setCreateFeatureLoc(null);
-              setFeatureInfoFeature(f);
-            }}
-            className="cursor-pointer"
-          >
-            <text
-              x={lx}
-              {...textProps}
-              textAnchor={lAnchor}
-              fill="none"
-              stroke={bgColor}
-              strokeWidth="5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            >
-              {labelText}
-            </text>
-            <text x={lx} {...textProps} textAnchor={lAnchor} fill={labelColor} stroke="none">
-              {labelText}
-            </text>
-          </g>
-        );
-      });
-    };
-    // Paint order = z-order: labels of the hovered feature render last so
-    // they are never occluded by other features' labels.
-    const rest = [];
-    const hovered = [];
-    for (const f of visibleFeatures) {
-      (hoveredFeature === f.id ? hovered : rest).push(...labelsFor(f));
-    }
-    return rest.concat(hovered);
-  }, [
-    visibleFeatures,
-    hoveredFeature,
-    featureRowTracks,
-    getSeqY,
-    sp,
-    clearCursorTimer,
-    truncatedLabel,
-    lp,
-    cdsFeatureData,
-    charsPerLine,
-    startTranslationSelection,
-    alignLaneInfo,
-    openFeatureMenu,
-    featureLabelsBelow,
-    abutColors,
-    rowCounts,
-    colVis,
-  ]);
+  const renderedFeatureLabels = useMemo(
+    () =>
+      renderFeatureLabels({
+        visibleFeatures,
+        hoveredFeature,
+        featureLabelsBelow,
+        sp,
+        abutColors,
+        getSeqY,
+        alignLaneInfo,
+        featureRowTracks,
+        lp,
+        ALIGN_FEAT_GAP,
+        rowCounts,
+        colVis,
+        isDraggingRef,
+        featureLeaveRef,
+        setHoveredFeature,
+        translationDragRef,
+        openFeatureMenu,
+        featureSelRef,
+        setSelStart,
+        setSelEnd,
+        setCursorIndex,
+        clearCursorTimer,
+        setSelectionMode,
+        setSelectedPrimerIds,
+        setTranslationSel,
+        setIsTranslationDragging,
+        isPrimerDraggingRef,
+        primerDragRef,
+        primerDimTimerRef,
+        setPrimerDimActive,
+        setCreateFeatureLoc,
+        setFeatureInfoFeature,
+      }),
+    [
+      visibleFeatures,
+      hoveredFeature,
+      featureRowTracks,
+      getSeqY,
+      sp,
+      clearCursorTimer,
+      truncatedLabel,
+      lp,
+      cdsFeatureData,
+      charsPerLine,
+      startTranslationSelection,
+      alignLaneInfo,
+      openFeatureMenu,
+      featureLabelsBelow,
+      abutColors,
+      rowCounts,
+      colVis,
+    ],
+  );
 
   const renderedAlignments = useMemo(() => {
     if (!alignmentTracks.length) return null;
@@ -3131,407 +2710,71 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alignLaneInfo,
   ]);
 
-  const renderedPrimers = useMemo(() => {
-    if (!visiblePrimers.length) return null;
-    return visiblePrimers.map((p) => {
-      const isFwd = p.isFwd;
-      const isHovered = hoveredPrimer === p.id;
-      const misLen = p.mismatchStr?.length || 0;
-      const hasMis = misLen > 0;
-      const pColor = safePrimerColor(p.color);
-      const segs = (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }]).flatMap((m) =>
-        sp(m.start, m.end),
-      );
-      if (p.renderCols) {
-        for (const seg of segs) {
-          const lo = rowStarts[seg.row] + seg.colStart;
-          const hi = rowStarts[seg.row] + seg.colEnd;
-          seg.renderCols = p.renderCols.filter(
-            (rc) => rc.templateCol >= lo && rc.templateCol <= hi,
-          );
-        }
-      }
-      const tailSeg = isFwd ? segs[0] : segs[segs.length - 1];
-      const arrowSeg = isFwd ? segs[segs.length - 1] : segs[0];
-      // Same defence as the alignment lane: overlapping match segments in a
-      // stored model must not repeat a React key.
-      let segIdx = -1;
-
-      let drawMisLen = misLen,
-        showMisDots = false;
-      if (hasMis) {
-        if (isFwd) {
-          const max = tailSeg.colStart + 5;
-          if (misLen > max) {
-            drawMisLen = max;
-            showMisDots = true;
-          }
-        } else {
-          const max = rowCounts[tailSeg.row] - 1 - tailSeg.colEnd + 5;
-          if (misLen > max) {
-            drawMisLen = max;
-            showMisDots = true;
-          }
-        }
-      }
-
-      return (
-        <g key={p.id} onContextMenu={(e) => openPrimerMenu(e, p)}>
-          {segs.map((seg) => {
-            const isTail = seg === tailSeg,
-              isArrow = seg === arrowSeg;
-            const sy = getSeqY(seg.row);
-            const featOff =
-              (isFwd ? 0 : (revPrimerFeatOffsets[p.id] || {})[seg.row] || 0) +
-              (isFwd
-                ? 0
-                : alignLaneInfo.chromBelow[seg.row] +
-                  (alignLaneInfo.counts[seg.row] > 0
-                    ? alignLaneInfo.counts[seg.row] * lp.featTrackHeight + ALIGN_FEAT_GAP
-                    : 0));
-            const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.trackGap + featOff;
-            const matchY =
-              (isFwd ? sy - pp.fwdMatchY : sy + pp.revMatchY) + (isFwd ? -trackOff : trackOff);
-            const misY = matchY + (isFwd ? -pp.misYDelta : pp.misYDelta);
-            const x1 = getX(colVis(seg.colStart, seg.row)),
-              x2 = getX(colVis(seg.colEnd, seg.row));
-
-            // Build per-column path points from renderCols
-            let pts = [];
-            let edge3x, edge5x;
-            const hasRenderCols = seg.renderCols && seg.renderCols.length > 0;
-            if (hasRenderCols) {
-              // Per-column zigzag path
-              const cols = isFwd ? seg.renderCols : [...seg.renderCols].reverse();
-              const firstCol = cols[0],
-                lastCol = cols[cols.length - 1];
-              edge5x = isFwd
-                ? getX(colVis(firstCol.templateCol - rowStarts[seg.row], seg.row)) // fwd: left edge of leftmost
-                : getX(colVis(firstCol.templateCol - rowStarts[seg.row], seg.row)) + cw; // rev: right edge
-              edge3x = isFwd
-                ? getX(colVis(lastCol.templateCol - rowStarts[seg.row], seg.row)) + cw // fwd: right edge
-                : getX(colVis(lastCol.templateCol - rowStarts[seg.row], seg.row)); // rev: left edge
-              // 5' tail
-              if (isTail && hasMis && drawMisLen > 0) {
-                if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-                else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw * 1.5, misY]);
-              }
-              pts.push([edge5x, cols[0].kind === 'match' ? matchY : misY]);
-              for (const rc of cols) {
-                const cx = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row)) + cw / 2;
-                const cy = rc.kind === 'match' ? matchY : misY;
-                pts.push([cx, cy]);
-              }
-              pts.push([edge3x, cols[cols.length - 1].kind === 'match' ? matchY : misY]);
-            } else {
-              // Fallback: straight line
-              if (isTail && hasMis && drawMisLen > 0) {
-                if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-                else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw * 1.5, misY]);
-              }
-              if (isFwd) pts.push([x1 + cw / 2, matchY], [x2 + cw, matchY]);
-              else pts.push([x2 + cw, matchY], [x1, matchY]);
-            }
-            if (pts.length < 2) return null;
-
-            const isSelectedPrimer =
-              selectedPrimerIds.includes(p.id) &&
-              (selectionMode === 'primer' || selectionMode === 'amplimer');
-            const isDimDuringDrag =
-              isPrimerDragging &&
-              primerDimActive &&
-              !isSelectedPrimer &&
-              p.isFwd === primerDragRef.current?.startFwd;
-
-            const pathStr = `M ${pts.map((p) => `${p[0]} ${p[1]}`).join(' L ')}`;
-            const expD = isFwd ? -1 : 1;
-            const curExp = isHovered || isSelectedPrimer ? pp.hoverExpand : 0;
-            const last = pts[pts.length - 1];
-            const hoverPath =
-              pathStr +
-              ` L ${last[0]} ${last[1] + expD * curExp} ` +
-              [...pts]
-                .reverse()
-                .map((p) => `L ${p[0]} ${p[1] + expD * curExp}`)
-                .join(' ') +
-              ' Z';
-
-            const arrowTipY =
-              hasRenderCols && seg.renderCols.length > 0
-                ? seg.renderCols[seg.renderCols.length - 1].kind === 'match'
-                  ? matchY
-                  : misY
-                : matchY;
-            const arrowBaseX = hasRenderCols ? edge3x : isFwd ? x2 + cw : x1;
-            const arrowPath = isArrow
-              ? `M ${arrowBaseX} ${arrowTipY} L ${isFwd ? arrowBaseX - pp.arrowHeadLen : arrowBaseX + pp.arrowHeadLen} ${arrowTipY + expD * pp.arrowHeadHeight}`
-              : '';
-
-            const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
-            const labelOff = isSelectedPrimer ? (isFwd ? -16 : 13) : 0;
-
-            return (
-              <g
-                key={`${seg.row}-${seg.colStart}-${++segIdx}`}
-                opacity={isDimDuringDrag ? 0.2 : undefined}
-                style={isDimDuringDrag ? { pointerEvents: 'none' } : undefined}
-              >
-                <path
-                  d={hoverPath}
-                  fill={isSelectedPrimer ? pColor : bgColor}
-                  style={{ transition: springAnim }}
-                />
-                {!isSelectedPrimer && (
-                  <path
-                    d={hoverPath}
-                    fill={pColor}
-                    fillOpacity={0.1}
-                    style={{ transition: springAnim }}
-                  />
-                )}
-
-                <text
-                  fill={isSelectedPrimer ? bgColor : pColor}
-                  fontSize="14px"
-                  fontFamily={monoFont}
-                  fontWeight="bold"
-                  style={{
-                    opacity: isHovered || isSelectedPrimer ? 1 : 0,
-                    transition: 'opacity 0.2s ease-in-out',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {/* 5' tail */}
-                  {isTail && hasMis && drawMisLen > 0 && (
-                    <>
-                      {showMisDots && (
-                        <tspan
-                          x={
-                            isFwd
-                              ? x1 - (drawMisLen + 1.5) * cw
-                              : x2 + (drawMisLen + 2.5) * cw
-                          }
-                          y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
-                          textAnchor="middle"
-                        >
-                          ···
-                        </tspan>
-                      )}
-                      {visMis.split('').map((c, k) => (
-                        <tspan
-                          key={`mis-${k}`}
-                          x={
-                            (isFwd ? x1 - (drawMisLen - k) * cw : x2 + (drawMisLen - k) * cw) +
-                            cw / 2
-                          }
-                          y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
-                          textAnchor="middle"
-                        >
-                          {c}
-                        </tspan>
-                      ))}
-                    </>
-                  )}
-                  {/* Per-column alignment rendering */}
-                  {seg.renderCols &&
-                    seg.renderCols.map((rc) => {
-                      const isOffset =
-                        rc.kind === 'mismatch' || rc.kind === 'gap' || rc.kind === 'insertion';
-                      const y =
-                        (isOffset ? misY : matchY) + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY);
-                      const x = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row)) + cw / 2;
-                      const isGap = rc.kind === 'gap';
-                      const isIns = rc.kind === 'insertion';
-                      return (
-                        <tspan
-                          key={`aln-${rc.templateCol}`}
-                          x={x}
-                          y={y}
-                          textAnchor="middle"
-                          fill={isGap ? '#9ca3af' : undefined}
-                          fontWeight={isGap ? '200' : undefined}
-                          fontSize={isIns ? '10px' : undefined}
-                        >
-                          {isIns ? rc.insDetail?.insertedBases || rc.primerBase : rc.primerBase}
-                        </tspan>
-                      );
-                    })}
-                  {/* 3' tail */}
-                  {isArrow &&
-                    p.threePrimeTail &&
-                    (() => {
-                      const tail3 = p.threePrimeTail;
-                      const tailLen = tail3.length;
-                      return tail3.split('').map((c, k) => (
-                        <tspan
-                          key={`3t-${k}`}
-                          x={(isFwd ? x2 + (k + 1) * cw : x1 - (tailLen - k) * cw) + cw / 2}
-                          y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
-                          textAnchor="middle"
-                        >
-                          {c}
-                        </tspan>
-                      ));
-                    })()}
-                </text>
-
-                <path
-                  d={pathStr}
-                  fill="none"
-                  stroke={bgColor}
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                {isArrow && (
-                  <path
-                    d={arrowPath}
-                    fill="none"
-                    stroke={bgColor}
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                )}
-                <path d={pathStr} fill="none" stroke={pColor} strokeWidth="2.5" />
-                {isArrow && (
-                  <path
-                    d={arrowPath}
-                    fill="none"
-                    stroke={pColor}
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                  />
-                )}
-
-                <text
-                  x={pts[0][0]}
-                  y={pts[0][1] + (isFwd ? -pp.fwdLabelY : pp.revLabelY) + labelOff}
-                  fontSize="12px"
-                  fontFamily="TeX Gyre Heros"
-                  fontWeight="600"
-                  fontStyle="italic"
-                  textAnchor={isFwd ? 'start' : 'end'}
-                  fill="none"
-                  stroke={bgColor}
-                  strokeWidth="5"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  style={{
-                    opacity: isHovered && !isSelectedPrimer ? 0 : 1,
-                    transition: springAnim,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {p.name}
-                </text>
-                <text
-                  x={pts[0][0]}
-                  y={pts[0][1] + (isFwd ? -pp.fwdLabelY : pp.revLabelY) + labelOff}
-                  fontSize="12px"
-                  fontFamily="TeX Gyre Heros"
-                  fontWeight="600"
-                  fontStyle="italic"
-                  textAnchor={isFwd ? 'start' : 'end'}
-                  fill={pColor}
-                  stroke="none"
-                  style={{
-                    opacity: isHovered && !isSelectedPrimer ? 0 : 1,
-                    transition: springAnim,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {p.name}
-                </text>
-
-                <path d={pathStr} fill="none" stroke="transparent" strokeWidth="20" />
-                <rect
-                  x={Math.min(...pts.map((p) => p[0])) - 4}
-                  y={Math.min(...pts.map((p) => p[1])) - 20}
-                  width={Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])) + 8}
-                  height={
-                    Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])) + 40
-                  }
-                  fill="transparent"
-                  onMouseDown={(e) => {
-                    if (e.button !== 0) return;
-                    e.stopPropagation();
-                    e.preventDefault();
-                    // Clear all other selections
-                    setSelStart(null);
-                    setSelEnd(null);
-                    setCursorIndex(null);
-                    setIsEnzymeSelection(false);
-                    setSelectedEnzymeIds([]);
-                    lastEnzymeSelRef.current = null;
-                    setTranslationSel(null);
-                    translationDragRef.current = null;
-                    setIsTranslationDragging(false);
-                    // Start primer drag
-                    setSelectionMode('primer');
-                    setSelectedPrimerIds([p.id]);
-                    setIsPrimerDragging(true);
-                    isPrimerDraggingRef.current = true;
-                    setHoveredPrimer(p.id);
-                    primerDragRef.current = {
-                      startPrimerId: p.id,
-                      startFwd: p.isFwd,
-                      didDrag: false,
-                      hoveredPrimerId: p.id,
-                    };
-                    // Delay dimming other primers by 500ms to prevent flash on click
-                    if (primerDimTimerRef.current) clearTimeout(primerDimTimerRef.current);
-                    primerDimTimerRef.current = setTimeout(() => setPrimerDimActive(true), 500);
-                    clearCursorTimer();
-                  }}
-                  onMouseEnter={() => {
-                    if (isPrimerDraggingRef.current) {
-                      if (primerDragRef.current) {
-                        primerDragRef.current.hoveredPrimerId = p.id;
-                      }
-                      setHoveredPrimer(p.id);
-                      return;
-                    }
-                    if (isDraggingRef.current) return;
-                    setHoveredPrimer(p.id);
-                  }}
-                  onMouseLeave={() => setHoveredPrimer(null)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    // Prevent drag activation on double-click
-                    setPrimerDimActive(false);
-                    if (primerDimTimerRef.current) clearTimeout(primerDimTimerRef.current);
-                    setCreatePrimerSeq(null); // clear create mode
-                    setPrimerAlignmentPrimer(enrichedPrimers.find((ep) => ep.id === p.id) || null);
-                  }}
-                  className="cursor-pointer"
-                />
-              </g>
-            );
-          })}
-        </g>
-      );
-    });
-  }, [
-    visiblePrimers,
-    hoveredPrimer,
-    charsPerLine,
-    pp,
-    primerTracks,
-    revPrimerFeatOffsets,
-    getSeqY,
-    sp,
-    selectionMode,
-    selectedPrimerIds,
-    isPrimerDragging,
-    primerDimActive,
-    openPrimerMenu,
-    alignLaneInfo,
-    rowStarts,
-    rowCounts,
-    colVis,
-    colRuns,
-  ]);
+  const renderedPrimers = useMemo(
+    () =>
+      renderPrimers({
+        visiblePrimers,
+        hoveredPrimer,
+        sp,
+        rowStarts,
+        rowCounts,
+        openPrimerMenu,
+        getSeqY,
+        revPrimerFeatOffsets,
+        alignLaneInfo,
+        ALIGN_FEAT_GAP,
+        lp,
+        primerTracks,
+        pp,
+        colVis,
+        selectedPrimerIds,
+        selectionMode,
+        isPrimerDragging,
+        primerDimActive,
+        primerDragRef,
+        setSelStart,
+        setSelEnd,
+        setCursorIndex,
+        setIsEnzymeSelection,
+        setSelectedEnzymeIds,
+        lastEnzymeSelRef,
+        setTranslationSel,
+        translationDragRef,
+        setIsTranslationDragging,
+        setSelectionMode,
+        setSelectedPrimerIds,
+        setIsPrimerDragging,
+        isPrimerDraggingRef,
+        setHoveredPrimer,
+        primerDimTimerRef,
+        clearCursorTimer,
+        setPrimerDimActive,
+        setCreatePrimerSeq,
+        setPrimerAlignmentPrimer,
+        enrichedPrimers,
+        isDraggingRef,
+      }),
+    [
+      visiblePrimers,
+      hoveredPrimer,
+      charsPerLine,
+      pp,
+      primerTracks,
+      revPrimerFeatOffsets,
+      getSeqY,
+      sp,
+      selectionMode,
+      selectedPrimerIds,
+      isPrimerDragging,
+      primerDimActive,
+      openPrimerMenu,
+      alignLaneInfo,
+      rowStarts,
+      rowCounts,
+      colVis,
+      colRuns,
+    ],
+  );
 
   const { enzymeLayout, enzymeLinesPath, totalNameCounts } = useEnzymeGeometry({
     visibleEnzymes,
@@ -3564,584 +2807,84 @@ const SequenceEditor = React.memo(function SequenceEditor({
     onEnzymeHoverChange([...positions]);
   }, [hoveredEnzyme, enzymeLayout, enzymes, onEnzymeHoverChange]);
 
-  const renderedEnzymes = useMemo(() => {
-    if (!enzymeLayout.length) return null;
-    return (
-      <g>
-        <path
-          d={enzymeLinesPath}
-          fill="none"
-          stroke="#333"
-          strokeWidth="0.8"
-          style={{ pointerEvents: 'none' }}
-        />
-        {enzymeLayout
-          .filter((l) => l.isUnique)
-          .map((l) => (
-            <line
-              key={`u-${l.id}`}
-              x1={l.cutX}
-              x2={l.cutX}
-              y1={l.yTop}
-              y2={l.sy - lp.enzLineGap}
-              stroke="#333"
-              strokeWidth="1"
-              style={{ pointerEvents: 'none' }}
-            />
-          ))}
-      </g>
-    );
-  }, [enzymeLayout, enzymeLinesPath, lp.enzLineGap]);
+  const renderedEnzymes = useMemo(
+    () => renderEnzymeLines({ enzymeLayout, enzymeLinesPath, lp }),
+    [enzymeLayout, enzymeLinesPath, lp.enzLineGap],
+  );
 
-  const renderedEnzymeLabels = useMemo(() => {
-    const hoveredName = hoveredEnzyme
-      ? enzymeLayout.find((l) => l.id === hoveredEnzyme)?.name
-      : null;
-    return enzymeLayout.map((l) => {
-      const e = enzymes.find((x) => x.id === l.groupId);
-      const isGray =
-        e && (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length));
-      const isHoveredGroup = hoveredName != null && l.name === hoveredName;
-      const isSelected = selectedEnzymeIds.includes(l.id);
-      const isBlunt = e && e.cutType === 'blunt';
-      const isIIS = isIISEnzyme(e);
-      const showTwo = totalNameCounts.get(l.name) === 2;
+  const renderedEnzymeLabels = useMemo(
+    () =>
+      renderEnzymeLabels({
+        hoveredEnzyme,
+        enzymeLayout,
+        enzymes,
+        selectedEnzymeIds,
+        totalNameCounts,
+        openEnzymeMenu,
+        openEnzymeDetail,
+        enzymeDragRef,
+        isDraggingRef,
+        setHoveredEnzyme,
+        setSelStart,
+        setSelEnd,
+        setCursorIndex,
+        setSelectedEnzymeIds,
+        isPrimerDraggingRef,
+        primerDragRef,
+        primerDimTimerRef,
+        setPrimerDimActive,
+        setTranslationSel,
+        translationDragRef,
+        setIsTranslationDragging,
+        lastEnzymeSelRef,
+        clearCursorTimer,
+        setIsEnzymeSelection,
+        setSelectedPrimerIds,
+        cleanSeq,
+        topology,
+        setIsDragging,
+        setIsEnzymeDragging,
+      }),
+    [
+      enzymeLayout,
+      enzymes,
+      hoveredEnzyme,
+      bgColor,
+      selectedEnzymeIds,
+      isEnzymeSelection,
+      clearCursorTimer,
+      cleanSeq,
+      topology,
+      openEnzymeMenu,
+      openEnzymeDetail,
+    ],
+  );
 
-      // Color: selected (dark blue) > hovered (blue) > type-specific > default
-      let labelColor = '#333';
-      if (isGray) labelColor = '#9CA3AF';
-      else if (isSelected) labelColor = enzymeActiveBlue;
-      else if (isHoveredGroup) labelColor = '#2563EB';
-      else if (isBlunt) labelColor = '#6B3A2A';
-      else if (isIIS) labelColor = '#0D6B6B';
+  const renderedEnzymeOverlay = useMemo(
+    () =>
+      renderEnzymeOverlay({
+        hoveredEnzyme,
+        enzymeLayout,
+        selectedEnzymeIds,
+        enzymes,
+        totalNameCounts,
+        isEnzymeSelection,
+      }),
+    [
+      hoveredEnzyme,
+      selectedEnzymeIds,
+      isEnzymeSelection,
+      enzymeLayout,
+      enzymes,
+      bgColor,
+      totalNameCounts,
+    ],
+  );
 
-      return (
-        <g
-          key={l.id}
-          onContextMenu={(e) => openEnzymeMenu(e, l)}
-          onDoubleClick={(e) => openEnzymeDetail(e, l)}
-          onMouseEnter={() => {
-            if (enzymeDragRef.current?.active) {
-              // Regular enzyme can't drag to cut-twice enzyme
-              const srcEnz = enzymes.find((x) => x.id === enzymeDragRef.current.startEnzymeId);
-              if (srcEnz && !(srcEnz.cutPairs?.length > 1) && e?.cutPairs?.length > 1) return;
-              // During drag: update selection between start and target
-              enzymeDragRef.current.hoveredId = l.id;
-              enzymeDragRef.current.didDrag = true;
-              setHoveredEnzyme(l.id);
-              const startIdx = enzymeDragRef.current.startCutIdx;
-              const targetIdx = l.topCutIndex;
-              if (targetIdx !== startIdx) {
-                const s = Math.min(startIdx, targetIdx);
-                const e = Math.max(startIdx, targetIdx) - 1;
-                if (s <= e) {
-                  setSelStart(s);
-                  setSelEnd(e);
-                  setCursorIndex(null);
-                }
-                setSelectedEnzymeIds([enzymeDragRef.current.entryId, l.id]);
-                enzymeDragRef.current.backToStart = false;
-              } else {
-                const rs = enzymeDragRef.current.recStart;
-                const re = enzymeDragRef.current.recEnd;
-                if (rs != null && re != null) {
-                  setSelStart(rs);
-                  setSelEnd(re);
-                }
-                setSelectedEnzymeIds([l.id]);
-                enzymeDragRef.current.backToStart = true;
-              }
-            } else if (!isDraggingRef.current) {
-              setHoveredEnzyme(l.id);
-            }
-          }}
-          onMouseLeave={() => {
-            if (enzymeDragRef.current?.active && enzymeDragRef.current.hoveredId === l.id) {
-              enzymeDragRef.current.hoveredId = null;
-            }
-            setHoveredEnzyme(null);
-          }}
-          onMouseDown={(e) => {
-            if (e.button !== 0) return;
-            e.stopPropagation();
-            e.preventDefault();
-            // Clear primer selection
-            setSelectedPrimerIds([]);
-            isPrimerDraggingRef.current = false;
-            primerDragRef.current = null;
-            if (primerDimTimerRef.current) {
-              clearTimeout(primerDimTimerRef.current);
-              primerDimTimerRef.current = null;
-            }
-            setPrimerDimActive(false);
-            // Clear translation selection
-            setTranslationSel(null);
-            translationDragRef.current = null;
-            setIsTranslationDragging(false);
-            const enzyme = enzymes.find((x) => x.id === l.groupId);
-            if (!enzyme) return;
-            const pairs = enzyme.cutPairs || [
-              { topCutIndex: enzyme.cutIndex, botCutIndex: enzyme.botCutIndex },
-            ];
-            const isCutTwice = pairs.length > 1;
-            const cutIdx = l.topCutIndex;
-
-            // Shift+click: extend from previous enzyme selection
-            if (
-              e.shiftKey &&
-              lastEnzymeSelRef.current &&
-              lastEnzymeSelRef.current.cutIdx !== cutIdx
-            ) {
-              const prevCutIdx = lastEnzymeSelRef.current.cutIdx;
-              const prevEntryId = lastEnzymeSelRef.current.entryId;
-              const s = Math.min(prevCutIdx, cutIdx);
-              const ed = Math.max(prevCutIdx, cutIdx) - 1;
-              if (s <= ed) {
-                setSelStart(s);
-                setSelEnd(ed);
-                setCursorIndex(null);
-                setIsEnzymeSelection(true);
-                setSelectedEnzymeIds(prevEntryId ? [prevEntryId, l.id] : [l.id]);
-                setHoveredEnzyme(null);
-                clearCursorTimer();
-                lastEnzymeSelRef.current = {
-                  enzymeId: l.groupId,
-                  cutIdx,
-                  name: l.name,
-                  entryId: l.id,
-                };
-              }
-              return;
-            }
-
-            // Cut-twice enzyme: directly select between two cut positions, close tooltip
-            if (isCutTwice) {
-              const otherPair = pairs[l.pairIndex === 0 ? 1 : 0];
-              const cut1 = cutIdx;
-              const cut2 = otherPair.topCutIndex;
-              const s = Math.min(cut1, cut2);
-              const ed = Math.max(cut1, cut2) - 1;
-              const otherEntryId = `${l.groupId}_p${l.pairIndex === 0 ? 1 : 0}`;
-              setSelStart(s);
-              setSelEnd(ed);
-              setCursorIndex(null);
-              setIsEnzymeSelection(true);
-              setSelectedEnzymeIds([l.id, otherEntryId]);
-              setHoveredEnzyme(null);
-              clearCursorTimer();
-              lastEnzymeSelRef.current = {
-                enzymeId: l.groupId,
-                cutIdx,
-                name: l.name,
-                entryId: l.id,
-              };
-              return;
-            }
-
-            // Start enzyme drag — immediately select the recognition site.
-            // Sites wrapping the origin of a circular sequence (recEnd beyond
-            // the sequence length) fall back to the display window. For
-            // circular molecules wrap the coords into [0, tlen) so
-            // selStart > selEnd expresses the cross-origin selection
-            // (mirrors the tooltip path).
-            const tlen = cleanSeq.length;
-            const recWraps = enzyme.recStart == null || enzyme.recEnd >= tlen;
-            let recSelStart = recWraps ? enzyme.displayStart : enzyme.recStart;
-            let recSelEnd = recWraps ? enzyme.displayEnd : enzyme.recEnd;
-            if (recWraps && topology === 'circular' && tlen > 0) {
-              recSelStart = ((recSelStart % tlen) + tlen) % tlen;
-              recSelEnd = ((recSelEnd % tlen) + tlen) % tlen;
-            }
-            setSelStart(recSelStart);
-            setSelEnd(recSelEnd);
-            setCursorIndex(null);
-            enzymeDragRef.current = {
-              active: true,
-              startEnzymeId: l.groupId,
-              startName: l.name,
-              startCutIdx: cutIdx,
-              recStart: recSelStart,
-              recEnd: recSelEnd,
-              didDrag: false,
-              backToStart: false,
-              hoveredId: l.id,
-              entryId: l.id,
-            };
-            isDraggingRef.current = true;
-            setIsDragging(true);
-            setIsEnzymeDragging(true);
-            setIsEnzymeSelection(true);
-            setSelectedEnzymeIds([l.id]);
-            setHoveredEnzyme(l.id);
-            clearCursorTimer();
-          }}
-          style={{ cursor: 'pointer' }}
-        >
-          <rect
-            x={l.cutX + 3}
-            y={l.yTop - 10}
-            width={l.enzW + (showTwo ? 10 : 2)}
-            height={18}
-            fill="transparent"
-          />
-          {(() => {
-            const enzText = {
-              x: l.cutX + 6,
-              y: l.yTop + 5,
-              fontSize: '14px',
-              fontFamily: monoFont,
-              fontWeight: l.isUnique ? '700' : '350',
-              style: { pointerEvents: 'none' },
-            };
-            const nameContent = (() => {
-              const s = splitEnzName(l.name);
-              return s.normal
-                ? [
-                    <tspan key="i" fontStyle="italic">
-                      {s.italic}
-                    </tspan>,
-                    <tspan key="n">{s.normal}</tspan>,
-                  ]
-                : l.name;
-            })();
-            const content = showTwo
-              ? [
-                  ...(Array.isArray(nameContent) ? nameContent : [nameContent]),
-                  <tspan key="two" fontSize="12" dy="-2">
-                    ²
-                  </tspan>,
-                ]
-              : nameContent;
-            return (
-              <>
-                <text
-                  {...enzText}
-                  fill="none"
-                  stroke={bgColor}
-                  strokeWidth="5"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                >
-                  {content}
-                </text>
-                <text {...enzText} fill={labelColor} stroke="none">
-                  {content}
-                </text>
-              </>
-            );
-          })()}
-        </g>
-      );
-    });
-  }, [
-    enzymeLayout,
-    enzymes,
-    hoveredEnzyme,
-    bgColor,
-    selectedEnzymeIds,
-    isEnzymeSelection,
-    clearCursorTimer,
-    cleanSeq,
-    topology,
-    openEnzymeMenu,
-    openEnzymeDetail,
-  ]);
-
-  const renderedEnzymeOverlay = useMemo(() => {
-    // Collect enzyme names to render lines for (from hover or selected ids)
-    const namesToRender = new Set();
-    if (hoveredEnzyme) {
-      const entry = enzymeLayout.find((l) => l.id === hoveredEnzyme);
-      if (entry) namesToRender.add(entry.name);
-    }
-    for (const id of selectedEnzymeIds) {
-      const entry = enzymeLayout.find((l) => l.id === id);
-      if (entry) namesToRender.add(entry.name);
-    }
-    if (namesToRender.size === 0) return null;
-
-    // Compute hover text content (only for hovered enzyme)
-    let hoverTextContent = null;
-    if (hoveredEnzyme) {
-      const hoveredEntry = enzymeLayout.find((l) => l.id === hoveredEnzyme);
-      if (hoveredEntry) {
-        const e = enzymes.find((x) => x.name === hoveredEntry.name);
-        if (e) {
-          const isGray =
-            e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
-          const isSelOv = selectedEnzymeIds.includes(hoveredEntry.id);
-          const ovColor = isGray ? '#9CA3AF' : isSelOv ? enzymeActiveBlue : '#2563EB';
-          const showTwoOv = totalNameCounts.get(hoveredEntry.name) === 2;
-          const ovNameContent = (() => {
-            const s = splitEnzName(e.name);
-            const parts = s.normal
-              ? [
-                  <tspan key="i" fontStyle="italic">
-                    {s.italic}
-                  </tspan>,
-                  <tspan key="n">{s.normal}</tspan>,
-                ]
-              : [e.name];
-            if (showTwoOv)
-              parts.push(
-                <tspan key="two" fontSize="12" dy="-2">
-                  ²
-                </tspan>,
-              );
-            return parts;
-          })();
-          const methParts = [];
-          if (e.methylationBlocked && e.methylationSources?.length) {
-            methParts.push('[' + e.methylationSources.join('/') + ' Blocked]');
-          }
-          if (e.methylationRequired && e.methylRequiredSources?.length) {
-            methParts.push('[' + e.methylRequiredSources.join('/') + ' Required]');
-          }
-          const methText = methParts.length ? '  ' + methParts.join(' ') : '';
-          hoverTextContent = { hoveredEntry, ovColor, ovNameContent, methText };
-        }
-      }
-    }
-
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {/* Render lines for each enzyme name */}
-        {[...namesToRender].map((name) => {
-          const e = enzymes.find((x) => x.name === name);
-          if (!e) return null;
-          const isGray =
-            e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
-          const hoveredName = hoveredEnzyme
-            ? enzymeLayout.find((l) => l.id === hoveredEnzyme)?.name
-            : null;
-          let nameEntries = enzymeLayout.filter((l) => l.name === name);
-          // In selection mode, only filter non-hovered entries (selected + hovered lines both show)
-          if (isEnzymeSelection && name !== hoveredName) {
-            nameEntries = nameEntries.filter((l) => selectedEnzymeIds.includes(l.id));
-          }
-          return nameEntries.map((l) => {
-            const isSel = selectedEnzymeIds.includes(l.id);
-            const lineColor = isGray ? '#9CA3AF' : isSel ? enzymeActiveBlue : '#2563EB';
-            return (
-              <React.Fragment key={`ov-${l.id}`}>
-                <line
-                  x1={l.cutX}
-                  x2={l.cutX}
-                  y1={l.yTop}
-                  y2={l.sy + 5}
-                  stroke={bgColor}
-                  strokeWidth="4"
-                  strokeLinecap="square"
-                />
-                <line
-                  x1={l.cutX}
-                  x2={l.cutX}
-                  y1={l.yTop}
-                  y2={l.sy + 5}
-                  stroke={lineColor}
-                  strokeWidth={e.isUnique ? '2' : '1'}
-                />
-              </React.Fragment>
-            );
-          });
-        })}
-        {/* Hover text */}
-        {hoverTextContent && (
-          <React.Fragment>
-            <text
-              x={hoverTextContent.hoveredEntry.cutX + 6}
-              y={hoverTextContent.hoveredEntry.yTop + 5}
-              fill="none"
-              stroke={bgColor}
-              strokeWidth="5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              fontSize="14px"
-              fontFamily={monoFont}
-              fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}
-            >
-              {hoverTextContent.ovNameContent}
-              {hoverTextContent.methText}
-            </text>
-            <text
-              x={hoverTextContent.hoveredEntry.cutX + 6}
-              y={hoverTextContent.hoveredEntry.yTop + 5}
-              fill={hoverTextContent.ovColor}
-              stroke="none"
-              fontSize="14px"
-              fontFamily={monoFont}
-              fontWeight={hoverTextContent.hoveredEntry.isUnique ? '700' : '350'}
-            >
-              {hoverTextContent.ovNameContent}
-              {hoverTextContent.methText}
-            </text>
-          </React.Fragment>
-        )}
-      </g>
-    );
-  }, [
-    hoveredEnzyme,
-    selectedEnzymeIds,
-    isEnzymeSelection,
-    enzymeLayout,
-    enzymes,
-    bgColor,
-    totalNameCounts,
-  ]);
-
-  const renderedTooltips = useMemo(() => {
-    if (!hoveredEnzyme || isEnzymeDragging) return null;
-    const hoveredEntry = enzymeLayout.find((l) => l.id === hoveredEnzyme);
-    if (!hoveredEntry) return null;
-    const e = enzymes.find((x) => x.id === hoveredEntry.groupId);
-    if (!e || e.displayStart === undefined) return null;
-    const isGray =
-      e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
-    const ttColor = isGray ? '#9CA3AF' : isEnzymeDragging ? enzymeActiveBlue : '#2563EB';
-
-    const tlen = cleanSeq.length;
-    const dispLen = e.displayEnd - e.displayStart + 1;
-    const sw = e.isUnique ? '2' : '1';
-    const pad = 6;
-    const ttH = 44;
-    const cutPairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
-    // Circular display window may wrap the origin (displayEnd >= tlen).
-    const sub =
-      e.displayEnd < tlen
-        ? cleanSeq.substring(e.displayStart, e.displayEnd + 1)
-        : Array.from({ length: dispLen }, (_, i) => cleanSeq[(e.displayStart + i) % tlen]).join('');
-    const comp = sub.split('').map(complement).join('');
-    const pattern = e.recSeqPattern || '';
-    const recOffset = e.recStart - e.displayStart;
-    const recLen = e.recEnd - e.recStart + 1;
-    // Position relative to displayStart, in window coordinates (handles wrap).
-    const relPos = (idx) => (((idx - e.displayStart) % tlen) + tlen) % tlen;
-    const isRecBold = (i) => {
-      if (i < recOffset || i >= recOffset + recLen) return false;
-      const pi = i - recOffset;
-      return pi < pattern.length && pattern[pi] !== 'N' && pattern[pi] !== 'n';
-    };
-
-    const groupEntries = enzymeLayout.filter((l) => l.groupId === hoveredEntry.groupId);
-
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {groupEntries.map((entry) => {
-          const sy = entry.sy;
-          const ttY = sy - 19;
-          const hp = cutPairs[entry.pairIndex] || cutPairs[0];
-          const charsBeforeCut = relPos(hp.topCutIndex);
-          const baseX = entry.cutX - charsBeforeCut * cw;
-          const leftX = baseX - pad;
-          const ttW = dispLen * cw + pad * 2;
-
-          const polyEntries = cutPairs.map((cp, i) => {
-            const tGapX = baseX + relPos(cp.topCutIndex) * cw;
-            const bGapX = baseX + relPos(cp.botCutIndex) * cw;
-            const isLocal = i === entry.pairIndex;
-            return {
-              tGapX,
-              bGapX,
-              isLocal,
-              path: [
-                `M ${tGapX} ${ttY - 2}`,
-                `L ${tGapX} ${sy + 3}`,
-                `L ${bGapX} ${sy + 3}`,
-                `L ${bGapX} ${sy + 19}`,
-              ].join(' '),
-            };
-          });
-
-          const uniqueGapXs = [...new Set(polyEntries.map((pe) => pe.tGapX))].sort((a, b) => a - b);
-          const gapHalfW = 4;
-          const r = 8;
-          let borderD = `M ${leftX + r} ${ttY}`;
-          let curX = leftX + r;
-          for (const gx of uniqueGapXs) {
-            if (gx - gapHalfW > curX) {
-              borderD += ` L ${gx - gapHalfW} ${ttY}`;
-            }
-            borderD += ` M ${gx + gapHalfW} ${ttY}`;
-            curX = gx + gapHalfW;
-          }
-          if (curX < leftX + ttW - r) {
-            borderD += ` L ${leftX + ttW - r} ${ttY}`;
-          }
-          borderD += ` A ${r} ${r} 0 0 1 ${leftX + ttW} ${ttY + r}`;
-          borderD += ` L ${leftX + ttW} ${ttY + ttH - r}`;
-          borderD += ` A ${r} ${r} 0 0 1 ${leftX + ttW - r} ${ttY + ttH}`;
-          borderD += ` L ${leftX + r} ${ttY + ttH}`;
-          borderD += ` A ${r} ${r} 0 0 1 ${leftX} ${ttY + ttH - r}`;
-          borderD += ` L ${leftX} ${ttY + r}`;
-          borderD += ` A ${r} ${r} 0 0 1 ${leftX + r} ${ttY}`;
-
-          return (
-            <g key={`tt-${entry.id}`}>
-              <rect
-                x={leftX}
-                y={ttY}
-                width={ttW}
-                height={ttH}
-                rx={8}
-                fill="#FFFFFF"
-                stroke="none"
-              />
-              <path
-                d={borderD}
-                fill="none"
-                stroke={ttColor}
-                strokeWidth={sw}
-                strokeLinejoin="round"
-              />
-              {polyEntries.map((pe, i) => (
-                <path
-                  key={`poly-${i}`}
-                  d={pe.path}
-                  fill="none"
-                  stroke={ttColor}
-                  strokeWidth={sw}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              ))}
-              <text y={sy} fontFamily={monoFont} fontSize="14px">
-                {sub.split('').map((c, i) => {
-                  const bold = isRecBold(i);
-                  return (
-                    <tspan
-                      key={i}
-                      x={baseX + i * cw + cw / 2}
-                      textAnchor="middle"
-                      fontWeight={bold ? '700' : '200'}
-                      fill={bold ? '#1f2937' : '#BFBFBF'}
-                    >
-                      {c}
-                    </tspan>
-                  );
-                })}
-              </text>
-              <text y={sy + 16} fontFamily={monoFont} fontSize="14px">
-                {comp.split('').map((c, i) => {
-                  const bold = isRecBold(i);
-                  return (
-                    <tspan
-                      key={i}
-                      x={baseX + i * cw + cw / 2}
-                      textAnchor="middle"
-                      fontWeight={bold ? '700' : '200'}
-                      fill={bold ? '#1f2937' : '#BFBFBF'}
-                    >
-                      {c}
-                    </tspan>
-                  );
-                })}
-              </text>
-            </g>
-          );
-        })}
-      </g>
-    );
-  }, [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging]);
+  const renderedTooltips = useMemo(
+    () => renderTooltips({ hoveredEnzyme, isEnzymeDragging, enzymeLayout, enzymes, cleanSeq }),
+    [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging],
+  );
 
   // --- cursor & selection renderers ---
   // --- amplimer intervening region (deep green) ---
