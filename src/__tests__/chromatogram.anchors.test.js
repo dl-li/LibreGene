@@ -1,7 +1,7 @@
 // Unit tests for the alignment→chromatogram anchor mapping.
 import { describe, it, expect } from 'vitest';
 import { buildColumnAnchors, buildColumnQueryMap, buildTracePath } from '../chromatogram';
-import { buildStreamLayout } from '../SequenceEditor';
+import { buildStreamLayout } from '../editor/alignmentLayout';
 
 describe('buildColumnAnchors', () => {
   it('maps a simple single-segment alignment 1:1', () => {

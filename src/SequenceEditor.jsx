@@ -28,6 +28,26 @@ import {
   amplimerGreen,
   peptideMassKda,
 } from './editorConstants';
+import {
+  BASE_HILITE_BG,
+  INSERT_DASH_HIDE_MAX,
+  alignmentGapSegments,
+  alignmentInsertUnion,
+  buildMatchSegs,
+  buildStreamLayout,
+  insertionBases,
+} from './editor/alignmentLayout';
+import { ensureReadableColor, shiftAbutLightness } from './editor/colors';
+import {
+  complementStr,
+  isIISEnzyme,
+  matchedSeqOf,
+  reverseComplement,
+  safePrimerColor,
+  splitEnzName,
+  truncatedLabel,
+} from './editor/seqUtils';
+import { buildCDSData, isTranslatable } from './editor/translation';
 import { plugins } from './plugins';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
@@ -66,365 +86,6 @@ import {
   Scissors,
   Tag,
 } from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// Standard genetic code table
-// ---------------------------------------------------------------------------
-const GENETIC_CODE = {
-  ATA: 'I',
-  ATC: 'I',
-  ATT: 'I',
-  ATG: 'M',
-  ACA: 'T',
-  ACC: 'T',
-  ACG: 'T',
-  ACT: 'T',
-  AAC: 'N',
-  AAT: 'N',
-  AAA: 'K',
-  AAG: 'K',
-  AGC: 'S',
-  AGT: 'S',
-  AGA: 'R',
-  AGG: 'R',
-  CTA: 'L',
-  CTC: 'L',
-  CTG: 'L',
-  CTT: 'L',
-  CCA: 'P',
-  CCC: 'P',
-  CCG: 'P',
-  CCT: 'P',
-  CAC: 'H',
-  CAT: 'H',
-  CAA: 'Q',
-  CAG: 'Q',
-  CGA: 'R',
-  CGC: 'R',
-  CGG: 'R',
-  CGT: 'R',
-  GTA: 'V',
-  GTC: 'V',
-  GTG: 'V',
-  GTT: 'V',
-  GCA: 'A',
-  GCC: 'A',
-  GCG: 'A',
-  GCT: 'A',
-  GAC: 'D',
-  GAT: 'D',
-  GAA: 'E',
-  GAG: 'E',
-  GGA: 'G',
-  GGC: 'G',
-  GGG: 'G',
-  GGT: 'G',
-  TCA: 'S',
-  TCC: 'S',
-  TCG: 'S',
-  TCT: 'S',
-  TTC: 'F',
-  TTT: 'F',
-  TTA: 'L',
-  TTG: 'L',
-  TAC: 'Y',
-  TAT: 'Y',
-  TAA: '*',
-  TAG: '*',
-  TGC: 'C',
-  TGT: 'C',
-  TGA: '*',
-  TGG: 'W',
-};
-
-/**
- * Build CDS data for a feature from the DNA sequence.
- * Never uses feature.translation — always calculates from scratch.
- * Returns { trans, codonMap, codingBases } where:
- *   trans: array of { aa, templatePos2, codonIndex, bases } for each codon
- *   codonMap: Map from template position to its codon index
- *   codingBases: template positions in 5'→3' order
- */
-function buildCDSData(feature, sequence) {
-  const segs = feature.segments;
-  if (!segs || !segs.length) return { trans: [], codonMap: new Map(), codingBases: [] };
-
-  const isRev = feature.strand === '-';
-
-  // Build CDS bases as template indices in 5'→3' order
-  const codingBases = [];
-  if (isRev) {
-    for (let i = segs.length - 1; i >= 0; i--) {
-      const seg = segs[i];
-      for (let j = seg.end; j >= seg.start; j--) {
-        if (j >= 0 && j < sequence.length) codingBases.push(j);
-      }
-    }
-  } else {
-    for (const seg of segs) {
-      for (let j = seg.start; j <= seg.end; j++) {
-        if (j >= 0 && j < sequence.length) codingBases.push(j);
-      }
-    }
-  }
-
-  const trans = [];
-  const codonMap = new Map();
-  for (let i = 0; i + 2 < codingBases.length; i += 3) {
-    const t1 = codingBases[i];
-    const t2 = codingBases[i + 1];
-    const t3 = codingBases[i + 2];
-
-    const b1 = isRev ? complement(sequence[t1]) : sequence[t1];
-    const b2 = isRev ? complement(sequence[t2]) : sequence[t2];
-    const b3 = isRev ? complement(sequence[t3]) : sequence[t3];
-
-    const codon = (b1 + b2 + b3).toUpperCase();
-    const aa = GENETIC_CODE[codon] || '?';
-    const codonIndex = i / 3;
-    trans.push({ aa, templatePos2: t2, codonIndex, bases: [t1, t2, t3] });
-    codonMap.set(t1, codonIndex);
-    codonMap.set(t2, codonIndex);
-    codonMap.set(t3, codonIndex);
-  }
-
-  return { trans, codonMap, codingBases };
-}
-
-/** Feature types that get in-editor translation (codon) display. */
-function isTranslatable(f) {
-  return f.ftype === 'CDS' || f.ftype === 'mRNA';
-}
-
-/** Split an inclusive match range into linear segments; a range with
- *  end < start crosses the origin of a circular sequence. */
-function buildMatchSegs(ms, me, tlen) {
-  if (me < ms && tlen > 0) {
-    return [
-      { start: ms, end: tlen - 1 },
-      { start: 0, end: me },
-    ];
-  }
-  return [{ start: ms, end: me }];
-}
-
-/** '-' placeholder segments covering template gaps between consecutive
- *  segments of one alignment (split-read deletions), split at the origin so
- *  each piece stays contiguous like real segments. */
-function alignmentGapSegments(al, tlen) {
-  const segs = al.segments || [];
-  const gaps = [];
-  if (!tlen) return gaps;
-  for (let i = 0; i + 1 < segs.length; i++) {
-    const gap = (((segs[i + 1].start - segs[i].end - 1) % tlen) + tlen) % tlen;
-    if (gap === 0) continue;
-    const start = (segs[i].end + 1) % tlen;
-    for (const { start: s, end: e } of buildMatchSegs(start, (start + gap - 1) % tlen, tlen)) {
-      gaps.push({ start: s, end: e, chars: '-'.repeat(e - s + 1), gap: true });
-    }
-  }
-  return gaps;
-}
-
-/** Dash runs no wider than this are not drawn in the template row, so a
- *  stretch with several small insertions stops showing a fragment every few
- *  columns. The cells stay — every read base still renders in them, in read
- *  order — only the '-' placeholder is dropped. Merging the cells into one
- *  block instead would move a read's inserted bases ahead of the matched
- *  columns between them, scrambling that read's own order (and its trace). */
-export const INSERT_DASH_HIDE_MAX = 5;
-
-/** Highlight plate behind a read base that needs attention: a mismatch, a
- *  read gap, or a base sitting in an insertion cell (its template row shows
- *  '-'). One colour for all three. */
-const BASE_HILITE_BG = '#fecaca';
-
-/** Per-anchor insertion width: the longest insertion anchored there across
- *  all alignments (GenePad's merged gap columns). */
-function perAnchorInsertWidths(alns, tlen) {
-  const widths = new Map();
-  for (const al of alns) {
-    for (const ins of al.insertions || []) {
-      if (!ins.bases || ins.pos < 0 || ins.pos >= tlen) continue;
-      widths.set(ins.pos, Math.max(widths.get(ins.pos) || 0, ins.bases.length));
-    }
-  }
-  return widths;
-}
-
-/** Insertion slots keyed by their anchor column, each sized to the longest
- *  insertion anchored there. Flank junk (unalignable read tails) reserves
- *  slots like any other insertion. */
-export function alignmentInsertUnion(alns, tlen) {
-  return perAnchorInsertWidths(alns, tlen);
-}
-
-/** An alignment's insertions deduped by template column — the same map the
- *  display walk and the chromatogram numbering use, so a legacy model with
- *  two entries at one column renders (and counts) exactly the bases the walk
- *  keeps. */
-export function insertionBases(al) {
-  return new Map((al.insertions || []).map((ins) => [ins.pos, ins.bases]));
-}
-
-/** Shared drift-space layout for insertion slots: template rows keep their
- *  grid; alignment lanes shift right past each slot (one column per reserved
- *  base). Insertion bases sit BETWEEN template columns pos-1 and pos — the
- *  model's "extra read bases before template column pos" — so the slot
- *  renders immediately LEFT of its anchor column: `drift(pos)` is the shift
- *  applied to column pos (slots anchored at or before it) and `slotBase(pos)`
- *  the drift-space column where pos's slot starts. Read order (q) and visual
- *  column order therefore always agree. */
-export function alignmentLaneLayout(insReserve) {
-  const slots = [...insReserve.entries()].sort((a, b) => a[0] - b[0]);
-  // cumLt[i] = reserved columns of slots anchored strictly before slots[i];
-  // cumLe[i] = including slots[i] — the shift of slots[i]'s anchor column,
-  // whose own slot renders just left of it.
-  const cumLt = new Array(slots.length);
-  const cumLe = new Array(slots.length);
-  let acc = 0;
-  for (let i = 0; i < slots.length; i++) {
-    cumLt[i] = acc;
-    acc += slots[i][1];
-    cumLe[i] = acc;
-  }
-  const drift = (pos) => {
-    let lo = 0;
-    let hi = slots.length - 1;
-    let found = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (slots[mid][0] <= pos) {
-        found = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return found < 0 ? 0 : cumLe[found];
-  };
-  const slotBase = new Map();
-  for (let i = 0; i < slots.length; i++) {
-    slotBase.set(slots[i][0], slots[i][0] + cumLt[i]);
-  }
-  return { slots, drift, slotBase, insTotal: acc };
-}
-
-/** Visual-stream layout: template columns and insertion-slot cells form one
- *  unit stream. Template column abs sits at stream index S(abs) = abs +
- *  drift(abs); the w slot cells anchored at abs occupy [S(abs)-w, S(abs)-1]
- *  (left of their anchor). Every row holds exactly visCpl stream units, so
- *  rows never overflow the viewport — a wide slot block simply spans rows,
- *  and the middle rows of such a block contain no template columns at all
- *  (rowCounts[row] === 0, rowStarts[row] = the block's anchor column). */
-export function buildStreamLayout(insReserve, seqLen, visCpl) {
-  const lane = alignmentLaneLayout(insReserve);
-  const streamLen = seqLen + lane.insTotal;
-  const numRows = Math.max(1, Math.ceil(streamLen / visCpl));
-  const rowStarts = new Array(numRows);
-  const rowCounts = new Array(numRows).fill(0);
-  let si = 0;
-  for (let abs = 0; abs < seqLen; abs++) {
-    si += insReserve.get(abs) || 0;
-    const row = Math.floor(si / visCpl);
-    if (rowCounts[row] === 0) rowStarts[row] = abs;
-    rowCounts[row]++;
-    si++;
-  }
-  for (let r = numRows - 1, next = seqLen; r >= 0; r--) {
-    if (rowCounts[r] === 0) rowStarts[r] = next;
-    else next = rowStarts[r];
-  }
-  const streamOf = (abs) => (abs >= seqLen ? streamLen : abs + lane.drift(abs));
-  // Clamped: the end-of-sequence insert point (abs === seqLen) can land one
-  // past the last row when streamLen is an exact multiple of visCpl.
-  const rowOf = (abs) => Math.min(numRows - 1, Math.floor(streamOf(abs) / visCpl));
-  const colOfAbs = (abs) => streamOf(abs) % visCpl;
-  // Largest template column whose stream index is <= si, clamped to
-  // [0, seqLen] (seqLen = the insert point past the last base).
-  const absFromStream = (s) => {
-    const t = Math.max(0, Math.min(streamLen, s));
-    if (t >= streamLen) return seqLen;
-    let lo = 0,
-      hi = seqLen - 1,
-      found = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (streamOf(mid) <= t) {
-        found = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return found;
-  };
-  const colVis = (col, row) => colOfAbs(rowStarts[row] + col);
-  // Smallest row-local template column reaching visual column `vis`; slot
-  // cells resolve to the anchor column right of them. May return
-  // rowCounts[row] (one past the last column) — callers clamp.
-  const colFromVis = (vis, row) => {
-    let lo = 0,
-      hi = rowCounts[row];
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (colVis(mid, row) < vis) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
-  };
-  // splitRange-shaped pieces ({row, colStart, colEnd, strOffset, len}), split
-  // where the stream crosses a row edge. s > e wraps the origin of a circular
-  // sequence (two linear halves, each with its own strOffset base).
-  const splitLinear = (s, e) => {
-    const out = [];
-    let cur = s;
-    while (cur <= e) {
-      const row = rowOf(cur);
-      let lo = cur,
-        hi = e;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (rowOf(mid) === row) lo = mid;
-        else hi = mid - 1;
-      }
-      out.push({
-        row,
-        colStart: cur - rowStarts[row],
-        colEnd: lo - rowStarts[row],
-        strOffset: cur - s,
-        len: lo - cur + 1,
-      });
-      cur = lo + 1;
-    }
-    return out;
-  };
-  const sp = (s, e) =>
-    s <= e ? splitLinear(s, e) : [...splitLinear(s, seqLen - 1), ...splitLinear(0, e)];
-  return {
-    laneLayout: lane,
-    insTotal: lane.insTotal,
-    streamLen,
-    numRows,
-    rowStarts,
-    rowCounts,
-    visCpl,
-    streamOf,
-    rowOf,
-    colOfAbs,
-    absFromStream,
-    colVis,
-    colFromVis,
-    sp,
-  };
-}
-
-/** Template sequence covered by a primer match (origin-crossing aware). */
-function matchedSeqOf(p, cleanSeq) {
-  return (p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }])
-    .map((m) => cleanSeq.substring(m.start, m.end + 1))
-    .join('');
-}
 
 // ---------------------------------------------------------------------------
 // WarningBadge — floating indicator in bottom-right corner for various
@@ -525,13 +186,6 @@ function WarningBadge({ warnings }) {
     </div>
   );
 }
-
-const complementStr = (s) =>
-  s
-    .split('')
-    .map((c) => complement(c))
-    .join('');
-const reverseComplement = (s) => complementStr(s).split('').reverse().join('');
 
 // Extra vertical gap between alignment lanes and the feature tracks below.
 const ALIGN_FEAT_GAP = 10;
@@ -766,107 +420,6 @@ function SelectionLengthBadge({
     </div>
   );
 }
-
-const isIISEnzyme = (e) => {
-  if (!e) return false;
-  const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
-  return pairs.some((cp) => {
-    const dTopRight = Math.max(0, cp.topCutIndex - e.recEnd);
-    const dTopLeft = Math.max(0, e.recStart - cp.topCutIndex);
-    const dBotRight = Math.max(0, cp.botCutIndex - e.recEnd);
-    const dBotLeft = Math.max(0, e.recStart - cp.botCutIndex);
-    return Math.max(dTopRight, dTopLeft, dBotRight, dBotLeft) >= 2;
-  });
-};
-
-const splitEnzName = (name) => {
-  // Italic: everything before the first digit or uppercase letter (beyond position 0)
-  let at = name.length;
-  for (let i = 1; i < name.length; i++) {
-    const c = name[i];
-    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-      at = i;
-      break;
-    }
-  }
-  return { italic: name.slice(0, at), normal: name.slice(at) };
-};
-
-// sRGB → relative luminance (WCAG 2.1)
-const _hexToRgb = (h) => [
-  parseInt(h.slice(1, 3), 16) / 255,
-  parseInt(h.slice(3, 5), 16) / 255,
-  parseInt(h.slice(5, 7), 16) / 255,
-];
-const _linearize = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const relLuminance = (r, g, b) =>
-  0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b);
-const _rgbToHsl = (r, g, b) => {
-  const M = Math.max(r, g, b),
-    m = Math.min(r, g, b),
-    d = M - m,
-    l = (M + m) / 2;
-  if (!d) return [0, 0, l];
-  const s = l > 0.5 ? d / (2 - M - m) : d / (M + m);
-  let h;
-  if (M === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-  else if (M === g) h = ((b - r) / d + 2) / 6;
-  else h = ((r - g) / d + 4) / 6;
-  return [h, s, l];
-};
-const _hslToRgb = (h, s, l) => {
-  if (!s) return [l, l, l];
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s,
-    p = 2 * l - q;
-  const hue2rgb = (t) => {
-    if (t < 0) t++;
-    if (t > 1) t--;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
-  return [hue2rgb(h + 1 / 3), hue2rgb(h), hue2rgb(h - 1 / 3)];
-};
-const _rgbToHex = (r, g, b) =>
-  '#' +
-  [r, g, b]
-    .map((c) =>
-      Math.round(c * 255)
-        .toString(16)
-        .padStart(2, '0'),
-    )
-    .join('');
-
-const ensureReadableColor = (hex, bgHex = '#fdfbf7') => {
-  const [r, g, b] = _hexToRgb(hex);
-  const [br, bg, bb] = _hexToRgb(bgHex);
-  const bgLum = relLuminance(br, bg, bb);
-  const lum = relLuminance(r, g, b);
-  const MIN_CONTRAST = 3.0; // WCAG non-text/UI-component minimum
-  if ((bgLum + 0.05) / (lum + 0.05) >= MIN_CONTRAST) return hex;
-  const [h, s, l] = _rgbToHsl(r, g, b);
-  // Darken (keeping hue/saturation) until the contrast target is met.
-  let newL = l;
-  while (newL > 0.1) {
-    newL = Math.max(0.1, newL - 0.02);
-    const [nr, ng, nb] = _hslToRgb(h, s, newL);
-    if ((bgLum + 0.05) / (relLuminance(nr, ng, nb) + 0.05) >= MIN_CONTRAST)
-      return _rgbToHex(nr, ng, nb);
-  }
-  return _rgbToHex(..._hslToRgb(h, s, 0.1));
-};
-
-// Nudge lightness so two abutting same-colored bars stay distinguishable.
-// Input colors are the readability-mapped ones (normFeatures); the shift is
-// applied on top of that mapping.
-const shiftAbutLightness = (hex) => {
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
-  const [r, g, b] = _hexToRgb(hex);
-  const [h, s, l] = _rgbToHsl(r, g, b);
-  const nl = l <= 0.7 ? Math.min(1, l + 0.1) : Math.max(0, l - 0.1);
-  return _rgbToHex(..._hslToRgb(h, s, nl));
-};
 
 const SequenceEditor = React.memo(function SequenceEditor({
   sequence,
@@ -1362,13 +915,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
   }, [layoutKey]);
 
   const cleanSeq = moleculeType === 'protein' ? (sequence || '').toUpperCase() : sequence || '';
-
-  // Ensure primer color is a valid non-black hex, falling back to default green
-  const safePrimerColor = (c) => {
-    if (!c || c === '#000000' || c === '#000' || c === 'black') return '#166534';
-    if (/^#[0-9a-f]{6}$/i.test(c)) return c;
-    return '#166534';
-  };
 
   // Async Tm computation via backend NN model (DNA only)
   useEffect(() => {
@@ -4163,17 +3709,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     openFeatureMenu,
     abutColors,
   ]);
-
-  const truncatedLabel = useCallback((name, isRev, isFwd, maxLen = 12) => {
-    const full = isRev ? `< ${name}` : isFwd ? `${name} >` : name;
-    if (name.length <= maxLen) return { full, short: full };
-    const short = isRev
-      ? `< ${name.slice(0, maxLen)}··`
-      : isFwd
-        ? `${name.slice(0, maxLen)}·· >`
-        : `${name.slice(0, maxLen)}··`;
-    return { full, short };
-  }, []);
 
   const renderedFeatureLabels = useMemo(() => {
     if (!visibleFeatures.length) return null;

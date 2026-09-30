@@ -1,6 +1,10 @@
 // Unit tests for the alignment lane drift layout (insertion slot expansion).
 import { describe, it, expect } from 'vitest';
-import { alignmentInsertUnion, alignmentLaneLayout, buildStreamLayout } from '../SequenceEditor';
+import {
+  alignmentInsertUnion,
+  alignmentLaneLayout,
+  buildStreamLayout,
+} from '../editor/alignmentLayout';
 
 const ins = (pos, bases) => ({ pos, bases });
 const seg = { start: 5, end: 50, chars: '' };
@@ -37,7 +41,12 @@ describe('alignmentInsertUnion', () => {
 
   it('ignores out-of-range anchors', () => {
     const union = alignmentInsertUnion(
-      [{ segments: [{ start: 10, end: 99, chars: '' }], insertions: [ins(100, 'AAA'), ins(-1, 'C')] }],
+      [
+        {
+          segments: [{ start: 10, end: 99, chars: '' }],
+          insertions: [ins(100, 'AAA'), ins(-1, 'C')],
+        },
+      ],
       100,
     );
     expect(union.size).toBe(0);
