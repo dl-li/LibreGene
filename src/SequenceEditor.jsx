@@ -30,14 +30,10 @@ import {
   BASE_HILITE_BG,
   INSERT_DASH_HIDE_MAX,
   alignmentGapSegments,
-  alignmentInsertUnion,
-  buildMatchSegs,
-  buildStreamLayout,
   insertionBases,
 } from './editor/alignmentLayout';
 import { ensureReadableColor, shiftAbutLightness } from './editor/colors';
 import {
-  complementStr,
   isIISEnzyme,
   matchedSeqOf,
   reverseComplement,
@@ -46,13 +42,15 @@ import {
   truncatedLabel,
 } from './editor/seqUtils';
 import { buildCDSData, isTranslatable } from './editor/translation';
+import useStreamLayout from './editor/useStreamLayout';
+import useEnrichedPrimers from './editor/useEnrichedPrimers';
 import { plugins } from './plugins';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
-import { computePrimerAlignment, computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
+import { computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
 import { TRACE_CHANNELS, traceRangeMax, buildTracePath, buildColumnAnchors } from './chromatogram';
 import { getRelatedEnzymes } from './enzymeRelated';
 import EnzymeDetailDialog from './EnzymeDetailDialog';
@@ -225,14 +223,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [createFeatureLoc, setCreateFeatureLoc] = useState(null); // for FeatureInfoDialog (create mode, null=closed, string=location)
   const [primerAlignmentPrimer, setPrimerAlignmentPrimer] = useState(null); // for PrimerAlignmentDialog (edit mode)
   const [createPrimerSeq, setCreatePrimerSeq] = useState(null); // for PrimerAlignmentDialog (create mode, null=closed, '' or string=sequence)
-  const [primerAlignmentCache, setPrimerAlignmentCache] = useState({});
-
-  // Sync alignment cache to parent ref (used by PrimerOverviewDialog)
-  useEffect(() => {
-    if (alignmentCacheRef) {
-      alignmentCacheRef.current = primerAlignmentCache;
-    }
-  }, [primerAlignmentCache, alignmentCacheRef]);
 
   // Expose openPrimerEditor to parent via ref (used by PrimerOverviewDialog)
   useEffect(() => {
@@ -632,76 +622,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // Clear any pending trailing Tm timer on unmount.
   useEffect(() => () => clearTimeout(tmTimerRef.current), []);
 
-  // Enrich primers with flat fields from bindingSites data model (v2).
-  const enrichedPrimers = useMemo(
-    () =>
-      (primers || []).map((p) => {
-        // Already enriched (legacy flat fields or pre-computed).
-        if (p.matchStart !== undefined && p.matchEnd !== undefined) {
-          const matchSegs = buildMatchSegs(p.matchStart, p.matchEnd, cleanSeq.length);
-          if (p.isFwd === false) return { ...p, color: '#4A148C', matchSegs };
-          return { ...p, color: '#166534', matchSegs };
-        }
-        const bs = p.bindingSites?.[0];
-        if (!bs) return p;
-        // templateStart (inclusive), templateEnd (exclusive) — convert to legacy inclusive matchEnd
-        const ms = bs.templateStart ?? bs.matchStart ?? 0;
-        const me = bs.templateEnd != null ? bs.templateEnd - 1 : (bs.matchEnd ?? 0);
-        const tlen = cleanSeq.length;
-        const aln = bs.alignment || {};
-        const ds = aln.displaySequence || '';
-        const misSet = new Set(aln.mismatchIndices || []);
-        // Build per-column render data for the binding region
-        const renderCols = [];
-        for (let i = 0; i < ds.length; i++) {
-          const ch = ds[i];
-          const tcol = tlen > 0 ? (ms + i) % tlen : ms + i;
-          let kind, primerBase, insDetail;
-          if (ch === '-') {
-            kind = 'gap';
-            primerBase = '-';
-          } else if (ch >= '0' && ch <= '9') {
-            kind = 'insertion';
-            primerBase = ch;
-            insDetail = aln.insertionMap?.[ch];
-          } else if (misSet.has(i)) {
-            kind = 'mismatch';
-            primerBase = ch;
-          } else {
-            kind = 'match';
-            primerBase = ch;
-          }
-          renderCols.push({ templateCol: tcol, kind, primerBase, insDetail, displayIdx: i });
-        }
-        const isFwd = (bs.strand ?? 1) === 1;
-        const matchSegs = buildMatchSegs(ms, me, tlen);
-        const matchedBases = matchSegs.map((m) => cleanSeq.substring(m.start, m.end + 1)).join('');
-        return {
-          ...p,
-          matchStart: ms,
-          matchEnd: me,
-          matchSegs,
-          isFwd, // actual binding direction (NOT declared type)
-          // Primer colors follow the app-wide direction convention: fwd green,
-          // rev deep purple. Imported file colors (e.g. SnapGene notes) are not
-          // surfaced on the sequence view.
-          color: isFwd ? '#166534' : '#4A148C',
-          matchStr: isFwd ? matchedBases : complementStr(matchedBases),
-          // tails for rendering
-          mismatchStr: bs.fivePrimeTail || '',
-          threePrimeTail: bs.threePrimeTail || '',
-          // rich alignment data
-          renderCols,
-          displaySequence: ds,
-        };
-      }),
-    [primers, cleanSeq],
-  );
-
-  // Primers that have no binding sites at all — won't appear on the sequence
-  const unmatchedPrimers = useMemo(() => {
-    return (primers || []).filter((p) => !p.bindingSites?.length);
-  }, [primers]);
+  const { enrichedPrimers, unmatchedPrimers, primerAlignmentCache } = useEnrichedPrimers({
+    primers,
+    cleanSeq,
+    alignmentCacheRef,
+    primerSeedLength,
+    tmParams,
+  });
 
   const handleAddCurrentPrimerToMyPrimers = useCallback(() => {
     if (selectionMode !== 'primer' || selectedPrimerIds.length !== 1) return;
@@ -754,60 +681,24 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return out;
   }, [unmatchedPrimers, cdsWarnings]);
 
-  // Insertion reserve: every inserted read base (flank junk included) gets a
-  // full cell in the shared visual stream (GenePad's merged gap columns), one
-  // cell per base at its own anchor — the read's bases must stay in read order
-  // or its chromatogram trace would have to jump around them.
-  const insReserve = useMemo(
-    () => (isDna ? alignmentInsertUnion(alignmentTracks, cleanSeq.length) : new Map()),
-    [isDna, alignmentTracks, cleanSeq.length],
-  );
-  // Visual stream: template columns + slot cells, exactly baseCpl cells per
-  // row — the row width is constant and never overflows the viewport.
-  const stream = useMemo(
-    () => buildStreamLayout(insReserve, cleanSeq.length, baseCpl),
-    [insReserve, cleanSeq.length, baseCpl],
-  );
-  const { rowStarts, rowCounts, insTotal, streamOf, rowOf, colOfAbs, visCpl, absFromStream } = stream;
-  const charsPerLine = baseCpl;
-  const numRows = stream.numRows;
+  const {
+    insReserve,
+    rowStarts,
+    rowCounts,
+    streamOf,
+    rowOf,
+    colOfAbs,
+    visCpl,
+    absFromStream,
+    charsPerLine,
+    numRows,
+    svgWidth,
+    colVis,
+    colFromVis,
+    colRuns,
+    sp,
+  } = useStreamLayout({ isDna, alignmentTracks, seqLen: cleanSeq.length, baseCpl });
   numRowsRef.current = numRows;
-  const svgWidth = startX + charsPerLine * cw + startX;
-
-  // --- stream column mapping (shared by every lane) ---
-  // Visual column of the row-local template column `col` in row `row`: its
-  // stream index modulo the row width. Slot cells sit between the template
-  // columns of a row (or fill pure-slot rows of a wide block). Every lane
-  // (template chars, features, enzymes, primers, translation, chromatogram,
-  // selection, cursor) goes through these so all tracks stay column-aligned.
-  const colVis = useCallback((col, row) => stream.colVis(col, row), [stream]);
-
-  // Inverse of colVis: template column whose stream cell reaches `vis`.
-  // Clicks on a slot cell resolve to the slot's anchor column (the cell
-  // renders left of it).
-  const colFromVis = useCallback((vis, row) => stream.colFromVis(vis, row), [stream]);
-
-  // Split the template range [c0, c1] (row-local, inclusive) into visual
-  // runs [[visStart, len], ...] separated at slot cells.
-  const colRuns = useCallback(
-    (c0, c1, row) => {
-      if (c1 < c0) return [];
-      if (insTotal === 0) return [[c0, c1 - c0 + 1]];
-      const runs = [];
-      let runStart = c0;
-      for (let c = c0; c <= c1; c++) {
-        const vHere = colVis(c, row);
-        if (c === c1 || colVis(c + 1, row) !== vHere + 1) {
-          runs.push([colVis(runStart, row), c - runStart + 1]);
-          runStart = c + 1;
-        }
-      }
-      return runs;
-    },
-    [colVis, insTotal],
-  );
-
-  const sp = useCallback((s, e) => stream.sp(s, e), [stream]);
 
   // Track plugin lanes (e.g. the GC-content gradient band). Every registered
   // track hook runs unconditionally in registry order — React hooks rules
@@ -2613,41 +2504,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setFeatureInfoFeature(null);
     }
   }, [features, featureInfoFeature]);
-
-  // Clear alignment cache when primers change to avoid stale data.
-  useEffect(() => {
-    setPrimerAlignmentCache({});
-  }, [primers]);
-
-  // Pre-compute primer alignment data so the dialog has zero flash/width-jump.
-  useEffect(() => {
-    let cancelled = false;
-    async function prefetchAll() {
-      const cache = {};
-      const items = primers || [];
-      // Use Promise.allSettled for parallelism, but limit concurrency.
-      const concurrency = 4;
-      for (let i = 0; i < items.length; i += concurrency) {
-        const batch = items.slice(i, i + concurrency);
-        const results = await Promise.allSettled(
-          batch.map((p) =>
-            computePrimerAlignment(p.id, primerSeedLength, undefined, undefined, tmParams),
-          ),
-        );
-        if (cancelled) return;
-        for (let j = 0; j < batch.length; j++) {
-          if (results[j].status === 'fulfilled') {
-            cache[batch[j].id] = results[j].value;
-          }
-        }
-      }
-      if (!cancelled) setPrimerAlignmentCache(cache);
-    }
-    prefetchAll();
-    return () => {
-      cancelled = true;
-    };
-  }, [primers, primerSeedLength, tmParams]);
 
   const createFeature = useCallback(() => {
     setFeatureInfoFeature(null);
