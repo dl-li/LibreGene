@@ -8,8 +8,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { X, Copy, Check, FileDown, Plus, FileUp, Trash2 } from 'lucide-react';
-import { parseEnzymeText, exportEnzymeText } from './myEnzymes';
-import { saveTextDialog, writeTextFile } from './tauriApi';
+import { parseEnzymeText, exportEnzymeText } from '../myEnzymes';
+import { saveTextDialog, writeTextFile } from '../tauriApi';
 
 export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onChange }) {
   const [importText, setImportText] = useState('');

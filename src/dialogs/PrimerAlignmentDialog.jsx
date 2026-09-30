@@ -9,8 +9,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
 import { Repeat, Trash2, AlertTriangle, RotateCcw, Copy, Check } from 'lucide-react';
-import { monoFont } from './editorConstants';
-import { computePrimerAlignment } from './tauriApi';
+import { monoFont } from '../editorConstants';
+import { computePrimerAlignment } from '../tauriApi';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
 /* Reverse complement (preserves case, supports IUPAC degenerate bases) */

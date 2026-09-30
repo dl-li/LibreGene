@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
-import { monoFont, locationString1based, locationStringTo0based } from './editorConstants';
+import { monoFont, locationString1based, locationStringTo0based } from '../editorConstants';
 
 /* ---------- HTML tag stripping ---------- */
 function stripHtml(str) {

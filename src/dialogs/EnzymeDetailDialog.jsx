@@ -1,9 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChevronRight } from 'lucide-react';
-import { monoFont, splitEnzymeName } from './editorConstants';
-import { getRelatedEnzymes } from './enzymeRelated';
-import { PROVIDER_LABEL, PROVIDER_ORDER, findProviderEntry } from './enzymeProviders';
+import { monoFont, splitEnzymeName } from '../editorConstants';
+import { getRelatedEnzymes } from '../enzymeRelated';
+import { PROVIDER_LABEL, PROVIDER_ORDER, findProviderEntry } from '../enzymeProviders';
 
 const CUT_TYPE_LABEL = { blunt: 'Blunt', '5overhang': "5' Overhang", '3overhang': "3' Overhang" };
 

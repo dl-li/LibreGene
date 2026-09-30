@@ -19,11 +19,11 @@ import {
   Table as TableIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { annotateSequenceText } from './tauriApi';
-import { locationString1based } from './editorConstants';
-import { CircularMap, LinearMap } from './MapView';
-import FornaView from './plugins/rnaFold/FornaView';
-import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from './plugins/rnaFold/useRnaFold';
+import { annotateSequenceText } from '../tauriApi';
+import { locationString1based } from '../editorConstants';
+import { CircularMap, LinearMap } from '../MapView';
+import FornaView from '../plugins/rnaFold/FornaView';
+import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from '../plugins/rnaFold/useRnaFold';
 
 const EMPTY_ARRAY = [];
 const NOOP = () => {};

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { InlineNotice } from '@/components/ui/notice';
 import { Repeat } from 'lucide-react';
-import { metaMatchesText } from './clipboardAnnotations';
+import { metaMatchesText } from '../clipboardAnnotations';
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {

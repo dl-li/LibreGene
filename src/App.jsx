@@ -30,11 +30,11 @@ import {
 import { plugins } from './plugins';
 import { SHOW_GC_CONTENT_KEY, GC_WINDOW_SIZE_KEY } from './plugins/gcContent';
 import ProjectWorkspace from './ProjectWorkspace';
-import ScrollingLabel from './ScrollingLabel';
+import ScrollingLabel from './components/ScrollingLabel';
 import SettingsPage from './components/SettingsPage';
-import McpGuideDialog from './components/McpGuideDialog';
-import NewSequenceDialog from './NewSequenceDialog';
-import FastaSplitDialog from './FastaSplitDialog';
+import McpGuideDialog from './dialogs/McpGuideDialog';
+import NewSequenceDialog from './dialogs/NewSequenceDialog';
+import FastaSplitDialog from './dialogs/FastaSplitDialog';
 import TitleBar from './components/TitleBar';
 import ContextMenuHost from './components/ContextMenuHost';
 import {

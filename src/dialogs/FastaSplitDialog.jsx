@@ -9,7 +9,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { fileNameOf } from './recentFiles';
+import { fileNameOf } from '../recentFiles';
 
 // Shown when a multi-record FASTA is opened: split every record into its own
 // project, or open only the first record (the historical behavior).

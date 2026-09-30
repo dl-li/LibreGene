@@ -15,8 +15,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search, LoaderCircle } from 'lucide-react';
-import { monoFont } from './editorConstants';
-import { getEnzymeDatabase } from './tauriApi';
+import { monoFont } from '../editorConstants';
+import { getEnzymeDatabase } from '../tauriApi';
 import EnzymeDetailDialog from './EnzymeDetailDialog';
 import {
   ENZYME_PROVIDER_OPTIONS,
@@ -24,7 +24,7 @@ import {
   buildProviderIndex,
   findProviderEntry,
   hasProvider,
-} from './enzymeProviders';
+} from '../enzymeProviders';
 
 const CUT_TYPE_LABEL = { blunt: 'Blunt', '5overhang': "5' Overhang", '3overhang': "3' Overhang" };
 

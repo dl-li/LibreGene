@@ -37,14 +37,14 @@ import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
 import { createEditHistory } from './editHistory';
 import { orientChromatogram } from './chromatogram';
 import { adjustAlignmentsForEdit } from './alignmentEdit';
-import SequenceEditDialog from './SequenceEditDialog';
-import FeatureScrollbar from './FeatureScrollbar';
+import SequenceEditDialog from './dialogs/SequenceEditDialog';
+import FeatureScrollbar from './components/FeatureScrollbar';
 import MapView from './MapView';
-import PrimerOverviewDialog from './components/PrimerOverviewDialog';
-import DetectFeaturesDialog from './DetectFeaturesDialog';
-import MyPrimersDialog from './MyPrimersDialog';
-import MyEnzymesDialog from './MyEnzymesDialog';
-import EnzymeDatabaseDialog from './EnzymeDatabaseDialog';
+import PrimerOverviewDialog from './dialogs/PrimerOverviewDialog';
+import DetectFeaturesDialog from './dialogs/DetectFeaturesDialog';
+import MyPrimersDialog from './dialogs/MyPrimersDialog';
+import MyEnzymesDialog from './dialogs/MyEnzymesDialog';
+import EnzymeDatabaseDialog from './dialogs/EnzymeDatabaseDialog';
 import {
   loadProviderData,
   buildProviderIndex,

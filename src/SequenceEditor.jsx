@@ -39,14 +39,14 @@ import {
   HoverIndexLayer,
 } from './editor/layers/selectionLayers';
 import { trackPlugins, renderTrackLanes } from './editor/layers/trackLanes';
-import FeatureInfoDialog from './FeatureInfoDialog';
-import PrimerAlignmentDialog from './PrimerAlignmentDialog';
+import FeatureInfoDialog from './dialogs/FeatureInfoDialog';
+import PrimerAlignmentDialog from './dialogs/PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
 import { getRelatedEnzymes } from './enzymeRelated';
-import EnzymeDetailDialog from './EnzymeDetailDialog';
+import EnzymeDetailDialog from './dialogs/EnzymeDetailDialog';
 import { loadProviderData, buildProviderIndex } from './enzymeProviders';
 import { buildSearchResults } from './searchUtils';
 import WarningBadge from './editor/WarningBadge';

@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
 import { LoaderCircle, ScanSearch, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { annotateFeatures } from './tauriApi';
-import { locationString0based, locationString1based } from './editorConstants';
+import { annotateFeatures } from '../tauriApi';
+import { locationString0based, locationString1based } from '../editorConstants';
 
 const EMPTY_ARRAY = [];
 
