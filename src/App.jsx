@@ -7,36 +7,26 @@ import {
   openSnapgeneSnapshot,
   isTauri,
   openFileDialog,
-  listenProjectUpdates,
-  listenFileOpened,
-  takePendingOpens,
-  getProjects,
-  activateProject,
   getWindowProjectId,
-  getAgentTabState,
   setAgentTabLocked,
   setAgentEditLock,
-  listenAgentTabLock,
-  listenQuitRequested,
-  forceQuit,
   openInNewWindow,
-  deleteProject,
   setWindowTitle,
   setMcpConfig,
   getMcpConfig,
-  listenDragDrop,
   isSequenceFilePath,
 } from './tauriApi';
 import { plugins } from './plugins';
-import { SHOW_GC_CONTENT_KEY, GC_WINDOW_SIZE_KEY } from './plugins/gcContent';
 import ProjectWorkspace from './ProjectWorkspace';
 import ScrollingLabel from './components/ScrollingLabel';
 import SettingsPage from './components/SettingsPage';
-import McpGuideDialog from './dialogs/McpGuideDialog';
-import NewSequenceDialog from './dialogs/NewSequenceDialog';
-import FastaSplitDialog from './dialogs/FastaSplitDialog';
 import TitleBar from './components/TitleBar';
 import ContextMenuHost from './components/ContextMenuHost';
+import AppDialogs from './components/AppDialogs';
+import useSettings from './hooks/useSettings';
+import useProjects from './hooks/useProjects';
+import useTabDrag from './hooks/useTabDrag';
+import useTauriEvents from './hooks/useTauriEvents';
 import {
   SidebarProvider,
   Sidebar,
@@ -54,20 +44,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog';
-import {
   LoaderCircle,
   FolderOpen,
   FilePlus2,
   ChevronDown,
-  AlertTriangle,
   X,
   ExternalLink,
   Settings,
@@ -87,89 +67,46 @@ import {
 } from './recentFiles';
 import { getMyPrimers } from './myPrimers';
 import { getMyEnzymes } from './myEnzymes';
-import { ENZYME_PROVIDER_VALUES } from './enzymeProviders';
-
-// Valid values for the persisted enzyme filter (ENZYME_FILTER_OPTIONS in
-// EditorNavMenu.jsx plus the dynamic 'myEnzymes' entry).
-const ENZYME_FILTER_VALUES = new Set([
-  'all',
-  'unique+twice',
-  'unique',
-  'unique6',
-  'twice',
-  'blunt',
-  'overhang5',
-  'overhang3',
-  'iis',
-  'rec4',
-  'rec5',
-  'rec6',
-  'rec8p',
-  'myEnzymes',
-]);
 
 export default function App() {
-  const [disabledPlugins, setDisabledPlugins] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('disabledPlugins')) || [];
-    } catch {
-      return [];
-    }
-  });
   const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
   const [myPrimers, setMyPrimers] = useState(() => getMyPrimers());
   const [myEnzymes, setMyEnzymes] = useState(() => getMyEnzymes());
-  const [autoAddPrimers, setAutoAddPrimers] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('autoAddPrimers')) || false;
-    } catch {
-      return false;
-    }
-  });
-  const handleTogglePlugin = useCallback((pluginId) => {
-    setDisabledPlugins((prev) => {
-      const next = prev.includes(pluginId)
-        ? prev.filter((x) => x !== pluginId)
-        : [...prev, pluginId];
-      try {
-        localStorage.setItem('disabledPlugins', JSON.stringify(next));
-      } catch {
-        // storage may be unavailable; plugin toggle still applies in-memory
-      }
-      return next;
-    });
-  }, []);
-
-  // MCP server config: persisted in localStorage, pushed to the Rust side on
-  // every change so the loopback server starts/stops/restarts without an app
-  // restart.
-  const handleMcpConfigChange = useCallback((next) => {
-    setMcpConfigState(next);
-    try {
-      localStorage.setItem('mcpConfig', JSON.stringify(next));
-    } catch {
-      // storage may be unavailable; config still applies in-memory
-    }
-    if (isTauri) {
-      setMcpConfig(Boolean(next.enabled), Number(next.port))
-        .then(() => getMcpConfig())
-        .then((cfg) => {
-          // A failed bind flips enabled off server-side; adopt that truth.
-          if (!cfg) return;
-          const actual = { enabled: !!cfg.enabled, port: Number(cfg.port) };
-          if (actual.enabled === Boolean(next.enabled) && actual.port === Number(next.port)) {
-            return;
-          }
-          setMcpConfigState(actual);
-          try {
-            localStorage.setItem('mcpConfig', JSON.stringify(actual));
-          } catch {
-            // storage may be unavailable; config still applies in-memory
-          }
-        })
-        .catch(() => {});
-    }
-  }, []);
+  const {
+    disabledPlugins,
+    handleTogglePlugin,
+    autoAddPrimers,
+    onToggleAutoAddPrimers,
+    showFeatures,
+    onToggleFeatures,
+    alwaysExpandFeatures,
+    onToggleAlwaysExpandFeatures,
+    showPrimers,
+    onTogglePrimers,
+    featureLabelsBelow,
+    onFeatureLabelsBelowChange,
+    showEnzymes,
+    onToggleEnzymes,
+    enzymeFilter,
+    onEnzymeFilterChange,
+    enzymeProvider,
+    onEnzymeProviderChange,
+    methylationSystems,
+    setMethylationSystems,
+    methylationOverlap,
+    setMethylationOverlap,
+    primerSeedLength,
+    setPrimerSeedLength,
+    alignmentAlgorithm,
+    onAlignmentAlgorithmChange,
+    tmParams,
+    setTmParams,
+    mcpConfig,
+    setMcpConfigState,
+    handleMcpConfigChange,
+    pluginToggles,
+    pluginSettings,
+  } = useSettings();
   const [backendStatus, setBackendStatus] = useState(isTauri ? 'online' : 'offline');
   // True when the decoration plugin can't take over the titlebar (Linux/X11)
   // and TitleBar hides itself; the sidebar must drop its reserved top padding.
@@ -177,46 +114,39 @@ export default function App() {
   const handleTitleBarFallback = useCallback(() => setTitleBarFallback(true), []);
 
   // Multi-project state
-  const [projects, setProjects] = useState([]);
-  const [activeId, setActiveId] = useState(null);
-  const [projectOrder, setProjectOrder] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('projectOrder')) || [];
-    } catch {
-      return [];
-    }
-  });
-  const orderedProjects = useMemo(() => {
-    if (projectOrder.length === 0) return projects;
-    const byId = new Map(projects.map((p) => [p.id, p]));
-    const ordered = [];
-    for (const id of projectOrder) {
-      const p = byId.get(id);
-      if (p) {
-        ordered.push(p);
-        byId.delete(id);
-      }
-    }
-    for (const p of projects) {
-      if (byId.has(p.id)) ordered.push(p);
-    }
-    return ordered;
-  }, [projects, projectOrder]);
-  const orderedProjectsRef = useRef(orderedProjects);
-  useEffect(() => {
-    orderedProjectsRef.current = orderedProjects;
-  }, [orderedProjects]);
-  const [dragTabId, setDragTabId] = useState(null);
-  const tabDragRef = useRef(null); // { id, dragging }
-  const tabDragTimerRef = useRef(null);
-  const tabItemRefs = useRef(new Map());
-  const suppressTabClickRef = useRef(false);
+  const {
+    projects,
+    setProjects,
+    activeId,
+    setActiveId,
+    orderedProjects,
+    orderedProjectsRef,
+    setProjectOrder,
+    agentTabs,
+    setAgentTabs,
+    dirtyById,
+    handlesRef,
+    initialDataRef,
+    keyFor,
+    projectsRef,
+    mergeAgentTabs,
+    refreshProjects,
+    onDirtyChange,
+    registerHandle,
+    onProjectsSync,
+    onRekey,
+    handleSwitchProject,
+    doCloseProject,
+  } = useProjects();
 
   // Multi-window: tracks whether this window is "main" or a "project" window
   const [windowInfo, setWindowInfo] = useState(null);
   // { type: 'main' } | { type: 'project', projectId }
-  // Agent tabs live in the main window; their lock state lives in agentTabs.
-  const [agentTabs, setAgentTabs] = useState({}); // { [projectId]: locked }
+  const { dragTabId, tabItemRefs, suppressTabClickRef, handleTabPointerDown } = useTabDrag({
+    windowInfo,
+    orderedProjectsRef,
+    setProjectOrder,
+  });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 'plugins' → open the dialog as the plugin management view (plugins only)
@@ -227,87 +157,6 @@ export default function App() {
   };
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
   const [newSeqOpen, setNewSeqOpen] = useState(false);
-  const [showFeatures, setShowFeatures] = useState(true);
-  const [showGcContent, setShowGcContent] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(SHOW_GC_CONTENT_KEY)) || false;
-    } catch {
-      return false;
-    }
-  });
-  const [gcWindowSize, setGcWindowSize] = useState(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem(GC_WINDOW_SIZE_KEY));
-      return Number.isFinite(v) && v >= 1 ? Math.round(v) : 11;
-    } catch {
-      return 11;
-    }
-  });
-  const [alwaysExpandFeatures, setAlwaysExpandFeatures] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('alwaysExpandFeatures')) || false;
-    } catch {
-      return false;
-    }
-  });
-  const [showPrimers, setShowPrimers] = useState(true);
-  const [featureLabelsBelow, setFeatureLabelsBelow] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('featureLabelsBelow')) || false;
-    } catch {
-      return false;
-    }
-  });
-  const [showEnzymes, setShowEnzymes] = useState(true);
-  const [enzymeFilter, setEnzymeFilter] = useState(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem('enzymeFilter'));
-      return v && ENZYME_FILTER_VALUES.has(v) ? v : 'unique+twice';
-    } catch {
-      return 'unique+twice';
-    }
-  });
-  const [methylationSystems, setMethylationSystems] = useState(['dam', 'dcm', 'ecoki']);
-  const [enzymeProvider, setEnzymeProvider] = useState(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem('enzymeProvider'));
-      return v && ENZYME_PROVIDER_VALUES.has(v) ? v : 'all';
-    } catch {
-      return 'all';
-    }
-  });
-  const [methylationOverlap, setMethylationOverlap] = useState(2);
-  const [primerSeedLength, setPrimerSeedLength] = useState(10);
-  const [alignmentAlgorithm, setAlignmentAlgorithm] = useState(() => {
-    const v = localStorage.getItem('alignmentAlgorithm');
-    return v === 'smith-waterman' ? 'smith-waterman' : 'blast';
-  });
-  const onAlignmentAlgorithmChange = useCallback((next) => {
-    if (next !== 'blast' && next !== 'smith-waterman') return;
-    setAlignmentAlgorithm(next);
-    try {
-      localStorage.setItem('alignmentAlgorithm', next);
-    } catch {
-      // storage may be unavailable; selection still applies in-memory
-    }
-  }, []);
-  const [tmParams, setTmParams] = useState({
-    naConc: 0.05,
-    mgConc: 0,
-    dntpConc: 0,
-    trisConc: 0,
-    primerConc: 2.5e-7,
-  });
-  const [mcpConfig, setMcpConfigState] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('mcpConfig')) || { enabled: true, port: 8766 };
-    } catch {
-      return { enabled: true, port: 8766 };
-    }
-  });
-  const activeIdRef = useRef(null);
-  // Per-project dirty state reported by workspaces: { [projectId]: bool }
-  const [dirtyById, setDirtyById] = useState({});
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
   const unsavedPendingRef = useRef(null);
   // Drag-drop: { paths } when the user must pick alignment-vs-open, and
@@ -320,14 +169,6 @@ export default function App() {
   const [fastaSplit, setFastaSplit] = useState(null);
   // Tray Quit blocked by unsaved changes: array of dirty project ids
   const [quitRequest, setQuitRequest] = useState(null);
-  const handlesRef = useRef({}); // { [projectId]: workspace imperative handle }
-  const initialDataRef = useRef({}); // { [projectId]: openFile response } — consumed on workspace mount
-  const keyMapRef = useRef({}); // { [projectId]: stable React key } — survives Save As rekey
-
-  const keyFor = useCallback((id) => {
-    if (!keyMapRef.current[id]) keyMapRef.current[id] = id;
-    return keyMapRef.current[id];
-  }, []);
 
   // Layout parameters (行距 / 特征 / 引物排版)
   const [layoutParams] = useState({
@@ -365,15 +206,6 @@ export default function App() {
     enzAbovePad: 10,
   });
 
-  useEffect(() => {
-    activeIdRef.current = activeId;
-  }, [activeId]);
-
-  const projectsRef = useRef([]);
-  useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
-
   // Scroll-edge fades for the sidebar list: show a fade-out at the top/bottom
   // when there are more items hidden in that direction.
   const sidebarContentRef = useRef(null);
@@ -406,40 +238,6 @@ export default function App() {
   const handleSidebarLeave = useCallback(() => {
     sidebarLeaveRef.current = setTimeout(() => setSidebarHover(false), 250);
   }, []);
-
-  // Merge the agentLocked field of a projects payload into the agentTabs map,
-  // pruning entries for projects that are no longer in the list.
-  const mergeAgentTabs = useCallback((projs) => {
-    const next = {};
-    for (const p of projs) {
-      if (p.agentLocked != null) next[p.id] = !!p.agentLocked;
-    }
-    setAgentTabs((prev) => {
-      if (Object.keys(prev).length === 0 && Object.keys(next).length === 0) return prev;
-      let changed = false;
-      for (const id of Object.keys(next)) {
-        if (prev[id] !== next[id]) changed = true;
-      }
-      for (const id of Object.keys(prev)) {
-        if (!(id in next)) changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, []);
-
-  // Sync project list from backend
-  const refreshProjects = useCallback(async () => {
-    try {
-      const data = await getProjects();
-      if (data && !data.error) {
-        setProjects(data.projects || []);
-        setActiveId(data.activeId || null);
-        mergeAgentTabs(data.projects || []);
-      }
-    } catch {
-      // backend unreachable; keep current project list
-    }
-  }, [mergeAgentTabs]);
 
   // Apply the persisted MCP config once on startup so the server reflects the
   // saved enable/port (the Rust side already started with the default config).
@@ -493,41 +291,6 @@ export default function App() {
       .catch(() => setWindowInfo({ type: 'main' }));
   }, []);
 
-  // Main window: load project list + listen for project list updates.
-  // Per-project data is loaded by each ProjectWorkspace itself.
-  useEffect(() => {
-    if (!windowInfo) return;
-    let listener = null;
-    let cancelled = false;
-
-    if (windowInfo.type === 'main') {
-      setBackendStatus(isTauri ? 'online' : 'connecting');
-      (async () => {
-        try {
-          await refreshProjects();
-          if (!cancelled) setBackendStatus('online');
-        } catch {
-          if (!cancelled) setBackendStatus(isTauri ? 'online' : 'offline');
-        }
-      })();
-      listener = listenProjectUpdates((msg) => {
-        if (cancelled) return;
-        if (msg.projects) {
-          setProjects(msg.projects);
-          mergeAgentTabs(msg.projects);
-        }
-        if (msg.activeId !== undefined) {
-          setActiveId(msg.activeId);
-        }
-      });
-    }
-
-    return () => {
-      cancelled = true;
-      if (listener) listener.close();
-    };
-  }, [windowInfo, refreshProjects, mergeAgentTabs]);
-
   // --- beforeunload: warn on close with unsaved changes in any workspace ---
   const anyDirty = Object.values(dirtyById).some(Boolean);
   useEffect(() => {
@@ -540,16 +303,6 @@ export default function App() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [anyDirty]);
-
-  // Tray Quit with unsaved changes: backend shows this window and emits
-  // quit-requested (payload = dirty project ids); confirm here before force-quit.
-  useEffect(() => {
-    if (!isTauri || !windowInfo || windowInfo.type !== 'main') return;
-    const listener = listenQuitRequested((dirtyIds) => {
-      setQuitRequest(dirtyIds);
-    });
-    return () => listener.close();
-  }, [windowInfo]);
 
   // Extract filename from path
   const fileName = (p) => {
@@ -570,127 +323,10 @@ export default function App() {
     setWindowTitle(activeTitle);
   }, [activeTitle]);
 
-  const onDirtyChange = useCallback((id, dirty) => {
-    setDirtyById((prev) => (prev[id] === dirty ? prev : { ...prev, [id]: dirty }));
-  }, []);
-
-  const registerHandle = useCallback((id, handle) => {
-    if (handle) {
-      handlesRef.current[id] = handle;
-    } else {
-      delete handlesRef.current[id];
-    }
-  }, []);
-
-  const onProjectsSync = useCallback((projs) => {
-    setProjects(projs);
-  }, []);
-
-  // Save As rekeys a project (old path → new path); keep the same mounted workspace
-  const onRekey = useCallback(
-    (oldId, newId) => {
-      keyMapRef.current[newId] = keyMapRef.current[oldId] ?? oldId;
-      delete keyMapRef.current[oldId];
-      initialDataRef.current[newId] = initialDataRef.current[oldId];
-      delete initialDataRef.current[oldId];
-      const handle = handlesRef.current[oldId];
-      if (handle) {
-        handlesRef.current[newId] = handle;
-        delete handlesRef.current[oldId];
-      }
-      setDirtyById((prev) => {
-        const next = { ...prev };
-        next[newId] = next[oldId];
-        delete next[oldId];
-        return next;
-      });
-      setActiveId((prev) => (prev === oldId ? newId : prev));
-      refreshProjects();
-    },
-    [refreshProjects],
-  );
-
   // Sync unsavedPendingRef alongside setUnsavedDialog for stale-closure-safe access
   const openUnsavedDialog = useCallback((pendingAction) => {
     setUnsavedDialog({ open: true, pendingAction });
     unsavedPendingRef.current = pendingAction;
-  }, []);
-
-  // Switching is lossless (workspaces stay mounted) — just update activeId
-  const handleSwitchProject = useCallback((id) => {
-    if (!id || id === activeIdRef.current) return;
-    setActiveId(id);
-    activateProject(id)
-      .then((data) => {
-        if (data && data.projects) setProjects(data.projects);
-      })
-      .catch((e) => console.error('activate project error:', e));
-  }, []);
-
-  const handleTabPointerDown = useCallback(
-    (e, id) => {
-      if (e.button !== 0 || windowInfo?.type === 'project') return;
-      tabDragRef.current = { id, dragging: false };
-      clearTimeout(tabDragTimerRef.current);
-      tabDragTimerRef.current = setTimeout(() => {
-        if (!tabDragRef.current || tabDragRef.current.id !== id) return;
-        tabDragRef.current.dragging = true;
-        setDragTabId(id);
-      }, 300);
-    },
-    [windowInfo],
-  );
-
-  useEffect(() => {
-    const moveDragTo = (targetIndex) => {
-      const drag = tabDragRef.current;
-      if (!drag) return;
-      const ids = orderedProjectsRef.current.map((p) => p.id);
-      const from = ids.indexOf(drag.id);
-      if (from < 0 || from === targetIndex) return;
-      const next = [...ids];
-      next.splice(from, 1);
-      next.splice(targetIndex, 0, drag.id);
-      setProjectOrder(next);
-      try {
-        localStorage.setItem('projectOrder', JSON.stringify(next));
-      } catch {
-        /* storage full */
-      }
-    };
-    const onPointerMove = (e) => {
-      const drag = tabDragRef.current;
-      if (!drag || !drag.dragging) return;
-      e.preventDefault();
-      const ids = orderedProjectsRef.current.map((p) => p.id);
-      let target = ids.length - 1;
-      for (let i = 0; i < ids.length; i++) {
-        const el = tabItemRefs.current.get(ids[i]);
-        if (!el) continue;
-        const r = el.getBoundingClientRect();
-        if (e.clientY < r.top + r.height / 2) {
-          target = i;
-          break;
-        }
-      }
-      moveDragTo(target);
-    };
-    const endDrag = () => {
-      clearTimeout(tabDragTimerRef.current);
-      if (tabDragRef.current?.dragging) {
-        suppressTabClickRef.current = true;
-        setDragTabId(null);
-      }
-      tabDragRef.current = null;
-    };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', endDrag);
-    window.addEventListener('pointercancel', endDrag);
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', endDrag);
-      window.removeEventListener('pointercancel', endDrag);
-    };
   }, []);
 
   const handleOpenFile = useCallback(async () => {
@@ -870,30 +506,6 @@ export default function App() {
     [refreshProjects, handleSwitchProject],
   );
 
-  // Internal: actually perform the close (no dirty check)
-  const doCloseProject = useCallback(
-    async (id) => {
-      try {
-        const data = await deleteProject(id);
-        if (data && data.error) return;
-
-        delete initialDataRef.current[id];
-        delete handlesRef.current[id];
-        delete keyMapRef.current[id];
-        setDirtyById((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-
-        await refreshProjects();
-      } catch (e) {
-        console.error('close project error:', e);
-      }
-    },
-    [refreshProjects],
-  );
-
   // Public close handler with dirty check
   const handleCloseProject = useCallback(
     async (id) => {
@@ -905,31 +517,6 @@ export default function App() {
     },
     [dirtyById, openUnsavedDialog, doCloseProject],
   );
-
-  // Main window only: open files handed over by the OS. Listen for runtime
-  // "file-opened" events and drain the backend queue once on mount (cold
-  // start via Open With fires before the webview is ready).
-  useEffect(() => {
-    if (!isTauri || windowInfo?.type !== 'main') return;
-    let cancelled = false;
-    const listener = listenFileOpened((path) => {
-      if (!cancelled) openExternalPath(path);
-    });
-    (async () => {
-      try {
-        const pending = await takePendingOpens();
-        if (!cancelled && Array.isArray(pending)) {
-          pending.forEach((p) => openExternalPath(p));
-        }
-      } catch {
-        // backend unreachable; nothing to drain
-      }
-    })();
-    return () => {
-      cancelled = true;
-      listener.close();
-    };
-  }, [windowInfo, openExternalPath]);
 
   // --- Unsaved changes dialog handlers ---
   const handleUnsavedSave = useCallback(async () => {
@@ -983,46 +570,6 @@ export default function App() {
   const activeAgentLocked = !!lockTargetId && agentTabs[lockTargetId] === true;
   const activeAgentUnlocked = !!lockTargetId && agentTabs[lockTargetId] === false;
 
-  // Agent-tab lock state is pushed from the backend (auto-relock on every MCP
-  // tool call targeting the bound project).
-  useEffect(() => {
-    if (windowInfo?.type !== 'main') return undefined;
-    const listener = listenAgentTabLock((payload) => {
-      if (payload?.projectId) {
-        // Ignore events for projects no longer in the list — writing them
-        // would leave stale entries until the next project-list merge.
-        setAgentTabs((prev) => {
-          if (!(payload.projectId in prev)) return prev;
-          if (prev[payload.projectId] === !!payload.locked) return prev;
-          return { ...prev, [payload.projectId]: !!payload.locked };
-        });
-      }
-    });
-    return () => listener.close();
-  }, [windowInfo?.type]);
-
-  // Project windows get no project-list broadcasts, so resolve the bound
-  // project's agent-tab state directly and keep it in sync via lock events.
-  useEffect(() => {
-    if (windowInfo?.type !== 'project') return undefined;
-    const pid = windowInfo.projectId;
-    let cancelled = false;
-    getAgentTabState(pid)
-      .then((st) => {
-        if (!cancelled && st) setAgentTabs((prev) => ({ ...prev, [pid]: !!st.locked }));
-      })
-      .catch(() => {});
-    const listener = listenAgentTabLock((payload) => {
-      if (payload?.projectId === pid) {
-        setAgentTabs((prev) => ({ ...prev, [pid]: !!payload.locked }));
-      }
-    });
-    return () => {
-      cancelled = true;
-      listener.close();
-    };
-  }, [windowInfo]);
-
   // While the active project is a locked agent tab, the workspace stays
   // interactive (scroll/select/copy all work) and dirty-producing operations
   // are refused instead: ProjectWorkspace guards its own mutation handlers
@@ -1075,11 +622,18 @@ export default function App() {
     [sidebarTargetId, openExternalPath, activeAgentLocked],
   );
 
-  useEffect(() => {
-    if (!isTauri) return;
-    const listener = listenDragDrop(handleDroppedPaths);
-    return () => listener.close();
-  }, [handleDroppedPaths]);
+  useTauriEvents({
+    windowInfo,
+    setBackendStatus,
+    setProjects,
+    setActiveId,
+    mergeAgentTabs,
+    refreshProjects,
+    setQuitRequest,
+    openExternalPath,
+    setAgentTabs,
+    handleDroppedPaths,
+  });
 
   const handleDropAddAsAlignment = useCallback(async () => {
     const paths = dropConfirm?.paths || [];
@@ -1098,105 +652,6 @@ export default function App() {
     setDropConfirm(null);
     paths.forEach((p) => openExternalPath(p));
   }, [dropConfirm, openExternalPath]);
-
-  const onToggleFeatures = useCallback(() => setShowFeatures((v) => !v), []);
-  const onToggleGcContent = useCallback(
-    () =>
-      setShowGcContent((v) => {
-        const next = !v;
-        try {
-          localStorage.setItem(SHOW_GC_CONTENT_KEY, JSON.stringify(next));
-        } catch {
-          // storage may be unavailable; toggle still applies in-memory
-        }
-        return next;
-      }),
-    [],
-  );
-  const onGcWindowSizeChange = useCallback((next) => {
-    if (!Number.isFinite(next)) return;
-    const v = Math.min(999, Math.max(1, Math.round(next)));
-    setGcWindowSize(v);
-    try {
-      localStorage.setItem(GC_WINDOW_SIZE_KEY, JSON.stringify(v));
-    } catch {
-      // storage may be unavailable; selection still applies in-memory
-    }
-  }, []);
-  // Generic per-plugin UI state handed to the nav menu (featuresMenuItem
-  // toggles), the editor (track lanes) and the settings page (settingsField).
-  const pluginToggles = useMemo(
-    () => ({
-      gcContent: { checked: showGcContent, onToggle: onToggleGcContent },
-    }),
-    [showGcContent, onToggleGcContent],
-  );
-  const pluginSettings = useMemo(
-    () => ({
-      gcContent: { value: gcWindowSize, onChange: onGcWindowSizeChange },
-    }),
-    [gcWindowSize, onGcWindowSizeChange],
-  );
-  const onTogglePrimers = useCallback(() => setShowPrimers((v) => !v), []);
-  const onToggleEnzymes = useCallback(() => setShowEnzymes((v) => !v), []);
-  const onToggleAlwaysExpandFeatures = useCallback(
-    () =>
-      setAlwaysExpandFeatures((v) => {
-        const next = !v;
-        try {
-          localStorage.setItem('alwaysExpandFeatures', JSON.stringify(next));
-        } catch {
-          // storage may be unavailable; toggle still applies in-memory
-        }
-        return next;
-      }),
-    [],
-  );
-  const onFeatureLabelsBelowChange = useCallback(
-    (next) =>
-      setFeatureLabelsBelow(() => {
-        try {
-          localStorage.setItem('featureLabelsBelow', JSON.stringify(next));
-        } catch {
-          // storage may be unavailable; toggle still applies in-memory
-        }
-        return next;
-      }),
-    [],
-  );
-  const onToggleAutoAddPrimers = useCallback(
-    () =>
-      setAutoAddPrimers((v) => {
-        const next = !v;
-        try {
-          localStorage.setItem('autoAddPrimers', JSON.stringify(next));
-        } catch {
-          // storage may be unavailable; toggle still applies in-memory
-        }
-        return next;
-      }),
-    [],
-  );
-
-  const onEnzymeFilterChange = useCallback((next) => {
-    if (!ENZYME_FILTER_VALUES.has(next)) return;
-    setEnzymeFilter(next);
-    try {
-      localStorage.setItem('enzymeFilter', JSON.stringify(next));
-    } catch {
-      // storage may be unavailable; selection still applies in-memory
-    }
-  }, []);
-
-  const onEnzymeProviderChange = useCallback((next) => {
-    if (!ENZYME_PROVIDER_VALUES.has(next)) return;
-    setEnzymeProvider(next);
-    try {
-      localStorage.setItem('enzymeProvider', JSON.stringify(next));
-    } catch {
-      // storage may be unavailable; selection still applies in-memory
-    }
-  }, []);
 
   const workspaceProps = useMemo(
     () => ({
@@ -1695,194 +1150,31 @@ export default function App() {
           onTogglePlugin={handleTogglePlugin}
         />
 
-        <McpGuideDialog
-          open={mcpGuideOpen}
-          onOpenChange={setMcpGuideOpen}
+        <AppDialogs
+          mcpGuideOpen={mcpGuideOpen}
+          setMcpGuideOpen={setMcpGuideOpen}
           mcpConfig={mcpConfig}
           onMcpConfigChange={handleMcpConfigChange}
+          newSeqOpen={newSeqOpen}
+          setNewSeqOpen={setNewSeqOpen}
+          onCreateProject={handleCreateProject}
+          unsavedDialog={unsavedDialog}
+          onUnsavedCancel={handleUnsavedCancel}
+          onUnsavedDiscard={handleUnsavedDiscard}
+          onUnsavedSave={handleUnsavedSave}
+          dropConfirm={dropConfirm}
+          setDropConfirm={setDropConfirm}
+          onDropOpenAsNew={handleDropOpenAsNew}
+          onDropAddAsAlignment={handleDropAddAsAlignment}
+          dropResult={dropResult}
+          setDropResult={setDropResult}
+          openError={openError}
+          setOpenError={setOpenError}
+          fastaSplit={fastaSplit}
+          onFastaSplitChoice={handleFastaSplitChoice}
+          quitRequest={quitRequest}
+          setQuitRequest={setQuitRequest}
         />
-
-        <NewSequenceDialog
-          open={newSeqOpen}
-          onOpenChange={setNewSeqOpen}
-          onConfirm={handleCreateProject}
-        />
-
-        {/* --- Unsaved Changes Dialog --- */}
-        <Dialog
-          open={unsavedDialog.open}
-          onOpenChange={(open) => {
-            if (!open) handleUnsavedCancel();
-          }}
-        >
-          <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                  <AlertTriangle className="size-4" />
-                </span>
-                Unsaved Changes
-              </DialogTitle>
-              <DialogDescription>
-                This project has unsaved changes. Save before continuing?
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="gap-2 sm:gap-2">
-              <DialogClose asChild>
-                <Button variant="outline" onClick={handleUnsavedCancel}>
-                  Cancel
-                </Button>
-              </DialogClose>
-              <Button
-                variant="outline"
-                className="text-destructive hover:text-destructive"
-                onClick={handleUnsavedDiscard}
-              >
-                Don't Save
-              </Button>
-              <Button onClick={handleUnsavedSave}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* --- Drag-drop: add as alignment or open as new file --- */}
-        <Dialog
-          open={!!dropConfirm}
-          onOpenChange={(open) => {
-            if (!open) setDropConfirm(null);
-          }}
-        >
-          <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
-            <DialogHeader>
-              <DialogTitle>Add as Alignment?</DialogTitle>
-              <DialogDescription>
-                Add {dropConfirm?.paths.length === 1 ? 'this file' : 'these files'} to the current
-                project as {dropConfirm?.paths.length === 1 ? 'an alignment' : 'alignments'}, or
-                open as new {dropConfirm?.paths.length === 1 ? 'project' : 'projects'}?
-              </DialogDescription>
-            </DialogHeader>
-            <ul className="max-h-40 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs font-mono text-muted-foreground">
-              {(dropConfirm?.paths || []).map((p) => (
-                <li key={p} className="truncate py-0.5" title={p}>
-                  {fileNameOf(p)}
-                </li>
-              ))}
-            </ul>
-            <DialogFooter className="gap-2 sm:gap-2">
-              <DialogClose asChild>
-                <Button variant="outline">Cancel</Button>
-              </DialogClose>
-              <Button variant="outline" onClick={handleDropOpenAsNew}>
-                Open as New File
-              </Button>
-              <Button onClick={handleDropAddAsAlignment}>Add as Alignment</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* --- Drag-drop: per-file failure feedback --- */}
-        <Dialog
-          open={!!dropResult}
-          onOpenChange={(open) => {
-            if (!open) setDropResult(null);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                  <AlertTriangle className="size-4" />
-                </span>
-                Some Alignments Failed
-              </DialogTitle>
-              <DialogDescription>
-                {dropResult?.added > 0
-                  ? `${dropResult.added} added, ${dropResult.failed.length} failed:`
-                  : 'No alignments could be added:'}
-              </DialogDescription>
-            </DialogHeader>
-            <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              {(dropResult?.failed || []).map((f) => (
-                <li key={f.path} className="py-1">
-                  <span className="font-mono">{fileNameOf(f.path)}</span>
-                  <span className="block text-destructive/80">{f.error}</span>
-                </li>
-              ))}
-            </ul>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button>OK</Button>
-              </DialogClose>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        {/* --- Open File: per-file failure feedback --- */}
-        <Dialog
-          open={!!openError}
-          onOpenChange={(open) => {
-            if (!open) setOpenError(null);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                  <AlertTriangle className="size-4" />
-                </span>
-                {openError?.length > 1 ? 'Some Files Failed to Open' : 'Failed to Open File'}
-              </DialogTitle>
-            </DialogHeader>
-            <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              {(openError || []).map((f) => (
-                <li key={f.path} className="py-1">
-                  <span className="font-mono">{fileNameOf(f.path)}</span>
-                  <span className="block text-destructive/80">{f.error}</span>
-                </li>
-              ))}
-            </ul>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button>OK</Button>
-              </DialogClose>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        {/* --- Multi-record FASTA: split into separate projects? --- */}
-        <FastaSplitDialog target={fastaSplit} onChoice={handleFastaSplitChoice} />
-        {/* --- Tray Quit: unsaved-changes confirmation --- */}
-        <Dialog
-          open={!!quitRequest}
-          onOpenChange={(open) => {
-            if (!open) setQuitRequest(null);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                  <AlertTriangle className="size-4" />
-                </span>
-                Quit LibreGene?
-              </DialogTitle>
-              <DialogDescription>Unsaved changes will be lost:</DialogDescription>
-            </DialogHeader>
-            <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              {(quitRequest || []).map((id) => (
-                <li key={id} className="py-1 font-mono">
-                  {fileNameOf(id)}
-                </li>
-              ))}
-            </ul>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="outline">Cancel</Button>
-              </DialogClose>
-              <Button variant="destructive" onClick={() => forceQuit().catch(() => {})}>
-                Quit Anyway
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </SidebarProvider>
       <ContextMenuHost />
     </TooltipProvider>
