@@ -1,84 +1,32 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SequenceEditor from './SequenceEditor';
 import {
-  getProject,
   getProjectById,
-  updateSequence,
   saveFile,
   saveFileDialog,
-  setMethylation,
-  setTopology,
-  activateProject,
-  updateFeatureFtype,
-  updateFeatureColor,
-  updateFeatureName,
-  updateFeatureLocation,
-  updateFeatureStrand,
-  addPrimer,
-  addPrimers,
   checkPrimersBinding,
-  addFeature,
-  deleteFeature,
-  deletePrimer,
   rekeyProject,
-  addAlignment,
-  addAlignmentSeq,
-  removeAlignment,
   getChromatogram,
-  openAlignmentFileDialog,
   listenProjectUpdates,
-  setAgentTabLocked,
-  emitEditorBackground,
-  listenEditorBackground,
   isTauri,
 } from './tauriApi';
-import { plugins } from './plugins';
-import AddAlignmentTextDialog from './plugins/alignment/AddAlignmentTextDialog';
-import { createEditHistory } from './editHistory';
 import { orientChromatogram } from './chromatogram';
-import { adjustAlignmentsForEdit } from './alignmentEdit';
-import SequenceEditDialog from './dialogs/SequenceEditDialog';
 import FeatureScrollbar from './components/FeatureScrollbar';
 import MapView from './MapView';
-import PrimerOverviewDialog from './dialogs/PrimerOverviewDialog';
-import DetectFeaturesDialog from './dialogs/DetectFeaturesDialog';
-import MyPrimersDialog from './dialogs/MyPrimersDialog';
-import MyEnzymesDialog from './dialogs/MyEnzymesDialog';
-import EnzymeDatabaseDialog from './dialogs/EnzymeDatabaseDialog';
 import {
   loadProviderData,
   buildProviderIndex,
   findProviderEntry,
   hasProvider,
 } from './enzymeProviders';
-import { findOrfs } from './plugins/orf';
-import { addMyPrimers, removeMyPrimer, libraryToPrimers } from './myPrimers';
-import { setMyEnzymes } from './myEnzymes';
-
-const EMPTY_ARRAY = [];
-
-// Per-file memory of hidden alignment tracks, persisted as names keyed by
-// file path (alignment ids are positional and shift when a track is removed).
-const HIDDEN_ALN_KEY = 'hiddenAlignments';
-function readHiddenAlnNames(pid) {
-  try {
-    const all = JSON.parse(localStorage.getItem(HIDDEN_ALN_KEY));
-    return Array.isArray(all?.[pid]) ? all[pid] : [];
-  } catch {
-    return [];
-  }
-}
-function writeHiddenAlnNames(pid, names) {
-  if (!pid) return;
-  try {
-    const all = JSON.parse(localStorage.getItem(HIDDEN_ALN_KEY)) || {};
-    if (names.length) all[pid] = names;
-    else delete all[pid];
-    localStorage.setItem(HIDDEN_ALN_KEY, JSON.stringify(all));
-  } catch {
-    // storage may be unavailable; memory just won't persist
-  }
-}
+import { addMyPrimers, libraryToPrimers } from './myPrimers';
+import useProjectData from './workspace/useProjectData';
+import useUndoHistory from './workspace/useUndoHistory';
+import useEditDialog from './workspace/useEditDialog';
+import useProjectMutations from './workspace/useProjectMutations';
+import WorkspaceDialogs from './workspace/WorkspaceDialogs';
+import { EMPTY_ARRAY } from './workspace/constants';
+import { readHiddenAlnNames } from './workspace/hiddenAlignments';
 
 export default function ProjectWorkspace({
   projectId,
@@ -125,154 +73,130 @@ export default function ProjectWorkspace({
   // switching; returns {ok} or {ok: false, error}).
   onOpenSnapshot,
 }) {
-  const [sequence, setSequence] = useState(initialData?.sequence ?? null);
-  const [features, setFeatures] = useState(initialData?.features || EMPTY_ARRAY);
-  const [enzymes, setEnzymes] = useState(initialData?.enzymes || EMPTY_ARRAY);
-  const [primers, setPrimers] = useState(initialData?.primers || EMPTY_ARRAY);
-  const [alignments, setAlignments] = useState(initialData?.alignments || EMPTY_ARRAY);
-  const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
-  // Source .ab1 path when the project itself was opened from a trace file.
-  const [tracePath, setTracePath] = useState(initialData?.tracePath || null);
-  // Alignment track whose chromatogram band is expanded (one at a time).
-  const [expandedChromAlnId, setExpandedChromAlnId] = useState(null);
-  // Live topology: project windows receive a constant prop, so mirror it into
-  // state and refresh from broadcasts / the toggle command response.
-  const [topologyLive, setTopologyLive] = useState(initialData?.topology || topology);
-  useEffect(() => {
-    setTopologyLive((cur) => (cur === topology ? cur : topology));
-  }, [topology]);
-  // Primers/enzymes/ORFs/alignments are DNA-only features; rna/protein projects
-  // render single-strand sequence + features only.
-  const isDna = moleculeType === 'dna';
-  const isProtein = moleculeType === 'protein';
-  // Ref mirror so the guard below never disturbs useCallback dep arrays.
-  const agentLockedRef = useRef(agentLocked);
-  agentLockedRef.current = agentLocked;
-  const handleUnlockAgent = useCallback(() => {
-    setAgentTabLocked(projectId, false).catch(() => {});
-  }, [projectId]);
-  const [showAlignments, setShowAlignments] = useState(true);
-  const [hiddenAlignIds, setHiddenAlignIds] = useState(() => {
-    const names = readHiddenAlnNames(projectId);
-    return (initialData?.alignments || EMPTY_ARRAY)
-      .filter((a) => names.includes(a.name))
-      .map((a) => a.id);
+  const {
+    sequence,
+    setSequence,
+    features,
+    setFeatures,
+    enzymes,
+    setEnzymes,
+    primers,
+    setPrimers,
+    alignments,
+    setAlignments,
+    moleculeType,
+    setMoleculeType,
+    tracePath,
+    setTracePath,
+    expandedChromAlnId,
+    setExpandedChromAlnId,
+    topologyLive,
+    setTopologyLive,
+    isDna,
+    isProtein,
+    agentLockedRef,
+    handleUnlockAgent,
+    showAlignments,
+    setShowAlignments,
+    hiddenAlignIds,
+    setHiddenAlignIds,
+    alignTextOpen,
+    setAlignTextOpen,
+    alignmentEnabled,
+    primerDesignEnabled,
+    mapEnabled,
+    backgroundOptions,
+    primerOverviewOpen,
+    setPrimerOverviewOpen,
+    detectFeaturesOpen,
+    setDetectFeaturesOpen,
+    myPrimersOpen,
+    setMyPrimersOpen,
+    myEnzymesOpen,
+    setMyEnzymesOpen,
+    enzymeDbOpen,
+    setEnzymeDbOpen,
+    myPrimerBinding,
+    setMyPrimerBinding,
+    pluginDialogs,
+    setPluginDialogs,
+    openPrimerEditorRef,
+    openFeatureEditorRef,
+    mapViewOpen,
+    setMapViewOpen,
+    background,
+    setEditorBackground,
+    showOrfs,
+    setShowOrfs,
+    orfFeatures,
+    projectIdRef,
+  } = useProjectData({
+    projectId,
+    initialData,
+    topology,
+    agentLocked,
+    disabledPlugins,
+    hidden,
+    backendStatus,
+    methylationSystems,
+    methylationOverlap,
   });
-  const [alignTextOpen, setAlignTextOpen] = useState(false);
-  const alignmentEnabled = isDna && !disabledPlugins.includes('alignment');
-  const primerDesignEnabled = isDna && !disabledPlugins.includes('primerDesign');
-  const mapEnabled = !disabledPlugins.includes('map');
-  // Background (watermark) choices offered in the editor context menu and the
-  // Diagram nav menu for the current molecule type; a single choice means
-  // nothing to switch.
-  const backgroundOptions = useMemo(() => {
-    const opts = [];
-    if (mapEnabled) opts.push({ value: 'map', label: 'Map' });
-    if (moleculeType === 'rna' && !disabledPlugins.includes('rnaFold'))
-      opts.push({ value: 'folding', label: 'Folding' });
-    return opts.length ? [{ value: 'none', label: 'None' }, ...opts] : [];
-  }, [moleculeType, mapEnabled, disabledPlugins]);
-
-  const [primerOverviewOpen, setPrimerOverviewOpen] = useState(false);
-  const [detectFeaturesOpen, setDetectFeaturesOpen] = useState(false);
-  const [myPrimersOpen, setMyPrimersOpen] = useState(false);
-  const [myEnzymesOpen, setMyEnzymesOpen] = useState(false);
-  const [enzymeDbOpen, setEnzymeDbOpen] = useState(false);
-  const [myPrimerBinding, setMyPrimerBinding] = useState({ loading: false, results: [] });
-  const [pluginDialogs, setPluginDialogs] = useState({});
-  const openPrimerEditorRef = useRef(null);
-  const openFeatureEditorRef = useRef(null);
-  const [mapViewOpen, setMapViewOpen] = useState(false);
-  // Editor background (watermark) per molecule type, persisted globally and
-  // shared across projects of the same type: dna → none|map, rna →
-  // none|map|folding, protein → none|map.
-  const [backgrounds, setBackgrounds] = useState(() => {
-    const fallback = { dna: 'none', rna: 'none', protein: 'none' };
-    try {
-      const stored = JSON.parse(localStorage.getItem('editorBackground'));
-      if (stored && typeof stored === 'object') return { ...fallback, ...stored };
-      // Migrate the legacy global watermark toggles.
-      const migrated = { ...fallback };
-      if (JSON.parse(localStorage.getItem('mapWatermark'))) migrated.dna = 'map';
-      if (JSON.parse(localStorage.getItem('foldWatermark'))) migrated.rna = 'folding';
-      localStorage.setItem('editorBackground', JSON.stringify(migrated));
-      localStorage.removeItem('mapWatermark');
-      localStorage.removeItem('foldWatermark');
-      return migrated;
-    } catch {
-      return fallback;
-    }
-  });
-  const setEditorBackground = useCallback((type, value) => {
-    setBackgrounds((prev) => {
-      const next = { ...prev, [type]: value };
-      try {
-        localStorage.setItem('editorBackground', JSON.stringify(next));
-      } catch {
-        // storage may be unavailable; toggle still applies in-memory
-      }
-      emitEditorBackground(next);
-      return next;
-    });
-  }, []);
-  const background = backgrounds[moleculeType] || 'none';
-  // storage events don't propagate between Tauri webview windows, so sync
-  // via a Tauri broadcast; keep the storage listener as a browser fallback.
-  // Both fire only in *other* documents — no feedback loop.
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key !== 'editorBackground' || e.newValue == null) return;
-      try {
-        setBackgrounds((prev) => ({ ...prev, ...JSON.parse(e.newValue) }));
-      } catch {
-        // ignore malformed values
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    const listener = listenEditorBackground((v) => {
-      if (v && typeof v === 'object') setBackgrounds((prev) => ({ ...prev, ...v }));
-    });
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      listener.close();
-    };
-  }, []);
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
   const [liveSelection, setLiveSelection] = useState(null);
   const alignmentCacheRef = useRef({});
   const sequenceRef = useRef(sequence);
-  const projectIdRef = useRef(projectId);
   const operationGenRef = useRef(0);
   const mainScrollRef = useRef(null);
   const lastSelectionRef = useRef(null);
 
-  // --- Sequence editing state ---
-  const editHistoryRef = useRef(createEditHistory());
-  const [historyVersion, setHistoryVersion] = useState(0);
-  useEffect(() => editHistoryRef.current.subscribe(() => setHistoryVersion((v) => v + 1)), []);
-  const canUndo = historyVersion >= 0 && editHistoryRef.current.canUndo();
-  const canRedo = historyVersion >= 0 && editHistoryRef.current.canRedo();
-  const [editDialog, setEditDialog] = useState({
-    open: false,
-    mode: 'insert',
-    cursorIndex: null,
-    selStart: null,
-    selEnd: null,
-    selectedText: '',
-    initialText: '',
-    clipboardMeta: null,
+  const {
+    editHistoryRef,
+    canUndo,
+    canRedo,
+    restoreState,
+    setRestoreState,
+    undoVersionRef,
+    isDirty,
+    setIsDirty,
+    isDirtyRef,
+    baselineSequenceRef,
+    pushHistory,
+    handleUndo,
+    handleRedo,
+  } = useUndoHistory({
+    initialData,
+    agentLockedRef,
+    operationGenRef,
+    projectId,
+    onProjectsSync,
+    sequence,
+    features,
+    primers,
+    setSequence,
+    setFeatures,
+    setEnzymes,
+    setPrimers,
+    setAlignments,
   });
-  const [restoreState, setRestoreState] = useState({
-    version: 0,
-    cursorIndex: null,
-    selStart: null,
-    selEnd: null,
-    translationSel: null,
+
+  const { editDialog, setEditDialog, handleEditConfirm } = useEditDialog({
+    agentLockedRef,
+    operationGenRef,
+    editHistoryRef,
+    setRestoreState,
+    undoVersionRef,
+    sequence,
+    features,
+    primers,
+    setSequence,
+    setFeatures,
+    setEnzymes,
+    setPrimers,
+    setAlignments,
+    setIsDirty,
+    onProjectsSync,
+    isDna,
   });
-  const undoVersionRef = useRef(0);
-  const [isDirty, setIsDirty] = useState(initialData?.dirty === true);
-  const isDirtyRef = useRef(false);
-  const baselineSequenceRef = useRef(initialData?.sequence ?? '');
 
   // Direct Save is only allowed for text GenBank formats; binary sources
   // (.dna, .rna, .prot, .fasta, .ab1, ...) must be re-exported via Save As.
@@ -400,77 +324,11 @@ export default function ProjectWorkspace({
     };
   }, []);
 
-  // Sync methylation settings with the backend when they change.
-  // Deferred while hidden: the backend command applies to the active project.
-  const methKey = useMemo(
-    () => methylationSystems.join(',') + '|' + methylationOverlap,
-    [methylationSystems, methylationOverlap],
-  );
-  const syncedMethKeyRef = useRef('');
-  useEffect(() => {
-    // Methylation/Dam/Dcm only applies to DNA; skip for rna/protein projects.
-    if (hidden || !isDna) return;
-    if (agentLocked) return;
-    if (syncedMethKeyRef.current === methKey) return;
-    if (backendStatus !== 'online' || !sequence) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const pid = projectIdRef.current;
-        await activateProject(pid);
-        const data = await setMethylation(methylationSystems, methylationOverlap, pid);
-        if (cancelled || projectIdRef.current !== pid) return;
-        if (data && !data.error && data.enzymes) {
-          setEnzymes(data.enzymes);
-        }
-        syncedMethKeyRef.current = methKey;
-      } catch (e) {
-        console.error('methylation sync error:', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    methKey,
-    hidden,
-    backendStatus,
-    sequence,
-    methylationSystems,
-    methylationOverlap,
-    isDna,
-    agentLocked,
-  ]);
-
   // Report dirty state up to App (sidebar dots + title bar)
   useEffect(() => {
     onDirtyChange(projectId, isDirty);
   }, [projectId, isDirty, onDirtyChange]);
 
-  const [showOrfs, setShowOrfs] = useState(false);
-  const orfEnabled = isDna && !disabledPlugins.includes('orf') && showOrfs;
-  const [orfFeatures, setOrfFeatures] = useState(EMPTY_ARRAY);
-  // ORFs are computed by the backend on the active project's sequence; refetch
-  // whenever the toggle, sequence, topology, or backend availability changes.
-  // Old ORFs stay visible during the refetch to avoid flicker.
-  useEffect(() => {
-    if (hidden || !orfEnabled || backendStatus !== 'online' || !sequence) {
-      setOrfFeatures(EMPTY_ARRAY);
-      return undefined;
-    }
-    let cancelled = false;
-    findOrfs()
-      .then((feats) => {
-        if (!cancelled) setOrfFeatures(feats);
-      })
-      .catch((e) => {
-        console.error('ORF search error:', e);
-        if (!cancelled) setOrfFeatures(EMPTY_ARRAY);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [orfEnabled, backendStatus, sequence, topologyLive, hidden]);
   const editorFeatures = useMemo(
     () => [...(showFeatures ? features : EMPTY_ARRAY), ...orfFeatures],
     [showFeatures, features, orfFeatures],
@@ -697,153 +555,55 @@ export default function ProjectWorkspace({
     });
   }, []);
 
-  // Record a post-mutation snapshot in undo history. Entries are always the
-  // state AFTER a mutation (sequence edits follow the same convention), so
-  // undo returns the previous entry — the pre-mutation state — and redo
-  // restores the mutation. Snapshots always carry primers so undo/redo can
-  // restore them on both sides (UI state + backend via update_sequence).
-  const pushHistory = useCallback(
-    (overrides = {}) => {
-      editHistoryRef.current.push({
-        sequence,
-        features: features || EMPTY_ARRAY,
-        primers: primers || EMPTY_ARRAY,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
-        ...overrides,
-      });
-    },
-    [sequence, features, primers],
-  );
-
-  const handleFeatureFtypeChange = useCallback(
-    async (featureId, newFtype) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await updateFeatureFtype(featureId, newFtype);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
-      } catch (e) {
-        console.error('update feature ftype error:', e);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handleFeatureColorChange = useCallback(
-    async (featureId, newColor) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await updateFeatureColor(featureId, newColor);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
-      } catch (e) {
-        console.error('update feature color error:', e);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handleFeatureNameChange = useCallback(
-    async (featureId, newName) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await updateFeatureName(featureId, newName);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
-      } catch (e) {
-        console.error('update feature name error:', e);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handlePrimerChange = useCallback(
-    async (primerData, { recordHistory = true } = {}) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await addPrimer(primerData);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.primers) {
-          // Batch callers record history once via recordHistory on their last
-          // call only — the response carries the full post-batch list.
-          if (recordHistory) pushHistory({ primers: data.primers });
-          setPrimers(data.primers);
-          if (data.alignments) setAlignments(data.alignments);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-          if (data.projects) onProjectsSync(data.projects);
-        }
-      } catch (e) {
-        console.error('add primer error:', e);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handleToggleTopology = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const next = topologyLive === 'circular' ? 'linear' : 'circular';
-    const gen = ++operationGenRef.current;
-    try {
-      const data = await setTopology(next, projectIdRef.current);
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        // Enzymes/primer binding sites/feature translations are
-        // topology-dependent; the response carries the recomputed values.
-        if (data.features) setFeatures(data.features);
-        if (data.primers) setPrimers(data.primers);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setTopologyLive(data.topology || next);
-        setIsDirty(true);
-        // Topology itself flows down from App's project list.
-        if (data.projects) onProjectsSync(data.projects);
-      }
-    } catch (e) {
-      console.error('topology toggle error:', e);
-    }
-  }, [topologyLive, onProjectsSync]);
-
-  // --- My Primers library actions ---
-  const handleAddPrimerToMyPrimers = useCallback(
-    (primer) => {
-      if (!primer || !primer.primerSeq) return;
-      onMyPrimersChange?.(addMyPrimers([primer]));
-    },
-    [onMyPrimersChange],
-  );
-
-  const handleAddAllPrimersToMyPrimers = useCallback(() => {
-    if (!primers.length) return;
-    onMyPrimersChange?.(addMyPrimers(primers));
-  }, [primers, onMyPrimersChange]);
-
-  const handleDeleteMyPrimer = useCallback(
-    (id) => {
-      onMyPrimersChange?.(removeMyPrimer(id));
-    },
-    [onMyPrimersChange],
-  );
+  const {
+    handleFeatureFtypeChange,
+    handleFeatureColorChange,
+    handleFeatureNameChange,
+    handlePrimerChange,
+    handleToggleTopology,
+    handleAddPrimerToMyPrimers,
+    handleAddAllPrimersToMyPrimers,
+    handleDeleteMyPrimer,
+    handleAddMyPrimerToFile,
+    handleAddAllBindingPrimers,
+    handleMyEnzymesChange,
+    handleFeatureAdd,
+    handleFeatureStrandChange,
+    handleFeatureLocationChange,
+    handleDeleteFeature,
+    handleDeletePrimer,
+    addAlignmentFiles,
+    handleAddAlignment,
+    handleAddAlignmentText,
+    handleToggleAlignmentVisible,
+    visibleAlignments,
+    handleRemoveAlignment,
+  } = useProjectMutations({
+    agentLockedRef,
+    operationGenRef,
+    projectIdRef,
+    pushHistory,
+    setIsDirty,
+    setFeatures,
+    setPrimers,
+    setEnzymes,
+    setAlignments,
+    setTopologyLive,
+    topologyLive,
+    setExpandedChromAlnId,
+    setHiddenAlignIds,
+    alignments,
+    primers,
+    myPrimerBinding,
+    myPrimers,
+    onMyPrimersChange,
+    onMyEnzymesChange,
+    onProjectsSync,
+    alignmentAlgorithm,
+    alignmentEnabled,
+    showAlignments,
+    hiddenAlignIds,
+  });
 
   // Auto-add primers from opened files to My Primers.
   useEffect(() => {
@@ -874,659 +634,10 @@ export default function ProjectWorkspace({
     };
   }, [myPrimersOpen, myPrimers, sequence, isDna]);
 
-  const applyAddedPrimers = useCallback(
-    (data, gen) => {
-      if (operationGenRef.current !== gen) return;
-      if (data && data.primers) {
-        setPrimers(data.primers);
-        if (data.alignments) setAlignments(data.alignments);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setIsDirty(true);
-        if (data.projects) onProjectsSync(data.projects);
-      }
-    },
-    [onProjectsSync],
-  );
-
-  const handleAddMyPrimerToFile = useCallback(
-    async (entry) => {
-      if (agentLockedRef.current) return;
-      if (!entry) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await addPrimers(libraryToPrimers([entry]));
-        if (data && data.primers && operationGenRef.current === gen) {
-          pushHistory({ primers: data.primers });
-        }
-        applyAddedPrimers(data, gen);
-      } catch (e) {
-        console.error('add primer from My Primers error:', e);
-      }
-    },
-    [pushHistory, applyAddedPrimers],
-  );
-
-  const handleAddAllBindingPrimers = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const bindingIds = new Set(
-      (myPrimerBinding.results || []).filter((r) => r.binds).map((r) => r.id),
-    );
-    const inFile = new Set(primers.map((p) => String(p.primerSeq || '').toUpperCase()));
-    const toAdd = myPrimers.filter(
-      (p) => bindingIds.has(p.id) && !inFile.has(String(p.seq || p.primerSeq || '').toUpperCase()),
-    );
-    if (!toAdd.length) return;
-    const gen = ++operationGenRef.current;
-    try {
-      const data = await addPrimers(libraryToPrimers(toAdd));
-      if (data && data.primers && operationGenRef.current === gen) {
-        pushHistory({ primers: data.primers });
-      }
-      applyAddedPrimers(data, gen);
-    } catch (e) {
-      console.error('add binding primers error:', e);
-    }
-  }, [myPrimerBinding.results, myPrimers, primers, pushHistory, applyAddedPrimers]);
-
-  const handleMyEnzymesChange = useCallback(
-    (list) => {
-      onMyEnzymesChange?.(setMyEnzymes(list));
-    },
-    [onMyEnzymesChange],
-  );
-
-  const handleFeatureAdd = useCallback(
-    async (featureData, { recordHistory = true } = {}) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      const { locationStr, ...feature } = featureData;
-      // errors propagate so the dialog can display them; batch callers record
-      // history once via recordHistory on their last call only — the response
-      // carries the full post-batch list
-      const data = await addFeature(feature, locationStr);
-      if (operationGenRef.current !== gen) return;
-      if (data && data.features) {
-        if (recordHistory) pushHistory({ features: data.features });
-        setFeatures(data.features);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setIsDirty(true);
-        if (data.projects) onProjectsSync(data.projects);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handleFeatureStrandChange = useCallback(
-    async (featureId, strand) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await updateFeatureStrand(featureId, strand);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-        }
-      } catch (e) {
-        console.error('update feature strand error:', e);
-      }
-    },
-    [pushHistory],
-  );
-
-  const handleFeatureLocationChange = useCallback(
-    async (featureId, locationStr) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      // errors propagate so the dialog can display them
-      const data = await updateFeatureLocation(featureId, locationStr);
-      if (operationGenRef.current !== gen) return;
-      if (data && data.features) {
-        pushHistory({ features: data.features });
-        setFeatures(data.features);
-        if (data.projects) onProjectsSync(data.projects);
-        setIsDirty(true);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handleDeleteFeature = useCallback(
-    async (featureId) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await deleteFeature(featureId);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
-      } catch (e) {
-        console.error('delete feature error:', e);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const handleDeletePrimer = useCallback(
-    async (primerId) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await deletePrimer(primerId);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.primers) {
-          pushHistory({ primers: data.primers });
-          setPrimers(data.primers);
-          if (data.alignments) setAlignments(data.alignments);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
-      } catch (e) {
-        console.error('delete primer error:', e);
-      }
-    },
-    [pushHistory, onProjectsSync],
-  );
-
-  const addAlignmentFiles = useCallback(
-    async (paths) => {
-      if (agentLockedRef.current) return null;
-      const gen = ++operationGenRef.current;
-      const failed = [];
-      let added = 0;
-      let lastData = null;
-      for (const path of paths) {
-        try {
-          const data = await addAlignment(path, alignmentAlgorithm);
-          if (operationGenRef.current !== gen) return null;
-          if (data && data.error) {
-            failed.push({ path, error: data.error });
-          } else if (data) {
-            added += 1;
-            lastData = data;
-          }
-        } catch (e) {
-          failed.push({ path, error: String(e?.message || e) });
-        }
-      }
-      if (lastData) {
-        if (lastData.alignments) setAlignments(lastData.alignments);
-        if (lastData.projects) onProjectsSync(lastData.projects);
-        setIsDirty(true);
-      }
-      return { added, failed };
-    },
-    [onProjectsSync, alignmentAlgorithm],
-  );
-
-  const handleAddAlignment = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const paths = await openAlignmentFileDialog();
-    if (!paths || paths.length === 0) return;
-    const result = await addAlignmentFiles(paths);
-    if (result && result.failed.length > 0) {
-      const lines = result.failed.map((f) => {
-        const name = f.path.replace(/\\/g, '/').split('/').pop();
-        return `${name}: ${f.error}`;
-      });
-      throw new Error(lines.join('\n'));
-    }
-  }, [addAlignmentFiles]);
-
-  const handleAddAlignmentText = useCallback(
-    async (name, seq) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      const data = await addAlignmentSeq(name, seq, alignmentAlgorithm);
-      if (operationGenRef.current !== gen) return;
-      if (data && data.error) throw new Error(data.error);
-      if (data) {
-        if (data.alignments) setAlignments(data.alignments);
-        if (data.projects) onProjectsSync(data.projects);
-        setIsDirty(true);
-      }
-    },
-    [onProjectsSync, alignmentAlgorithm],
-  );
-
-  const handleToggleAlignmentVisible = useCallback(
-    (alignmentId) => {
-      setHiddenAlignIds((prev) => {
-        const next = prev.includes(alignmentId)
-          ? prev.filter((x) => x !== alignmentId)
-          : [...prev, alignmentId];
-        writeHiddenAlnNames(
-          projectIdRef.current,
-          next.map((id) => alignments.find((a) => a.id === id)?.name).filter(Boolean),
-        );
-        return next;
-      });
-      // Hiding a track collapses its chromatogram band if it was expanded.
-      setExpandedChromAlnId((cur) => (cur === alignmentId ? null : cur));
-    },
-    [alignments],
-  );
-
-  const visibleAlignments = useMemo(
-    () =>
-      alignmentEnabled && showAlignments
-        ? alignments.filter((a) => !hiddenAlignIds.includes(a.id))
-        : EMPTY_ARRAY,
-    [alignmentEnabled, showAlignments, alignments, hiddenAlignIds],
-  );
-
-  const handleRemoveAlignment = useCallback(
-    async (alignmentId) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      try {
-        const data = await removeAlignment(alignmentId);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.alignments) {
-          setAlignments(data.alignments);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-          const removedName = alignments.find((a) => a.id === alignmentId)?.name;
-          setHiddenAlignIds((prev) => {
-            const next = prev.filter((x) => x !== alignmentId);
-            writeHiddenAlnNames(
-              projectIdRef.current,
-              next
-                .map((id) => alignments.find((a) => a.id === id)?.name)
-                .filter((n) => n && n !== removedName),
-            );
-            return next;
-          });
-        }
-      } catch (e) {
-        console.error('remove alignment error:', e);
-      }
-    },
-    [onProjectsSync, alignments],
-  );
-
-  /**
-   * 调整特征/注释放置位置以适配编辑后的序列。
-   * 编辑会删除 [editStart, editEnd] 区间（oldLen 个碱基），
-   * 然后插入 newLen 个碱基。
-   * 编辑区之外的特征位置保持与原序列的相对偏移不变。
-   * 等长替换（delta === 0）不改变任何坐标，特征原样保留。
-   */
-  const adjustAnnotations = useCallback((anns, editStart, editEnd, oldLen, newLen) => {
-    const delta = newLen - oldLen;
-    if (delta === 0) return anns; // no-op / equal-length replace keeps all coordinates
-
-    return anns
-      .map((ann) => {
-        const adjustSegments = (segments) => {
-          if (!segments || !segments.length) return segments;
-          return segments
-            .map((seg) => {
-              let { start: s, end: e } = seg;
-              if (e < editStart) return seg;
-              if (s > editEnd) return { ...seg, start: s + delta, end: e + delta };
-              // spans
-              const ns = s < editStart ? s : editStart + newLen;
-              const ne = e > editEnd ? e + delta : editStart + newLen - 1;
-              if (ns > ne) return null;
-              return { ...seg, start: ns, end: ne };
-            })
-            .filter(Boolean);
-        };
-
-        if (ann.segments && ann.segments.length) {
-          // Derive start/end from adjusted segments so wrap-origin features
-          // (start > end, segments in join order) shift correctly.
-          const newSegments = adjustSegments(ann.segments);
-          if (!newSegments.length) return null;
-          return {
-            ...ann,
-            start: newSegments[0].start,
-            end: newSegments[newSegments.length - 1].end,
-            segments: newSegments,
-          };
-        }
-
-        let newStart, newEnd;
-        if (ann.end < editStart) {
-          // entirely before – unchanged
-          return ann;
-        }
-        if (ann.start > editEnd) {
-          // entirely after – shift
-          newStart = ann.start + delta;
-          newEnd = ann.end + delta;
-        } else {
-          // spans the edit
-          newStart = ann.start < editStart ? ann.start : editStart + newLen;
-          newEnd = ann.end > editEnd ? ann.end + delta : editStart + newLen - 1;
-        }
-
-        if (newStart > newEnd) return null;
-
-        return { ...ann, start: newStart, end: newEnd };
-      })
-      .filter(Boolean);
-  }, []);
-
-  // --- Edit dialog confirmed (insert/delete/replace) ---
-  const handleEditConfirm = useCallback(
-    async (result) => {
-      if (agentLockedRef.current) return;
-      const gen = ++operationGenRef.current;
-      const { mode, cursorIndex, selStart, selEnd } = editDialog;
-      let newSeq;
-      const currentSeq = sequence || '';
-      let editStart, editEnd, oldLen, newLen;
-
-      // Compute the new sequence and save edit parameters for feature adjustment
-      if (mode === 'insert') {
-        const cleaned = (result.sequence || '').replace(/\s/g, '');
-        if (!cleaned) {
-          setEditDialog((prev) => ({ ...prev, open: false }));
-          return;
-        }
-        editStart = cursorIndex;
-        editEnd = cursorIndex - 1; // no deletion range
-        oldLen = 0;
-        newLen = cleaned.length;
-        newSeq = currentSeq.slice(0, cursorIndex) + cleaned + currentSeq.slice(cursorIndex);
-      } else if (mode === 'delete') {
-        if (selStart === null || selEnd === null) {
-          setEditDialog((prev) => ({ ...prev, open: false }));
-          return;
-        }
-        editStart = selStart;
-        editEnd = selEnd;
-        oldLen = selEnd - selStart + 1;
-        newLen = 0;
-        newSeq = currentSeq.slice(0, selStart) + currentSeq.slice(selEnd + 1);
-      } else if (mode === 'replace') {
-        const cleaned = (result.sequence || '').replace(/\s/g, '');
-        if (selStart === null || selEnd === null) {
-          setEditDialog((prev) => ({ ...prev, open: false }));
-          return;
-        }
-        editStart = selStart;
-        editEnd = selEnd;
-        oldLen = selEnd - selStart + 1;
-        newLen = cleaned.length;
-        newSeq = currentSeq.slice(0, selStart) + cleaned + currentSeq.slice(selEnd + 1);
-      } else {
-        return;
-      }
-
-      // Close dialog
-      setEditDialog((prev) => ({ ...prev, open: false }));
-
-      // Compute adjusted features BEFORE backend call (for history and optimistic update)
-      let adjustedFeatures = adjustAnnotations(
-        features || EMPTY_ARRAY,
-        editStart,
-        editEnd,
-        oldLen,
-        newLen,
-      );
-
-      // Merge annotation features from clipboard
-      const annotations = result.annotations;
-      let mergedFeatures = adjustedFeatures;
-      if (annotations && annotations.features && annotations.features.length > 0) {
-        const insertAnchor = mode === 'insert' ? cursorIndex : selStart;
-        // Clamp the offset segments to the pasted span — mirrors the Rust
-        // transfer_features_for_insert clamping, so a forged clipboard meta
-        // can't push coordinates outside the insertion window.
-        const newLen = (result.sequence || '').replace(/\s/g, '').length;
-        const existingNames = new Set(adjustedFeatures.map((f) => f.name));
-        const newFeats = [];
-        annotations.features.forEach((af, i) => {
-          const segsIn = Array.isArray(af.segments) ? af.segments : [];
-          const segs = [];
-          for (const s of segsIn) {
-            const cs = Math.max(0, Math.min(s.start ?? 0, newLen - 1));
-            const ce = Math.max(0, Math.min(s.end ?? 0, newLen - 1));
-            if (cs <= ce) segs.push({ start: insertAnchor + cs, end: insertAnchor + ce });
-          }
-          if (segs.length === 0) return;
-          let name = af.name;
-          if (existingNames.has(name)) {
-            let n = 2;
-            while (existingNames.has(`${name} (${n})`)) n++;
-            name = `${name} (${n})`;
-          }
-          existingNames.add(name);
-          newFeats.push({
-            id: `feature_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`,
-            name,
-            ftype: af.ftype,
-            color: af.color,
-            strand: af.strand,
-            notes: af.notes,
-            qualifiers: af.qualifiers,
-            start: segs[0].start,
-            end: segs[segs.length - 1].end,
-            segments: segs,
-          });
-        });
-        mergedFeatures = [...adjustedFeatures, ...newFeats];
-      }
-
-      // Post-edit selection: a deletion clears the (now stale) selection; an
-      // insertion leaves the freshly inserted bases selected.
-      const postCursor =
-        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? null : cursorIndex;
-      const postSelStart = mode === 'insert' ? cursorIndex : mode === 'delete' ? null : selStart;
-      const postSelEnd =
-        mode === 'insert' ? cursorIndex + newLen - 1 : mode === 'delete' ? null : selEnd;
-
-      // Push new state to undo history (includes adjusted features for correct undo)
-      editHistoryRef.current.push({
-        sequence: newSeq,
-        features: mergedFeatures,
-        primers: primers || EMPTY_ARRAY,
-        cursorIndex: postCursor,
-        selStart: postSelStart,
-        selEnd: postSelEnd,
-      });
-
-      // Apply the post-edit selection in the editor (replace keeps its range).
-      if (mode !== 'replace') {
-        setRestoreState({
-          version: ++undoVersionRef.current,
-          cursorIndex: postCursor,
-          selStart: postSelStart,
-          selEnd: postSelEnd,
-          selectionMode: postSelStart === null ? 'none' : 'text',
-          selectedPrimerIds: [],
-          isEnzymeSelection: false,
-          selectedEnzymeIds: [],
-          translationSel: null,
-        });
-      }
-
-      // Optimistic UI update
-      setSequence(newSeq);
-      setFeatures(mergedFeatures);
-      // Alignment models are anchored to template columns, so they have to be
-      // carried over with the edit too — otherwise the lanes (and the
-      // chromatogram riding on them) are drawn from the old model against the
-      // new sequence until the backend's recomputed models land.
-      setAlignments((prev) => adjustAlignmentsForEdit(prev, editStart, editEnd, oldLen, newLen));
-      setIsDirty(true);
-
-      // Send to backend for recomputation (enzymes, primer binding sites)
-      try {
-        const data = await updateSequence(newSeq, mergedFeatures);
-        if (operationGenRef.current !== gen) return;
-        if (data && !data.error) {
-          setSequence(data.sequence);
-          setFeatures(data.features || mergedFeatures); // backend recomputed CDS/mRNA translations
-          setEnzymes(data.enzymes || EMPTY_ARRAY);
-          setPrimers(data.primers || EMPTY_ARRAY);
-          setAlignments(data.alignments || EMPTY_ARRAY);
-          if (data.projects) onProjectsSync(data.projects);
-
-          // Import primers from clipboard annotations (DNA only)
-          if (annotations && annotations.primers && annotations.primers.length > 0 && isDna) {
-            const allNames = new Set([
-              ...(data.primers || []).map((p) => p.name),
-              ...(data.features || mergedFeatures).map((f) => f.name),
-            ]);
-            const primerImports = annotations.primers.map((ap) => {
-              let name = ap.name;
-              if (allNames.has(name)) {
-                let n = 2;
-                while (allNames.has(`${name} (${n})`)) n++;
-                name = `${name} (${n})`;
-              }
-              allNames.add(name);
-              return { name, type: ap.type, primerSeq: ap.primerSeq };
-            });
-            try {
-              const pData = await addPrimers(primerImports);
-              if (operationGenRef.current !== gen) return;
-              if (pData && pData.primers) {
-                setPrimers(pData.primers);
-                setIsDirty(true);
-              }
-            } catch (pe) {
-              console.error('import primers error:', pe);
-            }
-          }
-        } else {
-          console.error('update_sequence error:', data?.error || 'unknown');
-          // Re-fetch to recover from optimistic update
-          try {
-            const refresh = await getProject('all');
-            if (refresh && !refresh.error && refresh.sequence) {
-              setSequence(refresh.sequence);
-              setFeatures(refresh.features || EMPTY_ARRAY);
-              setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-              setPrimers(refresh.primers || EMPTY_ARRAY);
-              setAlignments(refresh.alignments || EMPTY_ARRAY);
-            }
-          } catch {
-            // recovery fetch failed; state left as-is
-          }
-        }
-      } catch (e) {
-        console.error('update_sequence exception:', e);
-      }
-    },
-    [sequence, editDialog, adjustAnnotations, features, primers, onProjectsSync, isDna],
-  );
-
   // --- Edit dialog cancelled ---
   const handleEditCancel = useCallback(() => {
     setEditDialog((prev) => ({ ...prev, open: false }));
   }, []);
-
-  // --- Undo ---
-  const handleUndo = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const gen = ++operationGenRef.current;
-    const snapshot = editHistoryRef.current.undo();
-    if (!snapshot) return;
-
-    // Restore cursor/selection in SequenceEditor (use ref for atomic version)
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: snapshot.cursorIndex,
-      selStart: snapshot.selStart,
-      selEnd: snapshot.selEnd,
-    });
-
-    // Send to backend for recomputation
-    try {
-      const data = await updateSequence(snapshot.sequence, snapshot.features, snapshot.primers);
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        setSequence(data.sequence);
-        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        // Backend response carries freshly recomputed binding sites
-        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        if (data.projects) onProjectsSync(data.projects);
-        // Accurate dirty check: undo to saved state = not dirty. A
-        // never-saved `untitled-*` project has no on-disk state to undo back
-        // to, so it stays dirty regardless.
-        setIsDirty(
-          projectId.startsWith('untitled-') || snapshot.sequence !== baselineSequenceRef.current,
-        );
-      } else {
-        // Re-fetch to recover
-        try {
-          const refresh = await getProject('all');
-          if (refresh && !refresh.error && refresh.sequence) {
-            setSequence(refresh.sequence);
-            setFeatures(refresh.features || EMPTY_ARRAY);
-            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-            setPrimers(refresh.primers || EMPTY_ARRAY);
-            setAlignments(refresh.alignments || EMPTY_ARRAY);
-          }
-        } catch {
-          // recovery fetch failed; state left as-is
-        }
-      }
-    } catch (e) {
-      console.error('undo error:', e);
-    }
-  }, [onProjectsSync, projectId]);
-
-  // --- Redo ---
-  const handleRedo = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const gen = ++operationGenRef.current;
-    const snapshot = editHistoryRef.current.redo();
-    if (!snapshot) return;
-
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: snapshot.cursorIndex,
-      selStart: snapshot.selStart,
-      selEnd: snapshot.selEnd,
-    });
-
-    try {
-      const data = await updateSequence(snapshot.sequence, snapshot.features, snapshot.primers);
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        setSequence(data.sequence);
-        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        if (data.projects) onProjectsSync(data.projects);
-        // Accurate dirty check: redo back to saved state = not dirty (a
-        // never-saved `untitled-*` project stays dirty regardless)
-        setIsDirty(
-          projectId.startsWith('untitled-') || snapshot.sequence !== baselineSequenceRef.current,
-        );
-      } else {
-        try {
-          const refresh = await getProject('all');
-          if (refresh && !refresh.error && refresh.sequence) {
-            setSequence(refresh.sequence);
-            setFeatures(refresh.features || EMPTY_ARRAY);
-            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-            setPrimers(refresh.primers || EMPTY_ARRAY);
-            setAlignments(refresh.alignments || EMPTY_ARRAY);
-          }
-        } catch {
-          // recovery fetch failed; state left as-is
-        }
-      }
-    } catch (e) {
-      console.error('redo error:', e);
-    }
-  }, [onProjectsSync, projectId]);
 
   // --- Save As (defined before Save because Save may reference it) ---
   const handleSaveAs = useCallback(async () => {
@@ -1858,118 +969,53 @@ export default function ProjectWorkspace({
         </>
       ) : null}
 
-      {isDna && (
-        <PrimerOverviewDialog
-          open={primerOverviewOpen}
-          onOpenChange={setPrimerOverviewOpen}
-          primers={primers}
-          alignmentCacheRef={alignmentCacheRef}
-          onEditPrimer={(p) => {
-            openPrimerEditorRef.current?.(p);
-          }}
-        />
-      )}
-
-      <DetectFeaturesDialog
-        open={detectFeaturesOpen}
-        onOpenChange={setDetectFeaturesOpen}
-        features={features}
-        onAddFeature={handleFeatureAdd}
-      />
-
-      {isDna && (
-        <MyPrimersDialog
-          open={myPrimersOpen}
-          onOpenChange={setMyPrimersOpen}
-          myPrimers={myPrimers}
-          currentPrimers={primers}
-          binding={myPrimerBinding}
-          onAddPrimer={handleAddMyPrimerToFile}
-          onAddAllBinding={handleAddAllBindingPrimers}
-          onDelete={handleDeleteMyPrimer}
-        />
-      )}
-
-      {isDna && (
-        <MyEnzymesDialog
-          open={myEnzymesOpen}
-          onOpenChange={setMyEnzymesOpen}
-          enzymes={myEnzymes}
-          onChange={handleMyEnzymesChange}
-        />
-      )}
-
-      {isDna && (
-        <EnzymeDatabaseDialog
-          open={enzymeDbOpen}
-          onOpenChange={setEnzymeDbOpen}
-          enzymeProvider={enzymeProvider}
-          onEnzymeProviderChange={onEnzymeProviderChange}
-          projectEnzymes={enzymes}
-          plasmidLength={sequence?.length ?? 0}
-        />
-      )}
-
-      {plugins
-        .filter(
-          (plugin) =>
-            !disabledPlugins.includes(plugin.id) &&
-            (isDna || !plugin.dnaOnly) &&
-            (moleculeType === 'rna' || !plugin.rnaOnly) &&
-            (moleculeType !== 'protein' || !plugin.notForProtein) &&
-            (!plugin.dialogVisible || plugin.dialogVisible({ projectId, moleculeType, isTauri })),
-        )
-        .map((plugin) => {
-          const DialogComp = plugin.dialog;
-          if (!DialogComp) return null;
-          return (
-            <DialogComp
-              key={plugin.id}
-              open={!!pluginDialogs[plugin.dialogKey]}
-              onOpenChange={(open) =>
-                setPluginDialogs((prev) => ({
-                  ...prev,
-                  [plugin.dialogKey]: open,
-                }))
-              }
-              projectId={projectId}
-              onOpenSnapshot={onOpenSnapshot}
-              sequence={sequence}
-              fileName={mapName}
-              alignments={alignments}
-              onAddAlignment={handleAddAlignment}
-              onRemoveAlignment={handleRemoveAlignment}
-              features={features}
-              onProjectChanged={refreshProject}
-              watermark={background === 'folding'}
-              onToggleWatermark={() =>
-                setEditorBackground(moleculeType, background === 'folding' ? 'none' : 'folding')
-              }
-            />
-          );
-        })}
-
-      {isDna && (
-        <AddAlignmentTextDialog
-          open={alignTextOpen}
-          onOpenChange={setAlignTextOpen}
-          onSubmit={handleAddAlignmentText}
-        />
-      )}
-
-      {/* --- Sequence Edit Dialog --- */}
-      <SequenceEditDialog
-        open={editDialog.open}
-        mode={editDialog.mode}
-        cursorIndex={editDialog.cursorIndex}
-        selStart={editDialog.selStart}
-        selEnd={editDialog.selEnd}
-        selectedText={editDialog.selectedText}
-        initialText={editDialog.initialText}
-        onConfirm={handleEditConfirm}
-        onCancel={handleEditCancel}
+      <WorkspaceDialogs
+        projectId={projectId}
         moleculeType={moleculeType}
-        clipboardMeta={editDialog.clipboardMeta}
+        isDna={isDna}
+        sequence={sequence}
+        features={features}
+        enzymes={enzymes}
+        alignments={alignments}
+        primers={primers}
+        myPrimers={myPrimers}
+        myEnzymes={myEnzymes}
+        enzymeProvider={enzymeProvider}
+        onEnzymeProviderChange={onEnzymeProviderChange}
+        disabledPlugins={disabledPlugins}
+        onOpenSnapshot={onOpenSnapshot}
+        mapName={mapName}
+        background={background}
+        setEditorBackground={setEditorBackground}
+        alignmentCacheRef={alignmentCacheRef}
+        openPrimerEditorRef={openPrimerEditorRef}
+        primerOverviewOpen={primerOverviewOpen}
+        setPrimerOverviewOpen={setPrimerOverviewOpen}
+        detectFeaturesOpen={detectFeaturesOpen}
+        setDetectFeaturesOpen={setDetectFeaturesOpen}
+        myPrimersOpen={myPrimersOpen}
+        setMyPrimersOpen={setMyPrimersOpen}
+        myEnzymesOpen={myEnzymesOpen}
+        setMyEnzymesOpen={setMyEnzymesOpen}
+        enzymeDbOpen={enzymeDbOpen}
+        setEnzymeDbOpen={setEnzymeDbOpen}
+        myPrimerBinding={myPrimerBinding}
+        pluginDialogs={pluginDialogs}
+        setPluginDialogs={setPluginDialogs}
+        alignTextOpen={alignTextOpen}
+        setAlignTextOpen={setAlignTextOpen}
+        editDialog={editDialog}
+        handleEditConfirm={handleEditConfirm}
+        handleEditCancel={handleEditCancel}
+        handleFeatureAdd={handleFeatureAdd}
+        handleAddMyPrimerToFile={handleAddMyPrimerToFile}
+        handleAddAllBindingPrimers={handleAddAllBindingPrimers}
+        handleDeleteMyPrimer={handleDeleteMyPrimer}
+        handleMyEnzymesChange={handleMyEnzymesChange}
+        handleAddAlignment={handleAddAlignment}
+        handleAddAlignmentText={handleAddAlignmentText}
+        handleRemoveAlignment={handleRemoveAlignment}
+        refreshProject={refreshProject}
       />
     </div>
   );
