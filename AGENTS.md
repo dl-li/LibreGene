@@ -45,18 +45,26 @@ push 到 master 时，CI（`.github/workflows/build.yml` 的 `release` job）检
 ```
 LibreGene/
 ├── src/                        # 前端 React 源码
-│   ├── App.jsx                 # 顶层状态管理 + 路由；SequenceEditor.jsx 为核心 SVG 编辑器
+│   ├── App.jsx                 # 顶层状态管理 + 路由（设置/项目/事件已拆到 src/hooks/）
+│   ├── ProjectWorkspace.jsx    # 项目工作区（数据/撤销/编辑对话框已拆到 src/workspace/）
+│   ├── SequenceEditor.jsx      # 核心 SVG 编辑器：选中态 + 事件 + 组装（渲染层/数据派生已拆到 src/editor/）
 │   ├── editorConstants.js      # 共享常量/工具（cw, getX, measureWidth, splitRange, location 字符串 helper）
 │   ├── api.js / tauriApi.js    # HTTP/WS 客户端 / Tauri IPC 客户端
 │   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
 │   ├── chromatogram.js         # ab1 色谱：链取向（rev-comp 交换通道）、SVG 路径插值、比对列→read 序号映射
-│   ├── EditorNavMenu.jsx       # 底部导航菜单；*Dialog.jsx 为各弹窗
+│   ├── dialogs/                # 全部弹窗组件（*Dialog.jsx）
+│   ├── components/             # 共享组件（TitleBar/FeatureScrollbar/ScrollingLabel/ErrorBoundary/ContextMenuHost/SettingsPage/AppDialogs）+ ui/（shadcn）
+│   ├── editor/                 # SequenceEditor 拆出：alignmentLayout/translation/colors/seqUtils 纯函数，useStreamLayout 等数据 hooks，WarningBadge 等小组件，layers/（车道渲染函数与只读渲染层组件）
+│   ├── workspace/              # ProjectWorkspace 拆出：useProjectData/useUndoHistory/useProjectMutations/useEditDialog/WorkspaceDialogs
+│   ├── hooks/                  # App 拆出：useSettings/useProjects/useTabDrag/useTauriEvents
 │   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/dotplot/codonOptimization/blast/gcContent/snapgeneHistory
-│   └── components/ui/          # shadcn UI 组件
-├── backend/libregene-core/src/ # Rust 核心库（models/project、align+align/blastn/、orf、search、codon、digest、enzyme/、primer/、file_io/）
+│   └── __tests__/              # vitest 单元测试（npm test）
+├── backend/libregene-core/src/ # Rust 核心库（models/project、align+align/blastn/、orf、search、codon、digest/、enzyme/、primer/、file_io/）
 └── src-tauri/src/
-    ├── lib.rs                  # Tauri commands + AppState + 共享 do_* 内核 + 系统托盘
-    └── mcp.rs                  # 嵌入式 MCP server（工具 + 启停控制）
+    ├── lib.rs                  # crate root：mod 声明 + re-export 门面 + run()
+    ├── state.rs / payload.rs / kernels.rs / tray.rs  # AppState+路径校验 / 项目载荷与广播 / 共享 do_* 内核 / 系统托盘
+    ├── commands/               # #[tauri::command] 按域拆分（projects/features/primers/alignments/seqedit/misc）
+    └── mcp/                    # 嵌入式 MCP server：mod.rs（结构 + 单一 tool_router + 18 个薄委托）、types/support/auth/server、tools/（view/project/edit/primer/align/convert）、tests/
 ```
 
 ## 编码准则
@@ -102,7 +110,7 @@ LibreGene/
 
 ## 仍有改进空间（非 Bug）
 
-- `SequenceEditor.jsx` ~5200 行，需拆分组件
+- SequenceEditor 后续深化：selection 状态族（8 个状态 + 拖拽 refs）集中成 useReducer/context、全局键盘/鼠标事件抽 hook、`src/editor/layers/` 的 ctx 渲染函数升级为带显式 props 的真子组件
 - SVG 容器 `contain: 'layout style'` 可能影响固定定位元素
 - `list_projects` JSON 构建可用序列化替代 `json!` 宏
 
@@ -130,19 +138,19 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 
 ## MCP 支持
 
-嵌入式 MCP server（`src-tauri/src/mcp.rs`）让外部 LLM Agent 像真实用户一样操作应用。
+嵌入式 MCP server（`src-tauri/src/mcp/`）让外部 LLM Agent 像真实用户一样操作应用。
 
 - **架构**：进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState` 的 `Arc<RwLock<ProjectManager>>`。所有 mutation 工具走同一套 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径，UI 实时更新；Tauri command 只是薄包装）
 - **启停/入口**：默认 `enabled=true, port=8766`，配置存 localStorage `mcpConfig`；侧边栏 "MCP Server" 打开 `McpGuideDialog.jsx`（开关/端口/令牌/自动生成的 Agent 配置提示词）。关主窗口只是隐藏，进程与 MCP 继续跑；托盘 Quit 遇未保存改动先经前端确认再走 `force_quit`
 - **鉴权**：每请求需 `Authorization: Bearer <token>` 且 `Host` 严格等于 `127.0.0.1:<port>`（防 DNS rebinding）；令牌存 `<app_config_dir>/mcp_auth_token`；文件路径经 `validate_user_path` 校验（拒绝 `..` + 扩展名白名单）
 - **Agent 标签页（强制隔离）**：MCP `open_project` = 加载 + 绑定为**主窗口侧边栏 Agent 标签**（`AppState.agent_tabs`，默认 locked，不开窗口）。已绑定则复用+重锁；已加载未绑定（用户项目）则拒绝，指引 Agent 用 bash `cp` 复制副本再打开。mutation 工具对未绑定项目报错；任何工具调用自动重锁标签（统一入口 `resolve_project_id`/`resolve_project`/`resolve_project_light`，后者 clone 时置空 enzymes 减负）；解锁走前端 `set_agent_tab_locked`；项目列表每条带 `agentLocked: bool|null`
-- **工具**：18 个——`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`convert_sequence`。`project_id` 必填（无 active 回退）；mutation 工具统一返回 `{ok, message, projectId, regionView?}`。**所有项目相关工具的响应（含 list_projects 每条目与 convert_sequence 每项）都带 `sequenceHash`/`revCompHash`**：生物学序列的 7 位 hex FNV-1a 哈希（只哈希大写字母，大小写/空白不敏感；revCompHash 为反向互补序列的哈希，protein 为 null），跨调用对比即可发现序列是否变化，正反向两个文件共享同一对哈希。digest 文本头部带同样的 `SEQHASH:` 行（`backend/libregene-core/src/utils.rs::orientation_hashes` / `digest.rs::project_digest`）。**各工具的参数与行为细节以 `mcp.rs` 内工具描述为准，不在本文件重复**
+- **工具**：18 个——`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`convert_sequence`。`project_id` 必填（无 active 回退）；mutation 工具统一返回 `{ok, message, projectId, regionView?}`。**所有项目相关工具的响应（含 list_projects 每条目与 convert_sequence 每项）都带 `sequenceHash`/`revCompHash`**：生物学序列的 7 位 hex FNV-1a 哈希（只哈希大写字母，大小写/空白不敏感；revCompHash 为反向互补序列的哈希，protein 为 null），跨调用对比即可发现序列是否变化，正反向两个文件共享同一对哈希。digest 文本头部带同样的 `SEQHASH:` 行（`backend/libregene-core/src/utils.rs::orientation_hashes` / `digest.rs::project_digest`）。**各工具的参数与行为细节以 `mcp/mod.rs` 内工具描述为准，不在本文件重复**
 - **文件优先 I/O**：工具描述统一引导 Agent 用文件传序列（`path`/`replacement_path`/`input_path`/`output_path`），纯文本只留给短输入（引物、点突变、短插入）；改描述时保持此口径一致
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/错误体、Agent 标签绑定/门控/重锁、各工具正反例与 digest 渲染
 
 ### 功能 MCP 适配清单
 
-**新增/修改功能时必须更新本清单**：标注「已适配」（给工具名）或「未适配」（记原因）。已适配工具的参数语义见 `mcp.rs` 工具描述。
+**新增/修改功能时必须更新本清单**：标注「已适配」（给工具名）或「未适配」（记原因）。已适配工具的参数语义见 `mcp/mod.rs` 工具描述。
 
 已适配（功能 → 工具）：
 
@@ -169,7 +177,7 @@ activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, forc
 - **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
 - **SnapGene 历史快照**（插件 `src/plugins/snapgeneHistory/`，Edit 菜单 History 项（禁用插件时隐藏）→ `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见（可用性谓词 `dialogVisible`）；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
-- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失（比对缺失列）/分段跳跃/环状 join wrap 处曲线截断跳跃（`buildColumnAnchors` 在锚点上打 `brk` 结构断点、`buildTracePath` 据此断开，与显示中的 dash 位置一一对应；归并块把某个碱基拉到前一个碱基左侧时也断开，避免倒画），read 中段/接缝 insertion 碱基与峰占满独立槽位列（槽在锚列左侧，插入碱基用普通灰字 + 底色高亮（`BASE_HILITE_BG`，与 mismatch/read 缺失同一底色 `#fecaca`/0.6，只加在 read 的插入碱基上，模板行对应位置是灰色 `-`）渲染；模板行同位渲染灰色 `-` 占位，插入两侧的匹配碱基不做额外标红），**所有插入（含首尾 junk）一律展开槽位、无圆点/悬停弹窗**，**每个插入碱基各占自己锚点左侧的一格，不做跨锚点归并**（归并会把某条 read 的插入碱基挪到它匹配列之前、打乱该 read 自身顺序，并在共享网格里无法同时保持「逐位对齐」；`alignmentInsertUnion` 只按锚点取各比对最大宽度）；宽度 ≤ `INSERT_DASH_HIDE_MAX`（5）的插入**不在模板行画 `-` 占位**（格子仍在、read 碱基照常按序渲染并带底色），以免模板行出现零散小 dash 片段。色谱锚点**按 read 顺序**绘制（不按 x 排序——反向链在屏幕上是从右往左，按 x 排序会把整条曲线倒过来）、**按 `buildColumnAnchors` 打的 `brk` 结构断点断开**（该锚点的模板列不是上一个命中列之后一列：缺失列/分区跳跃/跨原点，正对显示里的 dash 位置），且**只在相邻碱基之间插值样本**，保证每个峰落在自己的碱基格上，`buildStreamLayout`（`src/SequenceEditor.jsx`）把模板列与槽位列拼成一条可视单元流、每行恰好 `baseCpl` 个单元：`rowStarts`/`rowCounts`（行内模板列数与起止，宽槽位块跨行时中间行 `rowCounts===0`）、`streamOf`/`rowOf`/`colOfAbs`/`absFromStream`，helper `colVis`/`colFromVis`/`colRuns`/`sp` 统一所有轨道映射，行宽恒定不再横向溢出，match/mismatch 保持连续，参考 GenePad）：纯前端渲染。**BlastN 的 full-length 快速路径必须返回最优解**：带状 Gotoh 的 trace 打包「胜出状态 + ix/iy 是否延伸」两个位、回溯按状态机走（只存胜出状态会把长 indel 拆成多段小 gap），旋转候选要覆盖整条模板取样（只在几处取样时，read 里带 indel 会让探针全部落在漂移区、给出差一个 indel 长度的偏移）；`tests/full_length_path_test.rs` 用 `pVA-MCS.dna` + `pVA-read-1.ab1` 守护：干净的 30bp 插入必须是 1 段、编辑模板后 read 的插入必须是 1 段且落在编辑点、不得出现 <5nt 的模板小段。**模型不变量**：比对结果的段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels` 把每个 indel 滑到等效位置的最左端——同聚/串联重复里 gap 放哪得分都一样、DP 的 tie-breaking 随意挑一个，会让两侧本可一一对应的序列错开显示；只做得分中性的等效滑动，不改错配数、插入总长与 read 顺序。`anchor_loose_ends` 在两种引擎的出口把两端不足以为 flank 的碱基锚成插入，否则 5' 端丢一段会让该 read 此后每个峰整体平移；前端 `buildColumnAnchors` 还会把走过得到的串在 `seq` 里定位、按其真实下标编号，兼容旧存盘数据）（前端就是这样顺序给 read 碱基编号 `q`、再用 `q` 索引色谱峰；任何丢失或换序都会让峰图整体错位）。同一模板列最多一个插入条目（后端 `push_insertion` 合并同锚点、前端 `insertionBases` 按列去重，否则渲染重叠且峰图编号少算碱基）；后端 `tests/align_model_test.rs` 用合成环状模板对两种引擎守护该不变量；环状模板的旋转快速路径（`full_length::columns_in_read_order`）曾返回按模板顺序排列的列，导致 read 被旋转显示 + 峰图错位，已改为按 read 顺序输出、模板坐标在原点处 wrap 成两段。反向链 read 的峰图由 `orientChromatogram(chrom, al.strand)` 做 rev-comp（通道 A↔T、C↔G 互换 + 反向 + 峰位镜像）后再显示，与 `Alignment.seq`（存的就是定向后的 read）一致。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返——**相对 .gbk 所在目录存储**（无法 canonicalize 时回退绝对路径；解析端把相对路径对 .gbk 目录做词法归一化还原为绝对路径，兼容旧文件的绝对值）。**模板序列编辑后所有比对自动重算**（`align::realign_project`，默认引擎，随 `recompute_after_sequence_change` 走 spawn_blocking + 序列 CAS、按 id 合并回写；read 不再可比对的保留旧快照。**重算必须用原始取向的 read**：存盘的 `Alignment.seq` 已是显示取向，直接回喂会让引擎判成正链、把 `strand` 从 `-` 翻成 `+`，而前端正是靠 `strand` 决定峰图要不要 rev-comp —— 反向 read 的峰会整条镜像，所以由 strand 反推 raw read 再比对）；**编辑时前端本地搬移比对模型**（`src/alignmentEdit.js` 的 `adjustAlignmentsForEdit`，与 `adjustAnnotations` 同口径：编辑区之后的列平移 delta、被删列的 read 碱基与落在区间内的插入按 read 顺序合并成「编辑点的一个插入」、新增列在跨编辑点的段内补 `-`）——否则重算返回前渲染的是「新序列 + 旧模型」，画面会花一下；后端结果到达后覆盖它。**存量比对只在序列被编辑时重算**（改引擎设置、或升级引擎代码都不会回溯刷新已存盘的模型）
+- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失（比对缺失列）/分段跳跃/环状 join wrap 处曲线截断跳跃（`buildColumnAnchors` 在锚点上打 `brk` 结构断点、`buildTracePath` 据此断开，与显示中的 dash 位置一一对应；归并块把某个碱基拉到前一个碱基左侧时也断开，避免倒画），read 中段/接缝 insertion 碱基与峰占满独立槽位列（槽在锚列左侧，插入碱基用普通灰字 + 底色高亮（`BASE_HILITE_BG`，与 mismatch/read 缺失同一底色 `#fecaca`/0.6，只加在 read 的插入碱基上，模板行对应位置是灰色 `-`）渲染；模板行同位渲染灰色 `-` 占位，插入两侧的匹配碱基不做额外标红），**所有插入（含首尾 junk）一律展开槽位、无圆点/悬停弹窗**，**每个插入碱基各占自己锚点左侧的一格，不做跨锚点归并**（归并会把某条 read 的插入碱基挪到它匹配列之前、打乱该 read 自身顺序，并在共享网格里无法同时保持「逐位对齐」；`alignmentInsertUnion` 只按锚点取各比对最大宽度）；宽度 ≤ `INSERT_DASH_HIDE_MAX`（5）的插入**不在模板行画 `-` 占位**（格子仍在、read 碱基照常按序渲染并带底色），以免模板行出现零散小 dash 片段。色谱锚点**按 read 顺序**绘制（不按 x 排序——反向链在屏幕上是从右往左，按 x 排序会把整条曲线倒过来）、**按 `buildColumnAnchors` 打的 `brk` 结构断点断开**（该锚点的模板列不是上一个命中列之后一列：缺失列/分区跳跃/跨原点，正对显示里的 dash 位置），且**只在相邻碱基之间插值样本**，保证每个峰落在自己的碱基格上，`buildStreamLayout`（`src/editor/alignmentLayout.js`）把模板列与槽位列拼成一条可视单元流、每行恰好 `baseCpl` 个单元：`rowStarts`/`rowCounts`（行内模板列数与起止，宽槽位块跨行时中间行 `rowCounts===0`）、`streamOf`/`rowOf`/`colOfAbs`/`absFromStream`，helper `colVis`/`colFromVis`/`colRuns`/`sp` 统一所有轨道映射，行宽恒定不再横向溢出，match/mismatch 保持连续，参考 GenePad）：纯前端渲染。**BlastN 的 full-length 快速路径必须返回最优解**：带状 Gotoh 的 trace 打包「胜出状态 + ix/iy 是否延伸」两个位、回溯按状态机走（只存胜出状态会把长 indel 拆成多段小 gap），旋转候选要覆盖整条模板取样（只在几处取样时，read 里带 indel 会让探针全部落在漂移区、给出差一个 indel 长度的偏移）；`tests/full_length_path_test.rs` 用 `pVA-MCS.dna` + `pVA-read-1.ab1` 守护：干净的 30bp 插入必须是 1 段、编辑模板后 read 的插入必须是 1 段且落在编辑点、不得出现 <5nt 的模板小段。**模型不变量**：比对结果的段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels` 把每个 indel 滑到等效位置的最左端——同聚/串联重复里 gap 放哪得分都一样、DP 的 tie-breaking 随意挑一个，会让两侧本可一一对应的序列错开显示；只做得分中性的等效滑动，不改错配数、插入总长与 read 顺序。`anchor_loose_ends` 在两种引擎的出口把两端不足以为 flank 的碱基锚成插入，否则 5' 端丢一段会让该 read 此后每个峰整体平移；前端 `buildColumnAnchors` 还会把走过得到的串在 `seq` 里定位、按其真实下标编号，兼容旧存盘数据）（前端就是这样顺序给 read 碱基编号 `q`、再用 `q` 索引色谱峰；任何丢失或换序都会让峰图整体错位）。同一模板列最多一个插入条目（后端 `push_insertion` 合并同锚点、前端 `insertionBases` 按列去重，否则渲染重叠且峰图编号少算碱基）；后端 `tests/align_model_test.rs` 用合成环状模板对两种引擎守护该不变量；环状模板的旋转快速路径（`full_length::columns_in_read_order`）曾返回按模板顺序排列的列，导致 read 被旋转显示 + 峰图错位，已改为按 read 顺序输出、模板坐标在原点处 wrap 成两段。反向链 read 的峰图由 `orientChromatogram(chrom, al.strand)` 做 rev-comp（通道 A↔T、C↔G 互换 + 反向 + 峰位镜像）后再显示，与 `Alignment.seq`（存的就是定向后的 read）一致。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返——**相对 .gbk 所在目录存储**（无法 canonicalize 时回退绝对路径；解析端把相对路径对 .gbk 目录做词法归一化还原为绝对路径，兼容旧文件的绝对值）。**模板序列编辑后所有比对自动重算**（`align::realign_project`，默认引擎，随 `recompute_after_sequence_change` 走 spawn_blocking + 序列 CAS、按 id 合并回写；read 不再可比对的保留旧快照。**重算必须用原始取向的 read**：存盘的 `Alignment.seq` 已是显示取向，直接回喂会让引擎判成正链、把 `strand` 从 `-` 翻成 `+`，而前端正是靠 `strand` 决定峰图要不要 rev-comp —— 反向 read 的峰会整条镜像，所以由 strand 反推 raw read 再比对）；**编辑时前端本地搬移比对模型**（`src/alignmentEdit.js` 的 `adjustAlignmentsForEdit`，与 `adjustAnnotations` 同口径：编辑区之后的列平移 delta、被删列的 read 碱基与落在区间内的插入按 read 顺序合并成「编辑点的一个插入」、新增列在跨编辑点的段内补 `-`）——否则重算返回前渲染的是「新序列 + 旧模型」，画面会花一下；后端结果到达后覆盖它。**存量比对只在序列被编辑时重算**（改引擎设置、或升级引擎代码都不会回溯刷新已存盘的模型）
 
 ## 核心模型约定
 
