@@ -3,27 +3,14 @@ import {
   cw,
   startX,
   bgColor,
-  monoFont,
-  getX,
-  measureWidth,
-  featLabelW,
   sliceRange,
   featureSelRange,
   rangeLocString1based,
   enzymeActiveBlue,
   amplimerGreen,
 } from './editorConstants';
-import {
-  BASE_HILITE_BG,
-  INSERT_DASH_HIDE_MAX,
-  alignmentGapSegments,
-  insertionBases,
-} from './editor/alignmentLayout';
-import {
-  matchedSeqOf,
-  reverseComplement,
-  truncatedLabel,
-} from './editor/seqUtils';
+import { alignmentGapSegments, insertionBases } from './editor/alignmentLayout';
+import { matchedSeqOf, reverseComplement, truncatedLabel } from './editor/seqUtils';
 import { buildCDSData, isTranslatable } from './editor/translation';
 import useStreamLayout from './editor/useStreamLayout';
 import useEnrichedPrimers from './editor/useEnrichedPrimers';
@@ -38,14 +25,26 @@ import {
   renderEnzymeOverlay,
   renderTooltips,
 } from './editor/layers/enzymes.jsx';
-import { plugins } from './plugins';
+import SeqBgLayer from './editor/layers/SeqBgLayer';
+import ChromatogramLayers, { CHROM_TRACK_H, CHROM_GAP } from './editor/layers/ChromatogramLayers';
+import AlignmentLayers from './editor/layers/AlignmentLayers';
+import {
+  CursorLayer,
+  DesignPickedLayer,
+  SelectionLayer,
+  SeqSelLayer,
+  TranslationSelectionLayer,
+  AmplimerRegionLayer,
+  SelectionInfoLayer,
+  HoverIndexLayer,
+} from './editor/layers/selectionLayers';
+import { trackPlugins, renderTrackLanes } from './editor/layers/trackLanes';
 import FeatureInfoDialog from './FeatureInfoDialog';
 import PrimerAlignmentDialog from './PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
 import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
 import { DESIGN_MODES } from './plugins/primerDesign';
 import { computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
-import { TRACE_CHANNELS, traceRangeMax, buildTracePath, buildColumnAnchors } from './chromatogram';
 import { getRelatedEnzymes } from './enzymeRelated';
 import EnzymeDetailDialog from './EnzymeDetailDialog';
 import { loadProviderData, buildProviderIndex } from './enzymeProviders';
@@ -68,7 +67,6 @@ import {
   CopyPlus,
   CopyMinus,
   CopyX,
-  EyeOff,
   Globe,
   Image,
   LockOpen,
@@ -81,16 +79,6 @@ import {
 const ALIGN_FEAT_GAP = 10;
 
 const ROW_BUF = 8; // rows above/below viewport to pre-render
-
-// Chromatogram (ab1 trace) band geometry: band height and the gap between
-// stacked bands / to the next block below the sequence.
-const CHROM_TRACK_H = 46;
-const CHROM_GAP = 4;
-
-// Registry-order list of plugins contributing an in-editor track lane
-// (src/plugins/*/index.js `track` hook, e.g. the GC-content plugin). Module
-// constant so the lane hooks below always run in a stable order.
-const trackPlugins = plugins.filter((p) => p.track);
 
 const SequenceEditor = React.memo(function SequenceEditor({
   sequence,
@@ -246,7 +234,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [openFeatureEditorRef]);
   const [hoveredPrimer, setHoveredPrimer] = useState(null);
-  const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
 
   const [hoveredEnzyme, setHoveredEnzyme] = useState(null);
   const { scrollY, setScrollY, viewportH, liveScrollTopRef, numRowsRef, avgRowPitchRef } =
@@ -689,7 +676,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     const mainChromH = chromatogram ? CHROM_TRACK_H + CHROM_GAP : 0;
     // Extra below-sequence height contributed by track-plugin lanes (GC
     // content) + chromatogram bands.
-    const chromBelow = chromCounts.map((n) => trackH + mainChromH + n * (CHROM_TRACK_H + CHROM_GAP));
+    const chromBelow = chromCounts.map(
+      (n) => trackH + mainChromH + n * (CHROM_TRACK_H + CHROM_GAP),
+    );
     return { perRow, counts, chromPerRow, chromCounts, trackH, mainChromH, chromBelow };
   }, [
     alignmentTracks,
@@ -2209,506 +2198,46 @@ const SequenceEditor = React.memo(function SequenceEditor({
     ],
   );
 
-  const renderedAlignments = useMemo(() => {
-    if (!alignmentTracks.length) return null;
-    const vs = Math.max(0, visibleRows.start - ROW_BUF);
-    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
-    return alignmentTracks.map((al, ti) => {
-      const laneY = (row) =>
-        getSeqY(row) +
-        lp.featBaseOffset +
-        alignLaneInfo.trackH +
-        alignLaneInfo.mainChromH +
-        (alignLaneInfo.perRow[row]?.get(ti) ?? 0) * lp.featTrackHeight +
-        8;
-      const rows = [];
-      const segs = [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)];
-      // Segment pieces are keyed by position plus a running index: a model
-      // whose segments overlap (older engine output) would otherwise repeat a
-      // key, and React would drop or duplicate the lane content.
-      let piece = 0;
-      for (const seg of segs) {
-        for (const v of sp(seg.start, seg.end)) {
-          if (v.row < vs || v.row > ve) continue;
-          const pieceKey = `${v.row}-${v.colStart}-${piece++}`;
-          const y = laneY(v.row);
-          const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
-          const mismatches = [];
-          chars.forEach((c, i) => {
-            const col = v.colStart + i;
-            const gIdx = rowStarts[v.row] + col;
-            // Insertion-adjacent columns are not flagged: inserted cells mark
-            // themselves, and a red wash behind the flanking matches just
-            // muddies the lane. Genuine mismatches and read gaps keep it.
-            if (c === '-' || c.toUpperCase() !== (sequence[gIdx] || '').toUpperCase()) {
-              mismatches.push(col);
-            }
-          });
-          rows.push(
-            <g key={pieceKey}>
-              {mismatches.map((col) => (
-                <rect
-                  key={col}
-                  x={getX(colVis(col, v.row))}
-                  y={y - 11}
-                  width={cw}
-                  height={14}
-                  fill={BASE_HILITE_BG}
-                  fillOpacity={0.6}
-                  style={{ pointerEvents: 'none' }}
-                />
-              ))}
-              <text
-                y={y}
-                fontFamily="Cascadia Code"
-                fontSize="13px"
-                fontStyle="italic"
-                fontWeight="350"
-                style={{ userSelect: 'none' }}
-              >
-                {chars.map((c, i) => {
-                  const col = v.colStart + i;
-                  return (
-                    <tspan
-                      key={col}
-                      x={getX(colVis(col, v.row)) + cw / 2}
-                      textAnchor="middle"
-                      fill="#1f2937"
-                      fillOpacity={0.55}
-                    >
-                      {c}
-                    </tspan>
-                  );
-                })}
-              </text>
-            </g>,
-          );
-        }
-      }
-      // Inserted read bases (internal junctions and unalignable flank junk
-      // alike) expand into their block's reserved cells: a merged block of
-      // width w anchored at `a` occupies stream [S(a)-w, S(a)-1] left of the
-      // anchor column, and each insertion renders in its own sub-slot at
-      // `offset`. A wide block spans rows, so every base lands on its own row.
-      // Each base sits on a pink plate — the template row shows '-' there, so
-      // the plate marks the read bases that have no template column.
-      const insByRow = new Map();
-      for (const [pos, insBases] of insertionBases(al)) {
-        const slotN = insReserve.get(pos) || 0;
-        const cell0 = streamOf(pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, insBases.length); k++) {
-          const si = cell0 + k;
-          const row = Math.floor(si / visCpl);
-          if (row < vs || row > ve) continue;
-          if (!insByRow.has(row)) insByRow.set(row, { bg: [], bases: [] });
-          const bucket = insByRow.get(row);
-          const x = getX(si % visCpl);
-          bucket.bg.push(
-            <rect
-              key={`ins-bg-${pos}-${k}`}
-              x={x}
-              y={laneY(row) - 11}
-              width={cw}
-              height={14}
-              fill={BASE_HILITE_BG}
-              fillOpacity={0.6}
-              style={{ pointerEvents: 'none' }}
-            />,
-          );
-          bucket.bases.push(
-            <tspan
-              key={`${pos}-${k}`}
-              className="ins-base"
-              x={x + cw / 2}
-              textAnchor="middle"
-              fill="#1f2937"
-              fillOpacity={0.55}
-              style={{ userSelect: 'none', pointerEvents: 'none' }}
-            >
-              {insBases[k]}
-            </tspan>,
-          );
-        }
-      }
-      for (const [row, { bg, bases }] of insByRow) {
-        rows.push(
-          <g key={`ins-${row}`}>
-            {bg}
-            <text
-              y={laneY(row)}
-              fontFamily="Cascadia Code"
-              fontSize="13px"
-              fontStyle="italic"
-              fontWeight="350"
-              style={{ userSelect: 'none' }}
-            >
-              {bases}
-            </text>
-          </g>,
-        );
-      }
-      return <g key={al.id}>{rows}</g>;
-    });
-  }, [
-    alignmentTracks,
-    visibleRows,
-    numRows,
-    sp,
-    getSeqY,
-    lp,
-    rowStarts,
-    visCpl,
-    streamOf,
-    colVis,
-    insReserve,
-    sequence,
-    alignLaneInfo,
-    cleanSeq.length,
-  ]);
-
-  const renderedAlignmentLabels = useMemo(() => {
-    if (!alignmentTracks.length) return null;
-    const vs = Math.max(0, visibleRows.start - ROW_BUF);
-    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
-    const textProps = {
-      fontSize: '12px',
-      fontFamily: 'TeX Gyre Heros',
-      fontWeight: '600',
-      fontStyle: 'italic',
-      fill: '#78716C',
-    };
-    // Long names are middle-truncated to LABEL_MAX_W; hovering scrolls the
-    // full name via a CSS marquee (distance = overflow width).
-    const LABEL_MAX_W = 140;
-    const middleTruncate = (name) => {
-      if (featLabelW(name) <= LABEL_MAX_W) return name;
-      let keep = name.length - 1;
-      let s = name;
-      while (keep > 4) {
-        const l = Math.ceil(keep / 2);
-        const r = Math.floor(keep / 2);
-        s = `${name.slice(0, l)}…${name.slice(name.length - r)}`;
-        if (featLabelW(s) <= LABEL_MAX_W) return s;
-        keep--;
-      }
-      return s;
-    };
-    return alignmentTracks.map((al, ti) => {
-      const rowLabels = {};
-      // Real segments and gap-dash placeholder runs both mark a row as part
-      // of this track, so gap-only rows get the right-margin label too.
-      for (const seg of [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)]) {
-        for (const v of sp(seg.start, seg.end)) {
-          if (v.row < vs || v.row > ve) continue;
-          if (!rowLabels[v.row] || v.colEnd > rowLabels[v.row].colEnd) rowLabels[v.row] = v;
-        }
-      }
-      const short = middleTruncate(al.name);
-      const truncated = short !== al.name;
-      // Right edge (exclusive visual column) of this read's content per row:
-      // the last aligned column plus every insertion cell rendered in that
-      // row — including the cells of an insertion anchored at the first
-      // column of the NEXT row, which occupy the tail of this one.
-      const rowRight = {};
-      for (const v of Object.values(rowLabels)) {
-        rowRight[v.row] = colVis(v.colEnd, v.row) + 1;
-      }
-      for (const [pos, insBases] of insertionBases(al)) {
-        const slotN = insReserve.get(pos) || 0;
-        const cell0 = streamOf(pos) - slotN;
-        for (let k = 0; k < Math.min(slotN, insBases.length); k++) {
-          const si = cell0 + k;
-          const row = Math.floor(si / visCpl);
-          if (rowRight[row] === undefined) continue;
-          rowRight[row] = Math.max(rowRight[row], (si % visCpl) + 1);
-        }
-      }
-      return (
-        <g key={al.id}>
-          {Object.values(rowLabels).map((v) => {
-            const sy = getSeqY(v.row);
-            const lane = alignLaneInfo.perRow[v.row]?.get(ti) ?? 0;
-            // Labels sit a few px above the lane baseline to visually align
-            // with the alignment text track.
-            const y =
-              sy +
-              lp.featBaseOffset +
-              alignLaneInfo.trackH +
-              alignLaneInfo.mainChromH +
-              lane * lp.featTrackHeight +
-              6.5;
-            const hKey = `${al.id}:${v.row}`;
-            const labelHover = hoverAlignLabel === hKey;
-            const hovered = truncated && labelHover;
-            // Hug the right edge of THIS row's read content — rows with fewer
-            // slots have nearer labels; they don't share a common column.
-            const labelX = getX(rowRight[v.row]) + 8;
-            const clipId = `align-label-clip-${al.id}-${v.row}`;
-            const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
-            // Trace toggle: labels of alignments whose .ab1 resolved are
-            // underlined and clickable; the expanded track's label is inverted
-            // (rect in label color, text in bgColor).
-            const traceable = !!alignmentTraceAvailable?.has(al.id);
-            const expanded = al.id === expandedChromAlnId;
-            const labelText = hovered ? al.name : short;
-            const labelW = Math.min(featLabelW(labelText), LABEL_MAX_W);
-            const textEl = (
-              <text
-                x={labelX}
-                y={y}
-                textAnchor="start"
-                {...textProps}
-                fill={expanded ? bgColor : textProps.fill}
-                style={{
-                  userSelect: 'none',
-                  pointerEvents: 'auto',
-                  textDecoration: traceable ? 'underline' : undefined,
-                  ...(hovered
-                    ? {
-                        '--align-label-scroll': `-${scrollW}px`,
-                        animation: 'alignLabelScroll 2.5s linear infinite alternate',
-                      }
-                    : {}),
-                }}
-                onClick={
-                  traceable && onToggleAlignmentChrom
-                    ? () => onToggleAlignmentChrom(al.id)
-                    : undefined
-                }
-              >
-                {labelText}
-              </text>
-            );
-            return (
-              <g
-                key={v.row}
-                style={{ cursor: traceable ? 'pointer' : 'default' }}
-                onMouseEnter={() => setHoverAlignLabel(hKey)}
-                onMouseLeave={() => setHoverAlignLabel(null)}
-              >
-                {truncated && (
-                  <defs>
-                    <clipPath id={clipId}>
-                      <rect x={labelX} y={y - 12} width={LABEL_MAX_W} height={16} />
-                    </clipPath>
-                  </defs>
-                )}
-                {expanded && (
-                  <rect
-                    x={labelX - 4}
-                    y={y - 12}
-                    width={labelW + 16}
-                    height={16}
-                    fill={textProps.fill}
-                  />
-                )}
-                {/* Invisible hit area bridging label and eye-off icon, so the
-                    icon stays reachable while the pointer moves toward it. */}
-                <rect
-                  x={labelX - 4}
-                  y={y - 12}
-                  width={labelW + (expanded ? 44 : 34)}
-                  height={16}
-                  fill="transparent"
-                />
-                {truncated ? <g clipPath={`url(#${clipId})`}>{textEl}</g> : textEl}
-                {labelHover && onHideAlignment && (
-                  <EyeOff
-                    x={labelX + labelW + (expanded ? 20 : 10)}
-                    y={y - 11}
-                    width={13}
-                    height={13}
-                    color={textProps.fill}
-                    style={{ cursor: 'pointer' }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onHideAlignment(al.id);
-                    }}
-                  />
-                )}
-              </g>
-            );
-          })}
-        </g>
-      );
-    });
-  }, [
-    alignmentTracks,
-    visibleRows,
-    numRows,
-    sp,
-    getSeqY,
-    lp,
-    alignLaneInfo,
-    hoverAlignLabel,
-    alignmentTraceAvailable,
-    expandedChromAlnId,
-    onToggleAlignmentChrom,
-    onHideAlignment,
-    charsPerLine,
-    cleanSeq.length,
-    colVis,
-    insReserve,
-    visCpl,
-    streamOf,
-  ]);
-
   // Track-plugin lanes (e.g. the GC-content gradient band): each active
   // plugin renders all visible rows below the sequence.
-  const renderedTracks = useMemo(() => {
-    const ctx = {
+  const renderedTracks = useMemo(
+    () =>
+      renderTrackLanes(
+        {
+          visibleRows,
+          rowBuf: ROW_BUF,
+          numRows,
+          rowStarts,
+          rowCounts,
+          baseCpl,
+          charsPerLine,
+          seqLength: cleanSeq.length,
+          getSeqY,
+          lp,
+          idPrefix: trackIdPrefix,
+          colVis,
+          colRuns,
+        },
+        trackLanes,
+      ),
+    // trackPlugins is a module constant, so spreading trackLanes keeps the
+    // deps length fixed while keying on each lane's memoized identity.
+    [
       visibleRows,
-      rowBuf: ROW_BUF,
       numRows,
       rowStarts,
       rowCounts,
       baseCpl,
       charsPerLine,
-      seqLength: cleanSeq.length,
+      cleanSeq.length,
       getSeqY,
       lp,
-      idPrefix: trackIdPrefix,
+      trackIdPrefix,
       colVis,
       colRuns,
-    };
-    return trackPlugins.map((plugin, i) =>
-      trackLanes[i] && plugin.track.render ? (
-        <React.Fragment key={plugin.id}>{plugin.track.render(ctx, trackLanes[i])}</React.Fragment>
-      ) : null,
-    );
-    // trackPlugins is a module constant, so spreading trackLanes keeps the
-    // deps length fixed while keying on each lane's memoized identity.
-  }, [visibleRows, numRows, rowStarts, rowCounts, baseCpl, charsPerLine, cleanSeq.length, getSeqY, lp, trackIdPrefix, colVis, colRuns, ...trackLanes]);
-
-  // Chromatogram bands: the project's own trace directly under the top
-  // strand (ab1 source files), and one warped trace band per alignment
-  // with loaded trace data, placed below the alignment text lanes. Trace
-  // samples are interpolated between peak anchors so every base's peak sits
-  // on its own column; read gaps (deletions) break the polyline.
-  // Band rendering ported from GenePad (https://github.com/GenePad),
-  // provided by the GenePad team / https://github.com/Masterchiefm.
-  const renderedChromatograms = useMemo(() => {
-    const hasAlignChrom = alignmentTracks.some((al) => alignmentChromatograms[al.id]);
-    if (!chromatogram && !hasAlignChrom) return null;
-    const vs = Math.max(0, visibleRows.start - ROW_BUF);
-    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
-    const bands = [];
-
-    const renderBand = (key, chrom, anchors, y) => {
-      if (anchors.length === 0) return;
-      const peaks = chrom.peakLocations;
-      // Min/max over ALL anchors: a circular read's join wrap makes the last
-      // anchor's query index smaller than the first, so first/last alone can
-      // yield an inverted (empty) sample range and the band vanishes.
-      let p0 = Infinity;
-      let p1 = -Infinity;
-      for (const a of anchors) {
-        const p = peaks[a.q] ?? 0;
-        if (p < p0) p0 = p;
-        if (p > p1) p1 = p;
-      }
-      p0 = Math.max(0, p0 - 14);
-      p1 += 14;
-      const maxVal = traceRangeMax(chrom, p0, p1);
-      if (maxVal <= 0) return;
-      const baseY = y + CHROM_TRACK_H - 4;
-      const scaleY = (CHROM_TRACK_H - 8) / maxVal;
-      bands.push(
-        <g key={key}>
-          <line
-            x1={Math.min(...anchors.map((a) => a.x)) - cw / 2}
-            x2={Math.max(...anchors.map((a) => a.x)) + cw / 2}
-            y1={baseY}
-            y2={baseY}
-            stroke="#d6d3d1"
-            strokeWidth="1"
-          />
-          {TRACE_CHANNELS.map(([base, channelKey, color]) => (
-            <path
-              key={base}
-              d={buildTracePath(chrom, channelKey, anchors, baseY, scaleY)}
-              fill="none"
-              stroke={color}
-              strokeWidth="1"
-              strokeLinejoin="round"
-            />
-          ))}
-        </g>,
-      );
-    };
-
-    if (chromatogram) {
-      const peakCount = chromatogram.peakLocations.length;
-      for (let r = vs; r <= ve; r++) {
-        const cols = rowCounts[r];
-        if (cols === 0) continue;
-        const rowStart = rowStarts[r];
-        const rowEnd = Math.min(rowStart + cols, peakCount) - 1;
-        if (rowEnd < rowStart) continue;
-        const anchors = [];
-        for (let pos = rowStart; pos <= rowEnd; pos++) {
-          anchors.push({ x: getX(colVis(pos - rowStart, r)) + cw / 2, q: pos });
-        }
-        renderBand(
-          `chrom-main-${r}`,
-          chromatogram,
-          anchors,
-          getSeqY(r) + lp.featBaseOffset + alignLaneInfo.trackH,
-        );
-      }
-    }
-
-    alignmentTracks.forEach((al, ti) => {
-      const chrom = alignmentChromatograms[al.id];
-      if (!chrom) return;
-      // Ordered anchor entries (hit columns + insertion bases). Every entry
-      // maps to a stream cell: inserted bases fill the merged block's cells
-      // left of their anchor column, exactly where the text lane renders them.
-      const byRow = new Map();
-      for (const e of buildColumnAnchors(al)) {
-        const si = e.ins ? streamOf(e.col) - (insReserve.get(e.col) || 0) + e.k : streamOf(e.col);
-        const row = Math.floor(si / visCpl);
-        if (row < vs || row > ve) continue;
-        if (!byRow.has(row)) byRow.set(row, []);
-        byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q, brk: e.brk });
-      }
-      for (const [row, anchors] of byRow) {
-        // Read order, not x order: the trace follows the read's own bases (its
-        // peaks) and a minus-strand read runs right to left on screen, so
-        // sorting by x would reverse it. `brk` breaks the curve where the
-        // lane shows no base (deletion / segment jump / origin wrap).
-        const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
-        const y =
-          getSeqY(row) +
-          lp.featBaseOffset +
-          alignLaneInfo.trackH +
-          alignLaneInfo.mainChromH +
-          alignLaneInfo.counts[row] * lp.featTrackHeight +
-          2 +
-          lane * (CHROM_TRACK_H + CHROM_GAP);
-        renderBand(`chrom-${al.id}-${row}`, chrom, anchors, y);
-      }
-    });
-
-    if (!bands.length) return null;
-    return <g style={{ pointerEvents: 'none' }}>{bands}</g>;
-  }, [
-    chromatogram,
-    alignmentTracks,
-    alignmentChromatograms,
-    visibleRows,
-    numRows,
-    rowStarts,
-    rowCounts,
-    visCpl,
-    streamOf,
-    colVis,
-    insReserve,
-    cleanSeq.length,
-    getSeqY,
-    lp,
-    alignLaneInfo,
-  ]);
+      ...trackLanes,
+    ],
+  );
 
   const renderedPrimers = useMemo(
     () =>
@@ -2885,463 +2414,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     () => renderTooltips({ hoveredEnzyme, isEnzymeDragging, enzymeLayout, enzymes, cleanSeq }),
     [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging],
   );
-
-  // --- cursor & selection renderers ---
-  // --- amplimer intervening region (deep green) ---
-  // Rendered after SeqBg + SeqSel so white text overrides dark text
-  const renderedAmplimerRegion = useMemo(() => {
-    if (selectionMode !== 'amplimer' || selectedPrimerIds.length !== 2) return null;
-    const fp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[0]);
-    const rp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[1]);
-    const fwdPrimer = fp && fp.isFwd ? fp : rp;
-    const revPrimer = fp && !fp.isFwd ? fp : rp;
-    if (!fwdPrimer || !revPrimer) return null;
-
-    const segsByRange = (s, e) => {
-      if (s > e || s >= cleanSeq.length || e < 0) return [];
-      return sp(s, e);
-    };
-
-    let ranges;
-    if (topology === 'circular' && fwdPrimer.matchEnd >= revPrimer.matchStart) {
-      // Circular: wrap from fwd end+1 to end of seq, then 0 to rev start-1
-      ranges = [
-        segsByRange(fwdPrimer.matchEnd + 1, cleanSeq.length - 1),
-        revPrimer.matchStart > 0 ? segsByRange(0, revPrimer.matchStart - 1) : [],
-      ];
-    } else {
-      const s = fwdPrimer.matchEnd + 1;
-      const e = revPrimer.matchStart - 1;
-      ranges = [s <= e ? segsByRange(s, e) : []];
-    }
-
-    const allSegs = ranges.flat();
-    if (!allSegs.length) return null;
-
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {allSegs.map((seg) =>
-          colRuns(seg.colStart, seg.colEnd, seg.row).map(([visStart, len]) => (
-            <rect
-              key={`amp-${seg.row}-${seg.colStart}-${visStart}`}
-              x={getX(visStart)}
-              y={getSeqY(seg.row) - 19}
-              width={len * cw}
-              height={28}
-              fill={amplimerGreen}
-              rx="1"
-            />
-          )),
-        )}
-        {allSegs.map((seg) => {
-          const rowStart = rowStarts[seg.row];
-          const chars = cleanSeq
-            .substring(rowStart + seg.colStart, rowStart + seg.colEnd + 1)
-            .split('');
-          return (
-            <text
-              key={`amp-txt-${seg.row}-${seg.colStart}`}
-              y={getSeqY(seg.row)}
-              fontFamily={monoFont}
-              fontSize="14px"
-              fontWeight="bold"
-              style={{ userSelect: 'none', pointerEvents: 'none' }}
-            >
-              {chars.map((c, i) => (
-                <tspan
-                  key={i}
-                  x={getX(colVis(seg.colStart + i, seg.row)) + cw / 2}
-                  textAnchor="middle"
-                  fill={bgColor}
-                >
-                  {c}
-                </tspan>
-              ))}
-            </text>
-          );
-        })}
-      </g>
-    );
-  }, [
-    selectionMode,
-    selectedPrimerIds,
-    enrichedPrimers,
-    cleanSeq,
-    charsPerLine,
-    getSeqY,
-    sp,
-    topology,
-    rowStarts,
-    colVis,
-    colRuns,
-  ]);
-
-  const renderedCursor = useMemo(() => {
-    if (cursorIndex === null) return null;
-    if (hasSelection && !isDragging) return null;
-    if (selectionMode !== 'text' && selectionMode !== 'none') return null;
-    const row = rowOf(cursorIndex);
-    const x = getX(colOfAbs(cursorIndex));
-    const sy = getSeqY(row);
-    const topY = sy - rowAbove[row];
-    const botY =
-      row === numRows - 1 ? sy + rowBelow[row] + 24 : getSeqY(row + 1) - rowAbove[row + 1];
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        <line x1={x} x2={x} y1={topY} y2={botY} stroke={bgColor} strokeWidth="3" />
-        <line x1={x} x2={x} y1={topY} y2={botY} stroke={currentSelColor} strokeWidth="1.5" />
-      </g>
-    );
-  }, [
-    cursorIndex,
-    hasSelection,
-    isDragging,
-    charsPerLine,
-    rowOf,
-    colOfAbs,
-    colVis,
-    numRows,
-    getSeqY,
-    rowAbove,
-    rowBelow,
-    selectionMode,
-    currentSelColor,
-  ]);
-
-  const renderedHoverIndex = useMemo(() => {
-    if (hoveredIndex === null || isDragging || isTranslationDragging) return null;
-    const row = rowOf(hoveredIndex);
-    const sy = getSeqY(row);
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        <text
-          x={getX(colOfAbs(hoveredIndex)) + cw / 2}
-          y={sy - 22}
-          fontFamily={monoFont}
-          fontSize="9px"
-          fontWeight="600"
-          fill="#A8A29E"
-          stroke={bgColor}
-          strokeWidth="2"
-          strokeLinejoin="round"
-          paintOrder="stroke"
-          textAnchor="middle"
-          style={{ pointerEvents: 'none', userSelect: 'none' }}
-        >
-          {hoveredIndex + 1}
-        </text>
-      </g>
-    );
-  }, [hoveredIndex, isDragging, isTranslationDragging, rowOf, colOfAbs, getSeqY]);
-
-  const renderedSelectionInfo = useMemo(() => {
-    if (!isDragging || !hasSelection || cursorIndex === null) return null;
-    if (selectionMode !== 'text') return null;
-    const len = selEnd - selStart + 1;
-    const tm = selectionTm;
-    const showTm = tm !== null && tm >= 40 && tm <= 75;
-    const row = rowOf(cursorIndex);
-    const sy = getSeqY(row);
-    const botY =
-      row === numRows - 1 ? sy + rowBelow[row] + 24 : getSeqY(row + 1) - rowAbove[row + 1];
-    const x = getX(colOfAbs(cursorIndex));
-    const fontSize = '11px';
-    const fontStr = `600 ${fontSize} ${monoFont}`;
-    let label = `${len} ${seqUnit}`;
-    if (isDna && showTm) label += `, ${tm}°C`;
-    const tw = measureWidth(label, fontStr);
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        <text
-          dominantBaseline="text-after-edge"
-          x={x - 8 - tw}
-          y={botY}
-          fontFamily={monoFont}
-          fontSize={fontSize}
-          fontWeight="600"
-          fill={currentSelColor}
-          stroke={bgColor}
-          strokeWidth="2.5"
-          strokeLinejoin="round"
-          paintOrder="stroke"
-          style={{ userSelect: 'none', whiteSpace: 'nowrap' }}
-        >
-          {label}
-        </text>
-      </g>
-    );
-  }, [
-    isDragging,
-    hasSelection,
-    cursorIndex,
-    selStart,
-    selEnd,
-    cleanSeq,
-    charsPerLine,
-    rowOf,
-    colOfAbs,
-    getSeqY,
-    numRows,
-    rowBelow,
-    rowAbove,
-    currentSelColor,
-    selectionTm,
-    seqUnit,
-    isDna,
-  ]);
-
-  const renderedSelection = useMemo(() => {
-    if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
-    const segs = sp(selStart, selEnd);
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {segs.flatMap((seg) =>
-          colRuns(seg.colStart, seg.colEnd, seg.row).map(([visStart, len]) => (
-            <rect
-              key={`selbg-${seg.row}-${seg.colStart}-${visStart}`}
-              x={getX(visStart)}
-              y={getSeqY(seg.row) - 19}
-              width={len * cw}
-              height={28}
-              fill={currentSelColor}
-              rx="1"
-            />
-          )),
-        )}
-      </g>
-    );
-  }, [hasSelection, selStart, selEnd, getSeqY, sp, currentSelColor, isEnzymeSelection, colRuns]);
-
-  const renderedDesignPicked = useMemo(() => {
-    if (!designPick || designPick.segments.length === 0) return null;
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {designPick.segments.flatMap((picked, i) =>
-          sp(picked.start, picked.end).flatMap((seg) =>
-            colRuns(seg.colStart, seg.colEnd, seg.row).map(([visStart, len]) => (
-              <rect
-                key={`pickedbg-${i}-${seg.row}-${seg.colStart}-${visStart}`}
-                x={getX(visStart)}
-                y={getSeqY(seg.row) - 19}
-                width={len * cw}
-                height={28}
-                fill="#0f766e"
-                fillOpacity={0.25}
-                rx="1"
-              />
-            )),
-          ),
-        )}
-      </g>
-    );
-  }, [designPick, getSeqY, sp, colRuns]);
-
-  // Stable background: all sequence text in dark color — doesn't depend on selection
-  const renderedSeqBg = useMemo(() => {
-    const vs = Math.max(0, visibleRows.start - ROW_BUF);
-    const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
-    // '-' placeholders in the template row keep it column-aligned with the
-    // read lane's inserted bases (GenePad renders the same dashes in the
-    // reference row). Each slot cell belongs to its own stream row, so a wide
-    // insertion block scatters its dashes across rows just like its bases.
-    const dashByRow = new Map();
-    if (insReserve.size > 0) {
-      for (const [pos, n] of insReserve) {
-        if (n <= INSERT_DASH_HIDE_MAX) continue;
-        const cell0 = streamOf(pos) - n;
-        for (let k = 0; k < n; k++) {
-          const si = cell0 + k;
-          const row = Math.floor(si / visCpl);
-          if (row < vs || row > ve) continue;
-          if (!dashByRow.has(row)) dashByRow.set(row, []);
-          dashByRow.get(row).push(si % visCpl);
-        }
-      }
-    }
-    const rows = [];
-    for (let r = vs; r <= ve; r++) {
-      const count = rowCounts[r];
-      const rowStart = rowStarts[r];
-      const chunk = count > 0 ? cleanSeq.substring(rowStart, rowStart + count) : '';
-      const dashes = dashByRow.get(r) || [];
-      if (!chunk && !dashes.length) continue;
-      const sy = getSeqY(r);
-      rows.push(
-        <text
-          key={r}
-          y={sy}
-          fontFamily={monoFont}
-          fontSize="14px"
-          fontWeight="bold"
-          style={{ userSelect: 'none', cursor: 'text' }}
-        >
-          {chunk.split('').map((c, i) => (
-            <tspan key={i} x={getX(colVis(i, r)) + cw / 2} textAnchor="middle" fill="#1f2937">
-              {c}
-            </tspan>
-          ))}
-          {dashes.map((vis) => (
-            <tspan
-              key={`ins-${vis}`}
-              className="ins-dash"
-              x={getX(vis) + cw / 2}
-              textAnchor="middle"
-              fill="#9CA3AF"
-              fillOpacity={0.7}
-            >
-              -
-            </tspan>
-          ))}
-        </text>,
-      );
-    }
-    return rows;
-  }, [visibleRows, charsPerLine, numRows, cleanSeq, getSeqY, colVis, insReserve, rowStarts, rowCounts, streamOf, visCpl]);
-
-  // Selection overlay: only renders selected characters in white (grouped by row)
-  const renderedSeqSel = useMemo(() => {
-    if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
-    const segs = sp(selStart, selEnd);
-    // Group segments by row
-    const byRow = {};
-    for (const seg of segs) {
-      (byRow[seg.row] || (byRow[seg.row] = [])).push(seg);
-    }
-    return Object.entries(byRow).map(([rowStr, rowSegs]) => {
-      const row = parseInt(rowStr, 10);
-      const sy = getSeqY(row);
-      const rowStart = rowStarts[row];
-      return (
-        <text
-          key={`sel-${row}`}
-          y={sy}
-          fontFamily={monoFont}
-          fontSize="14px"
-          fontWeight="bold"
-          style={{ userSelect: 'none', pointerEvents: 'none' }}
-        >
-          {rowSegs
-            .map((seg) => {
-              const chars = cleanSeq
-                .substring(rowStart + seg.colStart, rowStart + seg.colEnd + 1)
-                .split('');
-              return chars.map((c, i) => (
-                <tspan
-                  key={`${seg.colStart + i}`}
-                  x={getX(colVis(seg.colStart + i, row)) + cw / 2}
-                  textAnchor="middle"
-                  fill={bgColor}
-                >
-                  {c}
-                </tspan>
-              ));
-            })
-            .flat()}
-        </text>
-      );
-    });
-  }, [hasSelection, selStart, selEnd, cleanSeq, charsPerLine, getSeqY, sp, isEnzymeSelection, rowStarts, colVis]);
-
-  // --- translation (codon) selection render ---
-  const renderedTranslationSelection = useMemo(() => {
-    if (
-      selectionMode !== 'translation' ||
-      !translationSel ||
-      !cdsFeatureData[translationSel.featureId]
-    ) {
-      return null;
-    }
-    const cds = cdsFeatureData[translationSel.featureId];
-    const start = Math.min(translationSel.startCodon, translationSel.endCodon);
-    const end = Math.max(translationSel.startCodon, translationSel.endCodon);
-    const selectedBases = new Set();
-    for (let i = start; i <= end; i++) {
-      const t = cds.trans[i];
-      if (!t) continue;
-      for (const b of t.bases) selectedBases.add(b);
-    }
-    if (!selectedBases.size) return null;
-
-    const byRow = {};
-    for (const pos of selectedBases) {
-      const row = rowOf(pos);
-      const col = pos - rowStarts[row];
-      (byRow[row] || (byRow[row] = [])).push(col);
-    }
-
-    const rects = [];
-    const texts = [];
-    for (const [rowStr, cols] of Object.entries(byRow)) {
-      const row = parseInt(rowStr, 10);
-      const sy = getSeqY(row);
-      const rowStart = rowStarts[row];
-      cols.sort((a, b) => a - b);
-
-      const flush = (cs, ce) => {
-        for (const [visStart, len] of colRuns(cs, ce, row)) {
-          rects.push(
-            <rect
-              key={`trselbg-${row}-${cs}-${visStart}`}
-              x={getX(visStart)}
-              y={sy - 19}
-              width={len * cw}
-              height={28}
-              fill={currentSelColor}
-              rx="1"
-            />,
-          );
-        }
-        const chars = cleanSeq.substring(rowStart + cs, rowStart + ce + 1).split('');
-        texts.push(
-          <text
-            key={`trseltxt-${row}-${cs}`}
-            y={sy}
-            fontFamily={monoFont}
-            fontSize="14px"
-            fontWeight="bold"
-            style={{ userSelect: 'none', pointerEvents: 'none' }}
-          >
-            {chars.map((c, i) => (
-              <tspan key={i} x={getX(colVis(cs + i, row)) + cw / 2} textAnchor="middle" fill={bgColor}>
-                {c}
-              </tspan>
-            ))}
-          </text>,
-        );
-      };
-
-      let segStart = cols[0];
-      let prev = cols[0];
-      for (let i = 1; i < cols.length; i++) {
-        if (cols[i] === prev + 1) {
-          prev = cols[i];
-        } else {
-          flush(segStart, prev);
-          segStart = prev = cols[i];
-        }
-      }
-      flush(segStart, prev);
-    }
-
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {rects}
-        {texts}
-      </g>
-    );
-  }, [
-    selectionMode,
-    translationSel,
-    cdsFeatureData,
-    charsPerLine,
-    getSeqY,
-    cleanSeq,
-    currentSelColor,
-    rowOf,
-    rowStarts,
-    colRuns,
-    colVis,
-  ]);
 
   return (
     <>
@@ -3553,13 +2625,79 @@ const SequenceEditor = React.memo(function SequenceEditor({
             <style>{`
               @keyframes alignLabelScroll { from { transform: translateX(0); } to { transform: translateX(var(--align-label-scroll, 0px)); } }
             `}</style>
-            {renderedCursor}
-            {renderedDesignPicked}
-            {renderedSelection}
+            <CursorLayer
+              cursorIndex={cursorIndex}
+              hasSelection={hasSelection}
+              isDragging={isDragging}
+              selectionMode={selectionMode}
+              currentSelColor={currentSelColor}
+              rowOf={rowOf}
+              colOfAbs={colOfAbs}
+              numRows={numRows}
+              getSeqY={getSeqY}
+              rowAbove={rowAbove}
+              rowBelow={rowBelow}
+            />
+            <DesignPickedLayer
+              designPick={designPick}
+              getSeqY={getSeqY}
+              sp={sp}
+              colRuns={colRuns}
+            />
+            <SelectionLayer
+              hasSelection={hasSelection}
+              selectionMode={selectionMode}
+              isEnzymeSelection={isEnzymeSelection}
+              selStart={selStart}
+              selEnd={selEnd}
+              getSeqY={getSeqY}
+              sp={sp}
+              currentSelColor={currentSelColor}
+              colRuns={colRuns}
+            />
             {/* rna/protein are single-strand: no alignment/enzyme/primer layers */}
-            {isDna && renderedAlignments}
-            {isDna && renderedAlignmentLabels}
-            {isDna && renderedChromatograms}
+            {isDna && (
+              <AlignmentLayers
+                alignmentTracks={alignmentTracks}
+                visibleRows={visibleRows}
+                rowBuf={ROW_BUF}
+                numRows={numRows}
+                sp={sp}
+                getSeqY={getSeqY}
+                lp={lp}
+                rowStarts={rowStarts}
+                visCpl={visCpl}
+                streamOf={streamOf}
+                colVis={colVis}
+                insReserve={insReserve}
+                alignLaneInfo={alignLaneInfo}
+                sequence={sequence}
+                cleanSeq={cleanSeq}
+                alignmentTraceAvailable={alignmentTraceAvailable}
+                expandedChromAlnId={expandedChromAlnId}
+                onToggleAlignmentChrom={onToggleAlignmentChrom}
+                onHideAlignment={onHideAlignment}
+              />
+            )}
+            {isDna && (
+              <ChromatogramLayers
+                chromatogram={chromatogram}
+                alignmentTracks={alignmentTracks}
+                alignmentChromatograms={alignmentChromatograms}
+                visibleRows={visibleRows}
+                rowBuf={ROW_BUF}
+                numRows={numRows}
+                rowStarts={rowStarts}
+                rowCounts={rowCounts}
+                visCpl={visCpl}
+                streamOf={streamOf}
+                colVis={colVis}
+                insReserve={insReserve}
+                lp={lp}
+                alignLaneInfo={alignLaneInfo}
+                getSeqY={getSeqY}
+              />
+            )}
             {renderedTracks}
             {renderedFeatures}
             {renderedFeatureLabels}
@@ -3570,13 +2708,86 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 reservation, and expanded (hover/selected) blocks cleanly
                 occlude low-lying enzyme labels instead of interleaving. */}
             {isDna && renderedPrimers}
-            {renderedSeqBg}
-            {renderedSeqSel}
-            {isDna && renderedTranslationSelection}
-            {isDna && renderedAmplimerRegion}
+            <SeqBgLayer
+              visibleRows={visibleRows}
+              rowBuf={ROW_BUF}
+              numRows={numRows}
+              insReserve={insReserve}
+              streamOf={streamOf}
+              visCpl={visCpl}
+              rowCounts={rowCounts}
+              rowStarts={rowStarts}
+              cleanSeq={cleanSeq}
+              getSeqY={getSeqY}
+              colVis={colVis}
+            />
+            <SeqSelLayer
+              hasSelection={hasSelection}
+              selectionMode={selectionMode}
+              isEnzymeSelection={isEnzymeSelection}
+              selStart={selStart}
+              selEnd={selEnd}
+              cleanSeq={cleanSeq}
+              getSeqY={getSeqY}
+              sp={sp}
+              rowStarts={rowStarts}
+              colVis={colVis}
+            />
+            {isDna && (
+              <TranslationSelectionLayer
+                selectionMode={selectionMode}
+                translationSel={translationSel}
+                cdsFeatureData={cdsFeatureData}
+                cleanSeq={cleanSeq}
+                currentSelColor={currentSelColor}
+                rowOf={rowOf}
+                rowStarts={rowStarts}
+                getSeqY={getSeqY}
+                colRuns={colRuns}
+                colVis={colVis}
+              />
+            )}
+            {isDna && (
+              <AmplimerRegionLayer
+                selectionMode={selectionMode}
+                selectedPrimerIds={selectedPrimerIds}
+                enrichedPrimers={enrichedPrimers}
+                cleanSeq={cleanSeq}
+                topology={topology}
+                getSeqY={getSeqY}
+                sp={sp}
+                rowStarts={rowStarts}
+                colVis={colVis}
+                colRuns={colRuns}
+              />
+            )}
             {renderedTooltips}
-            {renderedSelectionInfo}
-            {renderedHoverIndex}
+            <SelectionInfoLayer
+              isDragging={isDragging}
+              hasSelection={hasSelection}
+              cursorIndex={cursorIndex}
+              selectionMode={selectionMode}
+              selStart={selStart}
+              selEnd={selEnd}
+              currentSelColor={currentSelColor}
+              selectionTm={selectionTm}
+              seqUnit={seqUnit}
+              isDna={isDna}
+              rowOf={rowOf}
+              colOfAbs={colOfAbs}
+              numRows={numRows}
+              getSeqY={getSeqY}
+              rowAbove={rowAbove}
+              rowBelow={rowBelow}
+            />
+            <HoverIndexLayer
+              hoveredIndex={hoveredIndex}
+              isDragging={isDragging}
+              isTranslationDragging={isTranslationDragging}
+              rowOf={rowOf}
+              colOfAbs={colOfAbs}
+              getSeqY={getSeqY}
+            />
           </svg>
         </div>
         <FeatureInfoDialog
