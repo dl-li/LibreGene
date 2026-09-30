@@ -1729,8 +1729,15 @@
             ..Default::default()
         };
         libregene_core::primer::recompute(&mut src);
-        let dir =
-            std::env::temp_dir().join(format!("libregene-mcp-edit-ann-{}", std::process::id()));
+        // Unique per call: two tests call this helper concurrently, and a
+        // shared dir would let one test's remove_dir_all delete the other's
+        // insert.gbk mid-write (flaky NotFound).
+        static ANN_DIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "libregene-mcp-edit-ann-{}-{}",
+            std::process::id(),
+            ANN_DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let gbk = dir.join("insert.gbk");
         libregene_core::file_io::gbk::write_gbk(&src, &gbk).unwrap();
