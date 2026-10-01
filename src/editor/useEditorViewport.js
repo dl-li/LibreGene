@@ -19,12 +19,21 @@ export default function useEditorViewport({
   const numRowsRef = useRef(1);
   const avgRowPitchRef = useRef(60); // average row pitch, kept in sync at svgHeight
 
+  // clientWidth includes the container's horizontal padding; baseCpl must fit
+  // the inner content box or the svg (width = startX*2 + baseCpl*cw) overflows
+  // it by up to the padding width and a stray horizontal scrollbar appears.
+  const measureCpl = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const cs = window.getComputedStyle(el);
+    const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    setBaseCpl(Math.max(20, Math.floor((el.clientWidth - padX - startX * 2) / cw)));
+  }, [containerRef, setBaseCpl]);
+
   useEffect(() => {
     const scroller = scrollContainerRef?.current;
     const handleResize = () => {
-      if (containerRef.current) {
-        setBaseCpl(Math.max(20, Math.floor((containerRef.current.clientWidth - startX * 2) / cw)));
-      }
+      measureCpl();
       if (scroller) setViewportH(scroller.clientHeight || 900);
     };
     const handleScroll = () => {
@@ -57,17 +66,15 @@ export default function useEditorViewport({
       window.removeEventListener('resize', handleResize);
       scrollTarget.removeEventListener('scroll', handleScroll);
     };
-  }, [scrollContainerRef]);
+  }, [scrollContainerRef, measureCpl]);
 
   // Recalculate layout when parent padding changes (e.g. sidebar pin)
   useEffect(() => {
     if (layoutKey === undefined) return;
-    if (containerRef.current) {
-      setBaseCpl(Math.max(20, Math.floor((containerRef.current.clientWidth - startX * 2) / cw)));
-    }
+    measureCpl();
     const scroller = scrollContainerRef?.current;
     if (scroller) setViewportH(scroller.clientHeight || 900);
-  }, [layoutKey]);
+  }, [layoutKey, measureCpl, scrollContainerRef]);
 
   return { scrollY, setScrollY, viewportH, liveScrollTopRef, numRowsRef, avgRowPitchRef };
 }
