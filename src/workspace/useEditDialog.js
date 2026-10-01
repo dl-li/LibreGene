@@ -199,13 +199,17 @@ export default function useEditDialog({
       }
 
       // Post-edit selection: a deletion clears the (now stale) selection but
-      // parks the cursor at the deletion point; an insertion leaves the
+      // parks the cursor at the deletion point; insert/replace leave the
       // freshly inserted bases selected.
       const postCursor =
-        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? selStart : cursorIndex;
+        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? selStart : selStart + newLen;
       const postSelStart = mode === 'insert' ? cursorIndex : mode === 'delete' ? null : selStart;
       const postSelEnd =
-        mode === 'insert' ? cursorIndex + newLen - 1 : mode === 'delete' ? null : selEnd;
+        mode === 'insert'
+          ? cursorIndex + newLen - 1
+          : mode === 'delete'
+            ? null
+            : selStart + newLen - 1;
 
       // Push new state to undo history (includes adjusted features for correct undo)
       editHistoryRef.current.push({
@@ -217,20 +221,18 @@ export default function useEditDialog({
         selEnd: postSelEnd,
       });
 
-      // Apply the post-edit selection in the editor (replace keeps its range).
-      if (mode !== 'replace') {
-        setRestoreState({
-          version: ++undoVersionRef.current,
-          cursorIndex: postCursor,
-          selStart: postSelStart,
-          selEnd: postSelEnd,
-          selectionMode: postSelStart === null ? 'none' : 'text',
-          selectedPrimerIds: [],
-          isEnzymeSelection: false,
-          selectedEnzymeIds: [],
-          translationSel: null,
-        });
-      }
+      // Apply the post-edit selection in the editor.
+      setRestoreState({
+        version: ++undoVersionRef.current,
+        cursorIndex: postCursor,
+        selStart: postSelStart,
+        selEnd: postSelEnd,
+        selectionMode: postSelStart === null ? 'none' : 'text',
+        selectedPrimerIds: [],
+        isEnzymeSelection: false,
+        selectedEnzymeIds: [],
+        translationSel: null,
+      });
 
       // Optimistic UI update
       setSequence(newSeq);
