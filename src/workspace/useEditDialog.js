@@ -198,10 +198,11 @@ export default function useEditDialog({
         mergedFeatures = [...adjustedFeatures, ...newFeats];
       }
 
-      // Post-edit selection: a deletion clears the (now stale) selection; an
-      // insertion leaves the freshly inserted bases selected.
+      // Post-edit selection: a deletion clears the (now stale) selection but
+      // parks the cursor at the deletion point; an insertion leaves the
+      // freshly inserted bases selected.
       const postCursor =
-        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? null : cursorIndex;
+        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? selStart : cursorIndex;
       const postSelStart = mode === 'insert' ? cursorIndex : mode === 'delete' ? null : selStart;
       const postSelEnd =
         mode === 'insert' ? cursorIndex + newLen - 1 : mode === 'delete' ? null : selEnd;
