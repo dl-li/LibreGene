@@ -70,6 +70,23 @@ export function collectAnnotations({ features, primers }, start, end, totalLen =
   };
 }
 
+/**
+ * Transform clipboard annotation meta for a reverse-complemented paste:
+ * mirror segment offsets within the copied span, flip strands, and reverse
+ * segment order so the join reads 5'→3' on the new orientation. Primers are
+ * re-seeded by name+seq and re-bound by the backend, so they pass through.
+ */
+export function revCompClipboardMeta(meta) {
+  if (!meta) return null;
+  const L = meta.length;
+  const features = (meta.features || []).map((f) => ({
+    ...f,
+    strand: f.strand === '+' ? '-' : f.strand === '-' ? '+' : f.strand,
+    segments: [...f.segments].reverse().map((s) => ({ start: L - 1 - s.end, end: L - 1 - s.start })),
+  }));
+  return { ...meta, features };
+}
+
 export async function writeAnnotatedClipboard(text, meta) {
   if (meta) {
     try {

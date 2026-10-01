@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { InlineNotice } from '@/components/ui/notice';
 import { Repeat } from 'lucide-react';
-import { metaMatchesText } from '../clipboardAnnotations';
+import { metaMatchesText, revCompClipboardMeta } from '../clipboardAnnotations';
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {
@@ -127,8 +127,12 @@ export default function SequenceEditDialog({
 
   const cleaned = stripWhitespace(inputText);
   // Length alone is not enough — the annotations only apply when the pasted
-  // text is still equivalent to the one they were copied from.
+  // text is still equivalent to the one they were copied from. A text that
+  // matches after reverse-complementing carries the same annotations, mapped
+  // to the opposite orientation.
   const metaMatch = metaMatchesText(clipboardMeta, cleaned, filterLetters(initialText));
+  const metaRcMatch =
+    !metaMatch && metaMatchesText(clipboardMeta, reverseComplement(cleaned), null);
   const insertLen = cleaned.length;
   const deleteLen =
     mode === 'delete' || mode === 'replace' ? stripWhitespace(selectedText).length : 0;
@@ -160,6 +164,8 @@ export default function SequenceEditDialog({
     }
     if (metaMatch && pasteAnnotations) {
       result.annotations = clipboardMeta;
+    } else if (metaRcMatch && pasteAnnotations) {
+      result.annotations = revCompClipboardMeta(clipboardMeta);
     }
     onConfirm(result);
   };
@@ -302,7 +308,7 @@ export default function SequenceEditDialog({
           {/* Clipboard annotation info */}
           {clipboardMeta && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {metaMatch ? (
+              {metaMatch || metaRcMatch ? (
                 <>
                   <Checkbox
                     id="paste-annotations"
@@ -310,7 +316,8 @@ export default function SequenceEditDialog({
                     onCheckedChange={(v) => setPasteAnnotations(!!v)}
                   />
                   <label htmlFor="paste-annotations" className="cursor-pointer select-none">
-                    Paste annotations:{' '}
+                    Paste annotations
+                    {metaRcMatch ? ' (reverse-complemented)' : ''}:{' '}
                     {(clipboardMeta.features?.length ?? 0) > 0 &&
                       `${clipboardMeta.features.length} feature${clipboardMeta.features.length !== 1 ? 's' : ''}`}
                     {(clipboardMeta.features?.length ?? 0) > 0 &&
