@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useId } from 'react';
 import {
   cw,
   startX,
@@ -311,9 +311,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
   );
 
   // Restore cursor/selection from undo/redo or project switch (external restoreState)
+  // Layout effect: apply before paint so cursor/selection land in the same
+  // frame as the edited sequence, not one paint behind it.
   const restoreVersionRef = useRef(0);
   const scrollToSeqIndexRef = useRef(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!restoreState) return;
     if (restoreState.version === restoreVersionRef.current) return;
     restoreVersionRef.current = restoreState.version;
