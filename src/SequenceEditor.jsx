@@ -255,6 +255,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const hoveredIndexRef = useRef(null);
   const cursorTimerRef = useRef(null);
+  // The cursor logically persists after `cursorVisible` flips off, so a later
+  // shift+click can still extend from it; only a blank-space click clears it.
+  const [cursorVisible, setCursorVisible] = useState(true);
 
   // --- primer design pick-mode state ---
   const [designPick, setDesignPick] = useState(null); // { mode, segments: [] }
@@ -270,7 +273,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const cdsFeatureDataRef = useRef({}); // mirror of cdsFeatureData for early callbacks
   const resetCursorTimer = useCallback(() => {
     if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
-    cursorTimerRef.current = setTimeout(() => setCursorIndex(null), 5000);
+    setCursorVisible(true);
+    cursorTimerRef.current = setTimeout(() => setCursorVisible(false), 5000);
   }, []);
 
   const clearCursorTimer = useCallback(() => {
@@ -278,6 +282,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       clearTimeout(cursorTimerRef.current);
       cursorTimerRef.current = null;
     }
+    setCursorVisible(true);
   }, []);
 
   const startTranslationSelection = useCallback(
@@ -2627,6 +2632,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
             `}</style>
             <CursorLayer
               cursorIndex={cursorIndex}
+              visible={cursorVisible}
               hasSelection={hasSelection}
               isDragging={isDragging}
               selectionMode={selectionMode}

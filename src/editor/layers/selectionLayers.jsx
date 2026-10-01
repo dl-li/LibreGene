@@ -6,6 +6,7 @@ import { cw, bgColor, monoFont, getX, measureWidth, amplimerGreen } from '../../
 
 export const CursorLayer = React.memo(function CursorLayer({
   cursorIndex,
+  visible = true,
   hasSelection,
   isDragging,
   selectionMode,
@@ -17,7 +18,7 @@ export const CursorLayer = React.memo(function CursorLayer({
   rowAbove,
   rowBelow,
 }) {
-  if (cursorIndex === null) return null;
+  if (cursorIndex === null || !visible) return null;
   if (hasSelection && !isDragging) return null;
   if (selectionMode !== 'text' && selectionMode !== 'none') return null;
   const row = rowOf(cursorIndex);
