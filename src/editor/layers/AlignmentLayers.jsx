@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import { cw, bgColor, featLabelW, getX } from '../../editorConstants';
+import { cw, bgColor, featLabelW, getX, monoFont } from '../../editorConstants';
 import { BASE_HILITE_BG, alignmentGapSegments, insertionBases } from '../alignmentLayout';
 import { EyeOff } from 'lucide-react';
+import MonoRun from './MonoRun';
+
+// Italic read-lane font, as a canvas-measurable shorthand for MonoRun's dx.
+const READ_FONT = `italic 350 13px ${monoFont}`;
 
 // Read text lanes of the stored alignments (mismatch plates + italic read
 // bases + insertion slot bases). Read-only — no handlers.
@@ -16,7 +20,7 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
   rowStarts,
   visCpl,
   streamOf,
-  colVis,
+  colRuns,
   insReserve,
   alignLaneInfo,
   sequence,
@@ -44,26 +48,52 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
         if (v.row < vs || v.row > ve) continue;
         const pieceKey = `${v.row}-${v.colStart}-${piece++}`;
         const y = laneY(v.row);
-        const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len).split('');
-        const mismatches = [];
-        chars.forEach((c, i) => {
-          const col = v.colStart + i;
-          const gIdx = rowStarts[v.row] + col;
-          // Insertion-adjacent columns are not flagged: inserted cells mark
-          // themselves, and a red wash behind the flanking matches just
-          // muddies the lane. Genuine mismatches and read gaps keep it.
-          if (c === '-' || c.toUpperCase() !== (sequence[gIdx] || '').toUpperCase()) {
-            mismatches.push(col);
+        const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len);
+        // Visually contiguous runs (split at insertion slots): each run renders
+        // as ONE tspan pinned to len*cw by textLength, so a lane row costs a
+        // handful of nodes instead of one per base. Mismatch/gap plates merge
+        // the same way. Insertion-adjacent columns are not flagged: inserted
+        // cells mark themselves, and a red wash behind the flanking matches
+        // just muddies the lane.
+        const plates = [];
+        const tspans = [];
+        let cc = v.colStart;
+        for (const [visStart, runLen] of colRuns(v.colStart, v.colEnd, v.row)) {
+          const runChars = chars.slice(cc - v.colStart, cc - v.colStart + runLen);
+          let mStart = -1;
+          for (let i = 0; i < runLen; i++) {
+            const c = runChars[i];
+            const bad =
+              c === '-' ||
+              c.toUpperCase() !== (sequence[rowStarts[v.row] + cc + i] || '').toUpperCase();
+            if (bad) {
+              if (mStart < 0) mStart = i;
+            } else if (mStart >= 0) {
+              plates.push([visStart + mStart, i - mStart]);
+              mStart = -1;
+            }
           }
-        });
+          if (mStart >= 0) plates.push([visStart + mStart, runLen - mStart]);
+          tspans.push(
+            <MonoRun
+              key={visStart}
+              visStart={visStart}
+              text={runChars}
+              font={READ_FONT}
+              fill="#1f2937"
+              fillOpacity={0.55}
+            />,
+          );
+          cc += runLen;
+        }
         rows.push(
           <g key={pieceKey}>
-            {mismatches.map((col) => (
+            {plates.map(([vis, n]) => (
               <rect
-                key={col}
-                x={getX(colVis(col, v.row))}
+                key={vis}
+                x={getX(vis)}
                 y={y - 11}
-                width={cw}
+                width={n * cw}
                 height={14}
                 fill={BASE_HILITE_BG}
                 fillOpacity={0.6}
@@ -78,20 +108,7 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
               fontWeight="350"
               style={{ userSelect: 'none' }}
             >
-              {chars.map((c, i) => {
-                const col = v.colStart + i;
-                return (
-                  <tspan
-                    key={col}
-                    x={getX(colVis(col, v.row)) + cw / 2}
-                    textAnchor="middle"
-                    fill="#1f2937"
-                    fillOpacity={0.55}
-                  >
-                    {c}
-                  </tspan>
-                );
-              })}
+              {tspans}
             </text>
           </g>,
         );
@@ -112,40 +129,34 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
         const si = cell0 + k;
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
-        if (!insByRow.has(row)) insByRow.set(row, { bg: [], bases: [] });
-        const bucket = insByRow.get(row);
-        const x = getX(si % visCpl);
-        bucket.bg.push(
-          <rect
-            key={`ins-bg-${pos}-${k}`}
-            x={x}
-            y={laneY(row) - 11}
-            width={cw}
-            height={14}
-            fill={BASE_HILITE_BG}
-            fillOpacity={0.6}
-            style={{ pointerEvents: 'none' }}
-          />,
-        );
-        bucket.bases.push(
-          <tspan
-            key={`${pos}-${k}`}
-            className="ins-base"
-            x={x + cw / 2}
-            textAnchor="middle"
-            fill="#1f2937"
-            fillOpacity={0.55}
-            style={{ userSelect: 'none', pointerEvents: 'none' }}
-          >
-            {insBases[k]}
-          </tspan>,
-        );
+        if (!insByRow.has(row)) insByRow.set(row, []);
+        insByRow.get(row).push({ vis: si % visCpl, char: insBases[k] });
       }
     }
-    for (const [row, { bg, bases }] of insByRow) {
+    for (const [row, cells] of insByRow) {
+      // Merge adjacent slot cells into runs (one plate + one tspan each);
+      // cells of different anchors stay separate unless truly adjacent.
+      cells.sort((a, b) => a.vis - b.vis);
+      const runs = [];
+      for (const cell of cells) {
+        const last = runs[runs.length - 1];
+        if (last && cell.vis === last.visStart + last.text.length) last.text += cell.char;
+        else runs.push({ visStart: cell.vis, text: cell.char });
+      }
       rows.push(
         <g key={`ins-${row}`}>
-          {bg}
+          {runs.map((g) => (
+            <rect
+              key={g.visStart}
+              x={getX(g.visStart)}
+              y={laneY(row) - 11}
+              width={g.text.length * cw}
+              height={14}
+              fill={BASE_HILITE_BG}
+              fillOpacity={0.6}
+              style={{ pointerEvents: 'none' }}
+            />
+          ))}
           <text
             y={laneY(row)}
             fontFamily="Cascadia Code"
@@ -154,7 +165,18 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
             fontWeight="350"
             style={{ userSelect: 'none' }}
           >
-            {bases}
+            {runs.map((g) => (
+              <MonoRun
+                key={g.visStart}
+                visStart={g.visStart}
+                text={g.text}
+                font={READ_FONT}
+                className="ins-base"
+                fill="#1f2937"
+                fillOpacity={0.55}
+                style={{ userSelect: 'none', pointerEvents: 'none' }}
+              />
+            ))}
           </text>
         </g>,
       );
@@ -367,6 +389,7 @@ function AlignmentLayers(props) {
     visCpl,
     streamOf,
     colVis,
+    colRuns,
     insReserve,
     alignLaneInfo,
     sequence,
@@ -387,7 +410,7 @@ function AlignmentLayers(props) {
     rowStarts,
     visCpl,
     streamOf,
-    colVis,
+    colRuns,
     insReserve,
     alignLaneInfo,
     sequence,

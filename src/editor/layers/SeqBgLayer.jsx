@@ -1,5 +1,8 @@
 import React from 'react';
 import { cw, monoFont, getX } from '../../editorConstants';
+import MonoRun from './MonoRun';
+
+const SEQ_FONT = `bold 14px ${monoFont}`;
 
 // Stable background: all sequence text in dark color — doesn't depend on selection
 const SeqBgLayer = React.memo(function SeqBgLayer({
@@ -13,7 +16,7 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
   rowStarts,
   cleanSeq,
   getSeqY,
-  colVis,
+  colRuns,
 }) {
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
@@ -42,6 +45,16 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
     const dashes = dashByRow.get(r) || [];
     if (!chunk && !dashes.length) continue;
     const sy = getSeqY(r);
+    // Contiguous visual runs (split at insertion slots), one tspan per run —
+    // textLength pins each run to len*cw so columns stay exact.
+    let cc = 0;
+    const tspans = colRuns(0, count - 1, r).map(([visStart, runLen]) => {
+      const text = chunk.slice(cc, cc + runLen);
+      cc += runLen;
+      return (
+        <MonoRun key={visStart} visStart={visStart} text={text} font={SEQ_FONT} fill="#1f2937" />
+      );
+    });
     rows.push(
       <text
         key={r}
@@ -51,11 +64,7 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
         fontWeight="bold"
         style={{ userSelect: 'none', cursor: 'text' }}
       >
-        {chunk.split('').map((c, i) => (
-          <tspan key={i} x={getX(colVis(i, r)) + cw / 2} textAnchor="middle" fill="#1f2937">
-            {c}
-          </tspan>
-        ))}
+        {tspans}
         {dashes.map((vis) => (
           <tspan
             key={`ins-${vis}`}

@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useId } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useId,
+} from 'react';
 import {
   cw,
   startX,
@@ -2803,6 +2811,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 visCpl={visCpl}
                 streamOf={streamOf}
                 colVis={colVis}
+                colRuns={colRuns}
                 insReserve={insReserve}
                 alignLaneInfo={alignLaneInfo}
                 sequence={sequence}
@@ -2853,7 +2862,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               rowStarts={rowStarts}
               cleanSeq={cleanSeq}
               getSeqY={getSeqY}
-              colVis={colVis}
+              colRuns={colRuns}
             />
             <SeqSelLayer
               hasSelection={hasSelection}

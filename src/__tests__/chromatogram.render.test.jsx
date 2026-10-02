@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import SequenceEditor from '../SequenceEditor';
+import { cw } from '../editorConstants';
 
 // Synthetic chromatogram: peak every 12 samples, four channels with
 // distinguishable sine patterns and a spike at each base's peak.
@@ -118,14 +119,23 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     const template = 'ACGT'.repeat(100); // 400 bases
     const aligned = template.substring(0, 300);
     const chars =
-      aligned.substring(0, 10) + '-' + aligned.substring(11, 100) + '-----' + aligned.substring(100);
+      aligned.substring(0, 10) +
+      '-' +
+      aligned.substring(11, 100) +
+      '-----' +
+      aligned.substring(100);
     const aln = {
       id: 'aln-2',
       name: 'read-ins',
       length: 321,
       strand: '+',
       identity: 1,
-      seq: aligned.substring(0, 10) + 'A' + aligned.substring(11, 100) + 'CCCCC' + aligned.substring(100),
+      seq:
+        aligned.substring(0, 10) +
+        'A' +
+        aligned.substring(11, 100) +
+        'CCCCC' +
+        aligned.substring(100),
       segments: [{ start: 0, end: 299, chars }],
       insertions: [
         { pos: 0, bases: 'GGGGGGGGGGGGGGGGGGGGG' },
@@ -181,18 +191,18 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     };
     const html = renderEditor({ sequence: template, alignmentTracks: [aln] });
     expect([...html.matchAll(/class="ins-dash"/g)].length).toBe(10);
+    // Adjacent cells of one insertion render as a single run tspan, so the
+    // five 2-base insertions produce five 'GG' runs, not ten single tspans.
     const bases = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map((m) => m[1]);
-    expect(bases.length).toBe(10);
-    expect(bases.join('')).toBe('GG'.repeat(5));
-    // Each inserted base keeps its own cell (pink plate), one per base, at its
-    // own anchor rather than gathered into one block.
+    expect(bases).toEqual(['GG', 'GG', 'GG', 'GG', 'GG']);
+    // Each insertion keeps its own pink plate at its own anchor — the plates
+    // stay spread across the row rather than gathered into one block.
     const plates = [...html.matchAll(/<rect[^>]*#fecaca[^>]*>/g)].map((m) =>
       Number(m[0].match(/ x="(-?\d+(?:\.\d+)?)"/)[1]),
     );
-    expect(plates.length).toBe(10);
+    expect(plates.length).toBe(5);
     expect(plates).toEqual([...plates].sort((a, b) => a - b));
-    const gaps = new Set(plates.slice(1).map((x, i) => x - plates[i]));
-    expect(gaps.size).toBeGreaterThan(1);
+    expect(plates[plates.length - 1] - plates[0]).toBeGreaterThan(plates.length * cw);
   });
 
   it('wraps a wide insertion block without overflowing the SVG width', () => {
@@ -210,15 +220,17 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
       insertions: [{ pos: 0, bases: 'G'.repeat(100) }],
     };
     const html = renderEditor({ sequence: template, alignmentTracks: [aln] });
+    // Every junk base still has its own slot cell: the template row mirrors
+    // them with one '-' dash each (100), and all x positions stay within the
+    // SVG width (startX + baseCpl*cw + startX = 220 + 60*12 + 220 = 1160).
+    expect([...html.matchAll(/class="ins-dash"/g)].length).toBe(100);
     const xs = [...html.matchAll(/ x="(-?\d+(?:\.\d+)?)"/g)].map((m) => Number(m[1]));
-    expect(xs.length).toBeGreaterThan(100);
-    // startX + baseCpl*cw + startX = 220 + 60*12 + 220 = 1160
     expect(Math.max(...xs)).toBeLessThanOrEqual(1160);
-    // Every junk base still renders exactly once.
+    // Every junk base renders exactly once (adjacent cells merge into runs).
     const insChars = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map(
       (m) => m[1],
     );
-    expect(insChars.filter((c) => c === 'G').length).toBe(100);
+    expect(insChars.join('')).toBe('G'.repeat(100));
     expect(html).not.toContain('·');
   });
 });
