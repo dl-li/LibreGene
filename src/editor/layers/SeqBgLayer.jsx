@@ -1,6 +1,5 @@
 import React from 'react';
 import { cw, monoFont, getX } from '../../editorConstants';
-import { INSERT_DASH_HIDE_MAX } from '../alignmentLayout';
 
 // Stable background: all sequence text in dark color — doesn't depend on selection
 const SeqBgLayer = React.memo(function SeqBgLayer({
@@ -25,7 +24,6 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
   const dashByRow = new Map();
   if (insReserve.size > 0) {
     for (const [pos, n] of insReserve) {
-      if (n <= INSERT_DASH_HIDE_MAX) continue;
       const cell0 = streamOf(pos) - n;
       for (let k = 0; k < n; k++) {
         const si = cell0 + k;

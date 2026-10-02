@@ -107,11 +107,14 @@ export function renderFeatures({
 
     return (
       <g key={f.id}>
-        {visuals.map((v) =>
+        {visuals.map((v) => {
           // Insertion slots split the visual range into runs; each run
           // draws its own bars so features stay aligned with the shifted
-          // template characters.
-          colRuns(v.colStart, v.colEnd, v.row).map(([visStart, len]) => {
+          // template characters. A faint connector (same style as a
+          // segmented feature's gap line) bridges the slot cells between
+          // consecutive runs.
+          const runs = colRuns(v.colStart, v.colEnd, v.row);
+          return runs.map(([visStart, len], ri) => {
           const x = getX(visStart);
           const w = len * cw;
           const sy = getSeqY(v.row);
@@ -265,6 +268,40 @@ export function renderFeatures({
                   style={{ pointerEvents: 'none' }}
                 />
               )}
+              {/* Slot bridge: faint continuation across the insertion cells
+                  that split this visual, styled like a segment gap line. */}
+              {ri > 0 &&
+                (f.orf ? (
+                  <line
+                    x1={getX(runs[ri - 1][0] + runs[ri - 1][1])}
+                    x2={x}
+                    y1={y}
+                    y2={y}
+                    stroke={v.color}
+                    strokeWidth="13"
+                    opacity={0.25}
+                  />
+                ) : (
+                  <>
+                    <line
+                      x1={getX(runs[ri - 1][0] + runs[ri - 1][1])}
+                      x2={x}
+                      y1={y}
+                      y2={y}
+                      stroke={isExpanded ? 'transparent' : bgColor}
+                      strokeWidth="7"
+                    />
+                    <line
+                      x1={getX(runs[ri - 1][0] + runs[ri - 1][1])}
+                      x2={x}
+                      y1={y}
+                      y2={y}
+                      stroke={v.color}
+                      strokeWidth="5"
+                      opacity={0.25}
+                    />
+                  </>
+                ))}
               {f.orf ? (
                 <>
                   {colParts.map(([a, b]) => (
@@ -311,8 +348,8 @@ export function renderFeatures({
               )}
             </g>
           );
-          }),
-        )}
+          });
+        })}
 
         {/* Feature translation — 1-letter AA centered on middle base of each codon */}
         {isTranslatable(f) &&

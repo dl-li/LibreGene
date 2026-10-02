@@ -151,12 +151,10 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     expect(insChars.join('')).toContain('TTCCAAATTCAGAT');
     // No dot placeholders anywhere in the rendered output.
     expect(html).not.toContain('·');
-    // The template row mirrors only runs wider than INSERT_DASH_HIDE_MAX (5):
-    // the 21bp head and 14bp tail keep their dashes, the 1bp and 5bp runs are
-    // hidden so the row shows no tiny fragments (21 + 14 = 35). Every base
-    // still has its cell.
+    // The template row mirrors every insertion run with '-' placeholders
+    // (21 + 1 + 5 + 14 = 41). Every base still has its cell.
     const dashes = [...html.matchAll(/class="ins-dash"/g)].length;
-    expect(dashes).toBe(35);
+    expect(dashes).toBe(41);
     // Trace bands still render and stay NaN-free through the slots.
     const paths = extractChannelPaths(html);
     expect(paths.length).toBeGreaterThanOrEqual(4);
@@ -165,10 +163,10 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     }
   });
 
-  it('keeps small insertions unmerged and hides their template-row dashes', () => {
+  it('keeps small insertions unmerged and mirrors their template-row dashes', () => {
     // Small insertions a few bases apart keep their own cells — a read's
-    // bases must stay in read order for its trace — and only the '-'
-    // placeholder is dropped, so the template row shows no fragments.
+    // bases must stay in read order for its trace — and the template row
+    // shows a '-' placeholder in every slot cell.
     const template = 'ACGT'.repeat(100); // 400 bases
     const positions = [100, 102, 104, 106, 108];
     const aln = {
@@ -182,7 +180,7 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
       insertions: positions.map((pos) => ({ pos, bases: 'GG' })),
     };
     const html = renderEditor({ sequence: template, alignmentTracks: [aln] });
-    expect([...html.matchAll(/class="ins-dash"/g)].length).toBe(0);
+    expect([...html.matchAll(/class="ins-dash"/g)].length).toBe(10);
     const bases = [...html.matchAll(/<tspan[^>]*class="ins-base"[^>]*>([^<]+)/g)].map((m) => m[1]);
     expect(bases.length).toBe(10);
     expect(bases.join('')).toBe('GG'.repeat(5));
