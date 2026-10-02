@@ -602,12 +602,25 @@ export default function EditorNavMenu({
           </NavMenu>
         )}
 
-        {/* Alignment (DNA only): left click opens the manager, right click opens menu */}
+        {/* Alignment (DNA only): right click opens menu. Left click: no alignments →
+            open the manager; some checked → toggle Show Alignments; all unchecked →
+            enable Show Alignments and check them all. */}
         {isDna && alignmentEnabled && (
           <NavMenu
             icon={ChartNoAxesGantt}
             label="Align"
-            onLeftClick={onManageAlignments}
+            onLeftClick={
+              alignments.length === 0
+                ? onManageAlignments
+                : alignments.some((a) => !hiddenAlignIds.includes(a.id))
+                  ? onToggleAlignments
+                  : () => {
+                      if (!showAlignments) onToggleAlignments?.();
+                      alignments.forEach((a) => {
+                        if (hiddenAlignIds.includes(a.id)) onToggleAlignmentVisible?.(a.id);
+                      });
+                    }
+            }
             contentClassName="min-w-56 overflow-visible"
           >
             <DropdownMenuCheckboxItem checked={showAlignments} onCheckedChange={onToggleAlignments}>

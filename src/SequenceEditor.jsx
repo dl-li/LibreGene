@@ -9,7 +9,12 @@ import {
   enzymeActiveBlue,
   amplimerGreen,
 } from './editorConstants';
-import { alignmentGapSegments, insertionBases } from './editor/alignmentLayout';
+import {
+  alignmentGapSegments,
+  alignmentNotableSites,
+  BASE_HILITE_BG,
+  insertionBases,
+} from './editor/alignmentLayout';
 import { matchedSeqOf, reverseComplement, truncatedLabel } from './editor/seqUtils';
 import { buildCDSData, isTranslatable } from './editor/translation';
 import useStreamLayout from './editor/useStreamLayout';
@@ -63,6 +68,8 @@ import {
 import {
   Bot,
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   CopyPlus,
   CopyMinus,
@@ -763,6 +770,89 @@ const SequenceEditor = React.memo(function SequenceEditor({
     enzymes,
     enrichedPrimers,
   });
+
+  // Notable alignment nodes (attention-plated runs, insertion blocks, track
+  // start/end) merged across the visible tracks, for the floating prev/next
+  // navigator.
+  const alignNavSites = useMemo(() => {
+    if (!isDna || !alignmentTracks.length) return [];
+    const all = new Set();
+    for (const al of alignmentTracks) {
+      for (const s of alignmentNotableSites(al, sequence, cleanSeq.length)) all.add(s);
+    }
+    return [...all].sort((a, b) => a - b);
+  }, [isDna, alignmentTracks, sequence, cleanSeq]);
+
+  // Navigation is row-granular: several nodes in one row collapse to a single
+  // stop, so a jump always lands on a different row and visibly moves.
+  const alignNavRows = useMemo(() => {
+    if (!alignNavSites.length) return [];
+    const rows = [];
+    let lastRow = -1;
+    for (const s of alignNavSites) {
+      const r = Math.min(numRows - 1, rowOf(s));
+      if (r !== lastRow) {
+        rows.push(r);
+        lastRow = r;
+      }
+    }
+    return rows;
+  }, [alignNavSites, rowOf, numRows]);
+
+  // Last jump target: repeated presses keep advancing from it as long as the
+  // user hasn't scrolled away; otherwise re-base on the topmost visible row.
+  // alignNavAnimRef holds a timer for the duration of a smooth jump, so a
+  // press mid-animation still advances from the jump target rather than the
+  // half-scrolled viewport. scrollY/liveScrollTopRef are left to the scroll
+  // listener so the virtualized rows render along the animated path.
+  const alignNavLastRef = useRef(null);
+  const alignNavAnimRef = useRef(null);
+  useEffect(
+    () => () => {
+      if (alignNavAnimRef.current) clearTimeout(alignNavAnimRef.current);
+    },
+    [],
+  );
+  const jumpToAlignSite = useCallback(
+    (dir) => {
+      if (!alignNavRows.length) return;
+      const scroller = scrollContainerRef?.current;
+      const topNow = scroller ? scroller.scrollTop : window.scrollY;
+      let baseRow;
+      const last = alignNavLastRef.current;
+      if (last && (alignNavAnimRef.current != null || Math.abs(topNow - last.top) < 2)) {
+        baseRow = last.row;
+      } else {
+        const row = rowAtSvgY(topNow);
+        baseRow = row >= 0 ? row : 0;
+      }
+      let target;
+      if (dir > 0) {
+        for (const r of alignNavRows)
+          if (r > baseRow) {
+            target = r;
+            break;
+          }
+      } else {
+        for (let i = alignNavRows.length - 1; i >= 0; i--) {
+          if (alignNavRows[i] < baseRow) {
+            target = alignNavRows[i];
+            break;
+          }
+        }
+      }
+      if (target == null) return;
+      const newTop = Math.max(0, rowY[target] - (rowAbove[target] || 0) - 40);
+      if (scroller) scroller.scrollTo({ top: newTop, behavior: 'smooth' });
+      else window.scrollTo({ top: newTop, behavior: 'smooth' });
+      alignNavLastRef.current = { row: target, top: newTop };
+      if (alignNavAnimRef.current) clearTimeout(alignNavAnimRef.current);
+      alignNavAnimRef.current = setTimeout(() => {
+        alignNavAnimRef.current = null;
+      }, 500);
+    },
+    [alignNavRows, scrollContainerRef, rowAtSvgY, rowY, rowAbove],
+  );
 
   const handleSvgMouseDown = useCallback(
     (e) => {
@@ -2583,6 +2673,42 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToggleTopology={onToggleTopology}
           moleculeType={moleculeType}
         />
+      )}
+      {/* Floating prev/next navigator over the alignment tracks' notable
+          nodes; right edge, vertically centred, clear of the feature
+          scrollbar strip and the bottom-right badge. Hover paints the
+          hovered half with the alignment attention-plate colour. */}
+      {isDna && alignmentTracks.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            right: 28,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 40,
+            '--align-hilite': BASE_HILITE_BG,
+            '--align-hilite-soft': `${BASE_HILITE_BG}99`,
+          }}
+          className="nav-bar-enter flex flex-col items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
+        >
+          <button
+            type="button"
+            title="Previous alignment marker"
+            onClick={() => jumpToAlignSite(-1)}
+            className="rounded-t-full px-2 pb-1.5 pt-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
+          >
+            <ChevronUp className="mx-auto size-4" strokeWidth={2.25} />
+          </button>
+          <div className="mx-auto h-px w-3.5 bg-border/70" />
+          <button
+            type="button"
+            title="Next alignment marker"
+            onClick={() => jumpToAlignSite(1)}
+            className="rounded-b-full px-2 pb-2.5 pt-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
+          >
+            <ChevronDown className="mx-auto size-4" strokeWidth={2.25} />
+          </button>
+        </div>
       )}
       <div
         ref={containerRef}

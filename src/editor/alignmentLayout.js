@@ -28,18 +28,47 @@ export function alignmentGapSegments(al, tlen) {
   return gaps;
 }
 
-/** Dash runs no wider than this are not drawn in the template row, so a
- *  stretch with several small insertions stops showing a fragment every few
- *  columns. The cells stay — every read base still renders in them, in read
- *  order — only the '-' placeholder is dropped. Merging the cells into one
- *  block instead would move a read's inserted bases ahead of the matched
- *  columns between them, scrambling that read's own order (and its trace). */
-export const INSERT_DASH_HIDE_MAX = 5;
-
 /** Highlight plate behind a read base that needs attention: a mismatch, a
  *  read gap, or a base sitting in an insertion cell (its template row shows
  *  '-'). One colour for all three. */
 export const BASE_HILITE_BG = '#fecaca';
+
+/** Anchor template columns of an alignment's "notable sites" for prev/next
+ *  navigation: one anchor per run of consecutive attention-plated columns
+ *  (the BASE_HILITE_BG mismatch/gap plates — same predicate as the lane
+ *  renderer), one per insertion block not touching such a run, plus the
+ *  track's first/last aligned columns. A read covering the whole template
+ *  (end wraps back to start with no gaps) has no start/end sites. Sorted
+ *  ascending, deduped. */
+export function alignmentNotableSites(al, sequence, tlen) {
+  const segs = al.segments || [];
+  if (!segs.length || !tlen) return [];
+  const red = new Set();
+  for (const seg of [...segs, ...alignmentGapSegments(al, tlen)]) {
+    const chars = seg.chars || '';
+    for (let i = 0; i < chars.length; i++) {
+      const c = chars[i];
+      const col = (seg.start + i) % tlen;
+      if (c === '-' || c.toUpperCase() !== (sequence[col] || '').toUpperCase()) red.add(col);
+    }
+  }
+  const sites = new Set();
+  for (const col of red) {
+    if (!red.has((col - 1 + tlen) % tlen)) sites.add(col);
+  }
+  if (red.size && !sites.size) sites.add(segs[0].start); // whole circle plated
+  for (const pos of insertionBases(al).keys()) {
+    // The slot renders between pos-1 and pos; merge into a touching red run.
+    if (!red.has(pos) && !red.has((pos - 1 + tlen) % tlen)) sites.add(pos);
+  }
+  const start = segs[0].start;
+  const end = segs[segs.length - 1].end;
+  if (alignmentGapSegments(al, tlen).length > 0 || (end + 1) % tlen !== start) {
+    if (!red.has(start)) sites.add(start);
+    if (!red.has(end)) sites.add(end);
+  }
+  return [...sites].sort((a, b) => a - b);
+}
 
 /** Per-anchor insertion width: the longest insertion anchored there across
  *  all alignments (GenePad's merged gap columns). */
