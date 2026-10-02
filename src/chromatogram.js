@@ -53,13 +53,14 @@ export function traceRangeMax(chrom, from, to) {
 }
 
 // Build an SVG polyline path for one channel over the anchors [{ x, q, brk }]
-// in **read order** (the order the bases appear in the read, which is the
-// order of the peaks — a minus-strand read runs right to left on screen, so
-// sorting by x would reverse its trace). Each base's peak is emitted at its
-// own cell, so every peak sits on its base, and the polyline breaks exactly
-// where the read lane shows no base: `brk` marks an anchor whose template
-// column does not follow the previous hit (a read deletion, a segment jump or
-// an origin wrap) — i.e. where the lane shows dashes.
+// in **display order** (the on-screen direction of the read: callers sort by
+// x, ascending for '+' and descending for '-' — for ordinary rows this equals
+// read order, and it keeps origin-wrapping circular reads from backtracking
+// across the row). Each base's peak is emitted at its own cell, so every peak
+// sits on its base, and the polyline breaks exactly where the read lane shows
+// no base: `brk` marks an anchor whose template column does not follow the
+// previous hit (a read deletion, a segment jump or an origin wrap) — i.e.
+// where the lane shows dashes.
 export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY) {
   const trace = chrom[channelKey];
   const peaks = chrom.peakLocations;
@@ -97,7 +98,7 @@ export function buildTracePath(chrom, channelKey, anchors, baseY, scaleY) {
     // redrawing the samples in between (which have cells of their own further
     // along the row).
     const adjacent = a.q - prev.q === 1 || a.q - prev.q === -1;
-    const steps = adjacent ? Math.max(1, Math.round(a.x - prev.x)) : 1;
+    const steps = adjacent ? Math.max(1, Math.round(Math.abs(a.x - prev.x))) : 1;
     for (let s = 1; s <= steps; s++) {
       const x = prev.x + ((a.x - prev.x) * s) / steps;
       const sampleIdx = peakPrev + ((peakA - peakPrev) * s) / steps;

@@ -121,10 +121,13 @@ const ChromatogramLayers = React.memo(function ChromatogramLayers({
       byRow.get(row).push({ x: getX(si % visCpl) + cw / 2, q: e.q, brk: e.brk });
     }
     for (const [row, anchors] of byRow) {
-      // Read order, not x order: the trace follows the read's own bases (its
-      // peaks) and a minus-strand read runs right to left on screen, so
-      // sorting by x would reverse it. `brk` breaks the curve where the
-      // lane shows no base (deletion / segment jump / origin wrap).
+      // Display-direction order: read order within a row runs with x for '+'
+      // and against x for '-', except in the row where a circular read wraps
+      // the origin — there plain read order jumps back across the row and the
+      // polyline backtracks in a long diagonal. Sorting by display direction
+      // is a no-op for ordinary rows and fixes the wrap row. `brk` still
+      // breaks the line at read deletions (dashes) and segment jumps.
+      anchors.sort((a, b) => (al.strand === '-' ? b.x - a.x : a.x - b.x));
       const lane = alignLaneInfo.chromPerRow[row]?.get(ti) ?? 0;
       const y =
         getSeqY(row) +

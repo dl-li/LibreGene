@@ -205,6 +205,45 @@ describe('SequenceEditor chromatogram bands (SSR)', () => {
     expect(plates[plates.length - 1] - plates[0]).toBeGreaterThan(plates.length * cw);
   });
 
+  it('keeps per-row trace x monotonic for a circular read wrapping the origin', () => {
+    // Read starts mid-row (col 250) and wraps the origin: the row holding the
+    // read's start column receives its right part from the read's beginning
+    // (segment 1) and its left part from the read's tail (segment 2). Plain
+    // read order would jump back across the row and draw a long diagonal.
+    const template = 'ACGT'.repeat(75); // 300 bases
+    const aln = {
+      id: 'aln-wrap',
+      name: 'read-wrap',
+      length: 300,
+      strand: '+',
+      identity: 1,
+      seq: template.substring(250) + template.substring(0, 250),
+      segments: [
+        { start: 250, end: 299, chars: template.substring(250) },
+        { start: 0, end: 249, chars: template.substring(0, 250) },
+      ],
+      insertions: [],
+    };
+    const html = renderEditor({
+      sequence: template,
+      alignmentTracks: [aln],
+      alignmentChromatograms: { 'aln-wrap': chrom },
+    });
+    const paths = extractChannelPaths(html);
+    expect(paths.length).toBeGreaterThanOrEqual(5);
+    for (const d of paths) {
+      expect(d).not.toContain('NaN');
+      // x must never decrease within a subpath ('+' strand draws left→right);
+      // a new subpath ('M') may legitimately restart further left.
+      for (const sub of d.split(/(?=M )/)) {
+        const nums = sub.match(/-?\d+(?:\.\d+)?/g).map(Number);
+        for (let i = 2; i + 1 < nums.length; i += 2) {
+          expect(nums[i]).toBeGreaterThanOrEqual(nums[i - 2] - 0.05);
+        }
+      }
+    }
+  });
+
   it('wraps a wide insertion block without overflowing the SVG width', () => {
     // 100bp of leading junk: far wider than one 60-column row, so the block
     // must span rows instead of extending the row past the viewport.
