@@ -2,8 +2,6 @@ import React from 'react';
 import { cw, monoFont, getX } from '../../editorConstants';
 import MonoRun from './MonoRun';
 
-const SEQ_FONT = `bold 14px ${monoFont}`;
-
 // Stable background: all sequence text in dark color — doesn't depend on selection
 const SeqBgLayer = React.memo(function SeqBgLayer({
   visibleRows,
@@ -46,14 +44,12 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
     if (!chunk && !dashes.length) continue;
     const sy = getSeqY(r);
     // Contiguous visual runs (split at insertion slots), one tspan per run —
-    // textLength pins each run to len*cw so columns stay exact.
+    // the per-character x list keeps every glyph centred on its cell.
     let cc = 0;
     const tspans = colRuns(0, count - 1, r).map(([visStart, runLen]) => {
       const text = chunk.slice(cc, cc + runLen);
       cc += runLen;
-      return (
-        <MonoRun key={visStart} visStart={visStart} text={text} font={SEQ_FONT} fill="#1f2937" />
-      );
+      return <MonoRun key={visStart} visStart={visStart} text={text} fill="#1f2937" />;
     });
     rows.push(
       <text

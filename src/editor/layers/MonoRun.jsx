@@ -1,24 +1,20 @@
-import { cw, getX, measureWidth } from '../../editorConstants';
+import { cw, getX } from '../../editorConstants';
 
 // One <tspan> covering `text.length` visually contiguous cw cells starting at
-// visual column visStart. textLength pins the run to exactly len*cw, so the
-// per-cell pitch is exact regardless of font metrics; dx recentres the glyphs
-// in their cells (plain lengthAdjust="spacing" would left-align each glyph).
-// Collapsing a lane row into a handful of runs instead of one tspan per base
-// keeps the DOM small when many alignment lanes are visible at once.
-export default function MonoRun({ visStart, text, font, ...rest }) {
+// visual column visStart. The x attribute carries one cell-centre coordinate
+// per character, so every glyph is anchored exactly like a per-char tspan —
+// no font metrics involved — while the DOM pays for a single element per run
+// instead of one per base. (Verified: glyph centres match per-char tspans to
+// 0.00px for both the bold 14px template font and the italic 350 13px read
+// font; a textLength-based variant drifted when canvas font parsing fell
+// back to a proportional font.)
+export default function MonoRun({ visStart, text, ...rest }) {
   const n = text.length;
   if (!n) return null;
-  const adv = measureWidth('M'.repeat(16), font) / 16;
+  const xs = [];
+  for (let i = 0; i < n; i++) xs.push(getX(visStart + i) + cw / 2);
   return (
-    <tspan
-      x={getX(visStart) + (n * cw) / 2}
-      dx={(cw - adv) / 2}
-      textAnchor="middle"
-      textLength={n * cw}
-      lengthAdjust="spacing"
-      {...rest}
-    >
+    <tspan x={xs.join(' ')} textAnchor="middle" {...rest}>
       {text}
     </tspan>
   );

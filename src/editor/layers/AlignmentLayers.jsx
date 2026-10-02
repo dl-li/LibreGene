@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
-import { cw, bgColor, featLabelW, getX, monoFont } from '../../editorConstants';
+import { cw, bgColor, featLabelW, getX } from '../../editorConstants';
 import { BASE_HILITE_BG, alignmentGapSegments, insertionBases } from '../alignmentLayout';
 import { EyeOff } from 'lucide-react';
 import MonoRun from './MonoRun';
-
-// Italic read-lane font, as a canvas-measurable shorthand for MonoRun's dx.
-const READ_FONT = `italic 350 13px ${monoFont}`;
 
 // Read text lanes of the stored alignments (mismatch plates + italic read
 // bases + insertion slot bases). Read-only — no handlers.
@@ -79,7 +76,6 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
               key={visStart}
               visStart={visStart}
               text={runChars}
-              font={READ_FONT}
               fill="#1f2937"
               fillOpacity={0.55}
             />,
@@ -170,7 +166,6 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
                 key={g.visStart}
                 visStart={g.visStart}
                 text={g.text}
-                font={READ_FONT}
                 className="ins-base"
                 fill="#1f2937"
                 fillOpacity={0.55}
