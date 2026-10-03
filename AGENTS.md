@@ -1,193 +1,144 @@
 # LibreGene — 质粒编辑器
 
-基于 React + Vite + Tauri v2 + Rust 的桌面质粒编辑器。纯 SVG 渲染，支持多行自适应换行、分段特征、引物可视化、酶切位点标注、序列比对、插件系统。默认输出增强型 GenBank 文件（含颜色和引物注释）。
+React 19 + Vite + Tauri v2 + Rust 桌面质粒编辑器。纯 SVG 渲染，支持分段特征、引物、酶切标注、序列比对（ab1 色谱）、插件系统；默认输出增强型 GenBank（含颜色和引物注释）。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
-**已在 macOS、Windows、Linux（Fedora aarch64, Wayland）上测试过。**
-
-## 技术栈
-
-- **前端**: React 19 + Vite 8，shadcn v4 (Radix UI)，lucide-react 图标，Tailwind CSS v4
-- **渲染**: 纯 SVG，Cascadia Code / TeX Gyre Heros 字体
-- **后端**: Rust (edition 2021), tokio 1, gb-io 0.9；Tauri v2 壳内嵌 libregene-core
-- **测试**: 无测试框架（前端无测试；后端仅 Rust 单元测试 + 集成测试）
-- **License**: GPL-3.0-only
 
 ## 开发命令
 
 ```bash
 tmux new-session -d -s libregene 'npx tauri dev'   # 后台启动桌面应用
 tmux attach -t libregene                            # 查看输出（Ctrl-B D 分离）
-npx vite build                 # 仅前端编译检查
-npm run format                 # Prettier 格式化 src/
-npm run lint                   # ESLint 检查 src/
+npx vite build                 # 前端编译检查
+npm run format / lint          # Prettier / ESLint（src/）
+npm test                       # 前端 vitest（src/__tests__/）
 
 cd backend
 cargo test -p libregene-core --lib                  # 单元测试
 cargo test -p libregene-core --test roundtrip_test  # 读写往返测试
-cd src-tauri && cargo build                         # 构建 Tauri 后端（须在 src-tauri 目录执行）
-
-npx shadcn add <component>
+cd src-tauri && cargo build     # 构建 Tauri 后端（须在 src-tauri 目录执行；backend workspace 根跑 cargo build -p LibreGene 会报 package 不匹配）
 ```
 
 ## Release 流程
 
-push 到 master 时，CI（`.github/workflows/build.yml` 的 `release` job）检查 `package.json` 的 version 对应 tag `v<version>` 是否已存在；不存在则自动创建 GitHub Release 并附各平台安装包：macOS（dmg/app.tar.gz）、Windows（msi/nsis）、Linux（仅 Flatpak，amd64 + aarch64 两个包；manifest 在 `flatpak/`，不再产出 deb/AppImage）。发布步骤：
+push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` version 对应 tag `v<version>` 不存在则自动发 Release（macOS dmg、Windows msi/nsis、Linux 仅 Flatpak；manifest 在 `flatpak/`）。发布步骤：
 
-1. bump `package.json` 的 version（`tauri.conf.json` 的 version 引用它，无需另改）
-2. 手写 `release-notes/v<version>.md` 作为 release note（缺失时 CI 回退为 GitHub 自动生成 notes）
-3. 合并到 master 即可
+1. bump `package.json` version（`tauri.conf.json` 引用它，无需另改）
+2. 手写 `release-notes/v<version>.md`（缺失时 CI 回退为自动 notes）
+3. 合并到 master
 
-发布成功后 `homebrew-tap` job 自动更新 Homebrew tap：cask 模板在本仓库 `homebrew/libregene.rb`（唯一事实来源，勿直接改 tap 仓库），CI 下载新 release 的 dmg 计算 sha256、更新 version 后推送到 `dl-li/homebrew-libregene` 的 `Casks/libregene.rb`（需要 secret `HOMEBREW_TAP_TOKEN`，对 tap 仓库有写权限的 PAT）。用户安装：`brew install --cask dl-li/libregene/libregene`。
+发布后 `homebrew-tap` job 用本仓库 `homebrew/libregene.rb` 模板（唯一事实来源，勿直接改 tap 仓库）更新 `dl-li/homebrew-libregene`（需 secret `HOMEBREW_TAP_TOKEN`）。
 
 ## 文件结构
 
 ```
-LibreGene/
-├── src/                        # 前端 React 源码
-│   ├── App.jsx                 # 顶层状态管理 + 路由（设置/项目/事件已拆到 src/hooks/）
-│   ├── ProjectWorkspace.jsx    # 项目工作区（数据/撤销/编辑对话框已拆到 src/workspace/）
-│   ├── SequenceEditor.jsx      # 核心 SVG 编辑器：选中态 + 事件 + 组装（渲染层/数据派生已拆到 src/editor/）
-│   ├── editorConstants.js      # 共享常量/工具（cw, getX, measureWidth, splitRange, location 字符串 helper）
-│   ├── api.js / tauriApi.js    # HTTP/WS 客户端 / Tauri IPC 客户端
-│   ├── searchUtils.js          # IUPAC 模糊搜索（含肽段→简并密码子展开）
-│   ├── chromatogram.js         # ab1 色谱：链取向（rev-comp 交换通道）、SVG 路径插值、比对列→read 序号映射
-│   ├── dialogs/                # 全部弹窗组件（*Dialog.jsx）
-│   ├── components/             # 共享组件（TitleBar/FeatureScrollbar/ScrollingLabel/ErrorBoundary/ContextMenuHost/SettingsPage/AppDialogs）+ ui/（shadcn）
-│   ├── editor/                 # SequenceEditor 拆出：alignmentLayout/translation/colors/seqUtils 纯函数，useStreamLayout 等数据 hooks，WarningBadge 等小组件，layers/（车道渲染函数与只读渲染层组件）
-│   ├── workspace/              # ProjectWorkspace 拆出：useProjectData/useUndoHistory/useProjectMutations/useEditDialog/WorkspaceDialogs
-│   ├── hooks/                  # App 拆出：useSettings/useProjects/useTabDrag/useTauriEvents
-│   ├── plugins/                # 静态插件注册表 index.js；含 map/alignment/orf/primerDesign/rnaFold/dotplot/codonOptimization/blast/gcContent/snapgeneHistory
-│   └── __tests__/              # vitest 单元测试（npm test）
-├── backend/libregene-core/src/ # Rust 核心库（models/project、align+align/blastn/、orf、search、codon、digest/、enzyme/、primer/、file_io/）
-└── src-tauri/src/
-    ├── lib.rs                  # crate root：mod 声明 + re-export 门面 + run()
-    ├── state.rs / payload.rs / kernels.rs / tray.rs  # AppState+路径校验 / 项目载荷与广播 / 共享 do_* 内核 / 系统托盘
-    ├── commands/               # #[tauri::command] 按域拆分（projects/features/primers/alignments/seqedit/misc）
-    └── mcp/                    # 嵌入式 MCP server：mod.rs（结构 + 单一 tool_router + 18 个薄委托）、types/support/auth/server、tools/（view/project/edit/primer/align/convert）、tests/
+src/                    # 前端：App.jsx（顶层状态）、ProjectWorkspace.jsx、SequenceEditor.jsx、
+                        # editorConstants.js（共享常量/location helper）、api.js/tauriApi.js、
+                        # dialogs/、components/、editor/（编辑器纯函数+hooks+layers/）、
+                        # workspace/、hooks/、plugins/（静态注册表 index.js）
+backend/libregene-core/src/  # Rust 核心库（models、align+blastn、orf、search、codon、digest、enzyme、primer、file_io）
+src-tauri/src/          # lib.rs（门面）、state/payload/kernels/tray、commands/（#[tauri::command] 按域拆分）、
+                        # mcp/（嵌入式 MCP server：mod.rs + tools/ + tests/）
 ```
 
 ## 编码准则
 
 ### 通用
 
-- **尽量不写注释**——代码本身表意清晰；必要时写简短注释说明 Why。
-- 先读后改；改完必须编译/构建验证：前端 `npx vite build`，后端 `cargo test -p libregene-core --lib`，Rust 改动另跑 `cd src-tauri && cargo build`（backend workspace 根跑 `cargo build -p LibreGene` 会报 package 不匹配）。
-- **tauri dev 只监听 `src-tauri/`**：改 `backend/libregene-core` 不会触发重编译，需 `touch src-tauri/src/*.rs` 手动触发。
-- **改完需重启 dev 才能生效的改动（如 Rust/后端改动），改完直接重启 dev**：`tmux kill-session -t libregene && tmux new-session -d -s libregene 'npx tauri dev'`，无需询问。
+- **尽量不写注释**；必要时写简短注释说明 Why。
+- 改完必须验证：前端 `npx vite build`，后端 `cargo test -p libregene-core --lib`，Rust 改动另跑 `cd src-tauri && cargo build`。
+- **tauri dev 只监听 `src-tauri/`**：改 `backend/libregene-core` 需 `touch src-tauri/src/*.rs` 手动触发重编译。
+- **Rust/后端改动改完直接重启 dev**：`tmux kill-session -t libregene && tmux new-session -d -s libregene 'npx tauri dev'`，无需询问。
 - **禁止擅自用 MCP server（127.0.0.1:8766）驱动运行中的应用做测试/复现**，除非用户明确要求。
-- **禁止擅自截屏/录屏**（`screencapture`、窗口捕获、读取屏幕内容等），除非用户明确要求。
+- **禁止擅自截屏/录屏**，除非用户明确要求。
 
 ### Bug 修复流程
 
-1. 修复前用 `git status` + `git log --oneline -5` 确认状态
+1. 修复前 `git status` + `git log --oneline -5` 确认状态
 2. **每修一个 Bug 单独提交一次**（`git add` 只含相关文件）
-3. 提交前跑对应测试和构建
-4. 提交信息用英文，格式：`fix: 简短描述` 或 `refactor: 简短描述`
-5. 涉及 UI 的改动在 tmux 中的 Tauri dev 验证
+3. 提交前跑对应测试和构建；提交信息用英文：`fix: ...` / `refactor: ...`
+4. 涉及 UI 的改动在 tmux 中的 Tauri dev 验证
 
 ### 前端
 
-- React 函数组件 + hooks；用 `useCallback`/`useMemo`，依赖数组完整
-- 状态集中在 `App.jsx`，`SequenceEditor.jsx` 只管理 UI 状态
-- JSON 字段 camelCase（Rust serde `rename_all = "camelCase"`）
-- **分子类型模式**：`moleculeType`（`"dna" | "rna" | "protein"`，缺省 `"dna"`）决定编辑器形态。rna/protein 为单链：只渲染正链+特征层，导航只留 Edit/Features/Search，隐藏 DNA 专属插件（`dnaOnly: true`；RNA 用 `rnaOnly: true`）；长度单位 bp/nt/aa；protein 可直接存 `.gpt`，`.rna/.prot/.dna` 只读、必须 Save As
-- **插件机制**：编译期静态注册表（`src/plugins/index.js`），不做运行时动态加载——插件引擎在 Rust 内核；外部自动化扩展走 MCP。新插件须进注册表并在设置页可禁用（localStorage `disabledPlugins`）。禁用时 sidebar 项/注册表 dialog/nav 入口都要消失；`navMenuOnly` 插件由直接接线方自行门控。注册表通用钩子：`dialog`（ProjectWorkspace 统一挂载，可用性谓词 `dialogVisible({ projectId, moleculeType, isTauri })`）、`track`（编辑器行内轨道：`useLane(ctx)` 返回 `{ height } | null`，SequenceEditor 对注册表所有 track 插件无条件按序调用，`render(ctx, lane)` 渲染可见行；ctx 提供 `gridCpl`（模板列/行）与 drift 映射 `colVis`/`colRuns`，模板锚定的轨道绘制必须经它们换算，不可假设列与 x 线性对应；高度经 `alignLaneInfo.trackH` 折入 `chromBelow`）、`featuresMenuItem`（Features 菜单 checkbox，checked/onToggle 来自 App 构建的 `pluginToggles` prop 链）、`settingsField`（设置页数字输入，value/onChange 来自 `pluginSettings` prop）
-- **Constants**：`cw = 12`、`startX = 220`、`baseSeqY = 100`，坐标计算依赖这些常量；`measureWidth()` 用 Canvas 2D 缓存测量（`CACHE_MAX = 2000`）。**行布局用可视单元流**（`buildStreamLayout(insReserve, seqLen, baseCpl)`）：模板列与比对插入槽位列合成一条流，每行 `baseCpl` 个单元，`rowStarts`/`rowCounts` 逐行索引（宽槽位块跨行时中间行 `rowCounts === 0`，只画槽位），坐标一律经 `rowOf`/`colOfAbs`/`colVis`/`colFromVis`/`colRuns`/`sp` 换算，不要再假设「每行固定 `gridCpl` 个模板列」
+- 状态集中在 `App.jsx`，`SequenceEditor.jsx` 只管理 UI 状态；JSON 字段 camelCase。
+- **分子类型模式**：`moleculeType`（`"dna"|"rna"|"protein"`，缺省 dna）决定编辑器形态；rna/protein 单链、隐藏 DNA 专属插件（`dnaOnly`/`rnaOnly`）；`.rna/.prot/.dna` 只读、必须 Save As。
+- **插件机制**：编译期静态注册表（`src/plugins/index.js`），无运行时动态加载；新插件须进注册表并可在设置页禁用（localStorage `disabledPlugins`，禁用时 sidebar/dialog/nav 入口全消失）。注册表钩子：`dialog`（谓词 `dialogVisible`）、`track`（`useLane(ctx)` + `render(ctx, lane)`，模板锚定的绘制必须经 ctx 的 `colVis`/`colRuns` 换算，不可假设列与 x 线性对应）、`featuresMenuItem`、`settingsField`。
+- **行布局用可视单元流**（`buildStreamLayout`，`src/editor/alignmentLayout.js`）：模板列与比对插入槽位列合成一条流，每行 `baseCpl` 个单元；坐标一律经 `rowOf`/`colOfAbs`/`colVis`/`colFromVis`/`colRuns`/`sp` 换算，**不要再假设「每行固定 `gridCpl` 个模板列」**。
 
 ### 后端（Rust）
 
-- **异步锁顺序**：永远先取 `pm` 锁再取 `window_projects` 读锁；`agent_tabs` 锁不得与 `pm`/`window_projects` 同时持有（取前先 drop 其他 guard）。防死锁
-- **重计算放 `spawn_blocking`**：酶/引物计算 CPU 密集
-- **广播通知**：所有 mutation 命令调用 `broadcast_project()` 同步多窗口
-- **环状序列**：region 计算注意 `% tlen` 可能为 0 导致空切片，用 `wrap_template_region` 拼接
+- **锁顺序**：先 `pm` 再 `window_projects`；`agent_tabs` 锁不得与它们同时持有（取前先 drop 其他 guard）。
+- 重计算（酶/引物/比对）放 `spawn_blocking`；所有 mutation 命令调用 `broadcast_project()` 同步多窗口。
+- 环状序列 region 用 `wrap_template_region` 拼接（`% tlen` 可能为 0 导致空切片）。
 
 ### 多窗口
 
-- 主窗口 label `"main"`（不在 `window_projects`）；项目窗口 `"project-{safe_id}-{timestamp}"`（注册在 `window_projects`）。MCP Agent 不再开独立窗口：MCP `open_project` 打开文件时把项目绑定为**主窗口侧边栏里的 Agent 标签**（`AppState.agent_tabs`，按 project_id 索引，记录 locked；项目留在主窗口列表并带 `agentLocked: bool|null` 字段）
-- 项目窗口经 `resolve_project_id()` 按 label 查项目（映射未命中=项目被驱逐，返回错误提示 reload，绝不回退主窗口 active）；`broadcast_project()` 只广播主窗口可见项目
-- 窗口创建统一走 `spawn_project_window()`（仅项目窗口）；`do_delete_project` 清理 `agent_tabs` 条目并关闭绑定到被删项目的项目窗口（防幽灵 webview）
-
-## 仍有改进空间（非 Bug）
-
-- SequenceEditor 后续深化：selection 状态族（8 个状态 + 拖拽 refs）集中成 useReducer/context、全局键盘/鼠标事件抽 hook、`src/editor/layers/` 的 ctx 渲染函数升级为带显式 props 的真子组件
-- SVG 容器 `contain: 'layout style'` 可能影响固定定位元素
-- `list_projects` JSON 构建可用序列化替代 `json!` 宏
-
-## API
-
-### Tauri Commands
-
-```
-get_project, get_project_by_id, open_file, peek_fasta_records, take_pending_opens, create_project, save_file, write_text_file,
-update_sequence, set_roi, clear_roi, set_topology,
-get_features, add_feature, delete_feature, update_feature_ftype/color/name/strand/location,
-get_primers, add_primer, add_primers, delete_primer, check_primers_binding, compute_primer_alignment,
-design_primer_candidates, find_orfs, search_sequence, annotate_features, annotate_sequence,
-list_codon_species, preview_codon_optimization, apply_codon_optimization, get_enzyme_database, get_enzyme_providers,
-add_alignment, add_alignment_seq, remove_alignment, get_chromatogram, get_snapgene_history, open_snapgene_snapshot, set_methylation,
-get_projects, activate_project, delete_project, open_in_new_window, get_window_project_id, rekey_project,
-get_agent_tab_state, set_agent_tab_locked,
-compute_tm, blast_submit, get_mcp_config, set_mcp_config,
-activate_custom_titlebar, reassert_traffic_lights, restore_native_titlebar, force_quit
-```
-
-### HTTP API (libregene serve)
-
-统一前缀 `http://127.0.0.1:8765`，见 `src/api.js`。
-
-## MCP 支持
-
-嵌入式 MCP server（`src-tauri/src/mcp/`）让外部 LLM Agent 像真实用户一样操作应用。
-
-- **架构**：进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState` 的 `Arc<RwLock<ProjectManager>>`。所有 mutation 工具走同一套 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径，UI 实时更新；Tauri command 只是薄包装）
-- **启停/入口**：默认 `enabled=true, port=8766, requireAuth=true`，配置存 localStorage `mcpConfig`；侧边栏 "MCP Server" 打开 `McpGuideDialog.jsx`（开关/端口/令牌验证开关/令牌/自动生成的 Agent 配置提示词——提示词随 requireAuth 变化，并要求 Agent 对照自己的官方文档配置、让用户重启或新开对话验证）。关主窗口只是隐藏，进程与 MCP 继续跑；托盘 Quit 遇未保存改动先经前端确认再走 `force_quit`
-- **鉴权**：`Host` 必须严格等于 `127.0.0.1:<port>`（防 DNS rebinding，始终强制）；`requireAuth` 开启时（默认）每请求还需 `Authorization: Bearer <token>`，关闭时带不带 token 都接受（忽略之）——中间件每请求实时读取开关，切换不重启服务也不换令牌；令牌存 `<app_config_dir>/mcp_auth_token`；文件路径经 `validate_user_path` 校验（拒绝 `..` + 扩展名白名单）
-- **Agent 标签页（强制隔离）**：MCP `open_project` = 加载 + 绑定为**主窗口侧边栏 Agent 标签**（`AppState.agent_tabs`，默认 locked，不开窗口）。已绑定则复用+重锁；已加载未绑定（用户项目）则拒绝，指引 Agent 用 bash `cp` 复制副本再打开。mutation 工具对未绑定项目报错；任何工具调用自动重锁标签（统一入口 `resolve_project_id`/`resolve_project`/`resolve_project_light`，后者 clone 时置空 enzymes 减负）；解锁走前端 `set_agent_tab_locked`；项目列表每条带 `agentLocked: bool|null`
-- **工具**：18 个——`list_projects`、`get_project_overview`、`get_region_view`、`read_sequence`、`search_sequence`、`find_restriction_sites`、`list_primers`、`open_project`、`save_file`、`close_project`、`edit_sequence`、`set_feature`、`add_primer`、`add_alignment`、`find_orfs`、`design_primers`、`check_primer_binding`、`convert_sequence`。`project_id` 必填（无 active 回退）；mutation 工具统一返回 `{ok, message, projectId, regionView?}`。**所有项目相关工具的响应（含 list_projects 每条目与 convert_sequence 每项）都带 `sequenceHash`/`revCompHash`**：生物学序列的 7 位 hex FNV-1a 哈希（只哈希大写字母，大小写/空白不敏感；revCompHash 为反向互补序列的哈希，protein 为 null），跨调用对比即可发现序列是否变化，正反向两个文件共享同一对哈希。digest 文本头部带同样的 `SEQHASH:` 行（`backend/libregene-core/src/utils.rs::orientation_hashes` / `digest.rs::project_digest`）。**各工具的参数与行为细节以 `mcp/mod.rs` 内工具描述为准，不在本文件重复**
-- **文件优先 I/O**：工具描述统一引导 Agent 用文件传序列（`path`/`replacement_path`/`input_path`/`output_path`），纯文本只留给短输入（引物、点突变、短插入）；改描述时保持此口径一致
-- **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/错误体、Agent 标签绑定/门控/重锁、各工具正反例与 digest 渲染
-
-### 功能 MCP 适配清单
-
-**新增/修改功能时必须更新本清单**：标注「已适配」（给工具名）或「未适配」（记原因）。已适配工具的参数语义见 `mcp/mod.rs` 工具描述。
-
-已适配（功能 → 工具）：
-
-- 项目/文件管理、Agent 标签绑定、子序列导出（`region`） → `open_project` / `save_file` / `close_project` / `list_projects`
-- 序列读取、坐标转换、自动标注（只读展示）、甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
-- 序列编辑（**连同所有已存比对一起自动重算**，旧引擎的模型可借一次空编辑刷新） → `edit_sequence`；特征 → `set_feature`
-- 引物 → `add_primer` / `list_primers` / `check_primer_binding`；引物设计 → `design_primers`
-- ORF → `find_orfs`；序列比对 → `add_alignment`（可选 `algorithm`: "blast" 默认（自 GenePad 移植的 BLAST 引擎，多段共线 HSP，分割/多命中 read 全对齐）或 "smith-waterman"（单局部块 + 至多一个侧翼）；用户未指明时用默认）；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（统一批量转换：dna↔rna（T↔U，可选 revComp）、dna/rna→protein（翻译）、protein→dna/rna（逆转录+密码子优化）、dna→dna 密码子优化；逐项错误隔离，全部失败才 isError；单项调用可省略 `items` 直接顶层传参）
-- 上述 DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError
-
-未适配（前端/UI 专有，MCP 不可用）：
-
-- **ROI**、**视图/布局设置**（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
-- **GC 含量轨道**（插件 `src/plugins/gcContent/`：`track` 钩子渲染 + `featuresMenuItem`/`settingsField` 钩子接 Features 菜单 "Show GC Content" 开关和设置页窗口大小；开关/窗口大小状态仍由 App 持有，localStorage key 常量由插件导出（`SHOW_GC_CONTENT_KEY`/`GC_WINDOW_SIZE_KEY`，默认 11）；序列下方第一车道整行渲染蓝→白→红连续渐变带（每行一条跨全行视觉宽度的 `linearGradient`，逐碱基 stop 按流内列中心定位），颜色映射为非线性三次曲线（40–60% 平缓近白、<30%/>70% 陡峭，端点 0%=蓝/50%=白/100%=红，`gcContent/track.jsx::gcContentColor`）；窗口 = 该碱基 ± floor((w-1)/2)，环状跨原点 wrap、线性端点截断；比对插入槽位处渐变带经 track ctx 的 `colVis`/`colRuns` 拆成多个连续 run 矩形——在槽位列断开而非偏移；车道高度经 `alignLaneInfo.trackH` 折入 `chromBelow` 推开下方所有层，渲染时再向上偏移 6px 贴近序列文本，带纯黑 1px 描边）：纯渲染，UI 视图状态
-- **My Primers / My Enzymes 库**：存 localStorage，后端不可见
-- **酶 Provider 数据与筛选**（`enzyme_providers.json`：NEB/BestEnzyme/Thermo 的 buffer 兼容性、温度、甲基化、别名变体；`get_enzyme_providers` 命令 + 导航菜单 Provider 筛选，与 Enzyme Set 筛选取交集；Enzyme Database 弹窗双击行打开 `EnzymeDetailDialog` 显示别名/同裂酶/同尾酶/各 Provider 信息）：Provider 元数据仅展示用，不进 recompute
-- **质粒图视图 / 编辑器背景水印**（按分子类型持久化：localStorage `editorBackground` = {dna: none|map, rna: none|map|folding, protein: none|map}，Tauri 广播同步；导航栏 Diagrams 菜单左键切换背景（RNA 默认 Folding，DNA/Protein 默认 Map，未设置时单击即应用默认图），菜单内可单选背景并 Examine 各图；右键菜单 Background 二级菜单切换）、**选区 badge 分子量**：纯渲染
-- **前端搜索 UI**（feature/enzyme/primer 名称匹配）：MCP 只有序列搜索
-- **Agent 标签解锁按钮/导航控制条**：纯前端；锁定状态后端持有，MCP 不暴露
-- **Tm 参数与引物分析设置**：`design_primers` 已暴露浓度参数；其余为渲染层状态
-- **`add_alignment` 的 createdSites**：未实现；修序列后查位点走 `edit_sequence` + `find_restriction_sites`
-- **自动标注弹窗**、**新建序列弹窗**、**复制粘贴标注迁移**、**rnaFold 插件**（WASM 无法走 Rust 内核）、**系统文件关联/窗口拖放打开**：纯前端/OS 集成
-- **Dotplot**（Diagrams 菜单 "Examine Dotplot" → `src/plugins/dotplot/`，k-mer 窗口点阵自比较 DNA/RNA 序列；Canvas 渲染，仅 Examine dialog、不做背景）：纯前端渲染。每个点对应一对窗口，按两个独立条件着色（可同时成立）：窗口序列完全一致 → 半透明绿色；窗口与对方的反向互补一致（反向重复）→ 半透明紫色；两者同时成立时两色叠加混合。底部状态栏拆分计数并附图例
-- **BLAST 插件**（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
-- **拓扑切换**（Edit 菜单 Linearize/Circularize → `set_topology`，仅 DNA）：未暴露 MCP 工具
-- **SnapGene 历史快照**（插件 `src/plugins/snapgeneHistory/`，Edit 菜单 History 项（禁用插件时隐藏）→ `get_snapgene_history` / `open_snapgene_snapshot` Tauri 命令；入口仅 `.dna` 来源或快照项目可见（可用性谓词 `dialogVisible`）；`.dna` 文件 Block 7 历史树 + Block 11 快照解析在 `backend/libregene-core/src/file_io/snapgene_history.rs`；列表按需重读源文件；打开快照 = 新内存项目 `snapshot-<millis>`，携带该节点的完整子树历史（`ProjectData.snapgene_history`，`#[serde(skip)]` 不进 IPC 载荷）+ 快照时点特征/引物，名称沿用快照节点名，快照项目内可继续打开嵌套快照；Save As 仅 GenBank 系格式，历史不落盘） ：未暴露 MCP 工具
-- **ab1 色谱图显示**（`.ab1` 项目自带 + 比对行色谱带；read 缺失（比对缺失列）/分段跳跃/环状 join wrap 处曲线截断跳跃（`buildColumnAnchors` 在锚点上打 `brk` 结构断点、`buildTracePath` 据此断开，与显示中的 dash 位置一一对应；归并块把某个碱基拉到前一个碱基左侧时也断开，避免倒画），read 中段/接缝 insertion 碱基与峰占满独立槽位列（槽在锚列左侧，插入碱基用普通灰字 + 底色高亮（`BASE_HILITE_BG`，与 mismatch/read 缺失同一底色 `#fecaca`/0.6，只加在 read 的插入碱基上，模板行对应位置是灰色 `-`）渲染；模板行同位渲染灰色 `-` 占位（所有插入槽位列一律画 `-`，无宽度阈值），插入两侧的匹配碱基不做额外标红），**所有插入（含首尾 junk）一律展开槽位、无圆点/悬停弹窗**，**每个插入碱基各占自己锚点左侧的一格，不做跨锚点归并**（归并会把某条 read 的插入碱基挪到它匹配列之前、打乱该 read 自身顺序，并在共享网格里无法同时保持「逐位对齐」；`alignmentInsertUnion` 只按锚点取各比对最大宽度）；特征条被插入槽位切断时，槽位间用浅色线连接（样式同分段特征的 gap 连接线，opacity 0.25）。色谱锚点**按显示方向排序**绘制（`ChromatogramLayers` 对每行锚点按 x 排序：+ 链升序、- 链降序——普通行这等于 read 顺序，而跨原点 read 起点所在行的右半来自 read 开头、左半来自 read 末尾，纯 read 顺序会回扫出一条长斜线；不能全局按 x 升序，反向链在屏幕上从右往左，会被整条倒过来）、**按 `buildColumnAnchors` 打的 `brk` 结构断点断开**（该锚点的模板列不是上一个命中列之后一列：缺失列/分区跳跃/跨原点，正对显示里的 dash 位置），且**只在相邻碱基之间插值样本**（插值步数取 |Δx|，负链 x 递减也能插值），保证每个峰落在自己的碱基格上，`buildStreamLayout`（`src/editor/alignmentLayout.js`）把模板列与槽位列拼成一条可视单元流、每行恰好 `baseCpl` 个单元：`rowStarts`/`rowCounts`（行内模板列数与起止，宽槽位块跨行时中间行 `rowCounts===0`）、`streamOf`/`rowOf`/`colOfAbs`/`absFromStream`，helper `colVis`/`colFromVis`/`colRuns`/`sp` 统一所有轨道映射，行宽恒定不再横向溢出，match/mismatch 保持连续，参考 GenePad）：纯前端渲染。**BlastN 的 full-length 快速路径必须返回最优解**：带状 Gotoh 的 trace 打包「胜出状态 + ix/iy 是否延伸」两个位、回溯按状态机走（只存胜出状态会把长 indel 拆成多段小 gap），旋转候选要覆盖整条模板取样（只在几处取样时，read 里带 indel 会让探针全部落在漂移区、给出差一个 indel 长度的偏移）；`tests/full_length_path_test.rs` 用 `pVA-MCS.dna` + `pVA-read-1.ab1` 守护：干净的 30bp 插入必须是 1 段、编辑模板后 read 的插入必须是 1 段且落在编辑点、不得出现 <5nt 的模板小段。**模型不变量**：比对结果的段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels` 把每个 indel 滑到等效位置的最左端——同聚/串联重复里 gap 放哪得分都一样、DP 的 tie-breaking 随意挑一个，会让两侧本可一一对应的序列错开显示；只做得分中性的等效滑动，不改错配数、插入总长与 read 顺序。`anchor_loose_ends` 在两种引擎的出口把两端不足以为 flank 的碱基锚成插入，否则 5' 端丢一段会让该 read 此后每个峰整体平移；前端 `buildColumnAnchors` 还会把走过得到的串在 `seq` 里定位、按其真实下标编号，兼容旧存盘数据）（前端就是这样顺序给 read 碱基编号 `q`、再用 `q` 索引色谱峰；任何丢失或换序都会让峰图整体错位）。同一模板列最多一个插入条目（后端 `push_insertion` 合并同锚点、前端 `insertionBases` 按列去重，否则渲染重叠且峰图编号少算碱基）；后端 `tests/align_model_test.rs` 用合成环状模板对两种引擎守护该不变量；环状模板的旋转快速路径（`full_length::columns_in_read_order`）曾返回按模板顺序排列的列，导致 read 被旋转显示 + 峰图错位，已改为按 read 顺序输出、模板坐标在原点处 wrap 成两段。反向链 read 的峰图由 `orientChromatogram(chrom, al.strand)` 做 rev-comp（通道 A↔T、C↔G 互换 + 反向 + 峰位镜像）后再显示，与 `Alignment.seq`（存的就是定向后的 read）一致。trace 数据不进 `ProjectData` 序列化（避免每次 get_project/broadcast 携带 ~100KB/读）；`ProjectData.trace_path` / `Alignment.trace_path`（serde `tracePath`）只记源 `.ab1` 路径，前端按路径经 Tauri `get_chromatogram` 懒加载并缓存（`src/chromatogram.js` 取向/画路径）；`.gbk` 持久化经 `libregene_trace_file` 限定符随比对 misc_feature 往返——**相对 .gbk 所在目录存储**（无法 canonicalize 时回退绝对路径；解析端把相对路径对 .gbk 目录做词法归一化还原为绝对路径，兼容旧文件的绝对值）。**模板序列编辑后所有比对自动重算**（`align::realign_project`，默认引擎，随 `recompute_after_sequence_change` 走 spawn_blocking + 序列 CAS、按 id 合并回写；read 不再可比对的保留旧快照。**重算必须用原始取向的 read**：存盘的 `Alignment.seq` 已是显示取向，直接回喂会让引擎判成正链、把 `strand` 从 `-` 翻成 `+`，而前端正是靠 `strand` 决定峰图要不要 rev-comp —— 反向 read 的峰会整条镜像，所以由 strand 反推 raw read 再比对）；**编辑时前端本地搬移比对模型**（`src/alignmentEdit.js` 的 `adjustAlignmentsForEdit`，与 `adjustAnnotations` 同口径：编辑区之后的列平移 delta、被删列的 read 碱基与落在区间内的插入按 read 顺序合并成「编辑点的一个插入」、新增列在跨编辑点的段内补 `-`）——否则重算返回前渲染的是「新序列 + 旧模型」，画面会花一下；后端结果到达后覆盖它。**存量比对只在序列被编辑时重算**（改引擎设置、或升级引擎代码都不会回溯刷新已存盘的模型）
+- 主窗口 label `"main"`；项目窗口 `"project-{safe_id}-{timestamp}"`（注册在 `window_projects`，经 `resolve_project_id()` 按 label 查项目，未命中=报错提示 reload，绝不回退主窗口 active）。
+- MCP `open_project` 不开窗口：项目绑定为**主窗口侧边栏 Agent 标签**（`AppState.agent_tabs`，列表条目带 `agentLocked: bool|null`）。
 
 ## 核心模型约定
 
-- **坐标分层**（基数按层划分，非全局统一）：
-  - **Agent 可见面（MCP 工具 + digest 渲染）：1-based inclusive**。集中转换点：mcp.rs `to1`/`from1` 及 `*_1based` helper；digest.rs `cut_flanks`/`cut_notation`（pub，mcp.rs 复用）
-  - **内部模型与 Tauri command IPC：0-based inclusive**（前端内部状态同层，只在渲染处 +1）。`Feature.start/end`、`Feature.segments[]`、`PrimerBindingSite.template_start` 0-based inclusive；`PrimerBindingSite.template_end` 0-based exclusive（数值恰等于 1-based inclusive 末端，MCP 只对 `templateStart` +1）；`Enzyme.cut_index/bot_cut_index` 在 0-based cutIndex-1 与 cutIndex 之间（渲染 `N^N+1`，环状原点切口 `len^1`）
-  - **前端 UI 渲染与输入：1-based inclusive**，内部保持 0-based，只在边界转换（渲染处直接 +1；用户输入的 location 字符串发送前经 `locationStringTo0based` 转 0-based）。location helper 集中在 `src/editorConstants.js`：`locationString1based`/`locationString0based`/`locationStringTo0based`
-  - **GenBank 落盘/解析：1-based**（外部文件格式）。1-based 解析只在 `gbk.rs::parse_location_string`（文件用）；App 内 location 字符串走 `parse_location_string_0based`
-- 模型坐标 0-based inclusive；gb-io Range 是 0-based end-exclusive
-- `ProjectData.molecule_type` — `"dna" | "rna" | "protein"`（serde 输出 `moleculeType`），默认 `"dna"`；RNA/蛋白序列通常线性
-- **分子类型 gate**：digest 渲染、酶/引物 recompute、translate refresh 都按 molecule_type 分支，非 DNA 跳过酶切/引物/甲基化（`ProjectData::is_dna()` 统一判定，空串视为 DNA）；auto-annotation 例外（DNA 走 nt 级 + CDS 蛋白级双通路，protein 按 aa 匹配，RNA 不支持）
-- 环状序列坐标用 `% tlen` 归一化，`wrap_template_region` 负责环状拼接
-- **跨原点特征**：segments 按 join 顺序存储，后段 `start` < 前段 `start` 即跨原点（如 CmR `join(8886..9326,1..219)`）。特征选中范围取 join 顺序首段 start..末段 end，故 `selStart > selEnd` 表示跨原点选区（仅 circular 有效；渲染/复制支持，replace/delete/paste 不支持）；复制/导出序列按 join 顺序拼接，负链按逆序逐段 rev-comp（前端 helper 在 `src/editorConstants.js`：`featureSelRange`/`sliceRange`/`rangeLen`；图谱经 `MapView.jsx` 的 `unwrapRuns` 展开为单个跨原点箭头）
+- **坐标分层**（非全局统一）：
+  - **MCP 工具 + digest 渲染：1-based inclusive**（转换点：mcp.rs `to1`/`from1`、digest.rs `cut_flanks`/`cut_notation`）
+  - **内部模型与 Tauri IPC：0-based inclusive**（`Feature.start/end`、`segments[]`；例外：`PrimerBindingSite.template_end` 为 0-based exclusive，数值等于 1-based 末端；`Enzyme.cut_index` 在 0-based cutIndex-1 与 cutIndex 之间）
+  - **前端 UI 渲染与输入：1-based inclusive**，内部保持 0-based，只在边界转换（helper 在 `src/editorConstants.js`）
+  - **GenBank 落盘/解析：1-based**（`gbk.rs::parse_location_string`；App 内用 `parse_location_string_0based`）；gb-io Range 是 0-based end-exclusive
+- **分子类型 gate**：digest 渲染、酶/引物 recompute、translate 都按 `molecule_type` 分支，非 DNA 跳过（`ProjectData::is_dna()`，空串视为 DNA）；auto-annotation 例外（DNA 双通路，protein 按 aa 匹配，RNA 不支持）。
+- **跨原点特征**：segments 按 join 顺序存储，后段 `start` < 前段 `start` 即跨原点；`selStart > selEnd` 表示跨原点选区（渲染/复制支持，replace/delete/paste 不支持）。
+- **比对模型不变量**：段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels`/`anchor_loose_ends` 守护，`tests/align_model_test.rs`）；同一模板列最多一个插入条目；序列编辑后所有比对自动重算（`align::realign_project`），**重算必须由 strand 反推原始取向的 read**（存盘的 `Alignment.seq` 已是显示取向，直接回喂会翻转 strand、导致色谱镜像）；编辑瞬间前端先用 `src/alignmentEdit.js::adjustAlignmentsForEdit` 本地搬移模型防画面闪烁。
+- **BlastN full-length 快速路径必须返回最优解**：trace 打包「胜出状态+延伸位」、回溯按状态机走；旋转候选覆盖整条模板取样（`tests/full_length_path_test.rs` 守护）。
+- ab1 trace 不进 `ProjectData` 序列化，只记 `tracePath`（`.gbk` 中相对 .gbk 目录存储），前端经 `get_chromatogram` 懒加载；反向链 read 的峰图由 `orientChromatogram` 做 rev-comp 后显示。
+
+## API
+
+- **Tauri commands**：定义在 `src-tauri/src/commands/`（按域拆分），前端封装在 `src/tauriApi.js`。
+- **HTTP API**：`libregene serve`，前缀 `http://127.0.0.1:8765`，见 `src/api.js`。
+
+## MCP 支持
+
+嵌入式 MCP server（`src-tauri/src/mcp/`）让外部 LLM Agent 操作应用。
+
+- **架构**：进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环），与前端共享 `AppState`；所有 mutation 走 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径）。
+- **鉴权**：`Host` 必须严格等于 `127.0.0.1:<port>`（始终强制）；`requireAuth`（默认开）时每请求需 `Authorization: Bearer <token>`，令牌存 `<app_config_dir>/mcp_auth_token`；文件路径经 `validate_user_path` 校验。
+- **Agent 标签强制隔离**：`open_project` = 加载 + 绑定主窗口 Agent 标签（默认 locked）；已加载未绑定（用户项目）则拒绝，指引 Agent `cp` 副本再打开；mutation 工具对未绑定项目报错，任何调用自动重锁；解锁走前端 `set_agent_tab_locked`。
+- **工具**：18 个，清单见下节；**参数与行为细节以 `mcp/mod.rs` 工具描述为准**（不在本文件重复）。`project_id` 必填；mutation 统一返回 `{ok, message, projectId, regionView?}`；项目相关响应带 `sequenceHash`/`revCompHash`（7 位 FNV-1a，大小写/空白不敏感，digest 头部带同样的 `SEQHASH:` 行），跨调用对比即可发现序列变化。
+- **文件优先 I/O**：工具描述统一引导 Agent 用文件传序列，纯文本只留给短输入；改描述时保持此口径。
+- **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/鉴权/Agent 标签门控/各工具正反例。
+
+### 功能 MCP 适配清单
+
+**新增/修改功能时必须更新本清单**：标注「已适配」（给工具名）或「未适配」（记原因）。
+
+已适配（功能 → 工具）：
+
+- 项目/文件管理、Agent 标签绑定、子序列导出 → `open_project` / `save_file` / `close_project` / `list_projects`
+- 序列读取、坐标转换、自动标注/甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
+- 序列编辑（连同已存比对自动重算）→ `edit_sequence`；特征 → `set_feature`
+- 引物 → `add_primer` / `list_primers` / `check_primer_binding` / `design_primers`
+- ORF → `find_orfs`；比对 → `add_alignment`（`algorithm`: "blast" 默认 / "smith-waterman"）；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（dna↔rna、→protein、protein 逆转录、密码子优化，批量逐项错误隔离）
+- DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError
+
+未适配（每项一句话记原因）：
+
+- ROI、视图/布局设置（layoutParams、show* 开关、酶切过滤器、特征标签位置）：UI 视图状态
+- GC 含量轨道（`src/plugins/gcContent/`）：纯渲染
+- My Primers / My Enzymes 库：存 localStorage，后端不可见
+- 酶 Provider 数据与筛选（`enzyme_providers.json`、`get_enzyme_providers`）：仅展示用，不进 recompute
+- 质粒图视图 / 编辑器背景水印、选区 badge 分子量：纯渲染
+- 前端搜索 UI（名称匹配）：MCP 只有序列搜索
+- Agent 标签解锁按钮/导航控制条：纯前端，锁定状态后端持有
+- Tm 参数与引物分析设置：`design_primers` 已暴露浓度参数，其余为渲染层状态
+- `add_alignment` 的 createdSites：未实现，改用 `edit_sequence` + `find_restriction_sites`
+- 自动标注弹窗、新建序列弹窗、复制粘贴标注迁移、rnaFold 插件（WASM）、系统文件关联/拖放打开：纯前端/OS 集成
+- Dotplot 插件（`src/plugins/dotplot/`）：纯前端渲染
+- BLAST 插件（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
+- 拓扑切换（`set_topology`，仅 DNA）：未暴露 MCP 工具
+- SnapGene 历史快照（`src/plugins/snapgeneHistory/`，`get_snapgene_history`/`open_snapgene_snapshot`）：未暴露 MCP 工具
+- ab1 色谱图显示（`src/chromatogram.js` 等）：纯前端渲染
+
+## 仍有改进空间（非 Bug）
+
+- SequenceEditor 深化：selection 状态族集中成 useReducer/context、全局键鼠事件抽 hook、`src/editor/layers/` 渲染函数升级为真子组件
+- SVG 容器 `contain: 'layout style'` 可能影响固定定位元素
+- `list_projects` JSON 构建可用序列化替代 `json!` 宏
