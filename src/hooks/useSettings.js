@@ -22,6 +22,10 @@ const ENZYME_FILTER_VALUES = new Set([
   'myEnzymes',
 ]);
 
+// MCP server config defaults; legacy localStorage entries lack requireAuth
+// and must default to verifying the access token.
+const MCP_CONFIG_DEFAULTS = { enabled: true, port: 8766, requireAuth: true };
+
 export default function useSettings() {
   const [disabledPlugins, setDisabledPlugins] = useState(() => {
     try {
@@ -62,13 +66,21 @@ export default function useSettings() {
       // storage may be unavailable; config still applies in-memory
     }
     if (isTauri) {
-      setMcpConfig(Boolean(next.enabled), Number(next.port))
+      setMcpConfig(Boolean(next.enabled), Number(next.port), next.requireAuth !== false)
         .then(() => getMcpConfig())
         .then((cfg) => {
           // A failed bind flips enabled off server-side; adopt that truth.
           if (!cfg) return;
-          const actual = { enabled: !!cfg.enabled, port: Number(cfg.port) };
-          if (actual.enabled === Boolean(next.enabled) && actual.port === Number(next.port)) {
+          const actual = {
+            enabled: !!cfg.enabled,
+            port: Number(cfg.port),
+            requireAuth: cfg.requireAuth !== false,
+          };
+          if (
+            actual.enabled === Boolean(next.enabled) &&
+            actual.port === Number(next.port) &&
+            actual.requireAuth === (next.requireAuth !== false)
+          ) {
             return;
           }
           setMcpConfigState(actual);
@@ -154,9 +166,9 @@ export default function useSettings() {
   });
   const [mcpConfig, setMcpConfigState] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('mcpConfig')) || { enabled: true, port: 8766 };
+      return { ...MCP_CONFIG_DEFAULTS, ...(JSON.parse(localStorage.getItem('mcpConfig')) || {}) };
     } catch {
-      return { enabled: true, port: 8766 };
+      return MCP_CONFIG_DEFAULTS;
     }
   });
 

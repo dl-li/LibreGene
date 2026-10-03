@@ -244,13 +244,13 @@ export default function App() {
   // Only the main window pushes config; project windows would just repeat it.
   useEffect(() => {
     if (!isTauri || windowInfo?.type !== 'main') return;
-    let cfg = { enabled: true, port: 8766 };
+    let cfg = { enabled: true, port: 8766, requireAuth: true };
     try {
-      cfg = JSON.parse(localStorage.getItem('mcpConfig')) || cfg;
+      cfg = { ...cfg, ...(JSON.parse(localStorage.getItem('mcpConfig')) || {}) };
     } catch {
       /* ignore malformed stored config */
     }
-    setMcpConfig(Boolean(cfg.enabled), Number(cfg.port)).catch(() => {});
+    setMcpConfig(Boolean(cfg.enabled), Number(cfg.port), cfg.requireAuth !== false).catch(() => {});
   }, [windowInfo]);
 
   // The MCP guide reflects the backend's real state: a failed bind flips
@@ -261,9 +261,18 @@ export default function App() {
     getMcpConfig()
       .then((cfg) => {
         if (cancelled || !cfg) return;
-        const actual = { enabled: !!cfg.enabled, port: Number(cfg.port) };
+        const actual = {
+          enabled: !!cfg.enabled,
+          port: Number(cfg.port),
+          requireAuth: cfg.requireAuth !== false,
+        };
         setMcpConfigState((prev) => {
-          if (prev.enabled === actual.enabled && prev.port === actual.port) return prev;
+          if (
+            prev.enabled === actual.enabled &&
+            prev.port === actual.port &&
+            (prev.requireAuth !== false) === actual.requireAuth
+          )
+            return prev;
           try {
             localStorage.setItem('mcpConfig', JSON.stringify(actual));
           } catch {

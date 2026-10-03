@@ -27,6 +27,9 @@ use super::{LibreGeneMcp, MCP_PORT};
 pub struct McpConfig {
     pub enabled: bool,
     pub port: u16,
+    /// When false the bearer-token check is skipped (a token may still be
+    /// sent; it is simply ignored). The Host check always applies.
+    pub require_auth: bool,
 }
 
 impl Default for McpConfig {
@@ -34,6 +37,7 @@ impl Default for McpConfig {
         Self {
             enabled: true,
             port: MCP_PORT,
+            require_auth: true,
         }
     }
 }
@@ -114,8 +118,15 @@ impl<R: Runtime> McpServer<R> {
         *self.config.lock().unwrap()
     }
 
-    /// Update the config and restart the server only when something changed.
-    pub async fn set_config(&self, enabled: bool, port: u16) -> Result<McpConfig, String> {
+    /// Update the config and restart the server only when enabled/port
+    /// changed. `require_auth` is read live by the auth middleware, so
+    /// toggling it never restarts the server (and never touches the token).
+    pub async fn set_config(
+        &self,
+        enabled: bool,
+        port: u16,
+        require_auth: bool,
+    ) -> Result<McpConfig, String> {
         if port == 0 {
             return Err(format!("Invalid port: {port} (must be 1-65535)"));
         }
@@ -124,6 +135,7 @@ impl<R: Runtime> McpServer<R> {
             let changed = c.enabled != enabled || c.port != port;
             c.enabled = enabled;
             c.port = port;
+            c.require_auth = require_auth;
             changed
         };
         if changed {
@@ -149,8 +161,10 @@ impl<R: Runtime> McpServer<R> {
             let token = self.auth_token.clone();
             let config = self.config.clone();
             let status = self.status.clone();
+            let serve_config = self.config.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app.clone(), pm, wp, agent_tabs, port, token).await {
+                if let Err(e) = serve_mcp(app.clone(), pm, wp, agent_tabs, port, token, serve_config).await
+                {
                     log::error!("MCP server error on port {}: {}", port, e);
                     // Give-up (e.g. the port is held by another app): the
                     // server never came up. Flip the config so get_mcp_config
@@ -218,6 +232,7 @@ pub(crate) async fn serve_mcp<R: Runtime>(
     agent_tabs: crate::AgentTabs,
     port: u16,
     auth_token: Arc<StdMutex<String>>,
+    config: Arc<StdMutex<McpConfig>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let expected_host = format!("127.0.0.1:{}", port);
@@ -269,10 +284,12 @@ pub(crate) async fn serve_mcp<R: Runtime>(
     const MCP_BODY_LIMIT: usize = 4 * 1024 * 1024;
     let auth_token_for_layer = auth_token.clone();
     let expected_host_for_layer = expected_host.clone();
+    let config_for_layer = config.clone();
     let auth_layer = axum::middleware::from_fn(
         move |req: axum::extract::Request, next: axum::middleware::Next| {
             let auth_token = auth_token_for_layer.clone();
             let expected_host = expected_host_for_layer.clone();
+            let config = config_for_layer.clone();
             async move {
                 let host_ok = req
                     .headers()
@@ -280,28 +297,40 @@ pub(crate) async fn serve_mcp<R: Runtime>(
                     .and_then(|h| h.to_str().ok())
                     .map(|h| h == expected_host.as_str())
                     .unwrap_or(false);
-                let bearer_ok = req
-                    .headers()
-                    .get(axum::http::header::AUTHORIZATION)
-                    .and_then(|h| h.to_str().ok())
-                    // Read the shared token per request so a user-triggered
-                    // regeneration takes effect without restarting the server.
-                    // Compared in constant time; the lock tolerates poisoning
-                    // (a panicking request handler must not lock out auth).
-                    .map(|h| {
-                        h.strip_prefix("Bearer ")
-                            .map(|t| {
-                                token_eq(t, &auth_token.lock().unwrap_or_else(|e| e.into_inner()))
-                            })
-                            .unwrap_or(false)
-                    })
-                    .unwrap_or(false);
+                // Read the shared config per request so toggling token
+                // verification takes effect without restarting the server.
+                let auth_required = config
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .require_auth;
+                let bearer_ok = !auth_required
+                    || req
+                        .headers()
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|h| h.to_str().ok())
+                        // Read the shared token per request so a user-triggered
+                        // regeneration takes effect without restarting the server.
+                        // Compared in constant time; the lock tolerates poisoning
+                        // (a panicking request handler must not lock out auth).
+                        .map(|h| {
+                            h.strip_prefix("Bearer ")
+                                .map(|t| {
+                                    token_eq(t, &auth_token.lock().unwrap_or_else(|e| e.into_inner()))
+                                })
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
                 if !(host_ok && bearer_ok) {
+                    let message = if auth_required {
+                        "Unauthorized: every MCP request must include 'Authorization: Bearer <token>' and 'Host: 127.0.0.1:<port>'"
+                    } else {
+                        "Unauthorized: every MCP request must use 'Host: 127.0.0.1:<port>'"
+                    };
                     return jsonrpc_error_response(
                         axum::http::StatusCode::UNAUTHORIZED,
                         None,
                         -32000,
-                        "Unauthorized: every MCP request must include 'Authorization: Bearer <token>' and 'Host: 127.0.0.1:<port>'",
+                        message,
                     );
                 }
 
@@ -388,7 +417,12 @@ pub(crate) async fn serve_mcp<R: Runtime>(
     loop {
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
-                log::info!("MCP server listening on http://{addr}/mcp (auth enabled)");
+                let auth = if config.lock().map(|c| c.require_auth).unwrap_or(true) {
+                    "auth enabled"
+                } else {
+                    "auth disabled"
+                };
+                log::info!("MCP server listening on http://{addr}/mcp ({auth})");
                 return axum::serve(listener, router).await.map_err(Into::into);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {

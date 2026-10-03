@@ -377,19 +377,26 @@ pub(crate) async fn get_mcp_config(
     mcp: State<'_, mcp::McpServer<tauri::Wry>>,
 ) -> Result<serde_json::Value, String> {
     let cfg = mcp.config();
-    Ok(serde_json::json!({ "enabled": cfg.enabled, "port": cfg.port }))
+    Ok(serde_json::json!({
+        "enabled": cfg.enabled,
+        "port": cfg.port,
+        "requireAuth": cfg.require_auth,
+    }))
 }
 
-/// Enable/disable the MCP server or move it to a new loopback port. The server
-/// is stopped/restarted in place — no app restart needed.
+/// Enable/disable the MCP server, move it to a new loopback port, or toggle
+/// bearer-token verification. The server is stopped/restarted in place for
+/// enabled/port changes — no app restart needed. `require_auth` is applied
+/// live (the middleware reads it per request) and never rotates the token.
 #[tauri::command]
 pub(crate) async fn set_mcp_config(
     mcp: State<'_, mcp::McpServer<tauri::Wry>>,
     state: State<'_, AppState>,
     enabled: bool,
     port: u16,
+    require_auth: bool,
 ) -> Result<serde_json::Value, String> {
-    let cfg = mcp.set_config(enabled, port).await?;
+    let cfg = mcp.set_config(enabled, port, require_auth).await?;
     if let Ok(tray_status) = state.tray_status.lock() {
         if let Some(item) = tray_status.as_ref() {
             let _ = item.set_text(mcp_status_text(cfg.enabled, cfg.port));
@@ -398,6 +405,7 @@ pub(crate) async fn set_mcp_config(
     Ok(serde_json::json!({
         "enabled": cfg.enabled,
         "port": cfg.port,
+        "requireAuth": cfg.require_auth,
         "status": "ok",
     }))
 }

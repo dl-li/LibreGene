@@ -425,8 +425,8 @@ export async function getMcpConfig() {
   return tauriInvoke('get_mcp_config');
 }
 
-export async function setMcpConfig(enabled, port) {
-  return tauriInvoke('set_mcp_config', { enabled, port });
+export async function setMcpConfig(enabled, port, requireAuth) {
+  return tauriInvoke('set_mcp_config', { enabled, port, requireAuth });
 }
 
 export async function getMcpToken() {

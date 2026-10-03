@@ -50,11 +50,16 @@ function Snippet({ label, hint, text }) {
   );
 }
 
-function agentPrompt(port, token) {
-  return `Add LibreGene's MCP server to your config and verify with list_projects:
+function agentPrompt(port, token, requireAuth) {
+  const authLine = requireAuth
+    ? `- Send this header on every request: Authorization: Bearer ${token || '<token from the MCP Server dialog>'}`
+    : '- No Authorization header is needed (token verification is currently disabled in LibreGene).';
+  return `Add LibreGene's MCP server to your configuration:
 - URL (Streamable HTTP): http://127.0.0.1:${port}/mcp
-- Header on every request: Authorization: Bearer ${token || '<token from the MCP Server dialog>'}
-- Host must stay 127.0.0.1:${port}`;
+${authLine}
+- The Host must stay 127.0.0.1:${port}
+
+Configure it strictly following YOUR OWN official documentation for adding a remote (HTTP) MCP server — search the web for your client/framework's docs if needed; config formats differ between clients, so do not guess. Do NOT try to verify the connection yourself: the current conversation usually cannot use a newly configured MCP server. After updating the config, ask the user to restart you or start a new conversation, and verify there by calling list_projects.`;
 }
 
 export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpConfigChange }) {
@@ -73,6 +78,7 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
   };
   const enabled = Boolean(mcpConfig?.enabled);
   const port = mcpConfig?.port ?? 8766;
+  const requireAuth = mcpConfig?.requireAuth !== false;
   // Port edits stay local until blur/Enter; committing on every keystroke
   // would restart the backend server per key and can strand it on a
   // half-typed port (<1024 bind failures flip enabled off server-side).
@@ -136,6 +142,22 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
+                <Checkbox
+                  id="mcp-guide-require-auth"
+                  checked={requireAuth}
+                  disabled={!enabled}
+                  onCheckedChange={(v) =>
+                    onMcpConfigChange?.({ ...mcpConfig, requireAuth: Boolean(v) })
+                  }
+                />
+                <Label
+                  htmlFor="mcp-guide-require-auth"
+                  className="cursor-pointer text-sm font-normal"
+                >
+                  Require access token
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
                 <Label className="text-sm text-muted-foreground shrink-0">Access token</Label>
                 <code className="flex-1 min-w-0 truncate text-[11px] font-mono bg-muted rounded px-2 py-1 select-all">
                   {token || '…'}
@@ -152,8 +174,9 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Required by the MCP server on every request. Regenerating invalidates the old token
-                immediately — update your agent client config afterwards.
+                {requireAuth
+                  ? 'Required by the MCP server on every request. Regenerating invalidates the old token immediately — update your agent client config afterwards.'
+                  : 'Token verification is off — requests are accepted with or without a token (a sent token is simply ignored). The Host check stays on. Toggling never changes the token.'}
               </p>
             </div>
           </div>
@@ -182,8 +205,12 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                 </p>
                 <Snippet
                   label="Agent setup prompt"
-                  hint="Embeds the current URL and access token. If you regenerate the token, copy and send the prompt again."
-                  text={agentPrompt(port, token)}
+                  hint={
+                    requireAuth
+                      ? 'Embeds the current URL and access token. If you regenerate the token, copy and send the prompt again.'
+                      : 'Embeds the current URL. Token verification is off, so no token is included.'
+                  }
+                  text={agentPrompt(port, token, requireAuth)}
                 />
               </div>
             )}

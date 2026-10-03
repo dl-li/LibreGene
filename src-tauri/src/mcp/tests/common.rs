@@ -36,6 +36,30 @@ use crate::mcp::*;
         }
     }
 
+    /// Like handshake_ok but sends no Authorization header at all.
+    pub(crate) async fn handshake_anon(port: u16) -> bool {
+        let addr = format!("127.0.0.1:{}", port);
+        let Ok(mut stream) = tokio::net::TcpStream::connect(&addr).await else {
+            return false;
+        };
+        let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"cfg-test\",\"version\":\"0\"}}}";
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        if stream.write_all(req.as_bytes()).await.is_err() {
+            return false;
+        }
+        let mut buf = vec![0u8; 4096];
+        match tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await {
+            Ok(Ok(n)) if n > 0 => {
+                let text = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                text.contains("200 ok") && text.contains("mcp-session-id")
+            }
+            _ => false,
+        }
+    }
+
     /// Raw HTTP POST /mcp returning the full response (status line + body).
     /// `extra_headers` must be pre-formatted header lines each ending with
     /// `\r\n` (e.g. Accept, Mcp-Session-Id); Content-Type,
