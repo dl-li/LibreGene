@@ -15,8 +15,8 @@ use crate::mcp::support::{
     primer_site_json, to1, unit_for,
 };
 use crate::mcp::types::{
-    EnzymeListRequest, FindOrfsRequest, FindRestrictionSitesRequest, ListPrimersRequest,
-    OverviewRequest, RegionRequest, SequenceRequest,
+    FindOrfsRequest, FindRestrictionSitesRequest, ListPrimersRequest,
+    OverviewRequest, RegionRequest, SearchEnzymesRequest, SequenceRequest,
 };
 
 /// Feature/translation hits containing internal 0-based `position`,
@@ -117,7 +117,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
             compact_enzymes: false,
-            compact_cutters: request.compact_cutters.unwrap_or(true),
             include_auto_annotation: true,
             include_alignment_view: false,
         };
@@ -146,7 +145,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
             compact_enzymes: request.compact.unwrap_or(true),
-            compact_cutters: false,
             include_auto_annotation: false,
             include_alignment_view: request.show_alignment_columns.unwrap_or(false),
         };
@@ -346,9 +344,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Name discovery used to be an implicit protocol (probe
     /// find_restriction_sites with a name and read the suggestions out of the
     /// error); this is the explicit, general replacement.
-    pub(crate) async fn list_enzymes_impl(
+    pub(crate) async fn search_enzymes_impl(
         &self,
-        request: EnzymeListRequest,
+        request: SearchEnzymesRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let query = request
             .query
@@ -416,7 +414,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // unknown to the database (unknown). Unknown names are data, not a
         // call failure: they are reported under `unknownEnzymes` (with
         // near-match suggestions) and the rest of the query still answers.
-        // Name discovery belongs to list_enzymes.
+        // Name discovery belongs to search_enzymes.
         let mut requested: Vec<String> = Vec::new();
         let mut no_site: Vec<String> = Vec::new();
         let mut unknown: Vec<(String, Vec<String>)> = Vec::new();

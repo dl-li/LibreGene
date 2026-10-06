@@ -94,7 +94,7 @@ LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only
 - **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`
 - **Editing** — `edit_sequence` (insert/delete/replace), `set_feature` (create & update)
 - **Primers** — `add_primer`, `list_primers`, `check_primer_binding` (binding sites + Tm), `design_primers` (amplify / OE-PCR / mutagenesis)
-- **Analysis** — `list_enzymes` + `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
+- **Analysis** — `search_enzymes` + `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
 
 #### Example Tasks
 

@@ -115,10 +115,10 @@ src-tauri/src/          # lib.rs（门面）、state/payload/kernels/tray、comm
 已适配（功能 → 工具）：
 
 - 项目/文件管理、Agent 标签绑定、子序列导出 → `open_project` / `save_file` / `list_projects`（`close_project` 已移除：卸载项目交给用户，Agent 只需 save_file）
-- 序列读取、坐标转换、自动标注/甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
+- 序列读取、坐标转换、自动标注/甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`（overview 的酶段落默认列全部单切点酶的切点 + 全部双切点酶名，≥3 位点只计数）
 - 序列编辑（连同已存比对自动重算）→ `edit_sequence`；特征 → `set_feature`
 - 引物 → `add_primer` / `list_primers` / `check_primer_binding` / `design_primers`
-- ORF → `find_orfs`；比对 → `add_alignment`（`algorithm`: "blast" 默认 / "smith-waterman"）；酶库检索 → `list_enzymes`，酶切位点 → `find_restriction_sites`（未知酶名不报错，作为数据返回；名字发现走 `list_enzymes`）；序列转换/密码子优化 → `convert_sequence`（dna↔rna、→protein、protein 逆转录、密码子优化，批量逐项错误隔离）
+- ORF → `find_orfs`；比对 → `add_alignment`（`algorithm`: "blast" 默认 / "smith-waterman"）；酶库检索 → `search_enzymes`，酶切位点 → `find_restriction_sites`（未知酶名不报错，作为数据返回；名字发现走 `search_enzymes`）；序列转换/密码子优化 → `convert_sequence`（dna↔rna、→protein、protein 逆转录、密码子优化，批量逐项错误隔离）
 - DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`）对 protein/rna 项目返回 isError
 
 未适配（每项一句话记原因）：

@@ -295,38 +295,23 @@ pub fn project_digest(
     if is_dna {
         match region {
             None => {
-                let (unique, twice, others) = classify_enzymes(project);
-                // Multi-cut enzymes are summarized to keep the digest compact;
-                // names are counted once even when they appear as several sites.
-                let mut multi_names: Vec<&str> = twice.iter().map(|e| e.name.as_str()).collect();
-                multi_names.sort_unstable();
-                multi_names.dedup();
-                let multi = multi_names.len() + others;
+                let (single, double, multi) = classify_enzymes(project);
+                let mut double_names: Vec<&str> = double.iter().map(|e| e.name.as_str()).collect();
+                double_names.sort_unstable();
+                double_names.dedup();
                 if opts.compact_enzymes {
-                    if !unique.is_empty() || multi > 0 {
+                    if !single.is_empty() || !double_names.is_empty() || multi > 0 {
                         let _ = writeln!(out,
-                            "ENZYMES (compact): {} single-cut, {} multi-cut (cuts shown as N^N+1, 1-based)",
-                            unique.len(),
-                            multi
-                        );
-                    }
-                } else if opts.compact_cutters {
-                    if !unique.is_empty() {
-                        let _ = writeln!(out,
-                            "UNIQUE CUTTERS: {} single-cut enzymes (pass compactCutters=false for full list)",
-                            unique.len()
-                        );
-                    }
-                    if multi > 0 {
-                        let _ = writeln!(out,
-                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)",
+                            "ENZYMES (compact): {} single-cut, {} double-cut, {} multi-site (cuts shown as N^N+1, 1-based)",
+                            single.len(),
+                            double_names.len(),
                             multi
                         );
                     }
                 } else {
-                    if !unique.is_empty() {
-                        out.push_str("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
-                        for e in unique {
+                    if !single.is_empty() {
+                        out.push_str("SINGLE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
+                        for e in single {
                             let _ = writeln!(out,
                                 "        {:<10} {:<28} {:<10} {}",
                                 e.name,
@@ -336,9 +321,15 @@ pub fn project_digest(
                             );
                         }
                     }
+                    if !double_names.is_empty() {
+                        let _ = writeln!(out,
+                            "DOUBLE CUTTERS (names only — find_restriction_sites gives their cuts): {}",
+                            double_names.join(", ")
+                        );
+                    }
                     if multi > 0 {
                         let _ = writeln!(out,
-                            "... and {} enzymes with >1 cut (use get_enzyme_database for details)",
+                            "... and {} enzymes with >=3 sites (find_restriction_sites gives their cuts)",
                             multi
                         );
                     }

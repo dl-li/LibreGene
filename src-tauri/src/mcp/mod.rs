@@ -440,10 +440,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.list_projects_impl().await
     }
 
-    /// Compact text digest of a whole project (`text`): features, primers, enzyme
-    /// cutters, methylation, auto-annotated common features — RNA/protein projects
-    /// omit the DNA-only sections. Enzyme cutters collapse to one count line unless
-    /// `compactCutters: false`. CDS/mRNA features whose stored /translation
+    /// Compact text digest of a whole project (`text`): features, primers,
+    /// enzymes, methylation, auto-annotated common features — RNA/protein
+    /// projects omit the DNA-only sections. The enzyme section lists every
+    /// single-cut enzyme with its cut positions (N^N+1), every double-cut enzyme
+    /// by name, and a count of enzymes with >=3 sites (find_restriction_sites
+    /// gives their cuts). CDS/mRNA features whose stored /translation
     /// disagrees with the DNA get a WARNING line, and positions where >=2 stored
     /// reads carry the same mismatch are listed as SHARED MISMATCHES (a fact, not a
     /// verdict — shared differences can be biological, clonal or template-derived).
@@ -505,18 +507,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.read_sequence_impl(request).await
     }
 
-    /// Look up enzyme names in the built-in restriction-enzyme database — the
-    /// discovery tool to use before find_restriction_sites. `query` matches
-    /// case-insensitively against enzyme NAMES or recognition SITES (e.g.
-    /// "eco", "Bam", "GAATTC"); omit it for the whole catalog (paged by
-    /// `limit`, default 50, max 200 — `total` reports the full match count).
+    /// Search the built-in restriction-enzyme database by NAME or recognition
+    /// SITE — the discovery tool to use before find_restriction_sites.
+    /// `query` matches case-insensitively (e.g. "eco", "Bam", "GAATTC"); omit
+    /// it for the whole catalog (paged by `limit`, default 50, max 200 —
+    /// `total` reports the full match count).
     /// Returns {ok, message, query, total, count, enzymes: [{name, site}]}.
     #[tool]
-    async fn list_enzymes(
+    async fn search_enzymes(
         &self,
-        Parameters(request): Parameters<EnzymeListRequest>,
+        Parameters(request): Parameters<SearchEnzymesRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.list_enzymes_impl(request).await
+        self.search_enzymes_impl(request).await
     }
 
     /// List restriction-enzyme sites on a DNA project. `enzymes` = names to report
@@ -524,7 +526,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// be cutting (normal entry), known but site-less (empty `sites` + a `note`), or
     /// unknown — unknown names never fail the call: they appear under
     /// `unknownEnzymes` with `similar` suggestions while the known names still
-    /// answer. Use list_enzymes to discover valid names. For a full panorama of cuts
+    /// answer. Use search_enzymes to discover valid names. For a full panorama of cuts
     /// in a window use get_region_view with `compact: false`.
     ///
     /// Returns {ok, message, projectId, unit, enzymeCount, enzymes: [{name,

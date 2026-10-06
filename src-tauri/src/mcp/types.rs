@@ -18,9 +18,6 @@ pub(crate) struct OverviewRequest {
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
     pub(crate) feature_filter: Option<String>,
-    /// Collapse the UNIQUE CUTTERS list into one count line (default true;
-    /// false = full per-enzyme list).
-    pub(crate) compact_cutters: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -298,7 +295,7 @@ pub(crate) struct FindRestrictionSitesRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct EnzymeListRequest {
+pub(crate) struct SearchEnzymesRequest {
     /// Case-insensitive substring to match against enzyme NAMES or their
     /// recognition SITE (e.g. "eco", "Bam", "GAATTC"); omitted = every enzyme.
     pub(crate) query: Option<String>,

@@ -112,7 +112,7 @@ async fn read_tools_share_the_success_envelope() {
     assert_eq!(read["sequence"].as_str().unwrap().len(), 21, "{read}");
 
     let catalog = server
-        .list_enzymes(Parameters(EnzymeListRequest {
+        .search_enzymes(Parameters(SearchEnzymesRequest {
             query: Some("GAATTC".to_string()),
             ..Default::default()
         }))
@@ -462,6 +462,7 @@ fn tool_descriptions_are_concise_and_state_their_response() {
         assert_ne!(t.name, "list_species", "species keys live in the convert_sequence description");
         assert_ne!(t.name, "close_project", "close_project was removed");
         assert_ne!(t.name, "search_sequence", "search_sequence is a bash-replaceable string scan");
+        assert_ne!(t.name, "list_enzymes", "the enzyme lookup tool is search_enzymes");
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
         assert!(
@@ -504,11 +505,11 @@ async fn convert_sequence_description_lists_the_builtin_species() {
 }
 
 #[tokio::test]
-async fn list_enzymes_filters_by_name_and_site_and_reports_the_full_total() {
+async fn search_enzymes_filters_by_name_and_site_and_reports_the_full_total() {
     let server = test_handler();
 
     let by_name = server
-        .list_enzymes(Parameters(EnzymeListRequest {
+        .search_enzymes(Parameters(SearchEnzymesRequest {
             query: Some("eco".to_string()),
             ..Default::default()
         }))
@@ -529,7 +530,7 @@ async fn list_enzymes_filters_by_name_and_site_and_reports_the_full_total() {
 
     // A recognition-site query finds the enzyme(s) that cut it.
     let by_site = server
-        .list_enzymes(Parameters(EnzymeListRequest {
+        .search_enzymes(Parameters(SearchEnzymesRequest {
             query: Some("GAATTC".to_string()),
             ..Default::default()
         }))
@@ -547,7 +548,7 @@ async fn list_enzymes_filters_by_name_and_site_and_reports_the_full_total() {
 
     // limit caps the page but total reports every match.
     let paged = server
-        .list_enzymes(Parameters(EnzymeListRequest {
+        .search_enzymes(Parameters(SearchEnzymesRequest {
             limit: Some(2),
             ..Default::default()
         }))

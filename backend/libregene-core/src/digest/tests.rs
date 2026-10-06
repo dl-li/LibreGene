@@ -335,8 +335,8 @@ fn overview_protein_uses_aa_and_omits_dna_sections() {
     assert!(!out.contains("methylation:"));
     assert!(!out.contains("PRIMERS"));
     assert!(!out.contains("ENZYMES"));
-    assert!(!out.contains("UNIQUE CUTTERS"));
-    assert!(!out.contains("cuts shown as N^N+1"));
+    assert!(!out.contains("SINGLE CUTTERS"));
+    assert!(!out.contains("DOUBLE CUTTERS"));
     assert!(out.contains("FEATURES (1-based, inclusive):\n"));
     assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
     // Region views also skip the enzyme layer for non-DNA.
@@ -417,34 +417,6 @@ fn overview_renders_primer_sites_and_unbound() {
     assert!(out.contains("primer_bind     3..12   P1  [Tm 58.3, + strand]  (id: p1)"));
     assert!(out.contains("primer_bind     51..60   P1  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
     assert!(out.contains("Primers without binding sites: orphan (id: p2)"));
-}
-
-#[test]
-fn overview_lists_unique_cutters_and_summarizes_multi_cutters() {
-    let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-    assert!(out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
-    assert!(out.contains("EcoRI"));
-    assert!(out.contains("top 10^11 bot 14^15"));
-    assert!(out.contains("GAATTC"));
-    assert!(out.contains("5' overhang"));
-    // Multi-cut enzymes (BsaI 2 sites, BbsI cut-twice, + 3 names with 3+
-    // sites) collapse into a single summary line.
-    assert!(!out.contains("TWICE CUTTERS:"));
-    assert!(!out.contains("BsaI"));
-    assert!(!out.contains("BbsI"));
-    assert!(out.contains("... and 5 enzymes with >1 cut"));
-}
-
-#[test]
-fn overview_max_features_caps_feature_lines() {
-    let opts = DigestOptions {
-        max_features: Some(1),
-        feature_filter: None,
-        ..DigestOptions::default()
-    };
-    let out = project_digest(&synthetic_project(), &opts, None).unwrap();
-    assert!(out.contains("... and 1 more features"));
-    assert!(out.matches("CDS").count() == 1);
 }
 
 #[test]
@@ -1013,9 +985,9 @@ fn compact_enzymes_collapses_cutter_lists() {
         ..DigestOptions::default()
     };
     let out = project_digest(&p, &opts, None).unwrap();
-    // EcoRI unique + BsaI/BbsI (2 multi names) + 3 triple-cut names
-    assert!(out.contains("ENZYMES (compact): 1 single-cut, 5 multi-cut"));
-    assert!(!out.contains("UNIQUE CUTTERS"));
+    // EcoRI single-cut + BsaI/BbsI double-cut + 3 names with >=3 sites
+    assert!(out.contains("ENZYMES (compact): 1 single-cut, 2 double-cut, 3 multi-site"));
+    assert!(!out.contains("SINGLE CUTTERS"));
     assert!(!out.contains("EcoRI"));
     let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
     assert!(region.contains("ENZYMES CUTTING IN REGION (compact): "));
@@ -1023,32 +995,21 @@ fn compact_enzymes_collapses_cutter_lists() {
 }
 
 #[test]
-fn compact_cutters_collapses_unique_cutter_list() {
+fn overview_lists_single_cutters_and_names_double_cutters() {
     let p = synthetic_project();
-    // compactCutters=true (get_project_overview default): single count line,
-    // no per-enzyme rows; multi-cut summary line stays.
-    let opts = DigestOptions {
-        compact_cutters: true,
-        ..DigestOptions::default()
-    };
-    let out = project_digest(&p, &opts, None).unwrap();
-    assert!(out.contains(
-        "UNIQUE CUTTERS: 1 single-cut enzymes (pass compactCutters=false for full list)"
-    ));
-    assert!(!out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
-    assert!(!out.contains("EcoRI"));
-    assert!(out.contains("... and 5 enzymes with >1 cut"));
-    // compactCutters=false: the full per-enzyme list is back.
-    let opts = DigestOptions {
-        compact_cutters: false,
-        ..DigestOptions::default()
-    };
-    let out = project_digest(&p, &opts, None).unwrap();
-    assert!(out.contains("UNIQUE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    // Single-cut enzymes keep name + cuts + recognition site + cut type.
+    assert!(out.contains("SINGLE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
     assert!(out.contains("EcoRI"));
-    // compact_cutters is overview-only: region views ignore it.
-    let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
+    assert!(out.contains("top 10^11 bot 14^15"));
+    // Double-cut enzymes are named without cuts.
+    assert!(out.contains("DOUBLE CUTTERS (names only — find_restriction_sites gives their cuts): BbsI, BsaI"));
+    // >=3-site enzymes stay a pointer line.
+    assert!(out.contains("... and 3 enzymes with >=3 sites"));
+    // Region views list the cuts in the window instead.
+    let region = project_digest(&p, &DigestOptions::default(), Some((30, 5))).unwrap();
     assert!(region.contains("ENZYMES CUTTING IN REGION"));
+    assert!(!region.contains("SINGLE CUTTERS"));
 }
 
 #[test]

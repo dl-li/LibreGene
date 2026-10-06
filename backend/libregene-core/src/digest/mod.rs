@@ -27,19 +27,13 @@ pub struct DigestOptions {
     /// can reach tens of KB (one line per cutter), which blows up MCP
     /// mutation responses — mutation tools default this to true.
     pub compact_enzymes: bool,
-    /// Whole-project digests only: collapse the UNIQUE CUTTERS list (one line
-    /// per single-cut enzyme, 90+ lines on real plasmids) into a single count
-    /// line. Independent of `compact_enzymes` (which governs region views);
-    /// `get_project_overview` defaults this to true, pass compactCutters=false
-    /// for the full list.
-    pub compact_cutters: bool,
     /// Whole-project digests only: append a brief auto-annotation section
     /// (`DETECTED COMMON FEATURES (auto)`) listing non-fragment features the
     /// annotate engine found against the embedded SnapGene database, one line
     /// each with identity and an `(already annotated)` marker. Fragments are
     /// omitted to avoid misleading partial hits. Never affects region views.
     /// The section itself is already compact, so it is independent of
-    /// `compact_enzymes`/`compact_cutters`.
+    /// `compact_enzymes`.
     pub include_auto_annotation: bool,
     /// Region views only: emit the per-read ALIGNMENT VIEW column block
     /// (template / match mask / read rows). Off by default — the structured
