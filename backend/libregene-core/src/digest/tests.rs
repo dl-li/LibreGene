@@ -998,14 +998,15 @@ fn compact_enzymes_collapses_cutter_lists() {
 fn overview_lists_single_cutters_and_names_double_cutters() {
     let p = synthetic_project();
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
-    // Single-cut enzymes keep name + cuts + recognition site + cut type.
+    // Single-cut enzymes: name + cuts only (no recognition site / cut type).
     assert!(out.contains("SINGLE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
-    assert!(out.contains("EcoRI"));
-    assert!(out.contains("top 10^11 bot 14^15"));
+    assert!(out.contains("EcoRI      top 10^11 bot 14^15"));
+    assert!(!out.contains("GAATTC"), "recognition sequences belong to find_restriction_sites");
+    assert!(!out.contains("5' overhang"), "{out}");
     // Double-cut enzymes are named without cuts.
-    assert!(out.contains("DOUBLE CUTTERS (names only — find_restriction_sites gives their cuts): BbsI, BsaI"));
-    // >=3-site enzymes stay a pointer line.
-    assert!(out.contains("... and 3 enzymes with >=3 sites"));
+    assert!(out.contains("DOUBLE CUTTERS: BbsI, BsaI"));
+    // >=3-site enzymes are not reported at all (find_restriction_sites has them).
+    assert!(!out.contains(">=3 sites"), "{out}");
     // Region views list the cuts in the window instead.
     let region = project_digest(&p, &DigestOptions::default(), Some((30, 5))).unwrap();
     assert!(region.contains("ENZYMES CUTTING IN REGION"));

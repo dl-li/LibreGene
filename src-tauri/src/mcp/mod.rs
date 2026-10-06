@@ -443,9 +443,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Compact text digest of a whole project (`text`): features, primers,
     /// enzymes, methylation, auto-annotated common features — RNA/protein
     /// projects omit the DNA-only sections. The enzyme section lists every
-    /// single-cut enzyme with its cut positions (N^N+1), every double-cut enzyme
-    /// by name, and a count of enzymes with >=3 sites (find_restriction_sites
-    /// gives their cuts). CDS/mRNA features whose stored /translation
+    /// single-cut enzyme as `name + cut positions` (N^N+1) and every double-cut
+    /// enzyme by name; enzymes with >=3 sites are omitted (find_restriction_sites
+    /// reports every site of every enzyme). CDS/mRNA features whose stored
+    /// /translation
     /// disagrees with the DNA get a WARNING line, and positions where >=2 stored
     /// reads carry the same mismatch are listed as SHARED MISMATCHES (a fact, not a
     /// verdict — shared differences can be biological, clonal or template-derived).

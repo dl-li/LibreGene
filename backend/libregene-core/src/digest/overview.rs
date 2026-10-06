@@ -313,25 +313,14 @@ pub fn project_digest(
                         out.push_str("SINGLE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for e in single {
                             let _ = writeln!(out,
-                                "        {:<10} {:<28} {:<10} {}",
+                                "        {:<10} {}",
                                 e.name,
-                                cuts_desc(e, project.length, circular),
-                                e.rec_seq,
-                                cut_type_label(&e.cut_type)
+                                cuts_desc(e, project.length, circular)
                             );
                         }
                     }
                     if !double_names.is_empty() {
-                        let _ = writeln!(out,
-                            "DOUBLE CUTTERS (names only — find_restriction_sites gives their cuts): {}",
-                            double_names.join(", ")
-                        );
-                    }
-                    if multi > 0 {
-                        let _ = writeln!(out,
-                            "... and {} enzymes with >=3 sites (find_restriction_sites gives their cuts)",
-                            multi
-                        );
+                        let _ = writeln!(out, "DOUBLE CUTTERS: {}", double_names.join(", "));
                     }
                 }
             }
