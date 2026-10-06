@@ -231,7 +231,7 @@ pub(crate) async fn delete_project(
 ) -> Result<serde_json::Value, String> {
     // The sidebar delete path keeps its existing semantics (the frontend runs
     // its own unsaved-changes confirmation before invoking this command), so
-    // it passes force: true; the MCP close_project tool passes the caller's
+    // it passes force: true for that case;
     // flag through instead.
     do_delete_project(
         &app_handle,

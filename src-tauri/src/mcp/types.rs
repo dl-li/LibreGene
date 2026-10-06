@@ -108,15 +108,6 @@ pub(crate) struct SaveFileRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CloseProjectRequest {
-    /// Required: the project to close (must be bound as your agent tab).
-    pub(crate) project_id: String,
-    /// Required (true) to close a project with unsaved changes.
-    pub(crate) force: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct EditSequenceRequest {
     /// Required: the project to edit (must be bound as your agent tab).
     pub(crate) project_id: String,
@@ -165,8 +156,9 @@ pub(crate) struct ConvertItem {
     pub(crate) to: Option<String>,
     /// Reverse-complement the input first (nucleotide → nucleotide only).
     pub(crate) rev_comp: Option<bool>,
-    /// Species key from list_species (e.g. "e_coli", "h_sapiens"); required for
-    /// every codon-optimizing conversion.
+    /// Built-in species key (e.g. "e_coli", "h_sapiens" — the convert_sequence
+    /// description lists every key); required for every codon-optimizing
+    /// conversion.
     pub(crate) species: Option<String>,
     /// use_best_codon (default) | match_codon_usage | harmonize_rca.
     pub(crate) method: Option<String>,
@@ -284,10 +276,6 @@ pub(crate) struct AddAlignmentRequest {
     /// "blast" (default; chains any number of colinear segments) or
     /// "smith-waterman" (single local block plus at most one flank).
     pub(crate) algorithm: Option<String>,
-    /// true = also list restriction sites the read leaves INTACT in
-    /// `affectedSites` (off by default; destroyed/created sites are always
-    /// reported).
-    pub(crate) include_intact_sites: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]

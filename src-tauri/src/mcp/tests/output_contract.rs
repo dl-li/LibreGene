@@ -451,8 +451,10 @@ async fn reverse_translation_without_a_stop_codon_is_noted() {
 #[test]
 fn tool_descriptions_are_concise_and_state_their_response() {
     let tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
-    assert_eq!(tools.len(), 19, "unexpected tool count");
+    assert_eq!(tools.len(), 17, "unexpected tool count");
     for t in tools {
+        assert_ne!(t.name, "list_species", "species keys live in the convert_sequence description");
+        assert_ne!(t.name, "close_project", "close_project was removed");
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
         assert!(
@@ -472,19 +474,24 @@ fn tool_descriptions_are_concise_and_state_their_response() {
 }
 
 #[tokio::test]
-async fn list_species_returns_builtin_keys() {
-    let server = test_handler();
-    let out = server.list_species().await.unwrap().0;
-    assert_eq!(out["ok"], true, "{out}");
-    assert_eq!(out["count"], 9, "{out}");
-    let species = out["species"].as_array().expect("species array");
-    assert_eq!(species.len(), 9, "{out}");
-    let joined = species
+async fn convert_sequence_description_lists_the_builtin_species() {
+    // The species keys have no tool of their own: `list_tools` splices the
+    // authoritative core table into the convert_sequence description.
+    let mut tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
+    crate::mcp::splice_species_keys(&mut tools);
+    let convert = tools
         .iter()
-        .filter_map(|s| s.as_str())
-        .collect::<Vec<_>>()
-        .join(",");
-    for key in ["h_sapiens", "e_coli", "d_melanogaster"] {
-        assert!(joined.contains(key), "{out}");
+        .find(|t| t.name == "convert_sequence")
+        .expect("convert_sequence tool");
+    let desc = convert.description.as_deref().unwrap_or_default();
+    assert!(!desc.contains("{species}"), "placeholder left unreplaced: {desc}");
+    let keys = libregene_core::codon::list_species();
+    assert!(!keys.is_empty(), "no built-in species");
+    for key in keys {
+        assert!(desc.contains(key), "missing species '{key}' in: {desc}");
+    }
+    for t in &tools {
+        let d = t.description.as_deref().unwrap_or_default();
+        assert!(!d.contains("{species}"), "{} left a placeholder", t.name);
     }
 }

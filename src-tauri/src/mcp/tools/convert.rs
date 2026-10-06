@@ -327,7 +327,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     ));
                 }
                 let species = item.species.clone().ok_or_else(|| {
-                    "species is required in project mode (codon optimization needs a codon usage table from list_species)"
+                    "species is required in project mode (codon optimization needs a built-in codon-usage key, e.g. \"e_coli\" — see this tool's description for the full key list)"
                         .to_string()
                 })?;
                 self.convert_project_item(item, project_id, feature_id, &species, apply)
@@ -685,7 +685,7 @@ fn require_species_for(from: &str, to: &str, item: &ConvertItem) -> Result<(), S
         from == "protein" || (from == "dna" && to == "dna" && wants_optimization(item));
     if optimizing && item.species.is_none() {
         return Err(
-            "species is required for codon optimization / reverse translation (a key from list_species, e.g. \"e_coli\")"
+            "species is required for codon optimization / reverse translation (a built-in key, e.g. \"e_coli\" — see this tool's description for the full key list)"
                 .to_string(),
         );
     }

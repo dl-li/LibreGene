@@ -10,7 +10,7 @@ use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite, Project
 use crate::mcp::LibreGeneMcp;
 use super::convert::output_project_name;
 use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, unit_for};
-use crate::mcp::types::{CloseProjectRequest, OpenProjectRequest, RegionSpec, SaveFileRequest};
+use crate::mcp::types::{OpenProjectRequest, RegionSpec, SaveFileRequest};
 
 // ---------------------------------------------------------------------------
 // save_file region mode: region resolution + export data building
@@ -837,42 +837,5 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    pub(crate) async fn close_project_impl(
-        &self,
-        request: CloseProjectRequest,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = request.project_id.clone();
-        self.require_agent_tab(&id).await?;
-        let hashes = self.project_seq_hashes(&id).await;
-        // The dirty/force check runs inside do_delete_project's pm write
-        // critical section, so a concurrent mutation cannot slip in between
-        // the check and the removal (TOCTOU).
-        let payload = crate::do_delete_project(
-            &self.app_handle,
-            &self.pm,
-            &self.wp,
-            &self.agent_tabs,
-            None,
-            request.project_id,
-            request.force.unwrap_or(false),
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            if err == "project not found" {
-                return Err(ErrorData::invalid_params(format!("Project not found: {}", id), None));
-            }
-            let mut v = fail_envelope(&id, err);
-            if let Some(h) = &hashes {
-                insert_seq_hashes(&mut v, h);
-            }
-            return Ok(Json(v));
-        }
-        let mut v = ok_envelope(&id, format!("Closed project {}", id), None);
-        if let Some(h) = &hashes {
-            insert_seq_hashes(&mut v, h);
-        }
-        Ok(Json(v))
-    }
 
 }

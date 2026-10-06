@@ -435,21 +435,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.list_projects_impl().await
     }
 
-    /// List the built-in codon-usage species keys accepted by `convert_sequence`'s
-    /// `species` parameter (e.g. "h_sapiens", "e_coli"). Pass one of these strings
-    /// verbatim as `species`; no other values are accepted.
-    /// Returns {ok, message, count, species: [key]}.
-    #[tool]
-    async fn list_species(&self) -> Result<Json<serde_json::Value>, ErrorData> {
-        let species = libregene_core::codon::list_species();
-        Ok(Json(serde_json::json!({
-            "ok": true,
-            "message": format!("{} built-in codon-usage species", species.len()),
-            "count": species.len(),
-            "species": species,
-        })))
-    }
-
     /// Compact text digest of a whole project (`text`): features, primers, enzyme
     /// cutters, methylation, auto-annotated common features — RNA/protein projects
     /// omit the DNA-only sections. Enzyme cutters collapse to one count line unless
@@ -630,19 +615,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.save_file_impl(request).await
     }
 
-    /// Unload one of YOUR agent-tab projects from memory without saving; the file on
-    /// disk is untouched. Refuses projects the user opened, and refuses unsaved
-    /// changes unless `force: true` (save first, or force to discard).
-    /// Returns {ok, message, projectId, sequenceHash, revCompHash} of the state
-    /// just before closing.
-    #[tool]
-    async fn close_project(
-        &self,
-        Parameters(request): Parameters<CloseProjectRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.close_project_impl(request).await
-    }
-
     /// Replace sequence [start..end] (1-based inclusive) with a replacement; an
     /// empty replacement deletes. A pure insertion before base N is `start: N,
     /// end: N-1`; ranges must not wrap.
@@ -720,20 +692,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `orientedSequence` is omitted. `compact: true` drops `orientedSequence` and
     /// `text` entirely.
     ///
-    /// VARIANT IMPACT: `affectedSites` lists restriction sites the read
-    /// DESTROYS (mutation inside an existing recognition site) or CREATES (a new
-    /// site formed by the read), each as {enzyme, status: "destroyed"|"created"|
-    /// "intact", recStart, recEnd, templateSeq, readSeq, recognitionStrand,
-    /// changedBases}. Only sites overlapping the read's covered template are
-    /// considered; pass `includeIntactSites: true` to also list still-matching
-    /// sites (off by default). Creation detection scans the full enzyme database
-    /// around the read's differences. `affectedSiteCount` is the array length, and
-    /// each entry is also attached to the new alignment in `alignments`.
-    ///
     /// Returns {ok, message, projectId, unit, significant, alignmentId, name,
     /// identity, strand, segmentCount, alignedLength, readLength, mismatches,
     /// insertions, deletions, mismatchDetails, deletionDetails, insertionDetails,
-    /// coverage, affectedSites?, affectedSiteCount?, orientedSequence?, window?,
+    /// coverage, orientedSequence?, window?,
     /// notes?, alignments, text, hashes}.
     /// `identity` is a 0-1 fraction; `alignedLength` is the covered template span
     /// while `readLength` is the read's own length; the mismatch/insertion/deletion
@@ -834,8 +796,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// - dna<->rna: T<->U conversion (optional `revComp`).
     /// - dna/rna -> protein: translation, frame 0 (a trailing partial codon is
     /// dropped).
-    /// - protein -> dna/rna: reverse translation with codon optimization (`species`
-    /// required; `method` = use_best_codon | match_codon_usage | harmonize_rca).
+    /// - protein -> dna/rna: reverse translation with codon optimization
+    ///   (`species` required — one of the built-in keys {species}; `method` =
+    ///   use_best_codon | match_codon_usage | harmonize_rca).
     /// A protein without a trailing '*' yields DNA without a stop codon — see the
     /// item's `notes`.
     /// - dna -> dna: codon optimization when `species`/optimizer parameters are
@@ -874,6 +837,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
 }
 
+/// Splice the core's built-in codon-usage species keys into every tool
+/// description carrying the `{species}` placeholder, so the authoritative list
+/// (and only it) reaches the client — no dedicated list_species tool, and no
+/// hand-maintained copy that can go stale.
+pub(crate) fn splice_species_keys(tools: &mut [rmcp::model::Tool]) {
+    let species = libregene_core::codon::list_species().join(", ");
+    for tool in tools.iter_mut() {
+        if let Some(desc) = &mut tool.description {
+            if desc.contains("{species}") {
+                *desc = std::borrow::Cow::Owned(desc.replace("{species}", &species));
+            }
+        }
+    }
+}
+
 #[tool_handler(name = "LibreGene", instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_projects' activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent.")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
@@ -885,6 +863,7 @@ impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
         let mut tools = Self::tool_router().list_all();
+        splice_species_keys(&mut tools);
         for tool in &mut tools {
             if let Some(schema) = &mut tool.output_schema {
                 let patched = Arc::make_mut(schema);
