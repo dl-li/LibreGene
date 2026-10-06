@@ -67,21 +67,41 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn find_restriction_sites_all_unknown_still_fails_with_suggestions() {
-        // Every requested name unknown → keep the probe error.
+    async fn find_restriction_sites_reports_unknown_names_without_failing() {
+        // Unknown names are reported in-band; known names in the same batch
+        // still answer, and an all-unknown batch is not an error either.
         let server = handler_with_project(enzyme_test_project()).await;
         let out = server
             .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
                 project_id: "enz".to_string(),
-                enzymes: Some(vec!["EcoR".to_string()]),
+                enzymes: Some(vec!["EcoR".to_string(), "EcoRI".to_string()]),
             }))
             .await
             .unwrap();
         let v = out.0;
-        assert_eq!(v["ok"], false, "{v}");
-        let msg = v["message"].as_str().unwrap_or("");
-        assert!(msg.contains("Unknown enzyme 'EcoR'"), "{msg}");
-        assert!(msg.contains("EcoRI"), "{msg}");
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["enzymes"][0]["name"], "EcoRI", "{v}");
+        assert_eq!(v["unknownEnzymes"][0]["name"], "EcoR", "{v}");
+        assert!(
+            v["unknownEnzymes"][0]["similar"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s == "EcoRI"),
+            "{v}"
+        );
+
+        let out = server
+            .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
+                project_id: "enz".to_string(),
+                enzymes: Some(vec!["NotAnEnzyme".to_string()]),
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["enzymeCount"], 0, "{v}");
+        assert_eq!(v["unknownEnzymes"][0]["name"], "NotAnEnzyme", "{v}");
     }
 
     #[tokio::test]

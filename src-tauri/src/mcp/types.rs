@@ -40,6 +40,12 @@ pub(crate) struct RegionRequest {
     /// Collapse the enzyme cut list into one count line (default true;
     /// false = every cut in the window).
     pub(crate) compact: Option<bool>,
+    /// Also emit the per-read ALIGNMENT VIEW column block (template / match
+    /// mask / read rows) for reads overlapping the window. Default false — the
+    /// structured ALIGNMENT DIFFS lines are always included. The block is
+    /// capped: a window whose covered columns exceed 500 bp gets an omission
+    /// note instead of rows, so narrow the window when you need the columns.
+    pub(crate) show_alignment_columns: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -64,22 +70,12 @@ pub(crate) struct SequenceRequest {
     pub(crate) feature_offset: Option<i64>,
     /// Coordinate mode: 1-based amino-acid position inside a CDS/mRNA feature,
     /// INCLUDING the initiator Met (Met = 1). Literature numbering that skips
-    /// the Met maps to the response's `aaPositionExcludingMet`, so send
-    /// literature position + 1 when the Met is present. Mutually exclusive
-    /// with `position` / `featureOffset`.
+    /// the Met is this value minus 1; the response echoes the same numbering as
+    /// `codonIndex`. Mutually exclusive with `position` / `featureOffset`.
     pub(crate) aa_position: Option<i64>,
     /// Coordinate mode: context bases on each side of the position for the
     /// returned window (default 30; clamped at the sequence ends).
     pub(crate) flank: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SearchRequest {
-    /// Required: the project to search (see list_projects).
-    pub(crate) project_id: String,
-    /// IUPAC-aware query (e.g. "GAATTC", "GGWCC").
-    pub(crate) query: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -302,6 +298,18 @@ pub(crate) struct FindRestrictionSitesRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct EnzymeListRequest {
+    /// Case-insensitive substring to match against enzyme NAMES or their
+    /// recognition SITE (e.g. "eco", "Bam", "GAATTC"); omitted = every enzyme.
+    pub(crate) query: Option<String>,
+    /// Maximum entries to return (default 50, max 200). `total` still reports
+    /// how many enzymes matched.
+    #[schemars(with = "Option<i64>")]
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ListPrimersRequest {
     /// Required: the project to inspect (see list_projects).
     pub(crate) project_id: String,
@@ -389,8 +397,9 @@ pub(crate) struct CheckPrimerBindingRequest {
 }
 
 /// Optional region selector of `save_file` (subsequence export). Exactly one
-/// of the four modes: start+end / featureId / enzyme1+enzyme2 or cut1+cut2 /
-/// fwdPrimer+revPrimer.
+/// of the three modes: start+end / featureId / cut1+cut2. Enzyme or primer
+/// coordinates come from find_restriction_sites / check_primer_binding, so the
+/// selector stays a pair of numbers instead of re-deriving engine results.
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegionSpec {
@@ -402,25 +411,12 @@ pub(crate) struct RegionSpec {
     /// Feature mode: export this feature's sequence (segments joined 5'→3',
     /// reverse-complemented for minus-strand DNA features).
     pub(crate) feature_id: Option<String>,
-    /// Fragment mode: first enzyme (its first recognition site's top-strand
-    /// cut starts the fragment).
-    pub(crate) enzyme1: Option<String>,
-    /// Fragment mode: second enzyme (may equal `enzyme1` to use that enzyme's
-    /// first two sites).
-    pub(crate) enzyme2: Option<String>,
-    /// Fragment mode (explicit cuts): first cut position — a cut at N severs
-    /// the DNA between the 1-based bases N and N+1 (N = len is after the last
-    /// base on linear sequences, between the last and the first base on
-    /// circular ones).
+    /// Cut mode: first cut position — a cut at N severs the DNA between the
+    /// 1-based bases N and N+1 (N = len is after the last base on linear
+    /// sequences, between the last and the first base on circular ones).
     pub(crate) cut1: Option<i64>,
-    /// Fragment mode (explicit cuts): second cut position (same convention).
+    /// Cut mode: second cut position (same convention).
     pub(crate) cut2: Option<i64>,
-    /// Amplicon mode: fwd primer — a project primer name or a raw sequence.
-    /// The amplicon spans the fwd primer's forward-strand site start to the
-    /// rev primer's reverse-strand site end.
-    pub(crate) fwd_primer: Option<String>,
-    /// Amplicon mode: rev primer (name or raw sequence).
-    pub(crate) rev_primer: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

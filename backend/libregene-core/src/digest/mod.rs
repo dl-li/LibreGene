@@ -41,6 +41,12 @@ pub struct DigestOptions {
     /// The section itself is already compact, so it is independent of
     /// `compact_enzymes`/`compact_cutters`.
     pub include_auto_annotation: bool,
+    /// Region views only: emit the per-read ALIGNMENT VIEW column block
+    /// (template / match mask / read rows). Off by default — the structured
+    /// ALIGNMENT DIFFS lines carry the coordinates, and the column block is
+    /// capped at `ALIGNMENT_VIEW_MAX_COLS` (an over-cap window only gets an
+    /// omission note). Callers that want the bases opt in explicitly.
+    pub include_alignment_view: bool,
 }
 
 mod annotate_section;

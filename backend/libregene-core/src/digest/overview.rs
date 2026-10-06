@@ -209,7 +209,7 @@ pub fn project_digest(
                     .collect();
                 let _ = writeln!(
                     out,
-                    "MISMATCH CONSENSUS (positions where ≥2 reads share the same mismatch — template may be outdated): {}",
+                    "SHARED MISMATCHES (positions where ≥2 stored reads carry the same mismatch; may be biological, clonal or template differences): {}",
                     parts.join(", ")
                 );
             }
@@ -273,10 +273,11 @@ pub fn project_digest(
         out.push_str(&section);
     }
 
-    // Region views only: per-read column view (template / mask / read rows) so
-    // an agent can read the actual read bases in a window without manually
-    // unwinding circular wraps and gap offsets from orientedSequence.
-    if let Some((s, e)) = region {
+    // Region views only, and only on request: per-read column view (template /
+    // mask / read rows), so an agent can read the actual read bases in a window
+    // without unwinding circular wraps and gap offsets from orientedSequence.
+    // The structured ALIGNMENT DIFFS lines above carry the coordinates either way.
+    if let Some((s, e)) = region.filter(|_| opts.include_alignment_view) {
         let mut view = String::new();
         for a in &alignments {
             push_alignment_view(&mut view, a, &project.sequence, s, e, circular);

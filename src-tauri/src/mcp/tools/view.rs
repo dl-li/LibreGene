@@ -12,11 +12,11 @@ use libregene_core::models::{Enzyme, Feature};
 use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{
     MAX_FLANK, fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope,
-    primer_site_json, push_note, to1, unit_for,
+    primer_site_json, to1, unit_for,
 };
 use crate::mcp::types::{
-    FindOrfsRequest, FindRestrictionSitesRequest, ListPrimersRequest, OverviewRequest,
-    RegionRequest, SearchRequest, SequenceRequest,
+    EnzymeListRequest, FindOrfsRequest, FindRestrictionSitesRequest, ListPrimersRequest,
+    OverviewRequest, RegionRequest, SequenceRequest,
 };
 
 /// Feature/translation hits containing internal 0-based `position`,
@@ -47,8 +47,6 @@ fn position_context_json(
             "name": h.name,
             "strand": h.strand,
             "codonIndex": h.codon_index,
-            "aaPosition1Based": h.aa_position_1_based,
-            "aaPositionExcludingMet": h.aa_position_excluding_met,
             "codon": h.codon,
             "aminoAcid": h.amino_acid.to_string(),
             "codonBaseIndex": h.codon_base_index,
@@ -121,6 +119,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             compact_enzymes: false,
             compact_cutters: request.compact_cutters.unwrap_or(true),
             include_auto_annotation: true,
+            include_alignment_view: false,
         };
         // Auto-annotation scans the whole feature database — CPU-heavy, so
         // render off the tokio worker.
@@ -149,6 +148,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             compact_enzymes: request.compact.unwrap_or(true),
             compact_cutters: false,
             include_auto_annotation: false,
+            include_alignment_view: request.show_alignment_columns.unwrap_or(false),
         };
         let region = (from1(request.start), from1(request.end));
         let text = tokio::task::spawn_blocking(move || project_digest(&project, &opts, Some(region)))
@@ -342,54 +342,51 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    pub(crate) async fn search_sequence_impl(
+    /// Enzyme-name discovery: the built-in database, filtered and capped.
+    /// Name discovery used to be an implicit protocol (probe
+    /// find_restriction_sites with a name and read the suggestions out of the
+    /// error); this is the explicit, general replacement.
+    pub(crate) async fn list_enzymes_impl(
         &self,
-        request: SearchRequest,
+        request: EnzymeListRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.require_dna_project(request.project_id).await?;
-        let hashes = self.project_seq_hashes(&id).await;
-        let query = request.query;
-        let palindromic = {
-            let upper = query.to_ascii_uppercase();
-            upper == libregene_core::utils::reverse_complement(&upper)
-        };
-        let matches = crate::do_search_sequence(&self.pm, &id, query.clone())
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
-        let matches: Vec<serde_json::Value> = matches
+        let query = request
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
+            .map(|q| q.to_lowercase());
+        let limit = request.limit.unwrap_or(50).clamp(1, 200);
+        let db = libregene_core::enzyme::search::get_db();
+        let mut matched: Vec<&libregene_core::enzyme::data::EnzymeRecord> = db
+            .enzymes
             .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "start": to1(m.start),
-                    "end": to1(m.end),
-                    "strand": m.strand,
-                })
+            .filter(|e| match &query {
+                None => true,
+                Some(q) => {
+                    e.name.to_lowercase().contains(q) || e.site.to_lowercase().contains(q)
+                }
             })
             .collect();
-        let count = matches.len();
-        let mut v = serde_json::json!({
+        matched.sort_by(|a, b| a.name.cmp(&b.name));
+        let total = matched.len();
+        let enzymes: Vec<serde_json::Value> = matched
+            .into_iter()
+            .take(limit)
+            .map(|e| serde_json::json!({ "name": e.name, "site": e.site }))
+            .collect();
+        let count = enzymes.len();
+        Ok(Json(serde_json::json!({
             "ok": true,
-            "message": format!("{} match(es) for '{}'", count, query),
-            "projectId": id,
-            "query": query,
-            "matchCount": count,
-            "searchedStrands": if palindromic { "plus" } else { "both" },
-            "matches": matches,
-        });
-        if !palindromic
-            && v["matches"]
-                .as_array()
-                .is_some_and(|m| m.iter().any(|h| h["strand"] == -1))
-        {
-            push_note(
-                &mut v,
-                "Both strands matched. If the query is one arm of a self-complementary target (e.g. an shRNA stem), the plus-strand and minus-strand hits are the two arms — not a duplicated sequence.",
-            );
-        }
-        if let Some(h) = &hashes {
-            insert_seq_hashes(&mut v, h);
-        }
-        Ok(Json(v))
+            "message": match &query {
+                Some(q) => format!("{} of {} enzyme(s) match '{}'", count, total, q),
+                None => format!("{} of {} enzyme(s)", count, total),
+            },
+            "query": request.query,
+            "total": total,
+            "count": count,
+            "enzymes": enzymes,
+        })))
     }
 
     pub(crate) async fn find_restriction_sites_impl(
@@ -416,11 +413,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // The engine only stores entries with at least one recognition site,
         // so requested names fall into three classes: cutting this sequence
         // (resolved), in the enzyme database but no site here (no_site), and
-        // unknown to the database (unknown). Batch queries degrade
-        // gracefully: known names return normally and only truly unknown
-        // names are listed under `unknownEnzymes`; a query where EVERY name
-        // is unknown still fails with near-match suggestions (the enzyme-name
-        // probe).
+        // unknown to the database (unknown). Unknown names are data, not a
+        // call failure: they are reported under `unknownEnzymes` (with
+        // near-match suggestions) and the rest of the query still answers.
+        // Name discovery belongs to list_enzymes.
         let mut requested: Vec<String> = Vec::new();
         let mut no_site: Vec<String> = Vec::new();
         let mut unknown: Vec<(String, Vec<String>)> = Vec::new();
@@ -449,29 +445,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     .map(|s| s.to_string())
                     .collect();
                 unknown.push((n.clone(), sugg));
-            }
-            if !unknown.is_empty() && requested.is_empty() && no_site.is_empty() {
-                let msg = unknown
-                    .iter()
-                    .map(|(n, sugg)| {
-                        if sugg.is_empty() {
-                            format!(
-                                "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name",
-                                n
-                            )
-                        } else {
-                            format!(
-                                "Unknown enzyme '{}'; enzymes cutting this sequence with similar names: {}",
-                                n,
-                                sugg.join(", ")
-                            )
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                let mut v = fail_envelope(&id, msg);
-                insert_seq_hashes(&mut v, &hashes);
-                return Ok(Json(v));
             }
         }
         let filter_active = !requested.is_empty() || !no_site.is_empty() || !unknown.is_empty();
@@ -690,7 +663,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             return Ok(Json(v));
         }
-        let region = self.digest_region(&id, Some((min_s, max_e)), true).await;
+        let region = self.digest_region(&id, Some((min_s, max_e)), true, false).await;
         let mut v = ok_envelope(&id, format!("Added {} ORF(s) as CDS features", feature_count), region);
         v["unit"] = serde_json::json!("bp");
         v["featureCount"] = serde_json::json!(feature_count);

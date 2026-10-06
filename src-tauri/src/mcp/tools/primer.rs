@@ -19,10 +19,10 @@ use crate::mcp::types::{AddPrimerRequest, CheckPrimerBindingRequest, DesignPrime
 /// analyze_mutagenesis reports internal 0-based coordinates; bump the
 /// template span, the diff offsets and the CDS codon index to the 1-based
 /// inclusive MCP convention. `codonIndex` becomes 1-based within the CDS
-/// (then equal to `aaPosition1Based`); `aaPosition1Based`/
-/// `aaPositionExcludingMet` are amino-acid numbering (already 1-based
-/// conventions) and stay untouched. The block-level `warning` is hoisted to
-/// the response's `warnings` array by the caller.
+/// (then equal to `aaPosition1Based`); the dual `aaPositionExcludingMet`
+/// numbering is dropped so the response carries one convention only. The
+/// block-level `warning` is hoisted to the response's `warnings` array by the
+/// caller.
 fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAnalysis) -> serde_json::Value {
     let mut v = serde_json::to_value(info).unwrap_or_default();
     v["segStart"] = serde_json::json!(to1(info.seg_start));
@@ -38,46 +38,14 @@ fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAna
         if let Some(ci) = cds.get("codonIndex").and_then(|x| x.as_i64()) {
             cds["codonIndex"] = serde_json::json!(ci + 1);
         }
+        // One amino-acid numbering only: codonIndex counts the initiator Met,
+        // so literature numbering that skips it is codonIndex - 1 (see the
+        // tool description).
+        if let Some(obj) = cds.as_object_mut() {
+            obj.remove("aaPositionExcludingMet");
+        }
     }
-    v["orientationHint"] = serde_json::json!(orientation_hint(info));
     v
-}
-
-/// Plain-language restatement of the mutagenesis strand semantics with the
-/// ACTUAL outcome, so a coding-strand/plus-strand slip is called out instead
-/// of silently producing the wrong amino acid.
-fn orientation_hint(info: &libregene_core::primer::design::MutagenesisAnalysis) -> String {
-    let base = format!(
-        "mutSeq was applied as the PLUS-strand (top-strand) content of seg {}..{}.",
-        info.seg_start + 1,
-        info.seg_end + 1
-    );
-    match &info.cds {
-        Some(cds) if cds.strand == "-" => {
-            let aa_pos = cds
-                .aa_position_excluding_met
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| cds.aa_position_1_based.to_string());
-            format!(
-                "{} CDS '{}' is on the MINUS strand: the coding-strand effect is the reverse complement of the plus-strand edit — codonAfter '{}' = {} at aa {}. If {} is NOT the amino acid you intended, you most likely passed CODING-strand sequence as mutSeq; reverse-complement it and retry.",
-                base, cds.name, cds.codon_after, cds.aa_after, aa_pos, cds.aa_after
-            )
-        }
-        Some(cds) => {
-            let aa_pos = cds
-                .aa_position_excluding_met
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| cds.aa_position_1_based.to_string());
-            format!(
-                "{} CDS '{}' is on the PLUS strand: the coding-strand codon after the edit is '{}' = {} at aa {}, read directly from the plus-strand edit.",
-                base, cds.name, cds.codon_after, cds.aa_after, aa_pos
-            )
-        }
-        None => format!(
-            "{} seg is not inside any CDS feature, so no codon-level self-check was possible; verify strand and location via plusContext/minusContext.",
-            base
-        ),
-    }
 }
 
 /// Clean a caller-supplied primer sequence (letters only, uppercase) and
@@ -264,8 +232,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         };
         let region_view = match region {
-            Some(r) => self.digest_region(&id, Some(r), true).await,
-            None => self.digest_region(&id, None, true).await,
+            Some(r) => self.digest_region(&id, Some(r), true, false).await,
+            None => self.digest_region(&id, None, true, false).await,
         };
         let mut env = ok_envelope(
             &id,
@@ -506,30 +474,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "projectId": id,
             "mode": mode,
             "groups": groups_json,
-            "tmBasis": "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLength/Tm (expected for tailed primers — see check_primer_binding per-site alignedTemplate/matchMask)",
         });
         for note in ignored {
             push_note(&mut v, note);
         }
         if let Some(info) = mutation_info.as_ref() {
-            // Spell out the plus-strand edit explicitly so a coding-strand vs
-            // plus-strand slip is obvious without reparsing templateBases/newBases.
-            let edit = format!(
-                "Plus-strand seg {}..{} currently '{}'; set mutSeq to '{}' ({} base(s) differ). For a MINUS-strand CDS this plus-strand edit is the reverse complement of the coding-strand change.",
-                info["segStart"].as_i64().unwrap_or(0),
-                info["segEnd"].as_i64().unwrap_or(0),
-                info["templateBases"].as_str().unwrap_or(""),
-                info["newBases"].as_str().unwrap_or(""),
-                info["diffs"].as_array().map(|a| a.len()).unwrap_or(0),
-            );
-            v["plusStrandEdit"] = serde_json::json!(edit);
             v["mutation"] = info.clone();
-        }
-        if mode == "mutagenesis" {
-            push_note(
-                &mut v,
-                "Mutagenesis primer length ≈ seg length + 2 × armLen (armLen default 20): a large seg yields unexpectedly long primers, so keep seg tight around the edited codon(s).",
-            );
         }
         if let Some(w) = mutation_warning {
             push_warning(&mut v, w);
@@ -545,7 +495,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             if let Some((ss, se)) = seg_bounds {
                 v["orientation"] = serde_json::json!(format!(
-                    "Product top strand = template top strand of seg {}..{}: Fwd primes from its 5' (left) end, Rev from its 3' (right) end — primer names follow the template top strand, not any feature's coding strand",
+                    "product top strand = template top strand of seg {}..{}",
                     ss + 1,
                     se + 1
                 ));
@@ -572,22 +522,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
                                         .any(|&(ps, pe)| spans.iter().any(|&(s, e)| s <= pe && ps <= e))
                                 })
                                 .map(|f| {
-                                    let note = if f.strand == "-" {
-                                        format!(
-                                            "CDS '{}' is on the MINUS strand: its coding direction runs opposite to the product top strand — Fwd sits at the CDS 3' end and Rev at the CDS 5' end",
-                                            f.name
-                                        )
-                                    } else {
-                                        format!(
-                                            "CDS '{}' is on the plus strand: its coding direction matches the product top strand (Fwd at the CDS 5' side, Rev at the 3' side)",
-                                            f.name
-                                        )
-                                    };
                                     serde_json::json!({
                                         "featureId": f.id,
                                         "name": f.name,
                                         "strand": f.strand,
-                                        "note": note,
                                     })
                                 })
                                 .collect()
@@ -673,7 +611,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "ok": true,
             "message": format!("Checked {} primer(s) for binding", inputs.len()),
             "projectId": id,
-            "tmBasis": "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLength/Tm (expected for tailed primers — see per-site alignedTemplate/matchMask)",
             "results": v["results"],
         });
         // A single fwd + single rev primer define an amplicon: report its size

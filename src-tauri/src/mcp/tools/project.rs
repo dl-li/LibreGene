@@ -5,7 +5,7 @@ use rmcp::{ErrorData, handler::server::wrapper::Json};
 use tauri::{Emitter, Runtime};
 
 use libregene_core::digest::cut_notation;
-use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite, ProjectData, Segment};
+use libregene_core::models::{Feature, Primer, ProjectData, Segment};
 
 use crate::mcp::LibreGeneMcp;
 use super::convert::output_project_name;
@@ -54,129 +54,7 @@ fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, 
     }
 }
 
-/// The top-strand cut index (internal 0-based) of an enzyme's `ordinal`-th
-/// recognition site (sorted by rec_start) from the already-computed engine
-/// results. Unknown enzymes error with near-match suggestions, mirroring
-/// find_restriction_sites.
-pub(crate) fn enzyme_cut_index(project: &ProjectData, name: &str, ordinal: usize) -> Result<i64, String> {
-    let mut hits: Vec<&Enzyme> = project
-        .enzymes
-        .iter()
-        .filter(|e| e.name.eq_ignore_ascii_case(name))
-        .collect();
-    hits.sort_by_key(|e| e.rec_start);
-    match hits.get(ordinal) {
-        Some(site) => Ok(if site.cut_pairs.is_empty() {
-            site.cut_index
-        } else {
-            site.cut_pairs[0].top_cut_index
-        }),
-        None => {
-            let q = name.to_lowercase();
-            let sugg: Vec<&str> = project
-                .enzymes
-                .iter()
-                .map(|e| e.name.as_str())
-                .filter(|n| n.to_lowercase().contains(&q))
-                .take(5)
-                .collect();
-            if hits.is_empty() {
-                if sugg.is_empty() {
-                    Err(format!(
-                        "Unknown enzyme '{}': no enzyme with a recognition site in this project has a similar name",
-                        name
-                    ))
-                } else {
-                    Err(format!(
-                        "Unknown enzyme '{}'; enzymes cutting this sequence with similar names: {}",
-                        name,
-                        sugg.join(", ")
-                    ))
-                }
-            } else {
-                Err(format!(
-                    "Enzyme '{}' has only {} recognition site(s) on this sequence; cannot select site number {}",
-                    name,
-                    hits.len(),
-                    ordinal + 1
-                ))
-            }
-        }
-    }
-}
 
-/// Resolve a fwd/rev primer argument — a project primer name (stored binding
-/// sites are reused, recomputed when empty; name lookup wins) or a raw
-/// sequence (binding sites recomputed with the primer engine) — to its best
-/// binding site on the wanted strand. Mirrors check_primer_binding's strand
-/// semantics: strand 1 = forward, strand -1 = reverse.
-fn resolve_primer_binding_site(
-    project: &ProjectData,
-    input: &str,
-    want_strand: i8,
-    role: &str,
-) -> Result<PrimerBindingSite, String> {
-    let seq: String;
-    let sites: Vec<PrimerBindingSite>;
-    if let Some(p) = project
-        .primers
-        .iter()
-        .find(|p| p.name == input || p.id == input)
-    {
-        seq = p.primer_seq.clone();
-        sites = if p.binding_sites.is_empty() {
-            libregene_core::primer::align::compute_binding_sites(
-                &project.sequence,
-                &p.primer_seq,
-                &p.r#type,
-                &p.id,
-                &project.topology,
-                0.0,
-            )
-        } else {
-            p.binding_sites.clone()
-        };
-    } else {
-        let cleaned: String = input
-            .chars()
-            .filter(|c| c.is_ascii_alphabetic())
-            .collect::<String>()
-            .to_uppercase();
-        if cleaned.is_empty() {
-            return Err(format!(
-                "{} '{}' is neither a primer name in the project nor a sequence",
-                role, input
-            ));
-        }
-        seq = cleaned.clone();
-        let probe = Primer {
-            id: role.to_string(),
-            name: role.to_string(),
-            r#type: "fwd".to_string(),
-            primer_seq: cleaned,
-            binding_sites: Vec::new(),
-        };
-        sites = libregene_core::primer::align::compute_binding_sites(
-            &project.sequence,
-            &probe.primer_seq,
-            &probe.r#type,
-            &probe.id,
-            &project.topology,
-            0.0,
-        );
-    }
-    sites
-        .iter()
-        .find(|s| s.strand == want_strand)
-        .cloned()
-        .ok_or_else(|| {
-            let strand_name = if want_strand == 1 { "forward" } else { "reverse" };
-            format!(
-                "{} '{}' ({} bp) does not bind the {} strand of the template: {} binding site(s) found, none on the {} strand",
-                role, input, seq.len(), strand_name, sites.len(), strand_name
-            )
-        })
-}
 
 /// Bounding box for the export `text` digest. min/max over all pieces:
 /// first/last is wrong for multi-segment minus-strand features, whose pieces
@@ -214,18 +92,14 @@ pub(crate) fn resolve_export_region(
 ) -> Result<(Vec<(i64, i64)>, bool, String), String> {
     let region_active = req.start.is_some() || req.end.is_some();
     let feature_active = req.feature_id.is_some();
-    let fragment_active = req.enzyme1.is_some()
-        || req.enzyme2.is_some()
-        || req.cut1.is_some()
-        || req.cut2.is_some();
-    let amplicon_active = req.fwd_primer.is_some() || req.rev_primer.is_some();
-    let active = [region_active, feature_active, fragment_active, amplicon_active]
+    let cuts_active = req.cut1.is_some() || req.cut2.is_some();
+    let active = [region_active, feature_active, cuts_active]
         .into_iter()
         .filter(|a| *a)
         .count();
     if active != 1 {
         return Err(
-            "exactly one region selector required: (start+end), (featureId), (enzyme1+enzyme2 | cut1+cut2), or (fwdPrimer+revPrimer)"
+            "exactly one region selector required: (start+end), (featureId), or (cut1+cut2)"
                 .to_string(),
         );
     }
@@ -321,116 +195,31 @@ pub(crate) fn resolve_export_region(
         return Ok((pieces, minus, format!("feature '{}' ({})", f.name, f.id)));
     }
 
-    if fragment_active {
-        let (c1, c2, desc) = match (&req.enzyme1, &req.enzyme2, req.cut1, req.cut2) {
-            (Some(e1), Some(e2), None, None) => {
-                let c1 = enzyme_cut_index(project, e1, 0)?;
-                let c2 = if e1.eq_ignore_ascii_case(e2) {
-                    enzyme_cut_index(project, e2, 1)?
-                } else {
-                    enzyme_cut_index(project, e2, 0)?
-                };
-                // Type-IIS enzymes cut outside their recognition site; on a
-                // linear molecule a site near an end can place the cut before
-                // base 1 or past the last base (circular cuts are normalized
-                // into [0, len) by the engine). Slicing there would panic.
-                if !circular {
-                    for (name, c) in [(e1, c1), (e2, c2)] {
-                        if c < 1 || c > len {
-                            return Err(format!(
-                                "cut of enzyme {} at position {} falls outside the linear molecule (1..={})",
-                                name, c, len
-                            ));
-                        }
-                    }
-                }
-                (
-                    c1,
-                    c2,
-                    format!(
-                        "fragment between {} (cut {}) and {} (cut {})",
-                        e1,
-                        cut_notation(c1, len, circular),
-                        e2,
-                        cut_notation(c2, len, circular)
-                    ),
-                )
-            }
-            (None, None, Some(a), Some(b)) => {
-                // 1-based input: a cut at N severs the DNA between the 1-based
-                // bases N and N+1. An internal cut index C severs between the
-                // 0-based bases C-1 and C, so the numeric value of N carries
-                // over unchanged; on circular, N = len is the origin cut (0).
-                if a < 1 || b < 1 || a > len || b > len {
-                    return Err(format!(
-                        "cut positions {} and {} out of range (1..={} for a {} bp {}; a cut at N severs the DNA between 1-based bases N and N+1)",
-                        a, b, len, len, project.topology
-                    ));
-                }
-                let (a, b) = if circular { (a % len, b % len) } else { (a, b) };
-                (
-                    a,
-                    b,
-                    format!(
-                        "fragment between cuts {} and {}",
-                        cut_notation(a, len, circular),
-                        cut_notation(b, len, circular)
-                    ),
-                )
-            }
-            _ => {
-                return Err(
-                    "fragment mode needs enzyme1+enzyme2 (names) OR cut1+cut2 (positions), not a mix"
-                        .to_string(),
-                )
-            }
+    if cuts_active {
+        let (a, b) = match (req.cut1, req.cut2) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return Err("cut1 and cut2 must be given together".to_string()),
         };
-        return Ok((fragment_pieces(project, c1, c2)?, false, desc));
-    }
-
-    let fwd = req.fwd_primer.as_deref().unwrap_or("");
-    let rev = req.rev_primer.as_deref().unwrap_or("");
-    if fwd.is_empty() || rev.is_empty() {
-        return Err(
-            "fwdPrimer and revPrimer are both required (name or sequence)".to_string(),
-        );
-    }
-    let fsite = resolve_primer_binding_site(project, fwd, 1, "fwd primer")?;
-    let rsite = resolve_primer_binding_site(project, rev, -1, "rev primer")?;
-    let f_start = fsite.template_start;
-    // Rev primer's 5' end is the last template base it covers (template_end
-    // is exclusive); the amplicon runs from the fwd 5' end to that base.
-    let r_end = if rsite.template_end == 0 {
-        len - 1
-    } else {
-        rsite.template_end - 1
-    };
-    // A rev site wrapping the origin stores template_end = (start +
-    // footprint) % len, so template_end < template_start (the == 0 case is
-    // already mapped to r_end = len - 1 above). The amplicon then always
-    // spans the origin — even when f_start <= r_end numerically, the forward
-    // arc from the fwd 5' end reaches the rev 5' end only across the origin.
-    let rev_wraps = circular && rsite.template_end != 0 && rsite.template_end < rsite.template_start;
-    let pieces = if circular {
-        if !rev_wraps && f_start <= r_end {
-            vec![(f_start, r_end)]
-        } else {
-            vec![(f_start, len - 1), (0, r_end)]
-        }
-    } else {
-        if f_start > r_end {
+        // 1-based input: a cut at N severs the DNA between the 1-based bases N
+        // and N+1. An internal cut index C severs between the 0-based bases C-1
+        // and C, so the numeric value of N carries over unchanged; on circular
+        // sequences N = len is the origin cut (0).
+        if a < 1 || b < 1 || a > len || b > len {
             return Err(format!(
-                "fwd primer's 5' end (1-based position {}) is downstream of the rev primer's 5' end (1-based position {}); the pair does not define an amplicon on a linear sequence",
-                f_start + 1, r_end + 1
+                "cut positions {} and {} out of range (1..={} for a {} bp {}; a cut at N severs the DNA between 1-based bases N and N+1)",
+                a, b, len, len, project.topology
             ));
         }
-        vec![(f_start, r_end)]
-    };
-    Ok((
-        pieces,
-        false,
-        format!("amplicon fwd '{}' → rev '{}'", fwd, rev),
-    ))
+        let (a, b) = if circular { (a % len, b % len) } else { (a, b) };
+        let desc = format!(
+            "fragment between cuts {} and {}",
+            cut_notation(a, len, circular),
+            cut_notation(b, len, circular)
+        );
+        return Ok((fragment_pieces(project, a, b)?, false, desc));
+    }
+
+    Err("exactly one region selector required: (start+end), (featureId), or (cut1+cut2)".to_string())
 }
 
 /// Build the exported sequence (template bases of the pieces, uppercase,
@@ -678,7 +467,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // response) — the MCP server must notify the UI itself.
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         let summary = self.project_summary(&id).await.unwrap_or_else(|| format!("Opened {}", id));
-        let region = self.digest_region(&id, None, true).await;
+        let region = self.digest_region(&id, None, true, false).await;
         let unit = self
             .pm
             .read()
@@ -734,7 +523,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
             crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
-            let region = self.digest_region(&id, None, true).await;
+            let region = self.digest_region(&id, None, true, false).await;
             let mut env = ok_envelope(&id, format!("Saved {}", path), region);
             insert_seq_hashes(&mut env, &seq_hashes);
             env["unit"] = serde_json::json!(unit);
@@ -817,7 +606,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Err(ErrorData::invalid_params(e, None));
         }
 
-        let region = self.digest_region(&id, Some(bbox), true).await;
+        let region = self.digest_region(&id, Some(bbox), true, false).await;
         let mut v = ok_envelope(
             &id,
             format!("Exported {} ({} {}) to {}", desc, length, unit, message_path),

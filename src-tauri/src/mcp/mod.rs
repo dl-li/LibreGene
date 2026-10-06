@@ -323,7 +323,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Text digest of `region` (internal 0-based inclusive, may wrap on
     /// circular) or the whole project when `None`. `compact` collapses the
     /// enzyme cut list into a count line (mutation tools use it to keep
-    /// the response `text` small). Rendered coordinates are 1-based inclusive.
+    /// the response `text` small). `alignment_columns` additionally emits the
+    /// per-read ALIGNMENT VIEW column block (add_alignment's deliverable);
+    /// other callers get the structured ALIGNMENT DIFFS lines only.
+    /// Rendered coordinates are 1-based inclusive.
     /// The project is cloned out of the lock and rendered on a blocking
     /// thread — rendering the enzyme list needs the full project, and
     /// holding the pm read lock across it would starve UI edits (writers).
@@ -332,6 +335,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         project_id: &str,
         region: Option<(i64, i64)>,
         compact: bool,
+        alignment_columns: bool,
     ) -> Option<String> {
         let project = {
             let pm = self.pm.read().await;
@@ -339,6 +343,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         let opts = DigestOptions {
             compact_enzymes: compact,
+            include_alignment_view: alignment_columns,
             ..DigestOptions::default()
         };
         tokio::task::spawn_blocking(move || project_digest(&project, &opts, region).ok())
@@ -439,8 +444,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// cutters, methylation, auto-annotated common features — RNA/protein projects
     /// omit the DNA-only sections. Enzyme cutters collapse to one count line unless
     /// `compactCutters: false`. CDS/mRNA features whose stored /translation
-    /// disagrees with the DNA get a WARNING line, and >=2 reads sharing a mismatch
-    /// add a MISMATCH CONSENSUS line.
+    /// disagrees with the DNA get a WARNING line, and positions where >=2 stored
+    /// reads carry the same mismatch are listed as SHARED MISMATCHES (a fact, not a
+    /// verdict — shared differences can be biological, clonal or template-derived).
     /// `featureFilter` keeps features by name (case-insensitive substring) or
     /// exact ftype; `maxFeatures` caps the list.
     /// Returns {ok, message, projectId, unit, text, sequenceHash, revCompHash}.
@@ -456,8 +462,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// inclusive; on circular sequences `start > end` wraps the origin. Covers the
     /// window's features, primer sites and enzyme cuts (one count line unless
     /// `compact: false`), plus ALIGNMENT DIFFS (per-read mismatches, deletions,
-    /// insertions with 1-based coordinates) and ALIGNMENT VIEW (three rows per
-    /// read: template, match mask, read bases) when stored reads overlap.
+    /// insertions with 1-based coordinates) when stored reads overlap. Pass
+    /// `showAlignmentColumns: true` to add the ALIGNMENT VIEW column block (three
+    /// rows per read: template, match mask, read bases); it covers at most 500 bp of
+    /// window — wider windows get an omission note instead of rows.
     /// Returns {ok, message, projectId, unit, region, text, sequenceHash,
     /// revCompHash}. This is the fast way to check whether a site is mutated
     /// without digesting a full read.
@@ -483,8 +491,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// COORDINATE MODE — exactly one of `position` (absolute template position),
     /// `featureId` + `featureOffset` (1-based along the feature's own 5'->3'
     /// direction), or `featureId` + `aaPosition` (1-based inside a CDS/mRNA,
-    /// counting the initiator Met as 1; literature numbering that skips the Met is
-    /// this value minus 1). Returns {ok, message, projectId, unit, mode, input,
+    /// counting the initiator Met as 1 — literature numbering that skips the Met is
+    /// this value minus 1, and the response echoes it as `codonIndex`). Returns
+    /// {ok, message, projectId, unit, mode, input,
     /// position, base, codonPositions?, features, translations, start, end,
     /// sequence, text}; `sequence`/`text` cover `flank` bases on each side
     /// (default 30, clamped).
@@ -496,29 +505,27 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.read_sequence_impl(request).await
     }
 
-    /// IUPAC-aware search of a DNA project on both strands; an exactly palindromic
-    /// query scans the plus strand once (see `searchedStrands`). Hits are 1-based
-    /// inclusive.
-    /// Returns {ok, message, projectId, query, matchCount, searchedStrands,
-    /// matches: [{start, end, strand}], notes?, sequenceHash, revCompHash}.
-    /// A plus-strand and a minus-strand hit of the same query usually mean a
-    /// self-complementary target (e.g. the two arms of an shRNA stem), not a
-    /// duplicated sequence.
+    /// Look up enzyme names in the built-in restriction-enzyme database — the
+    /// discovery tool to use before find_restriction_sites. `query` matches
+    /// case-insensitively against enzyme NAMES or recognition SITES (e.g.
+    /// "eco", "Bam", "GAATTC"); omit it for the whole catalog (paged by
+    /// `limit`, default 50, max 200 — `total` reports the full match count).
+    /// Returns {ok, message, query, total, count, enzymes: [{name, site}]}.
     #[tool]
-    async fn search_sequence(
+    async fn list_enzymes(
         &self,
-        Parameters(request): Parameters<SearchRequest>,
+        Parameters(request): Parameters<EnzymeListRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.search_sequence_impl(request).await
+        self.list_enzymes_impl(request).await
     }
 
     /// List restriction-enzyme sites on a DNA project. `enzymes` = names to report
     /// (case-insensitive); omit it for every enzyme with a site. Requested names may
     /// be cutting (normal entry), known but site-less (empty `sites` + a `note`), or
-    /// unknown (collected under `unknownEnzymes` with `similar` suggestions; when
-    /// EVERY name is unknown the call fails with suggestions — that is the way to
-    /// probe which names are valid). For a full panorama of cuts in a window use
-    /// get_region_view with `compact: false` instead of probing enzymes one by one.
+    /// unknown — unknown names never fail the call: they appear under
+    /// `unknownEnzymes` with `similar` suggestions while the known names still
+    /// answer. Use list_enzymes to discover valid names. For a full panorama of cuts
+    /// in a window use get_region_view with `compact: false`.
     ///
     /// Returns {ok, message, projectId, unit, enzymeCount, enzymes: [{name,
     /// siteCount, sites: [site], note?}], unknownEnzymes?, hashes}, with site =
@@ -592,13 +599,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// - `featureId`: the feature's sequence, segments joined 5'->3' (reverse-
     /// complemented for a minus-strand DNA feature), overlapping annotations
     /// carried along.
-    /// - `enzyme1` + `enzyme2` (or `cut1` + `cut2`): the fragment between the two
-    /// cuts; a cut at N severs the DNA between the 1-based bases N and N+1.
-    /// - `fwdPrimer` + `revPrimer`: the amplicon; each is a project primer name or a
-    /// raw sequence. The span uses each primer's ACTUAL best binding site, so a
-    /// 5' tail that happens to pair with the adjacent template extends it beyond
-    /// the designed core — compare with check_primer_binding's `amplicon` when
-    /// the exact product size matters.
+    /// - `cut1` + `cut2`: the fragment between two cuts; a cut at N severs the DNA
+    /// between the 1-based bases N and N+1. Take the positions from
+    /// find_restriction_sites (`topCutIndex`) or check_primer_binding's `amplicon`
+    /// instead of deriving them by hand.
     /// Exports are always linear, include every overlapping feature (clipped) and
     /// primer, do NOT mark the project clean, and return {ok, message, projectId,
     /// unit, path, length, bytesWritten, primerCount, primers?, text, hashes}; the
@@ -624,13 +628,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// inserted span, rebased, strand-flipped when `strand` is "-") or as short
     /// plain text in `replacement`. `strand: "-"` reverse-complements the
     /// replacement (DNA projects only). `expectedOld` guards the edit: on mismatch
-    /// the failure carries the authoritative `currentContent` to resend verbatim.
+    /// the failure carries the authoritative `currentContent` (copy it as
+    /// `expectedOld` and retry; there are no other diagnostics).
     ///
     /// Enzymes, primer sites, translations AND stored read alignments are
     /// recomputed, so alignment data read earlier may be superseded.
     /// Returns {ok, message, projectId, unit, oldLength, newLength, contextBefore?,
-    /// contextAfter?, removedFeatures, clippedFeatures, contentChangedFeatures?,
-    /// transferredFeatures?, transferredPrimers?, notes?, warnings?, textBefore?,
+    /// contextAfter?, removedFeatures, clippedFeatures, transferredFeatures?,
+    /// transferredPrimers?, notes?, textBefore?,
     /// text, hashes}: contexts are {start, end, sequence} 1-based spans; equal-length
     /// replacements keep every feature at its coordinates (safe for point mutations
     /// and case normalization); U<->T normalization is reported in `notes`.
@@ -740,24 +745,23 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (default 20).
     /// - "mutagenesis": `mutSeq` is the desired PLUS-strand content of `seg` (same
     /// length, at most 3 differing bases) — for a minus-strand CDS, reverse-
-    /// complement the intended coding-strand edit yourself. Primer length ≈ seg
-    /// length + 2 × `armLen` (default 20), so keep `seg` tight around the edited
-    /// codon(s). Always confirm `mutation.aaAfter` / `mutation.orientationHint`:
-    /// amino-acid positions come in both conventions (`aaPosition1Based` counts
-    /// the initiator Met, `aaPositionExcludingMet` matches literature numbering).
-    /// `plusStrandEdit` restates the plus-strand change in plain language.
+    /// complement the intended coding-strand edit yourself, then confirm
+    /// `mutation.cds.aaAfter` is the residue you intended. Primer length is
+    /// roughly seg length + 2 × `armLen` (default 20), so keep `seg` tight around
+    /// the edited codon(s). Amino-acid positions count the initiator Met as 1
+    /// (literature numbering that skips it = minus 1).
     ///
     /// Returns {ok, message, projectId, mode, groups: [{name, type,
     /// recommendedIndex, candidates: [{id (unique within its group), recommended,
     /// seq, tail, tailLength, annealLength, tm, gcPercent, designedAnnealLength?,
     /// designedTm?}]}],
-    /// mutation?, plusStrandEdit?, internalSites?, internalSiteCount?, orientation?,
-    /// cdsOverlaps?, tmBasis, warnings?, notes?, hashes} (parameters that only
-    /// apply to another mode are reported in `notes` instead of being silently
-    /// dropped). Use the candidate with `recommended: true` (or
-    /// `recommendedIndex`) — `annealLength`/`tm` describe the ACTUAL contiguous 3'
-    /// match, `designedAnnealLength`/`designedTm` the designed core before
-    /// 3'-end unification.
+    /// mutation?, internalSites?, internalSiteCount?, orientation?, cdsOverlaps?,
+    /// warnings?, notes?, hashes} (parameters that only apply to another mode are
+    /// reported in `notes` instead of being silently dropped). Use the candidate
+    /// with `recommended: true` (or `recommendedIndex`) — `annealLength`/`tm`
+    /// describe the ACTUAL contiguous 3' match, `designedAnnealLength`/`designedTm`
+    /// the designed core before 3'-end unification. `orientation` is the product's
+    /// top strand, `cdsOverlaps[].strand` maps overlapping CDS features onto it.
     #[tool]
     async fn design_primers(
         &self,
@@ -772,7 +776,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// contiguous 3' match, so a tailed primer can report a higher value than
     /// design_primers did.
     ///
-    /// Returns {ok, message, projectId, tmBasis, results: [{id, name, type,
+    /// Returns {ok, message, projectId, results: [{id, name, type,
     /// primerLength, binds, bindingSiteCount, site, sites}], amplicon?, hashes}.
     /// Sites are best-first with the shared site shape (see list_primers) — read
     /// `alignedTemplate`/`matchMask` to see exactly which primer bases pair. When

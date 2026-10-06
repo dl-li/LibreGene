@@ -20,18 +20,6 @@ use crate::mcp::*;
         let server = handler_with_project(protein_test_project()).await;
 
         let err = match server
-            .search_sequence(Parameters(SearchRequest {
-                project_id: "prot".to_string(),
-                query: "ACG".to_string(),
-            }))
-            .await
-        {
-            Err(e) => e,
-            Ok(_) => panic!("search_sequence should reject a protein project"),
-        };
-        assert!(err.message.contains("only supports DNA"), "{}", err.message);
-
-        let err = match server
             .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
                 project_id: "prot".to_string(),
                 enzymes: None,

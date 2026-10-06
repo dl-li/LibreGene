@@ -785,9 +785,22 @@ fn region_view_alignment_diffs_circular_wrap() {
 }
 
 #[test]
-fn region_view_shows_alignment_column_view() {
+fn region_view_omits_alignment_column_view_by_default() {
     let p = project_with_diff_alignment();
     let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
+    assert!(!out.contains("ALIGNMENT VIEW IN REGION"), "{out}");
+    // The structured diff lines stay.
+    assert!(out.contains("ALIGNMENT DIFFS IN REGION"), "{out}");
+}
+
+#[test]
+fn region_view_shows_alignment_column_view() {
+    let p = project_with_diff_alignment();
+    let opts = DigestOptions {
+        include_alignment_view: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, Some((10, 29))).unwrap();
     assert!(
         out.contains(
             "ALIGNMENT VIEW IN REGION (per-read column view; rows: template / match mask / read; mask: | match, . mismatch, - read gap; insertions and uncovered template listed below; 1-based inclusive):\n"
@@ -833,7 +846,11 @@ fn region_view_column_view_circular_wrap_and_uncovered() {
     });
     // Wrapping window 55..4: position 55 is uncovered, columns 56..59 and
     // 0..4 are covered (deletions at 58,59,0,1; mismatch at 2).
-    let out = project_digest(&p, &DigestOptions::default(), Some((55, 4))).unwrap();
+    let opts = DigestOptions {
+        include_alignment_view: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, Some((55, 4))).unwrap();
     assert!(out.contains("        wrapped  (id: aln-2, + strand):\n"), "{out}");
     assert!(out.contains("57  ACGTACGTA"), "{out}");
     assert!(out.contains("||----.||"), "{out}");
@@ -863,7 +880,11 @@ fn region_view_column_view_caps_wide_windows() {
         seq: String::new(),
         trace_path: None,
     });
-    let out = project_digest(&p, &DigestOptions::default(), Some((0, 500))).unwrap();
+    let opts = DigestOptions {
+        include_alignment_view: true,
+        ..DigestOptions::default()
+    };
+    let out = project_digest(&p, &opts, Some((0, 500))).unwrap();
     assert!(
         out.contains("column view omitted (covered window 501 bp exceeds the 500 bp cap"),
         "{out}"
@@ -951,14 +972,14 @@ fn overview_notes_consensus_mismatches() {
     }
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(
-        out.contains("MISMATCH CONSENSUS (positions where ≥2 reads share the same mismatch — template may be outdated): 16 T>A (2 reads)"),
+        out.contains("SHARED MISMATCHES (positions where ≥2 stored reads carry the same mismatch; may be biological, clonal or template differences): 16 T>A (2 reads)"),
         "{out}"
     );
     assert!(!out.contains("21 A>C"), "{out}");
     assert!(!out.contains("23 G>T"), "{out}");
     // Region views never render the consensus section.
     let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
-    assert!(!out.contains("MISMATCH CONSENSUS"), "{out}");
+    assert!(!out.contains("SHARED MISMATCHES"), "{out}");
 }
 
 #[test]

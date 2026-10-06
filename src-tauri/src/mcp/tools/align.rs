@@ -409,8 +409,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             None
         } else {
             match region {
-                Some((s, e)) => self.digest_region(&id, Some((s, e)), true).await,
-                None => self.digest_region(&id, None, true).await,
+                Some((s, e)) => self.digest_region(&id, Some((s, e)), true, true).await,
+                None => self.digest_region(&id, None, true, true).await,
             }
         };
         let mut env = ok_envelope(&id, format!("Aligned {}", name), region_view);

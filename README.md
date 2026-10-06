@@ -91,10 +91,10 @@ LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only
 17 tools are exposed, covering the full editing workflow:
 
 - **Projects & files** — `open_project`, `save_file` (with subsequence/region export), `list_projects`
-- **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`, `search_sequence` (IUPAC fuzzy search, peptide queries expanded to degenerate codons)
+- **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`
 - **Editing** — `edit_sequence` (insert/delete/replace), `set_feature` (create & update)
 - **Primers** — `add_primer`, `list_primers`, `check_primer_binding` (binding sites + Tm), `design_primers` (amplify / OE-PCR / mutagenesis)
-- **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
+- **Analysis** — `list_enzymes` + `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
 
 #### Example Tasks
 

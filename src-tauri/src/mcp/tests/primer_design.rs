@@ -31,16 +31,13 @@ use libregene_core::models::ProjectData;
         let v = out.0;
         assert!(v["groups"].as_array().is_some_and(|g| g.len() == 2), "{v}");
         let orientation = v["orientation"].as_str().expect("orientation note");
-        assert!(orientation.contains("seg 51..151"), "{orientation}");
-        assert!(orientation.contains("template top strand"), "{orientation}");
+        assert_eq!(orientation, "product top strand = template top strand of seg 51..151", "{orientation}");
         let overlaps = v["cdsOverlaps"].as_array().expect("cdsOverlaps");
         assert_eq!(overlaps.len(), 1, "{v}");
-        assert_eq!(overlaps[0]["name"], "mEGFP");
-        assert_eq!(overlaps[0]["strand"], "-");
-        assert!(
-            overlaps[0]["note"].as_str().unwrap().contains("MINUS strand"),
-            "{}",
-            overlaps[0]["note"]
+        assert_eq!(
+            overlaps[0],
+            serde_json::json!({"featureId": "cds1", "name": "mEGFP", "strand": "-"}),
+            "{v}"
         );
         assert!(v["internalSites"].as_array().unwrap().is_empty(), "{v}");
     }
@@ -90,7 +87,10 @@ use libregene_core::models::ProjectData;
         assert_eq!(v["mutation"]["cds"]["aaBefore"], "Arg", "{v}");
         assert_eq!(v["mutation"]["cds"]["aaAfter"], "Lys", "{v}");
         assert_eq!(v["mutation"]["cds"]["aaPosition1Based"], 11, "{v}");
-        assert_eq!(v["mutation"]["cds"]["aaPositionExcludingMet"], 10, "{v}");
+        assert!(
+            v["mutation"]["cds"].get("aaPositionExcludingMet").is_none(),
+            "one amino-acid numbering only: {v}"
+        );
 
         // Same 3-base full replacement outside any CDS: warning kept.
         let out = server
@@ -113,12 +113,11 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn design_primers_mutagenesis_orientation_hint_minus_strand() {
+    async fn design_primers_mutagenesis_reports_cds_effect_by_strand() {
         // Minus-strand CDS: mut_seq is PLUS-strand content, so the coding
-        // effect is its reverse complement; the orientationHint must state
-        // the CDS strand and the actual codon/amino-acid outcome.
+        // effect is its reverse complement; the structured mutation block must
+        // state the CDS strand and the actual codon/amino-acid outcome.
         let mut bytes = vec![b'A'; 90];
-        // Plus-strand CGC at 60..62 (0-based) -> coding (minus) GCG = Ala.
         bytes[60] = b'C';
         bytes[61] = b'G';
         bytes[62] = b'C';
@@ -148,15 +147,14 @@ use libregene_core::models::ProjectData;
             .await
             .unwrap();
         let v = out.0;
-        assert_eq!(v["mutation"]["cds"]["aaAfter"], "Lys", "{v}");
-        let hint = v["mutation"]["orientationHint"]
-            .as_str()
-            .expect("orientationHint present");
-        assert!(hint.contains("MINUS strand"), "{hint}");
-        assert!(hint.contains("AAG") && hint.contains("Lys"), "{hint}");
-        assert!(hint.contains("reverse-complement"), "{hint}");
+        let cds = &v["mutation"]["cds"];
+        assert_eq!(cds["strand"], "-", "{v}");
+        assert_eq!(cds["codonAfter"], "AAG", "{v}");
+        assert_eq!(cds["aaAfter"], "Lys", "{v}");
+        assert_eq!(v["mutation"]["templateBases"], "CGC", "{v}");
+        assert_eq!(v["mutation"]["newBases"], "CTT", "{v}");
 
-        // Plus-strand CDS: the hint confirms the direct read-out instead.
+        // Plus-strand CDS: the same block reads the plus-strand edit directly.
         let project = ProjectData {
             name: "mut_hint2".to_string(),
             sequence: {
@@ -185,11 +183,10 @@ use libregene_core::models::ProjectData;
             }))
             .await
             .unwrap();
-        let hint = out.0["mutation"]["orientationHint"]
-            .as_str()
-            .expect("orientationHint present");
-        assert!(hint.contains("PLUS strand"), "{hint}");
-        assert!(hint.contains("AAA") && hint.contains("Lys"), "{hint}");
+        let cds = &out.0["mutation"]["cds"];
+        assert_eq!(cds["strand"], "+", "{}", out.0);
+        assert_eq!(cds["codonAfter"], "AAA", "{}", out.0);
+        assert_eq!(cds["aaAfter"], "Lys", "{}", out.0);
     }
 
     #[tokio::test]
@@ -223,7 +220,7 @@ use libregene_core::models::ProjectData;
             .await
             .unwrap();
         let v = out.0;
-        assert!(v.get("tmBasis").is_some(), "{v}");
+        assert!(v.get("tmBasis").is_none(), "Tm basis lives in the description: {v}");
         let fwd_group = v["groups"]
             .as_array()
             .unwrap()
@@ -450,60 +447,4 @@ use libregene_core::models::ProjectData;
         assert!(pm.get_project_by_id("feat").unwrap().primers.is_empty());
     }
 
-    #[tokio::test]
-    async fn design_primers_mutagenesis_reports_plus_strand_edit_and_length_hint() {
-        let mut bytes = vec![b'A'; 90];
-        bytes[60] = b'C';
-        bytes[61] = b'G';
-        bytes[62] = b'C';
-        let project = ProjectData {
-            name: "mut_echo".to_string(),
-            sequence: String::from_utf8(bytes).unwrap(),
-            length: 90,
-            topology: "linear".to_string(),
-            molecule_type: "dna".to_string(),
-            features: vec![feature("cds1", "orf", 30, 89, "+")],
-            ..Default::default()
-        };
-        let server = handler_with_project(project).await;
-        let out = server
-            .design_primers(Parameters(DesignPrimersRequest {
-                project_id: "mut_echo".to_string(),
-                mode: "mutagenesis".to_string(),
-                seg: Some(SegParam { start: 61, end: 63 }),
-                target_tm: 55.0,
-                mut_seq: Some("AAA".to_string()),
-                ..Default::default()
-            }))
-            .await
-            .unwrap();
-        let v = out.0;
-        assert_eq!(v["ok"], true, "{v}");
-        let edit = v["plusStrandEdit"].as_str().expect("plusStrandEdit");
-        assert!(edit.contains("CGC") && edit.contains("AAA"), "{edit}");
-        let notes = v["notes"].as_array().expect("notes array");
-        assert!(
-            notes
-                .iter()
-                .filter_map(|n| n.as_str())
-                .any(|n| n.contains("seg length + 2")),
-            "{v}"
-        );
-
-        // A mutSeq length mismatch states both expected and got explicitly.
-        let out = server
-            .design_primers(Parameters(DesignPrimersRequest {
-                project_id: "mut_echo".to_string(),
-                mode: "mutagenesis".to_string(),
-                seg: Some(SegParam { start: 61, end: 63 }),
-                target_tm: 55.0,
-                mut_seq: Some("AAAA".to_string()),
-                ..Default::default()
-            }))
-            .await
-            .unwrap();
-        let v = out.0;
-        assert_eq!(v["ok"], false, "{v}");
-        let msg = v["message"].as_str().unwrap();
-        assert!(msg.contains("expected 3") && msg.contains("got 4"), "{msg}");
-    }
+    

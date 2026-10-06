@@ -389,7 +389,7 @@ use libregene_core::models::Primer;
     }
 
     #[tokio::test]
-    async fn save_file_region_enzyme_fragment_and_explicit_cuts() {
+    async fn save_file_region_explicit_cuts_export_the_fragment() {
         // "ACGT" repeat has no EcoRI/BamHI recognition sites, so the placed
         // sites are the only ones: EcoRI cuts G^AATTC (cut 41), BamHI G^GATCC
         // (cut 101).
@@ -405,20 +405,23 @@ use libregene_core::models::Primer;
             ..Default::default()
         };
         libregene_core::enzyme::recompute(&mut project);
-        assert_eq!(enzyme_cut_index(&project, "EcoRI", 0).unwrap(), 41);
-        assert_eq!(enzyme_cut_index(&project, "BamHI", 0).unwrap(), 101);
+        // EcoRI cuts between 41 and 42, BamHI between 101 and 102: the fragment
+        // between the cuts is [41..=100] (60 bp), which is what an agent reads
+        // off find_restriction_sites' topCutIndex.
+        assert_eq!(project.enzymes.iter().find(|e| e.name == "EcoRI").unwrap().cut_pairs[0].top_cut_index, 41);
+        assert_eq!(project.enzymes.iter().find(|e| e.name == "BamHI").unwrap().cut_pairs[0].top_cut_index, 101);
 
         let server = handler_with_project(project.clone()).await;
         let dir = std::env::temp_dir().join(format!("libregene-mcp-export-enz-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let out_path = dir.join("frag.gbk");
+        let out_path = dir.join("cuts.gbk");
         let req = SaveFileRequest {
             project_id: "enz_test".to_string(),
             path: out_path.to_string_lossy().into_owned(),
             region: Some(RegionSpec {
-                enzyme1: Some("EcoRI".to_string()),
-                enzyme2: Some("BamHI".to_string()),
+                cut1: Some(41),
+                cut2: Some(101),
                 ..Default::default()
             }),
             ..Default::default()
@@ -430,8 +433,8 @@ use libregene_core::models::Primer;
         let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
         assert_eq!(parsed.sequence, seq[41..=100].to_string());
 
-        // explicit cut indices mode (cuts may be given in either order)
-        let out_path2 = dir.join("cuts.gbk");
+        // cuts may be given in either order
+        let out_path2 = dir.join("cuts-reversed.gbk");
         let req = SaveFileRequest {
             project_id: "enz_test".to_string(),
             path: out_path2.to_string_lossy().into_owned(),
@@ -443,131 +446,14 @@ use libregene_core::models::Primer;
             ..Default::default()
         };
         let out = server.save_file(Parameters(req)).await.unwrap();
-        let v = out.0;
-        assert_eq!(v["length"], 40, "[30, 69] = 40 bp");
+        assert_eq!(out.0["length"], 40, "[30, 69] = 40 bp");
         let parsed = libregene_core::file_io::parse_file(&out_path2).unwrap();
         assert_eq!(parsed.sequence, seq[30..=69].to_string());
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    #[tokio::test]
-    async fn save_file_region_primer_amplicon() {
-        let seq = synthetic_dna(200, 19);
-        let project = ProjectData {
-            name: "amp_test".to_string(),
-            sequence: seq.clone(),
-            length: 200,
-            topology: "linear".to_string(),
-            molecule_type: "dna".to_string(),
-            ..Default::default()
-        };
-        let server = handler_with_project(project).await;
-        let dir = std::env::temp_dir().join(format!("libregene-mcp-export-amp-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // raw primer sequences
-        let out_path = dir.join("amp.gbk");
-        let req = SaveFileRequest {
-            project_id: "amp_test".to_string(),
-            path: out_path.to_string_lossy().into_owned(),
-            region: Some(RegionSpec {
-                fwd_primer: Some(seq[50..70].to_string()),
-                rev_primer: Some(libregene_core::utils::reverse_complement(&seq[100..120])),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let out = server.save_file(Parameters(req)).await.unwrap();
-        let v = out.0;
-        assert_eq!(v["ok"], true);
-        assert_eq!(v["length"], 70, "amplicon [50, 119]");
-        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
-        assert_eq!(parsed.sequence, seq[50..=119].to_string());
-
-        // same amplicon via stored project primers (name lookup path)
-        let fwd = Primer {
-            id: "F1".to_string(),
-            name: "F1".to_string(),
-            r#type: "fwd".to_string(),
-            primer_seq: seq[50..70].to_string(),
-            binding_sites: Vec::new(),
-        };
-        let rev = Primer {
-            id: "R1".to_string(),
-            name: "R1".to_string(),
-            r#type: "rev".to_string(),
-            primer_seq: libregene_core::utils::reverse_complement(&seq[100..120]),
-            binding_sites: Vec::new(),
-        };
-        let mut project = ProjectData {
-            name: "amp_name_test".to_string(),
-            sequence: seq.clone(),
-            length: 200,
-            topology: "linear".to_string(),
-            molecule_type: "dna".to_string(),
-            primers: vec![fwd, rev],
-            ..Default::default()
-        };
-        libregene_core::primer::recompute(&mut project);
-        let server = handler_with_project(project).await;
-        let out_path2 = dir.join("amp-name.gbk");
-        let req = SaveFileRequest {
-            project_id: "amp_name_test".to_string(),
-            path: out_path2.to_string_lossy().into_owned(),
-            region: Some(RegionSpec {
-                fwd_primer: Some("F1".to_string()),
-                rev_primer: Some("R1".to_string()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let out = server.save_file(Parameters(req)).await.unwrap();
-        assert_eq!(out.0["length"], 70);
-        let parsed = libregene_core::file_io::parse_file(&out_path2).unwrap();
-        assert_eq!(parsed.sequence, seq[50..=119].to_string());
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[tokio::test]
-    async fn save_file_region_circular_primer_amplicon_wraps_origin() {
-        let seq = synthetic_dna(200, 23);
-        let project = ProjectData {
-            name: "amp_circ".to_string(),
-            sequence: seq.clone(),
-            length: 200,
-            topology: "circular".to_string(),
-            molecule_type: "dna".to_string(),
-            ..Default::default()
-        };
-        let server = handler_with_project(project).await;
-        let dir = std::env::temp_dir().join(format!("libregene-mcp-export-ampc-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let out_path = dir.join("amp.gbk");
-        // fwd primer sits at the very end (188..200, its site wraps the origin),
-        // rev primer at 30..45: the amplicon wraps 188..199 + 0..44.
-        let req = SaveFileRequest {
-            project_id: "amp_circ".to_string(),
-            path: out_path.to_string_lossy().into_owned(),
-            region: Some(RegionSpec {
-                fwd_primer: Some(seq[188..200].to_string()),
-                rev_primer: Some(libregene_core::utils::reverse_complement(&seq[30..45])),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let out = server.save_file(Parameters(req)).await.unwrap();
-        let v = out.0;
-        assert_eq!(v["ok"], true);
-        assert_eq!(v["length"], 57, "12 bp (188..199) + 45 bp (0..44)");
-        let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
-        let expected = format!("{}{}", &seq[188..], &seq[..=44]);
-        assert_eq!(parsed.sequence, expected);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[tokio::test]
+            #[tokio::test]
     async fn save_file_region_exports_overlapping_primers() {
         // Export region [200..299]. P_in fully inside, P_part overlapping the
         // left edge, P_out fully outside → only P_in and P_part are written.
@@ -751,24 +637,24 @@ use libregene_core::models::Primer;
         .await;
         assert!(msg.contains("Feature not found"), "{}", msg);
 
-        // unknown enzyme
+        // mixed selectors (coordinates + cuts)
         let msg = expect_err(bad_req(RegionSpec {
-            enzyme1: Some("EcoRI".to_string()),
-            enzyme2: Some("NotARealEnzyme".to_string()),
-            ..Default::default()
-        }))
-        .await;
-        assert!(msg.contains("Unknown enzyme"), "{}", msg);
-
-        // mixed fragment selectors
-        let msg = expect_err(bad_req(RegionSpec {
-            enzyme1: Some("EcoRI".to_string()),
+            start: Some(1),
+            end: Some(9),
             cut1: Some(10),
             cut2: Some(20),
             ..Default::default()
         }))
         .await;
-        assert!(msg.contains("not a mix"), "{}", msg);
+        assert!(msg.contains("exactly one region selector"), "{}", msg);
+
+        // cut1 without cut2
+        let msg = expect_err(bad_req(RegionSpec {
+            cut1: Some(10),
+            ..Default::default()
+        }))
+        .await;
+        assert!(msg.contains("cut1 and cut2"), "{}", msg);
 
         // equal cuts on a linear sequence
         let msg = expect_err(bad_req(RegionSpec {
@@ -779,23 +665,6 @@ use libregene_core::models::Primer;
         .await;
         assert!(msg.contains("equal"), "{}", msg);
 
-        // primer that is neither a name nor a sequence
-        let msg = expect_err(bad_req(RegionSpec {
-            fwd_primer: Some("!!!".to_string()),
-            rev_primer: Some(seq[20..40].to_string()),
-            ..Default::default()
-        }))
-        .await;
-        assert!(msg.contains("neither a primer name"), "{}", msg);
-
-        // primer that only binds the reverse strand in the fwd role
-        let msg = expect_err(bad_req(RegionSpec {
-            fwd_primer: Some(libregene_core::utils::reverse_complement(&seq[20..40])),
-            rev_primer: Some(libregene_core::utils::reverse_complement(&seq[50..70])),
-            ..Default::default()
-        }))
-        .await;
-        assert!(msg.contains("does not bind the forward strand"), "{}", msg);
 
         // DNA project must not go to a .gpt path
         let mut req = bad_req(RegionSpec {
@@ -1110,72 +979,17 @@ use libregene_core::models::Primer;
             ],
             ..Default::default()
         };
+        // A cut position outside the linear molecule is rejected before slicing.
         let spec = RegionSpec {
-            enzyme1: Some("GoodCutter".to_string()),
-            enzyme2: Some("BbsI".to_string()),
+            cut1: Some(0),
+            cut2: Some(50),
             ..Default::default()
         };
         let err = resolve_export_region(&project, &spec).expect_err("must reject");
-        assert!(
-            err.contains("BbsI") && err.contains("falls outside the linear molecule"),
-            "{err}"
-        );
+        assert!(err.contains("out of range"), "{err}");
     }
 
-    #[test]
-    fn amplicon_rev_site_wrapping_origin_exports_wrap_arc() {
-        // Circular len=100: rev site covers 95..=99,0..=4 (stored wrapped,
-        // template_end < template_start); fwd 5' end at 3 (1-based). The
-        // amplicon runs from the fwd 5' end ACROSS the origin to the rev 5'
-        // end — previously f_start <= r_end picked the short wrong arc.
-        let seq = synthetic_dna(100, 13);
-        let site = |strand: i8, start: i64, end: i64, id: &str| libregene_core::models::PrimerBindingSite {
-            primer_id: id.to_string(),
-            strand,
-            template_start: start,
-            template_end: end,
-            tm: 60.0,
-            gc_content: 0.5,
-            match_score: 20,
-            has_3_prime_mismatch: false,
-            five_prime_tail: String::new(),
-            three_prime_tail: String::new(),
-            alignment: Default::default(),
-        };
-        let project = ProjectData {
-            name: "ampwrap".to_string(),
-            sequence: seq,
-            length: 100,
-            topology: "circular".to_string(),
-            molecule_type: "dna".to_string(),
-            primers: vec![
-                Primer {
-                    id: "fp".to_string(),
-                    name: "fp".to_string(),
-                    r#type: "fwd".to_string(),
-                    primer_seq: "AAAAAAAAAAAAAAAAAAAA".to_string(),
-                    binding_sites: vec![site(1, 2, 22, "fp")],
-                },
-                Primer {
-                    id: "rp".to_string(),
-                    name: "rp".to_string(),
-                    r#type: "rev".to_string(),
-                    primer_seq: "TTTTTTTTTTTTTTTTTTTT".to_string(),
-                    binding_sites: vec![site(-1, 95, 5, "rp")],
-                },
-            ],
-            ..Default::default()
-        };
-        let spec = RegionSpec {
-            fwd_primer: Some("fp".to_string()),
-            rev_primer: Some("rp".to_string()),
-            ..Default::default()
-        };
-        let (pieces, _, _) = resolve_export_region(&project, &spec).expect("resolves");
-        assert_eq!(pieces, vec![(2, 99), (0, 4)], "amplicon must wrap the origin");
-    }
-
-    #[tokio::test]
+        #[tokio::test]
     async fn save_file_region_over_own_source_requires_overwrite() {
         let (dir, path) = write_temp_gbk("save-region-self", "self.gbk");
         let server = test_handler();

@@ -104,7 +104,7 @@ src-tauri/src/          # lib.rs（门面）、state/payload/kernels/tray、comm
 - **Agent 标签强制隔离**：`open_project` = 加载 + 绑定主窗口 Agent 标签（默认 locked）；已加载未绑定（用户项目）则拒绝，指引 Agent `cp` 副本再打开；mutation 工具对未绑定项目报错，任何调用自动重锁；解锁走前端 `set_agent_tab_locked`。
 - **工具**：17 个，清单见下节；**参数与行为细节以 `mcp/mod.rs` 工具描述为准**（不在本文件重复）。参数名与响应字段一律 camelCase（输入输出同一套命名，如 `projectId`/`featureId`/`inputPath`）。
 - **统一响应信封**：每个工具都返回 `{ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}`；`ok: false` 是业务拒绝（同一结构 + 诊断字段，如 `currentContent`），只有寻址/门控/内部错误（项目不存在、未绑定 Agent 标签、非 DNA 分子类型）才走 MCP 协议错误。`unit` = `bp|nt|aa`；`text` 是唯一的人类可读渲染字段（overview/region/mutation 的紧凑 digest 或 read_sequence 的坐标尺窗口，原 `regionView` 已并入），`textBefore` 为编辑前 digest；`warnings`/`notes` 为字符串数组，仅在非空时出现。项目相关响应带 `sequenceHash`/`revCompHash`（7 位 FNV-1a，大小写/空白不敏感，digest 头部带同样的 `SEQHASH:` 行），跨调用对比即可发现序列变化。
-- **命名约定**（改工具输出时保持）：坐标为 1-based inclusive；区间 `start`/`end`，单点 `position`，特征内偏移 `offset`；长度 `...Length`、计数 `...Count`、明细 `...Details`；比例（`identity`、`cai*`）0–1，百分比（`gcPercent*`）0–100 一位小数，`tm` 为 °C 一位小数。引物结合位点在 `add_primer`/`list_primers`/`check_primer_binding` 中共用同一 shape（`strand, templateStart, templateEnd, tm, annealLength, tailLength, alignedTemplate, matchMask`），`check_primer_binding` 另给成对引物的 `amplicon`，`design_primers` 候选带 `id`/`recommended`/`recommendedIndex`。
+- **命名约定**（改工具输出时保持）：坐标为 1-based inclusive；区间 `start`/`end`，单点 `position`，特征内偏移 `offset`；长度 `...Length`、计数 `...Count`、明细 `...Details`；比例（`identity`、`cai*`）0–1，百分比（`gcPercent*`）0–100 一位小数，`tm` 为 °C 一位小数。引物结合位点在 `add_primer`/`list_primers`/`check_primer_binding` 中共用同一 shape（`strand, templateStart, templateEnd, tm, annealLength, tailLength, alignedTemplate, matchMask`），`check_primer_binding` 另给成对引物的 `amplicon`，`design_primers` 候选带 `id`/`recommended`/`recommendedIndex`。`get_region_view` 默认只给结构化 ALIGNMENT DIFFS，逐列 ALIGNMENT VIEW 需显式 `showAlignmentColumns: true`（窗口覆盖 >500 bp 只给省略说明）。
 - **文件优先 I/O**：工具描述统一引导 Agent 用文件传序列，纯文本只留给短输入；改描述时保持此口径。
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/鉴权/Agent 标签门控/各工具正反例。
 
@@ -118,8 +118,8 @@ src-tauri/src/          # lib.rs（门面）、state/payload/kernels/tray、comm
 - 序列读取、坐标转换、自动标注/甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`
 - 序列编辑（连同已存比对自动重算）→ `edit_sequence`；特征 → `set_feature`
 - 引物 → `add_primer` / `list_primers` / `check_primer_binding` / `design_primers`
-- ORF → `find_orfs`；比对 → `add_alignment`（`algorithm`: "blast" 默认 / "smith-waterman"）；IUPAC 搜索 → `search_sequence`；酶切位点 → `find_restriction_sites`；序列转换/密码子优化 → `convert_sequence`（dna↔rna、→protein、protein 逆转录、密码子优化，批量逐项错误隔离）
-- DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`/`search_sequence`）对 protein/rna 项目返回 isError
+- ORF → `find_orfs`；比对 → `add_alignment`（`algorithm`: "blast" 默认 / "smith-waterman"）；酶库检索 → `list_enzymes`，酶切位点 → `find_restriction_sites`（未知酶名不报错，作为数据返回；名字发现走 `list_enzymes`）；序列转换/密码子优化 → `convert_sequence`（dna↔rna、→protein、protein 逆转录、密码子优化，批量逐项错误隔离）
+- DNA 专属工具（`find_restriction_sites`/`find_orfs`/`design_primers`/`check_primer_binding`/`add_primer`/`add_alignment`）对 protein/rna 项目返回 isError
 
 未适配（每项一句话记原因）：
 
@@ -128,7 +128,7 @@ src-tauri/src/          # lib.rs（门面）、state/payload/kernels/tray、comm
 - My Primers / My Enzymes 库：存 localStorage，后端不可见
 - 酶 Provider 数据与筛选（`enzyme_providers.json`、`get_enzyme_providers`）：仅展示用，不进 recompute
 - 质粒图视图 / 编辑器背景水印、选区 badge 分子量：纯渲染
-- 前端搜索 UI（名称匹配）：MCP 只有序列搜索
+- 前端搜索 UI（名称匹配）：MCP 无搜索工具（序列/IUPAC 检索由 Agent 在导出文件上用脚本完成）
 - Agent 标签解锁按钮/导航控制条：纯前端，锁定状态后端持有
 - Tm 参数与引物分析设置：`design_primers` 已暴露浓度参数，其余为渲染层状态
 - `add_alignment` 的 createdSites：未实现，改用 `edit_sequence` + `find_restriction_sites`

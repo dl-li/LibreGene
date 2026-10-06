@@ -111,18 +111,24 @@ async fn read_tools_share_the_success_envelope() {
     assert_eq!(read["length"], 21, "{read}");
     assert_eq!(read["sequence"].as_str().unwrap().len(), 21, "{read}");
 
-    let search = server
-        .search_sequence(Parameters(SearchRequest {
-            project_id: "enz".to_string(),
-            query: "GAATTC".to_string(),
+    let catalog = server
+        .list_enzymes(Parameters(EnzymeListRequest {
+            query: Some("GAATTC".to_string()),
+            ..Default::default()
         }))
         .await
         .unwrap()
         .0;
-    assert_envelope(&search, Some("enz"));
-    assert_eq!(search["query"], "GAATTC", "{search}");
-    assert_eq!(search["matchCount"], 1, "{search}");
-    assert_eq!(search["matches"][0]["start"], 41, "{search}");
+    assert_envelope(&catalog, None);
+    assert!(
+        catalog["enzymes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "EcoRI"),
+        "{catalog}"
+    );
+    assert_eq!(catalog["count"], catalog["total"], "{catalog}");
 
     let sites = server
         .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
@@ -455,6 +461,7 @@ fn tool_descriptions_are_concise_and_state_their_response() {
     for t in tools {
         assert_ne!(t.name, "list_species", "species keys live in the convert_sequence description");
         assert_ne!(t.name, "close_project", "close_project was removed");
+        assert_ne!(t.name, "search_sequence", "search_sequence is a bash-replaceable string scan");
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
         assert!(
@@ -494,4 +501,109 @@ async fn convert_sequence_description_lists_the_builtin_species() {
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.contains("{species}"), "{} left a placeholder", t.name);
     }
+}
+
+#[tokio::test]
+async fn list_enzymes_filters_by_name_and_site_and_reports_the_full_total() {
+    let server = test_handler();
+
+    let by_name = server
+        .list_enzymes(Parameters(EnzymeListRequest {
+            query: Some("eco".to_string()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_envelope(&by_name, None);
+    assert!(by_name["total"].as_u64().unwrap() >= 1, "{by_name}");
+    assert!(
+        by_name["enzymes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["name"].as_str().unwrap().to_lowercase().contains("eco")
+                || e["site"].as_str().unwrap().to_lowercase().contains("eco")),
+        "{by_name}"
+    );
+
+    // A recognition-site query finds the enzyme(s) that cut it.
+    let by_site = server
+        .list_enzymes(Parameters(EnzymeListRequest {
+            query: Some("GAATTC".to_string()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(
+        by_site["enzymes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "EcoRI"),
+        "{by_site}"
+    );
+
+    // limit caps the page but total reports every match.
+    let paged = server
+        .list_enzymes(Parameters(EnzymeListRequest {
+            limit: Some(2),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(paged["count"], 2, "{paged}");
+    assert!(paged["total"].as_u64().unwrap() > 2, "{paged}");
+}
+
+#[tokio::test]
+async fn region_view_alignment_columns_are_opt_in() {
+    use libregene_core::models::{AlignSegment, Alignment};
+
+    let mut project = alignment_test_project("linear");
+    let read = project.sequence[10..=29].to_string();
+    project.alignments = vec![Alignment {
+        id: "aln-1".into(),
+        name: "read1".into(),
+        length: read.len(),
+        strand: "+".into(),
+        identity: 1.0,
+        segments: vec![AlignSegment {
+            start: 10,
+            end: 29,
+            chars: read.clone(),
+        }],
+        insertions: Vec::new(),
+        seq: read,
+        trace_path: None,
+    }];
+    let server = handler_with_project(project).await;
+
+    let off = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "aln_test".to_string(),
+            start: 1,
+            end: 40,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(off["text"].as_str().unwrap().contains("ALIGNMENT DIFFS"), "{off}");
+    assert!(!off["text"].as_str().unwrap().contains("ALIGNMENT VIEW"), "{off}");
+
+    let on = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "aln_test".to_string(),
+            start: 1,
+            end: 40,
+            show_alignment_columns: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(on["text"].as_str().unwrap().contains("ALIGNMENT VIEW IN REGION"), "{on}");
 }

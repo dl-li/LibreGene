@@ -333,35 +333,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             };
             if let Some(expected) = &request.expected_old {
                 if !current.eq_ignore_ascii_case(expected) {
-                    let exp = expected.as_bytes();
-                    let cur = current.as_bytes();
-                    let diff_at = exp
-                        .iter()
-                        .zip(cur.iter())
-                        .position(|(a, b)| !a.eq_ignore_ascii_case(b))
-                        .unwrap_or(exp.len().min(cur.len()));
-                    let ctx_lo = diff_at.saturating_sub(20);
-                    let exp_hi = (diff_at + 20).min(exp.len());
-                    let cur_hi = (diff_at + 20).min(cur.len());
                     let mut v = fail_envelope(
                         &id,
                         format!(
-                            "expectedOld mismatch at content position {} (1-based, within [{}..{}]): expected context '{}' vs current context '{}'",
-                            diff_at + 1,
-                            u_start,
-                            u_end,
-                            String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
-                            String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
+                            "expectedOld does not match the current bases at [{}..{}] — resend the edit with currentContent as expectedOld",
+                            u_start, u_end
                         ),
                     );
                     v["currentContent"] = serde_json::json!(current);
-                    v["mismatch"] = serde_json::json!({
-                        "index": diff_at + 1,
-                        "expectedContext": String::from_utf8_lossy(&exp[ctx_lo..exp_hi]),
-                        "currentContext": String::from_utf8_lossy(&cur[ctx_lo..cur_hi]),
-                        "expectedLength": exp.len(),
-                        "currentLength": cur.len(),
-                    });
                     insert_seq_hashes(&mut v, &seq_hashes);
                     return Ok(Json(v));
                 }
@@ -467,42 +446,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (start - 30).max(0),
             (start + repl_len + 30 - 1).min(new_len - 1),
         );
-        let new_region = self.digest_region(&id, Some(new_win), true).await;
+        let new_region = self.digest_region(&id, Some(new_win), true, false).await;
 
         let (removed_json, clipped_json) = edit_impact_json(&impact);
-        // Equal-length replacements keep every feature (by design, for
-        // synonymous-substitution edits), but when the replacement CONTENT
-        // differs beyond case the covered features' annotations now describe
-        // different bases — and removed/clipped stay empty, so the agent
-        // would get no signal at all. Surface the covered feature names in
-        // that specific case (length-changing edits already report via
-        // removed/clipped).
-        let content_changed_features: Vec<String> = {
-            let old_span = &project.sequence[start as usize..=(end) as usize];
-            let equal_length_content_differs = !is_insertion
-                && old_span.len() == replacement.len()
-                && !old_span.eq_ignore_ascii_case(&replacement);
-            if equal_length_content_differs {
-                project
-                    .features
-                    .iter()
-                    .filter(|f| {
-                        let (fs, fe) = if f.segments.is_empty() {
-                            (f.start, f.end)
-                        } else {
-                            (
-                                f.segments.iter().map(|s| s.start).min().unwrap_or(f.start),
-                                f.segments.iter().map(|s| s.end).max().unwrap_or(f.end),
-                            )
-                        };
-                        fe >= start && fs <= end
-                    })
-                    .map(|f| f.name.clone())
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        };
         let action = if is_insertion {
             format!("Inserted {} {} before base {}", repl_len, unit, u_start)
         } else {
@@ -539,9 +485,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         if let Some(ctx) = context_after {
             v["contextAfter"] = ctx;
-        }
-        if !content_changed_features.is_empty() {
-            v["contentChangedFeatures"] = serde_json::json!(content_changed_features);
         }
         if !transferred_feature_names.is_empty() {
             v["transferredFeatures"] = serde_json::json!(transferred_feature_names);

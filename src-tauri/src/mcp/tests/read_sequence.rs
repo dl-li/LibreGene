@@ -69,7 +69,10 @@ use libregene_core::models::Segment;
         assert_eq!(v["base"], "G", "{v}");
         assert_eq!(v["codonPositions"], serde_json::json!([4, 5, 6]), "{v}");
         assert_eq!(v["translations"][0]["codonIndex"], 2, "{v}");
-        assert_eq!(v["translations"][0]["aaPositionExcludingMet"], 1, "{v}");
+        assert!(
+            v["translations"][0].get("aaPositionExcludingMet").is_none(),
+            "only one amino-acid numbering is reported: {v}"
+        );
         assert_eq!(v["translations"][0]["codon"], "GTA", "{v}");
         assert_eq!(v["translations"][0]["aminoAcid"], "V", "{v}");
 

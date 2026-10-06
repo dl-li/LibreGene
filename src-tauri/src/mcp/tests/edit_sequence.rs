@@ -378,13 +378,13 @@ use crate::mcp::*;
         assert_eq!(v["ok"], true, "{}", v);
         assert_eq!(v["removedFeatures"], serde_json::json!([]), "{v}");
         assert_eq!(v["clippedFeatures"], serde_json::json!([]), "{v}");
-        // Content differs beyond case → the covered feature is surfaced in
-        // contentChangedFeatures so the agent knows the annotation now
-        // describes different bases.
-        assert_eq!(
-            v["contentChangedFeatures"],
-            serde_json::json!(["gene"]),
-            "equal-length replacement with different content must flag covered features: {v}"
+        // Content differs beyond case: the annotations keep their coordinates
+        // (equal-length edits never move features) and the response says so via
+        // the digest, which still lists the covered feature.
+        assert!(v.get("contentChangedFeatures").is_none(), "{v}");
+        assert!(
+            v["text"].as_str().unwrap_or("").contains("gene"),
+            "digest must still show the covered feature: {v}"
         );
         let pm = server.pm.read().await;
         let p = pm.get_project_by_id("edit_test").unwrap();
@@ -393,7 +393,7 @@ use crate::mcp::*;
         drop(pm);
 
         // Case-only change (the uppercase normalization path): content is
-        // equivalent ignoring case → no contentChangedFeatures signal.
+        // equivalent ignoring case → nothing is removed or clipped.
         let server = handler_with_project(edit_test_project()).await;
         let original = {
             let pm = server.pm.read().await;
@@ -414,10 +414,8 @@ use crate::mcp::*;
                 .unwrap();
             let v = out.0;
             assert_eq!(v["ok"], true, "{}", v);
-            assert!(
-                v.get("contentChangedFeatures").is_none(),
-                "case-only normalization must not flag features: {v}"
-            );
+            assert_eq!(v["removedFeatures"], serde_json::json!([]), "{v}");
+            assert_eq!(v["clippedFeatures"], serde_json::json!([]), "{v}");
         }
 
         // A length-changing replacement fully covering the feature still
