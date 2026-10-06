@@ -451,7 +451,7 @@ async fn reverse_translation_without_a_stop_codon_is_noted() {
 #[test]
 fn tool_descriptions_are_concise_and_state_their_response() {
     let tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
-    assert_eq!(tools.len(), 18, "unexpected tool count");
+    assert_eq!(tools.len(), 19, "unexpected tool count");
     for t in tools {
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
@@ -468,5 +468,23 @@ fn tool_descriptions_are_concise_and_state_their_response() {
             t.name,
             d.len()
         );
+    }
+}
+
+#[tokio::test]
+async fn list_species_returns_builtin_keys() {
+    let server = test_handler();
+    let out = server.list_species().await.unwrap().0;
+    assert_eq!(out["ok"], true, "{out}");
+    assert_eq!(out["count"], 9, "{out}");
+    let species = out["species"].as_array().expect("species array");
+    assert_eq!(species.len(), 9, "{out}");
+    let joined = species
+        .iter()
+        .filter_map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    for key in ["h_sapiens", "e_coli", "d_melanogaster"] {
+        assert!(joined.contains(key), "{out}");
     }
 }

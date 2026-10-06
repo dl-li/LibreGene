@@ -1,5 +1,6 @@
 use super::common::*;
 use crate::mcp::*;
+use libregene_core::models::ProjectData;
 
     #[tokio::test]
     async fn add_alignment_returns_oriented_sequence_and_coverage() {
@@ -546,4 +547,96 @@ use crate::mcp::*;
         assert_eq!(v["window"]["mismatches"], 1, "{v}");
         assert_eq!(v["mismatches"], 2, "total stays whole-read: {v}");
         assert!(v.get("text").is_none(), "compact suppresses text: {v}");
+    }
+
+    #[tokio::test]
+    async fn add_alignment_reports_destroyed_and_created_sites() {
+        // 200 bp template with a single top-strand BbsI site (GAAGAC) and no
+        // BamHI site. A read that flips the BbsI site and installs GGATCC
+        // elsewhere must report both a destroyed and a created site.
+        let mut seq = "ACGT".repeat(50);
+        seq.replace_range(40..46, "GAAGAC");
+        let mut project = ProjectData {
+            name: "sites".to_string(),
+            sequence: seq,
+            length: 200,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            ..Default::default()
+        };
+        libregene_core::enzyme::recompute(&mut project);
+        assert!(
+            project.enzymes.iter().any(|e| e.name == "BbsI" && e.rec_start == 40),
+            "test template must carry the BbsI site"
+        );
+        assert!(
+            !project.enzymes.iter().any(|e| e.name == "BamHI"),
+            "test template must not carry a BamHI site"
+        );
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+
+        let mut read = template.clone();
+        read.replace_range(42..43, "T"); // GAAGAC -> GTAGAC destroys BbsI
+        read.replace_range(100..106, "GGATCC"); // installs a BamHI site
+
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: "sites".to_string(),
+                name: "read".to_string(),
+                bases: Some(read),
+                path: None,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        let sites = v["affectedSites"].as_array().expect("affectedSites array");
+        let bbs = sites
+            .iter()
+            .find(|s| s["enzyme"] == "BbsI")
+            .expect("BbsI entry");
+        assert_eq!(bbs["status"], "destroyed", "{bbs}");
+        assert_eq!(bbs["recStart"], 41, "{bbs}");
+        assert_eq!(bbs["recEnd"], 46, "{bbs}");
+        assert_eq!(bbs["changedBases"][0]["position"], 43, "{bbs}");
+        assert_eq!(bbs["changedBases"][0]["templateBase"], "A", "{bbs}");
+        assert_eq!(bbs["changedBases"][0]["readBase"], "T", "{bbs}");
+        let bam = sites
+            .iter()
+            .find(|s| s["enzyme"] == "BamHI")
+            .expect("BamHI entry");
+        assert_eq!(bam["status"], "created", "{bam}");
+        assert_eq!(bam["recStart"], 101, "{bam}");
+        assert_eq!(bam["recEnd"], 106, "{bam}");
+        // Intact sites are hidden unless requested.
+        assert!(!sites.iter().any(|s| s["status"] == "intact"), "{v}");
+        // The new alignment entry mirrors the impact block.
+        assert!(
+            v["alignments"][0]["affectedSites"].as_array().is_some(),
+            "{v}"
+        );
+
+        // An exact-match read (includeIntactSites) lists still-matching sites.
+        let out = server
+            .add_alignment(Parameters(AddAlignmentRequest {
+                project_id: "sites".to_string(),
+                name: "read2".to_string(),
+                bases: Some(template),
+                path: None,
+                include_intact_sites: Some(true),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        let sites = v["affectedSites"].as_array().unwrap();
+        assert!(
+            sites
+                .iter()
+                .any(|s| s["enzyme"] == "BbsI" && s["status"] == "intact"),
+            "{v}"
+        );
     }

@@ -511,8 +511,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
         for note in ignored {
             push_note(&mut v, note);
         }
-        if let Some(info) = mutation_info {
-            v["mutation"] = info;
+        if let Some(info) = mutation_info.as_ref() {
+            // Spell out the plus-strand edit explicitly so a coding-strand vs
+            // plus-strand slip is obvious without reparsing templateBases/newBases.
+            let edit = format!(
+                "Plus-strand seg {}..{} currently '{}'; set mutSeq to '{}' ({} base(s) differ). For a MINUS-strand CDS this plus-strand edit is the reverse complement of the coding-strand change.",
+                info["segStart"].as_i64().unwrap_or(0),
+                info["segEnd"].as_i64().unwrap_or(0),
+                info["templateBases"].as_str().unwrap_or(""),
+                info["newBases"].as_str().unwrap_or(""),
+                info["diffs"].as_array().map(|a| a.len()).unwrap_or(0),
+            );
+            v["plusStrandEdit"] = serde_json::json!(edit);
+            v["mutation"] = info.clone();
+        }
+        if mode == "mutagenesis" {
+            push_note(
+                &mut v,
+                "Mutagenesis primer length ≈ seg length + 2 × armLen (armLen default 20): a large seg yields unexpectedly long primers, so keep seg tight around the edited codon(s).",
+            );
         }
         if let Some(w) = mutation_warning {
             push_warning(&mut v, w);

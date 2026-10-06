@@ -435,6 +435,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.list_projects_impl().await
     }
 
+    /// List the built-in codon-usage species keys accepted by `convert_sequence`'s
+    /// `species` parameter (e.g. "h_sapiens", "e_coli"). Pass one of these strings
+    /// verbatim as `species`; no other values are accepted.
+    /// Returns {ok, message, count, species: [key]}.
+    #[tool]
+    async fn list_species(&self) -> Result<Json<serde_json::Value>, ErrorData> {
+        let species = libregene_core::codon::list_species();
+        Ok(Json(serde_json::json!({
+            "ok": true,
+            "message": format!("{} built-in codon-usage species", species.len()),
+            "count": species.len(),
+            "species": species,
+        })))
+    }
+
     /// Compact text digest of a whole project (`text`): features, primers, enzyme
     /// cutters, methylation, auto-annotated common features — RNA/protein projects
     /// omit the DNA-only sections. Enzyme cutters collapse to one count line unless
@@ -705,10 +720,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `orientedSequence` is omitted. `compact: true` drops `orientedSequence` and
     /// `text` entirely.
     ///
+    /// VARIANT IMPACT: `affectedSites` lists restriction sites the read
+    /// DESTROYS (mutation inside an existing recognition site) or CREATES (a new
+    /// site formed by the read), each as {enzyme, status: "destroyed"|"created"|
+    /// "intact", recStart, recEnd, templateSeq, readSeq, recognitionStrand,
+    /// changedBases}. Only sites overlapping the read's covered template are
+    /// considered; pass `includeIntactSites: true` to also list still-matching
+    /// sites (off by default). Creation detection scans the full enzyme database
+    /// around the read's differences. `affectedSiteCount` is the array length, and
+    /// each entry is also attached to the new alignment in `alignments`.
+    ///
     /// Returns {ok, message, projectId, unit, significant, alignmentId, name,
     /// identity, strand, segmentCount, alignedLength, readLength, mismatches,
     /// insertions, deletions, mismatchDetails, deletionDetails, insertionDetails,
-    /// coverage, orientedSequence?, window?, notes?, alignments, text, hashes}.
+    /// coverage, affectedSites?, affectedSiteCount?, orientedSequence?, window?,
+    /// notes?, alignments, text, hashes}.
     /// `identity` is a 0-1 fraction; `alignedLength` is the covered template span
     /// while `readLength` is the read's own length; the mismatch/insertion/deletion
     /// counts describe the WHOLE read (an insertion sits between bases `position`
@@ -752,19 +778,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (default 20).
     /// - "mutagenesis": `mutSeq` is the desired PLUS-strand content of `seg` (same
     /// length, at most 3 differing bases) — for a minus-strand CDS, reverse-
-    /// complement the intended coding-strand edit yourself. Always confirm
-    /// `mutation.aaAfter` / `mutation.orientationHint`: amino-acid positions come
-    /// in both conventions (`aaPosition1Based` counts the initiator Met,
-    /// `aaPositionExcludingMet` matches literature numbering).
+    /// complement the intended coding-strand edit yourself. Primer length ≈ seg
+    /// length + 2 × `armLen` (default 20), so keep `seg` tight around the edited
+    /// codon(s). Always confirm `mutation.aaAfter` / `mutation.orientationHint`:
+    /// amino-acid positions come in both conventions (`aaPosition1Based` counts
+    /// the initiator Met, `aaPositionExcludingMet` matches literature numbering).
+    /// `plusStrandEdit` restates the plus-strand change in plain language.
     ///
     /// Returns {ok, message, projectId, mode, groups: [{name, type,
     /// recommendedIndex, candidates: [{id (unique within its group), recommended,
     /// seq, tail, tailLength, annealLength, tm, gcPercent, designedAnnealLength?,
     /// designedTm?}]}],
-    /// mutation?, internalSites?, internalSiteCount?, orientation?, cdsOverlaps?,
-    /// tmBasis, warnings?, hashes} (parameters that only apply to another mode
-    /// are reported in `notes` instead of being silently dropped). Use the
-    /// candidate with `recommended: true` (or
+    /// mutation?, plusStrandEdit?, internalSites?, internalSiteCount?, orientation?,
+    /// cdsOverlaps?, tmBasis, warnings?, notes?, hashes} (parameters that only
+    /// apply to another mode are reported in `notes` instead of being silently
+    /// dropped). Use the candidate with `recommended: true` (or
     /// `recommendedIndex`) — `annealLength`/`tm` describe the ACTUAL contiguous 3'
     /// match, `designedAnnealLength`/`designedTm` the designed core before
     /// 3'-end unification.

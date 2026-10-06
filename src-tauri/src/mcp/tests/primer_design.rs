@@ -449,3 +449,61 @@ use libregene_core::models::ProjectData;
         let pm = server.pm.read().await;
         assert!(pm.get_project_by_id("feat").unwrap().primers.is_empty());
     }
+
+    #[tokio::test]
+    async fn design_primers_mutagenesis_reports_plus_strand_edit_and_length_hint() {
+        let mut bytes = vec![b'A'; 90];
+        bytes[60] = b'C';
+        bytes[61] = b'G';
+        bytes[62] = b'C';
+        let project = ProjectData {
+            name: "mut_echo".to_string(),
+            sequence: String::from_utf8(bytes).unwrap(),
+            length: 90,
+            topology: "linear".to_string(),
+            molecule_type: "dna".to_string(),
+            features: vec![feature("cds1", "orf", 30, 89, "+")],
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: "mut_echo".to_string(),
+                mode: "mutagenesis".to_string(),
+                seg: Some(SegParam { start: 61, end: 63 }),
+                target_tm: 55.0,
+                mut_seq: Some("AAA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        let edit = v["plusStrandEdit"].as_str().expect("plusStrandEdit");
+        assert!(edit.contains("CGC") && edit.contains("AAA"), "{edit}");
+        let notes = v["notes"].as_array().expect("notes array");
+        assert!(
+            notes
+                .iter()
+                .filter_map(|n| n.as_str())
+                .any(|n| n.contains("seg length + 2")),
+            "{v}"
+        );
+
+        // A mutSeq length mismatch states both expected and got explicitly.
+        let out = server
+            .design_primers(Parameters(DesignPrimersRequest {
+                project_id: "mut_echo".to_string(),
+                mode: "mutagenesis".to_string(),
+                seg: Some(SegParam { start: 61, end: 63 }),
+                target_tm: 55.0,
+                mut_seq: Some("AAAA".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], false, "{v}");
+        let msg = v["message"].as_str().unwrap();
+        assert!(msg.contains("expected 3") && msg.contains("got 4"), "{msg}");
+    }

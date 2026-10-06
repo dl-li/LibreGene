@@ -4,6 +4,8 @@ use rmcp::{ErrorData, handler::server::wrapper::Json};
 use tauri::Runtime;
 
 use libregene_core::digest::cut_flanks;
+use libregene_core::models::{Alignment, Enzyme};
+use std::collections::{HashMap, HashSet};
 
 use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{MAX_FLANK, fail_envelope, insert_seq_hashes, ok_envelope, push_note};
@@ -207,6 +209,251 @@ pub(crate) fn uncovered_between_segments(a: &libregene_core::models::Alignment, 
     total
 }
 
+/// IUPAC single-code vs concrete base match (`N` matches anything).
+fn iupac_code_matches(code: u8, base: u8) -> bool {
+    let code = code.to_ascii_uppercase();
+    let base = base.to_ascii_uppercase();
+    match code {
+        b'A' => base == b'A',
+        b'C' => base == b'C',
+        b'G' => base == b'G',
+        b'T' | b'U' => base == b'T',
+        b'R' => matches!(base, b'A' | b'G'),
+        b'Y' => matches!(base, b'C' | b'T'),
+        b'W' => matches!(base, b'A' | b'T'),
+        b'S' => matches!(base, b'C' | b'G'),
+        b'K' => matches!(base, b'G' | b'T'),
+        b'M' => matches!(base, b'A' | b'C'),
+        b'B' => matches!(base, b'C' | b'G' | b'T'),
+        b'D' => matches!(base, b'A' | b'G' | b'T'),
+        b'H' => matches!(base, b'A' | b'C' | b'T'),
+        b'V' => matches!(base, b'A' | b'C' | b'G'),
+        b'N' => true,
+        _ => false,
+    }
+}
+
+/// Does `target` match the IUPAC `pattern` base-for-base at the same length?
+fn span_matches_iupac(target: &[u8], pattern: &str) -> bool {
+    target.len() == pattern.len()
+        && pattern.bytes().zip(target).all(|(c, b)| iupac_code_matches(c, *b))
+}
+
+/// Per-template-position read state for an alignment: `covered[p]` is true when
+/// the alignment spans base `p` (a gap counts), `base[p]` is the aligned read
+/// base (uppercase, `None` for a deletion/uncovered column).
+fn read_allele_arrays(a: &Alignment, tlen: usize) -> (Vec<bool>, Vec<Option<u8>>) {
+    let mut covered = vec![false; tlen];
+    let mut base: Vec<Option<u8>> = vec![None; tlen];
+    for seg in &a.segments {
+        for (i, ch) in seg.chars.bytes().enumerate() {
+            let pos = (seg.start + i) % tlen;
+            covered[pos] = true;
+            if ch != b'-' {
+                base[pos] = Some(ch.to_ascii_uppercase());
+            }
+        }
+    }
+    (covered, base)
+}
+
+/// Template positions covered by a recognition site, in 5'->3' order (wraps the
+/// origin when `rec_start > rec_end`).
+fn site_positions(rec_start: i64, rec_end: i64, tlen: i64) -> Vec<usize> {
+    if rec_start <= rec_end {
+        (rec_start..=rec_end).map(|p| p as usize).collect()
+    } else {
+        (rec_start..tlen)
+            .chain(0..=rec_end)
+            .map(|p| p as usize)
+            .collect()
+    }
+}
+
+/// Variant impact of one alignment on the project's restriction sites:
+/// destroyed / (optionally) intact template sites plus newly created sites,
+/// all as 1-based inclusive spans. Creation detection scans the full enzyme
+/// database around the read's differences and does not model insertions or
+/// origin-spanning new sites.
+pub(crate) fn affected_sites_json(
+    a: &Alignment,
+    template: &str,
+    tlen: i64,
+    enzymes: &[Enzyme],
+    include_intact: bool,
+) -> Vec<serde_json::Value> {
+    if tlen <= 0 || a.segments.is_empty() {
+        return Vec::new();
+    }
+    let t = tlen as usize;
+    let (covered, base) = read_allele_arrays(a, t);
+    let template_upper = template.to_ascii_uppercase();
+    let template_bytes = template_upper.as_bytes();
+    let mut out: Vec<serde_json::Value> = Vec::new();
+
+    for enz in enzymes {
+        let positions = site_positions(enz.rec_start, enz.rec_end, tlen);
+        if positions.is_empty() || !positions.iter().all(|&p| covered[p]) {
+            continue;
+        }
+        let target: Vec<u8> = positions.iter().map(|&p| base[p].unwrap_or(b'-')).collect();
+        let intact = span_matches_iupac(&target, &enz.rec_seq_pattern);
+        if intact && !include_intact {
+            continue;
+        }
+        let changed: Vec<serde_json::Value> = positions
+            .iter()
+            .filter_map(|&p| {
+                let tb = template_bytes
+                    .get(p)
+                    .copied()
+                    .map(|b| b.to_ascii_uppercase())
+                    .unwrap_or(b'?');
+                let show = base[p].map(|b| b.to_ascii_uppercase()).unwrap_or(b'-');
+                (show != tb).then(|| {
+                    serde_json::json!({
+                        "position": p as i64 + 1,
+                        "templateBase": (tb as char).to_string(),
+                        "readBase": (show as char).to_string(),
+                    })
+                })
+            })
+            .collect();
+        out.push(serde_json::json!({
+            "enzyme": enz.name,
+            "status": if intact { "intact" } else { "destroyed" },
+            "recStart": enz.rec_start + 1,
+            "recEnd": enz.rec_end + 1,
+            "templateSeq": enz.rec_seq,
+            "readSeq": String::from_utf8(target).unwrap_or_default(),
+            "recognitionStrand": enz.recognition_strand,
+            "isUnique": enz.is_unique,
+            "changedBases": changed,
+        }));
+    }
+
+    // Template sites by enzyme name, used to skip "created" hits that merely
+    // restate an existing site.
+    let mut existing: HashMap<&str, HashSet<(i64, i64)>> = HashMap::new();
+    for enz in enzymes {
+        existing
+            .entry(enz.name.as_str())
+            .or_default()
+            .insert((enz.rec_start, enz.rec_end));
+    }
+    // Created sites: scan windows around the read's differences against the FULL
+    // enzyme database, reporting only sites that overlap a difference and do not
+    // already exist at the same span in the template.
+    let diff_positions: Vec<usize> = (0..t)
+        .filter(|&p| {
+            covered[p]
+                && template_bytes.get(p).copied().map(|b| b.to_ascii_uppercase())
+                    != base[p].map(|b| b.to_ascii_uppercase())
+        })
+        .collect();
+    if !diff_positions.is_empty() {
+        let db = libregene_core::enzyme::search::get_db();
+        let max_len = db.enzymes.iter().map(|e| e.site.len()).max().unwrap_or(0);
+        // top-strand recognition string -> (enzyme name, recognition strand)
+        let mut pattern_names: HashMap<String, Vec<(&str, &str)>> = HashMap::new();
+        for e in &db.enzymes {
+            let top = e.site.to_ascii_uppercase();
+            pattern_names
+                .entry(top.clone())
+                .or_default()
+                .push((e.name.as_str(), "top"));
+            if !e.is_palindromic {
+                let bottom = libregene_core::enzyme::search::iupac_complement(&top);
+                pattern_names
+                    .entry(bottom)
+                    .or_default()
+                    .push((e.name.as_str(), "bottom"));
+            }
+        }
+        // Merge the difference windows (a new site must contain a difference).
+        let mut windows: Vec<(i64, i64)> = Vec::new();
+        for &d in &diff_positions {
+            let s = (d as i64 - max_len as i64).max(0);
+            let e = (d as i64 + max_len as i64).min(tlen - 1);
+            match windows.last_mut() {
+                Some((_, prev_e)) if s <= *prev_e + 1 => *prev_e = (*prev_e).max(e),
+                _ => windows.push((s, e)),
+            }
+        }
+        let diff_set: HashSet<usize> = diff_positions.iter().copied().collect();
+        let mut seen_hits: HashSet<(String, i64, i64)> = HashSet::new();
+        'windows: for (ws, we) in windows {
+            let mut sub = String::new();
+            let mut sub_coords: Vec<i64> = Vec::new();
+            for p in ws..=we {
+                if let Some(b) = base[p as usize] {
+                    sub.push(b as char);
+                    sub_coords.push(p);
+                }
+            }
+            if sub.is_empty() {
+                continue;
+            }
+            for (pattern, names) in &pattern_names {
+                let plen = pattern.len();
+                for hit in libregene_core::enzyme::matching::fuzzy_find_all(sub.as_bytes(), pattern) {
+                    if hit + plen > sub_coords.len() {
+                        continue;
+                    }
+                    let contiguous = (1..plen).all(|j| {
+                        (sub_coords[hit + j] - sub_coords[hit + j - 1]).rem_euclid(tlen) == 1
+                    });
+                    if !contiguous {
+                        continue;
+                    }
+                    let start = sub_coords[hit];
+                    let end = sub_coords[hit + plen - 1];
+                    if !(start..=end).any(|p| diff_set.contains(&(p as usize))) {
+                        continue;
+                    }
+                    for (name, strand) in names {
+                        if existing
+                            .get(*name)
+                            .is_some_and(|s| s.contains(&(start, end)))
+                        {
+                            continue;
+                        }
+                        if !seen_hits.insert((name.to_string(), start, end)) {
+                            continue;
+                        }
+                        out.push(serde_json::json!({
+                            "enzyme": name,
+                            "status": "created",
+                            "recStart": start + 1,
+                            "recEnd": end + 1,
+                            "templateSeq": (start..=end)
+                                .map(|p| template_bytes.get(p as usize).copied().unwrap_or(b'?') as char)
+                                .collect::<String>(),
+                            "readSeq": sub[hit..hit + plen].to_ascii_uppercase(),
+                            "recognitionStrand": strand,
+                            "isUnique": false,
+                            "changedBases": [],
+                        }));
+                        if out.len() >= 200 {
+                            break 'windows;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    out
+}
+
+/// True when the 1-based inclusive site span intersects the 1-based focus
+/// window (wrap-aware on circular templates).
+fn affected_in_window(rec_start: i64, rec_end: i64, s: i64, e: i64, tlen: i64) -> bool {
+    site_positions(rec_start - 1, rec_end - 1, tlen)
+        .iter()
+        .any(|&p| in_window_1based(p as i64 + 1, s, e))
+}
+
 impl<R: Runtime> LibreGeneMcp<R> {
     pub(crate) async fn add_alignment_impl(
         &self,
@@ -224,6 +471,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         let name = request.name.clone();
         let compact = request.compact.unwrap_or(false);
+        let include_intact = request.include_intact_sites.unwrap_or(false);
+        let tlen = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id).map(|p| p.length).unwrap_or(0)
+        };
 
         // Resolve the optional focus window to internal 0-based inclusive
         // coordinates ((s, e), s > e wraps the origin on circular templates).
@@ -343,7 +595,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(fail(err));
         }
-        let (summary, alignments, region, coverage_note, in_window) = {
+        let (summary, alignments, region, coverage_note, in_window, mut affected) = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
                 .map(|p| {
@@ -395,15 +647,27 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             format!("{} template bp uncovered between the read's coverage segments", gap)
                         })
                     });
+                    let affected = last
+                        .map(|a| {
+                            affected_sites_json(
+                                a,
+                                &p.sequence,
+                                p.length,
+                                &p.enzymes,
+                                include_intact,
+                            )
+                        })
+                        .unwrap_or_default();
                     (
                         alignments.last().cloned(),
                         alignments,
                         region,
                         coverage_note,
                         in_window,
+                        affected,
                     )
                 })
-                .unwrap_or((None, Vec::new(), None, None, None))
+                .unwrap_or((None, Vec::new(), None, None, None, Vec::new()))
         };
         let region_view = if compact {
             None
@@ -425,6 +689,26 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
         env["alignments"] = serde_json::json!(alignments);
+        // Variant impact of the newly added read on the project's enzymes.
+        if let Some((s, e)) = focus {
+            affected.retain(|v| {
+                let rs = v.get("recStart").and_then(|x| x.as_i64()).unwrap_or(0);
+                let re = v.get("recEnd").and_then(|x| x.as_i64()).unwrap_or(0);
+                affected_in_window(rs, re, s + 1, e + 1, tlen)
+            });
+        }
+        let affected_json = serde_json::json!(affected);
+        env["affectedSiteCount"] = serde_json::json!(affected.len());
+        env["affectedSites"] = affected_json.clone();
+        if let Some(last) = env["alignments"].as_array_mut().and_then(|arr| arr.last_mut()) {
+            last["affectedSites"] = affected_json;
+        }
+        if env["affectedSiteCount"].as_u64().unwrap_or(0) > 0 {
+            push_note(
+                &mut env,
+                "affectedSites: restriction sites this read DESTROYS or CREATES (created detection scans the full enzyme database around the read's differences and ignores insertions/origin-spanning new sites)",
+            );
+        }
         // Window block: the detail lists above are filtered to it, while the
         // total mismatches/insertions/deletions still describe the whole read.
         if let Some((s, e)) = focus {

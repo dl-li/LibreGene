@@ -615,11 +615,11 @@ pub fn analyze_mutagenesis(
         .collect();
     if new_bases.len() != template.len() {
         return Err(format!(
-            "mut_seq length {} does not match seg {}..{} length {}; current seg sequence is '{}'",
-            new_bases.len(),
+            "mut_seq does not match seg {}..{}: expected {} bases, got {}; current seg sequence is '{}'",
             seg.start,
             seg.end,
             template.len(),
+            new_bases.len(),
             template
         ));
     }

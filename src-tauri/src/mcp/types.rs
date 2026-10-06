@@ -284,6 +284,10 @@ pub(crate) struct AddAlignmentRequest {
     /// "blast" (default; chains any number of colinear segments) or
     /// "smith-waterman" (single local block plus at most one flank).
     pub(crate) algorithm: Option<String>,
+    /// true = also list restriction sites the read leaves INTACT in
+    /// `affectedSites` (off by default; destroyed/created sites are always
+    /// reported).
+    pub(crate) include_intact_sites: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
