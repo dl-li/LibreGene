@@ -6,14 +6,25 @@ pub mod gbk;
 pub mod gpt;
 pub mod snapgene_history;
 
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 use crate::models::ProjectData;
 
 /// Parse a file, dispatching on extension.
 pub fn parse_file(path: &Path) -> io::Result<ProjectData> {
+    parse_file_with_molecule_type(path, None)
+}
+
+/// Like [`parse_file`], but `molecule_type` ("dna" | "rna" | "protein") forces
+/// the type of text formats whose extension alone is ambiguous: a `.prot`
+/// carrying plain text, and a `.fa/.fasta` explicitly requested as protein.
+/// Binary SnapGene documents still take their type from the file header.
+pub fn parse_file_with_molecule_type(
+    path: &Path,
+    molecule_type: Option<&str>,
+) -> io::Result<ProjectData> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -22,22 +33,81 @@ pub fn parse_file(path: &Path) -> io::Result<ProjectData> {
 
     match ext.as_str() {
         "gbk" | "gb" | "genbank" | "gbf" | "gbff" => gbk::parse_gbk(path),
-        "dna" | "rna" | "prot" => dna::parse_snapgene(path),
+        // .dna/.rna/.prot are normally SnapGene binary, but text exports (raw
+        // sequence or FASTA, e.g. a plain protein .prot) are common enough to
+        // accept — fall back to text parsing when the SnapGene cookie is absent.
+        "dna" | "rna" | "prot" => {
+            if is_snapgene_document(path) {
+                dna::parse_snapgene(path)
+            } else {
+                let mt = molecule_type.unwrap_or(match ext.as_str() {
+                    "rna" => "rna",
+                    "prot" => "protein",
+                    _ => "dna",
+                });
+                parse_text_sequence(path, mt)
+            }
+        }
         // gpt plus the NCBI GenPept variants — same hand-rolled protein GenBank
         // parser (gb-io can't handle the amino-acid alphabet).
         "gpt" | "gp" | "gpe" | "gpff" => gpt::parse_gpt(path),
-        "fasta" | "fa" | "fna" | "fas" | "ffn" | "fsa" | "frn" => fasta::parse_fasta(path),
+        "fasta" | "fa" | "fna" | "fas" | "ffn" | "fsa" | "frn" => {
+            fasta::parse_fasta_with_molecule_type(path, molecule_type.unwrap_or("dna"))
+        }
         // Protein FASTA — the extension is the signal, no alphabet sniffing.
         "faa" => fasta::parse_fasta_with_molecule_type(path, "protein"),
         "ab1" => ab1::parse_ab1(path),
         // .seq carries no format in the extension — sniff the content.
-        "seq" => parse_seq(path),
+        "seq" => parse_seq(path, molecule_type),
         other => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("unsupported file extension: .{}", other),
         )),
     }
     .map(normalize_rna_thymine)
+}
+
+/// True when the file starts with the SnapGene cookie
+/// (`0x09` | BE u32 14 | "SnapGene") — the same check `parse_snapgene` makes,
+/// done up front so text `.dna/.rna/.prot` files can take the text path.
+fn is_snapgene_document(path: &Path) -> bool {
+    let Ok(mut file) = File::open(path) else {
+        return false;
+    };
+    let mut cookie = [0u8; 13];
+    if file.read_exact(&mut cookie).is_err() {
+        return false;
+    }
+    cookie[0] == 0x09 && &cookie[5..13] == b"SnapGene"
+}
+
+/// Parse a plain-text sequence file: FASTA when the first non-empty line is a
+/// `>` header, otherwise the raw sequence letters (whitespace stripped).
+fn parse_text_sequence(path: &Path, molecule_type: &str) -> io::Result<ProjectData> {
+    let text = fs::read_to_string(path)?;
+    let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    if first.trim_start().starts_with('>') {
+        return fasta::parse_fasta_with_molecule_type(path, molecule_type);
+    }
+
+    let sequence: String = text
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic() || *c == '*')
+        .flat_map(|c| c.to_uppercase())
+        .collect();
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(ProjectData {
+        name,
+        topology: "linear".to_string(),
+        molecule_type: molecule_type.to_string(),
+        length: sequence.len() as i64,
+        sequence,
+        ..Default::default()
+    })
 }
 
 /// RNA files in the wild often carry DNA-alphabet sequences (T instead of U);
@@ -59,7 +129,7 @@ fn normalize_rna_thymine(mut project: ProjectData) -> ProjectData {
 
 /// `.seq` files come in several flavors — look at the first non-empty line:
 /// `LOCUS` → GenBank, `>` → FASTA.
-fn parse_seq(path: &Path) -> io::Result<ProjectData> {
+fn parse_seq(path: &Path, molecule_type: Option<&str>) -> io::Result<ProjectData> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
@@ -69,7 +139,7 @@ fn parse_seq(path: &Path) -> io::Result<ProjectData> {
             continue;
         }
         return if trimmed.starts_with('>') {
-            fasta::parse_fasta(path)
+            fasta::parse_fasta_with_molecule_type(path, molecule_type.unwrap_or("dna"))
         } else if trimmed.starts_with("LOCUS") || trimmed.starts_with("locus") {
             gbk::parse_gbk(path)
         } else {
@@ -144,6 +214,56 @@ mod tests {
         assert_eq!(parsed.sequence, "MVSHHFVGAG*");
         assert_eq!(parsed.length, 11);
         std::fs::remove_file(&path).ok();
+    }
+
+    fn write_named(name: &str, content: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "libregene_parse_file_named_{}_{}",
+            std::process::id(),
+            name
+        ));
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn text_prot_parses_as_protein() {
+        // FASTA content in a .prot file.
+        let fasta = write_named("car.prot", ">car\nMALPVTALLLP*\n");
+        let parsed = parse_file(&fasta).unwrap();
+        assert_eq!(parsed.molecule_type, "protein");
+        assert_eq!(parsed.sequence, "MALPVTALLLP*");
+        assert_eq!(parsed.name, "car");
+        std::fs::remove_file(&fasta).ok();
+
+        // Raw protein text (no FASTA header).
+        let raw = write_named("raw.prot", "MKV\nGLA*\n");
+        let parsed = parse_file(&raw).unwrap();
+        assert_eq!(parsed.molecule_type, "protein");
+        assert_eq!(parsed.sequence, "MKVGLA*");
+        assert_eq!(parsed.length, 7);
+        std::fs::remove_file(&raw).ok();
+    }
+
+    #[test]
+    fn fasta_with_protein_hint_parses_as_protein() {
+        let path = write_named("hint.fasta", ">p\nMVSHHFVGAG*\n");
+        let dna = parse_file(&path).unwrap();
+        assert_eq!(dna.molecule_type, "dna", "no hint → nucleotide");
+        let prot = parse_file_with_molecule_type(&path, Some("protein")).unwrap();
+        assert_eq!(prot.molecule_type, "protein");
+        assert_eq!(prot.sequence, "MVSHHFVGAG*");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn binary_snapgene_prot_still_parses() {
+        let path = test_data_dir().join("mCherry.prot");
+        if path.exists() {
+            let parsed = parse_file(&path).unwrap();
+            assert_eq!(parsed.molecule_type, "protein");
+            assert_eq!(parsed.length, 237);
+        }
     }
 
     #[test]

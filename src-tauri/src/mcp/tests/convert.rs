@@ -284,8 +284,44 @@ fn item_failure(v: &serde_json::Value) -> String {
     }
 
     #[tokio::test]
-    async fn convert_sequence_sequence_writes_output_file() {
-        let out_path = std::env::temp_dir().join(format!("libregene-mcp-outtest-{}.gbk", std::process::id()));
+    async fn convert_sequence_reads_plain_text_protein_files() {
+        let dir = std::env::temp_dir().join(format!("libregene-mcp-prottext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // A .fasta explicitly requested as protein.
+        let fasta = dir.join("car.fasta");
+        std::fs::write(&fasta, ">car\nMVSHHFVGAG*\n").unwrap();
+        let server = test_handler();
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
+            from: Some("protein".to_string()),
+            input_path: Some(fasta.to_string_lossy().into_owned()),
+            ..Default::default()
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = &out.0["results"][0];
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["from"], "protein");
+        assert_eq!(v["to"], "dna");
+
+        // A plain-text .prot (FASTA content) takes its type from the extension.
+        let prot = dir.join("car.prot");
+        std::fs::write(&prot, ">car\nMVSHHFVGAG*\n").unwrap();
+        let req = convert_req(vec![ConvertItem {
+            species: Some("e_coli".to_string()),
+            input_path: Some(prot.to_string_lossy().into_owned()),
+            ..Default::default()
+        }]);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = &out.0["results"][0];
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["from"], "protein");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn convert_sequence_sequence_writes_output_file() {        let out_path = std::env::temp_dir().join(format!("libregene-mcp-outtest-{}.gbk", std::process::id()));
         let server = test_handler();
         let req = convert_req(vec![ConvertItem {
             species: Some("e_coli".to_string()),

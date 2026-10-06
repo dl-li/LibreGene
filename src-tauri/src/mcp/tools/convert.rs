@@ -517,8 +517,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
         crate::validate_user_path(&path, crate::SEQ_EXTS)
             .map_err(|e| format!("invalid inputPath: {}", e))?;
         let p = path.clone();
+        let hint = item.from.clone();
         let project = tokio::task::spawn_blocking(move || {
-            libregene_core::file_io::parse_file(std::path::Path::new(&p)).map_err(|e| {
+            libregene_core::file_io::parse_file_with_molecule_type(
+                std::path::Path::new(&p),
+                hint.as_deref(),
+            )
+            .map_err(|e| {
                 format!(
                     "failed to read {} (supported: .gbk/.gb/.genbank, .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1): {}",
                     p, e

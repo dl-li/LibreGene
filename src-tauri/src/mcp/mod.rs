@@ -868,8 +868,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// optimize a CDS/mRNA feature; `apply: true` writes it back through the same
     /// recompute path as edit_sequence, `false` (default) previews.
     /// - `inputPath` (PREFERRED for real sequences): .gbk/.gb/.genbank/.dna/.rna/
-    /// .fasta/.fa/.ab1 nucleotide, .gpt/.prot protein (with `featureId` +
-    /// `species`, that file's CDS is optimized and the rest of the file kept).
+    /// .fasta/.fa/.ab1 nucleotide, .gpt/.prot/.faa protein. A `.prot` that is not
+    /// a binary SnapGene document and a `.fa/.fasta` with an explicit
+    /// `from: "protein"` are read as plain-text protein (raw sequence or FASTA);
+    /// with `featureId` + `species`, a DNA file's CDS is optimized in place.
     /// - `hash`: a workspace entry hash ("fwd7" or "fwd7/rev7" — swapped order =
     ///   reverse complement); `from` defaults to the entry's molecule type.
     /// - `sequence`: short hand-authored text only.
