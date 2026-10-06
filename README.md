@@ -88,13 +88,13 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene, open the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen), and copy the auto-generated setup prompt — with the URL and access token embedded — to your agent; it configures the connection itself.
 
-17 tools are exposed, covering the full editing workflow:
+16 tools are exposed, covering the full editing workflow:
 
-- **Projects & files** — `open_project`, `save_file` (with subsequence/region export), `list_projects`
+- **Projects & files** — `open_project`, `save_file` (with subsequence/region export), `list_workspace`, `add_to_workspace`
 - **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`
 - **Editing** — `edit_sequence` (insert/delete/replace), `set_feature` (create & update)
-- **Primers** — `add_primer`, `list_primers`, `check_primer_binding` (binding sites + Tm), `design_primers` (amplify / OE-PCR / mutagenesis)
-- **Analysis** — `search_enzymes` + `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
+- **Primers** — `add_primer`, `inspect_primers` (stored primers + ad-hoc binding checks with Tm and amplicon size), `design_primers` (amplify / OE-PCR / mutagenesis)
+- **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
 
 #### Example Tasks
 

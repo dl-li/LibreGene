@@ -190,10 +190,10 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn design_primers_unified_tm_matches_check_primer_binding() {
+    async fn design_primers_unified_tm_matches_inspect_primers_check() {
         // Construct a template where the fwd enzyme tail's 3' side accidentally
         // pairs with the template upstream of the anneal core. The unified
-        // annealLen/Tm must match a separate check_primer_binding call.
+        // annealLen/Tm must match a separate inspect_primers binding check.
         let mut seq = synthetic_dna(120, 42);
         // BamHI site (GGATCC) is the 3'-most 6 bases of the default fwd tail
         // GCG + GGATCC. Place it immediately 5' of the fwd anneal core.
@@ -238,20 +238,20 @@ use libregene_core::models::ProjectData;
             "tail should extend anneal_len: designed={designed_len}, unified={unified_len}"
         );
 
-        // Verify the same values come out of check_primer_binding.
+        // Verify the same values come out of the inspect_primers binding check.
         let chk = server
-            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+            .inspect_primers(Parameters(InspectPrimersRequest {
                 project_id: "tail_test".to_string(),
-                primers: vec![PrimerInput {
+                primers: Some(vec![PrimerInput {
                     name: "cand".to_string(),
                     r#type: "fwd".to_string(),
                     seq: Some(primer_seq),
                     hash: None,
-                }],
+                }]),
             }))
             .await
             .unwrap();
-        let site = &chk.0["results"][0]["site"];
+        let site = &chk.0["primers"][0]["site"];
         assert_eq!(
             site["annealLength"].as_u64().unwrap() as usize,
             unified_len,
@@ -266,11 +266,11 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn design_primers_unified_tm_matches_check_primer_binding_rev() {
+    async fn design_primers_unified_tm_matches_inspect_primers_check_rev() {
         // Rev enzyme tail whose 3' side accidentally pairs with the template
         // downstream of the rev anneal core. The unified Tm must match what
-        // check_primer_binding reports (the engine reverses the matched bases
-        // for rev primers before computing Tm).
+        // the inspect_primers binding check reports (the engine reverses the
+        // matched bases for rev primers before computing Tm).
         let mut seq = synthetic_dna(120, 42);
         // HindIII tail = protect GCG + AAGCTT. Place AAGCTT immediately 3' of
         // the rev anneal core (which ends at seg.end = 77 0-based) so the
@@ -316,18 +316,18 @@ use libregene_core::models::ProjectData;
         );
 
         let chk = server
-            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+            .inspect_primers(Parameters(InspectPrimersRequest {
                 project_id: "tail_rev_test".to_string(),
-                primers: vec![PrimerInput {
+                primers: Some(vec![PrimerInput {
                     name: "cand".to_string(),
                     r#type: "rev".to_string(),
                     seq: Some(primer_seq),
                     hash: None,
-                }],
+                }]),
             }))
             .await
             .unwrap();
-        let site = &chk.0["results"][0]["site"];
+        let site = &chk.0["primers"][0]["site"];
         assert_eq!(
             site["annealLength"].as_u64().unwrap() as usize,
             unified_len,
@@ -433,16 +433,16 @@ use libregene_core::models::ProjectData;
             "{}",
             out.0
         );
-        // check_primer_binding shares the validation.
+        // The inspect_primers binding check shares the validation.
         let out = server
-            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+            .inspect_primers(Parameters(InspectPrimersRequest {
                 project_id: "feat".to_string(),
-                primers: vec![PrimerInput {
+                primers: Some(vec![PrimerInput {
                     name: "x".to_string(),
                     r#type: "bad".to_string(),
                     seq: Some("ACGTACGT".to_string()),
                     hash: None,
-                }],
+                }]),
             }))
             .await
             .unwrap();

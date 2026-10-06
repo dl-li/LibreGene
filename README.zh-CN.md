@@ -88,13 +88,13 @@
 
 LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。启动 LibreGene 后，打开侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接），复制自动生成的配置提示词（已内嵌 URL 和访问令牌）发给你的 Agent，它会自行完成配置。
 
-共暴露 17 个工具，覆盖完整编辑流程：
+共暴露 16 个工具，覆盖完整编辑流程：
 
-- **项目与文件** — `open_project`、`save_file`（支持子序列/区域导出）、`list_projects`
+- **项目与文件** — `open_project`、`save_file`（支持子序列/区域导出）、`list_workspace`、`add_to_workspace`
 - **读取** — `read_sequence`、`get_project_overview`、`get_region_view`
 - **编辑** — `edit_sequence`（插入/删除/替换）、`set_feature`（创建与更新）
-- **引物** — `add_primer`、`list_primers`、`check_primer_binding`（结合位点 + Tm）、`design_primers`（扩增 / OE-PCR / 诱变）
-- **分析** — `search_enzymes` + `find_restriction_sites`、`find_orfs`、`add_alignment`、`convert_sequence`（序列转换 + 9 个物种的密码子优化）
+- **引物** — `add_primer`、`inspect_primers`（已存引物 + 临时引物结合检查，含 Tm 与扩增子大小）、`design_primers`（扩增 / OE-PCR / 诱变）
+- **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`convert_sequence`（序列转换 + 9 个物种的密码子优化）
 
 #### 示例任务
 

@@ -550,26 +550,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.read_sequence_impl(request).await
     }
 
-    /// Search the built-in restriction-enzyme database by NAME or recognition
-    /// SITE — the discovery tool to use before find_restriction_sites.
-    /// `query` matches case-insensitively (e.g. "eco", "Bam", "GAATTC"); omit
-    /// it for the whole catalog (paged by `limit`, default 50, max 200 —
-    /// `total` reports the full match count).
-    /// Returns {ok, message, query, total, count, enzymes: [{name, site}]}.
-    #[tool]
-    async fn search_enzymes(
-        &self,
-        Parameters(request): Parameters<SearchEnzymesRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.search_enzymes_impl(request).await
-    }
-
     /// List restriction-enzyme sites on a DNA project. `enzymes` = names to report
     /// (case-insensitive); omit it for every enzyme with a site. Requested names may
     /// be cutting (normal entry), known but site-less (empty `sites` + a `note`), or
     /// unknown — unknown names never fail the call: they appear under
     /// `unknownEnzymes` with `similar` suggestions while the known names still
-    /// answer. Use search_enzymes to discover valid names. For a full panorama of cuts
+    /// answer. For a full panorama of cuts
     /// in a window use get_region_view with `compact: false`.
     ///
     /// Returns {ok, message, projectId, unit, enzymeCount, enzymes: [{name,
@@ -591,19 +577,36 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.find_restriction_sites_impl(request).await
     }
 
-    /// List the primers stored in a project (read-only; no recompute). Returns
-    /// {ok, message, projectId, unit, primerCount, primers: [{id, name, type, seq,
-    /// length, bindingSiteCount, sites: [site]}]} — sites best-first (Tm
-    /// descending), empty when the primer does not bind. The site shape is shared
-    /// with add_primer and check_primer_binding: {strand, templateStart,
-    /// templateEnd, tm, annealLength, tailLength, has3PrimeMismatch,
-    /// alignedTemplate, matchMask}, templateStart/templateEnd 1-based inclusive.
+    /// Report primer binding on a project's template (read-only). Two modes:
+    ///
+    /// - Omit `primers`: list the project's STORED primers with their binding
+    ///   sites.
+    /// - Give `primers` = [{name, type ("fwd"|"rev"), seq|hash}]: instead TEST
+    ///   those ad-hoc primers against the sequence without persisting them (DNA
+    ///   projects only). Sequences are short, so plain text `seq`; each primer
+    ///   may instead pass a workspace `hash` — exactly one of seq/hash.
+    ///   `binds: true` means the 3' anneal core matched; a 5' tail may still
+    ///   mismatch. Tm/annealLength describe the ACTUAL contiguous 3' match, so
+    ///   a tailed primer can report a higher value than design_primers did.
+    ///
+    /// Returns {ok, message, projectId, unit, primerCount, primers: [primer],
+    /// amplicon?, hashes}. Stored primers are {id, name, type, seq, length,
+    /// bindingSiteCount, sites}; tested primers are {name, type, length, binds,
+    /// bindingSiteCount, site, sites}. Sites are best-first (Tm descending),
+    /// empty when the primer does not bind, in the shape shared with
+    /// add_primer: {strand, templateStart, templateEnd, tm, annealLength,
+    /// tailLength, alignedTemplate, matchMask} — templateStart/templateEnd
+    /// 1-based inclusive; read `alignedTemplate`/`matchMask` to see exactly
+    /// which primer bases pair. When exactly one fwd and one rev primer are
+    /// tested and both bind, the response carries `amplicon` {forwardStart,
+    /// reverseEnd, length, note} with the PCR product's size (no export
+    /// needed).
     #[tool]
-    async fn list_primers(
+    async fn inspect_primers(
         &self,
-        Parameters(request): Parameters<ListPrimersRequest>,
+        Parameters(request): Parameters<InspectPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.list_primers_impl(request).await
+        self.inspect_primers_impl(request).await
     }
 
     // -----------------------------------------------------------------------
@@ -646,7 +649,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// carried along.
     /// - `cut1` + `cut2`: the fragment between two cuts; a cut at N severs the DNA
     /// between the 1-based bases N and N+1. Take the positions from
-    /// find_restriction_sites (`topCutIndex`) or check_primer_binding's `amplicon`
+    /// find_restriction_sites (`topCutIndex`) or inspect_primers' `amplicon`
     /// instead of deriving them by hand.
     /// Exports are always linear, include every overlapping feature (clipped) and
     /// primer, do NOT mark the project clean, and return {ok, message, projectId,
@@ -723,7 +726,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Returns {ok, message, projectId, unit, primerId, name, type, seq, length,
     /// bindingSiteCount, sites: [site], text, hashes}; the site shape is the shared
-    /// one (see list_primers) — sites best-first, empty when the primer does not
+    /// one (see inspect_primers) — sites best-first, empty when the primer does not
     /// bind.
     #[tool]
     async fn add_primer(
@@ -819,28 +822,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Parameters(request): Parameters<DesignPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         self.design_primers_impl(request).await
-    }
-
-    /// Test primers against a DNA project's sequence without persisting them
-    /// (sequences are short, so plain text `seq`; each primer may instead pass a
-    /// workspace `hash` — exactly one of seq/hash). `binds: true` means the 3' anneal core
-    /// matched; a 5' tail may still mismatch. Tm/annealLength describe the ACTUAL
-    /// contiguous 3' match, so a tailed primer can report a higher value than
-    /// design_primers did.
-    ///
-    /// Returns {ok, message, projectId, results: [{id, name, type,
-    /// primerLength, binds, bindingSiteCount, site, sites}], amplicon?, hashes}.
-    /// Sites are best-first with the shared site shape (see list_primers) — read
-    /// `alignedTemplate`/`matchMask` to see exactly which primer bases pair. When
-    /// the request holds exactly one fwd and one rev primer that both bind, the
-    /// result carries `amplicon` {forwardStart, reverseEnd, length, note} with the
-    /// PCR product's size (no export needed).
-    #[tool]
-    async fn check_primer_binding(
-        &self,
-        Parameters(request): Parameters<CheckPrimerBindingRequest>,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.check_primer_binding_impl(request).await
     }
 
     /// Convert sequences between molecule types, with codon optimization.

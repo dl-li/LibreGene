@@ -111,25 +111,6 @@ async fn read_tools_share_the_success_envelope() {
     assert_eq!(read["length"], 21, "{read}");
     assert_eq!(read["sequence"].as_str().unwrap().len(), 21, "{read}");
 
-    let catalog = server
-        .search_enzymes(Parameters(SearchEnzymesRequest {
-            query: Some("GAATTC".to_string()),
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .0;
-    assert_envelope(&catalog, None);
-    assert!(
-        catalog["enzymes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|e| e["name"] == "EcoRI"),
-        "{catalog}"
-    );
-    assert_eq!(catalog["count"], catalog["total"], "{catalog}");
-
     let sites = server
         .find_restriction_sites(Parameters(FindRestrictionSitesRequest {
             project_id: "enz".to_string(),
@@ -156,8 +137,9 @@ async fn read_tools_share_the_success_envelope() {
     assert_eq!(sites["enzymes"][0]["siteCount"], 1, "{sites}");
 
     let primers = server
-        .list_primers(Parameters(ListPrimersRequest {
+        .inspect_primers(Parameters(InspectPrimersRequest {
             project_id: "enz".to_string(),
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -239,7 +221,7 @@ async fn failure_envelopes_keep_the_project_id() {
 }
 
 #[tokio::test]
-async fn primer_site_shape_is_shared_by_all_three_primer_tools() {
+async fn primer_site_shape_is_shared_by_both_primer_tools() {
     let project = dna_test_project();
     let template = project.sequence.clone();
     let server = handler_with_project(project).await;
@@ -265,8 +247,9 @@ async fn primer_site_shape_is_shared_by_all_three_primer_tools() {
     let added_keys = keys(&added["sites"][0]);
 
     let listed = server
-        .list_primers(Parameters(ListPrimersRequest {
+        .inspect_primers(Parameters(InspectPrimersRequest {
             project_id: "feat".to_string(),
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -275,38 +258,38 @@ async fn primer_site_shape_is_shared_by_all_three_primer_tools() {
     assert_eq!(keys(&listed["primers"][0]["sites"][0]), added_keys, "{listed}");
 
     let checked = server
-        .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+        .inspect_primers(Parameters(InspectPrimersRequest {
             project_id: "feat".to_string(),
-            primers: vec![PrimerInput {
+            primers: Some(vec![PrimerInput {
                 name: "p1".to_string(),
                 r#type: "fwd".to_string(),
                 seq: Some(seq.clone()),
                     hash: None,
-                }],
+                }]),
         }))
         .await
         .unwrap()
         .0;
     assert_envelope(&checked, Some("feat"));
-    assert_eq!(keys(&checked["results"][0]["sites"][0]), added_keys, "{checked}");
-    assert_eq!(checked["results"][0]["name"], "p1", "{checked}");
-    assert_eq!(checked["results"][0]["type"], "fwd", "{checked}");
-    assert_eq!(checked["results"][0]["primerLength"], 20, "{checked}");
-    // add_primer and check_primer_binding must agree on the site.
+    assert_eq!(keys(&checked["primers"][0]["sites"][0]), added_keys, "{checked}");
+    assert_eq!(checked["primers"][0]["name"], "p1", "{checked}");
+    assert_eq!(checked["primers"][0]["type"], "fwd", "{checked}");
+    assert_eq!(checked["primers"][0]["length"], 20, "{checked}");
+    // add_primer and the inspect_primers binding check must agree on the site.
     assert_eq!(
         added["sites"][0]["templateStart"],
-        checked["results"][0]["sites"][0]["templateStart"],
+        checked["primers"][0]["sites"][0]["templateStart"],
         "{checked}"
     );
     assert_eq!(
         added["sites"][0]["annealLength"],
-        checked["results"][0]["sites"][0]["annealLength"],
+        checked["primers"][0]["sites"][0]["annealLength"],
         "{checked}"
     );
 }
 
 #[tokio::test]
-async fn check_primer_binding_reports_the_amplicon_size() {
+async fn inspect_primers_reports_the_amplicon_size() {
     let project = dna_test_project();
     let template = project.sequence.clone();
     let server = handler_with_project(project).await;
@@ -317,12 +300,12 @@ async fn check_primer_binding_reports_the_amplicon_size() {
     let rev = libregene_core::utils::reverse_complement(&template[80..100]);
 
     let checked = server
-        .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+        .inspect_primers(Parameters(InspectPrimersRequest {
             project_id: "feat".to_string(),
-            primers: vec![
+            primers: Some(vec![
                 PrimerInput { name: "F".to_string(), r#type: "fwd".to_string(), seq: Some(fwd), hash: None },
                 PrimerInput { name: "R".to_string(), r#type: "rev".to_string(), seq: Some(rev), hash: None },
-            ],
+            ]),
         }))
         .await
         .unwrap()
@@ -335,14 +318,14 @@ async fn check_primer_binding_reports_the_amplicon_size() {
 
     // A single primer cannot define an amplicon.
     let single = server
-        .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+        .inspect_primers(Parameters(InspectPrimersRequest {
             project_id: "feat".to_string(),
-            primers: vec![PrimerInput {
+            primers: Some(vec![PrimerInput {
                 name: "F".to_string(),
                 r#type: "fwd".to_string(),
                 seq: Some(template[10..30].to_string()),
                     hash: None,
-                }],
+                }]),
         }))
         .await
         .unwrap()
@@ -460,13 +443,15 @@ async fn reverse_translation_without_a_stop_codon_is_noted() {
 #[test]
 fn tool_descriptions_are_concise_and_state_their_response() {
     let tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
-    assert_eq!(tools.len(), 18, "unexpected tool count");
+    assert_eq!(tools.len(), 16, "unexpected tool count");
     for t in tools {
         assert_ne!(t.name, "list_species", "species keys live in the convert_sequence description");
         assert_ne!(t.name, "close_project", "close_project was removed");
         assert_ne!(t.name, "list_projects", "renamed to list_workspace");
         assert_ne!(t.name, "search_sequence", "search_sequence is a bash-replaceable string scan");
-        assert_ne!(t.name, "list_enzymes", "the enzyme lookup tool is search_enzymes");
+        assert_ne!(t.name, "search_enzymes", "search_enzymes was removed; name discovery is find_restriction_sites' unknownEnzymes.similar");
+        assert_ne!(t.name, "check_primer_binding", "merged into inspect_primers' optional `primers` input");
+        assert_ne!(t.name, "list_primers", "renamed to inspect_primers");
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
         assert!(
@@ -506,61 +491,6 @@ async fn convert_sequence_description_lists_the_builtin_species() {
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.contains("{species}"), "{} left a placeholder", t.name);
     }
-}
-
-#[tokio::test]
-async fn search_enzymes_filters_by_name_and_site_and_reports_the_full_total() {
-    let server = test_handler();
-
-    let by_name = server
-        .search_enzymes(Parameters(SearchEnzymesRequest {
-            query: Some("eco".to_string()),
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .0;
-    assert_envelope(&by_name, None);
-    assert!(by_name["total"].as_u64().unwrap() >= 1, "{by_name}");
-    assert!(
-        by_name["enzymes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|e| e["name"].as_str().unwrap().to_lowercase().contains("eco")
-                || e["site"].as_str().unwrap().to_lowercase().contains("eco")),
-        "{by_name}"
-    );
-
-    // A recognition-site query finds the enzyme(s) that cut it.
-    let by_site = server
-        .search_enzymes(Parameters(SearchEnzymesRequest {
-            query: Some("GAATTC".to_string()),
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .0;
-    assert!(
-        by_site["enzymes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|e| e["name"] == "EcoRI"),
-        "{by_site}"
-    );
-
-    // limit caps the page but total reports every match.
-    let paged = server
-        .search_enzymes(Parameters(SearchEnzymesRequest {
-            limit: Some(2),
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .0;
-    assert_eq!(paged["count"], 2, "{paged}");
-    assert!(paged["total"].as_u64().unwrap() > 2, "{paged}");
 }
 
 #[tokio::test]

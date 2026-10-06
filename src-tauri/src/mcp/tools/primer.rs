@@ -1,6 +1,7 @@
-//! Primer MCP tools: add_primer, design_primers, check_primer_binding.
+//! Primer MCP tools: add_primer, design_primers, inspect_primers.
 //!
-//! The three tools report primer binding sites in one shape (see
+//! Both site-reporting tools (add_primer, inspect_primers — including its
+//! ad-hoc binding check) share one binding-site shape (see
 //! `support::primer_site_json`), and every Tm is °C rounded to 0.1.
 
 use rmcp::{ErrorData, handler::server::wrapper::Json};
@@ -14,7 +15,7 @@ use crate::mcp::support::{
     fail_envelope, from1, insert_seq_hashes, ok_envelope, primer_site_json, push_note,
     push_warning, rename_key, round1, site_json_to_1based, to1, unit_for,
 };
-use crate::mcp::types::{AddPrimerRequest, CheckPrimerBindingRequest, DesignPrimersRequest};
+use crate::mcp::types::{AddPrimerRequest, DesignPrimersRequest, InspectPrimersRequest, PrimerInput};
 
 /// analyze_mutagenesis reports internal 0-based coordinates; bump the
 /// template span, the diff offsets and the CDS codon index to the 1-based
@@ -559,14 +560,72 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    pub(crate) async fn check_primer_binding_impl(
+    /// Two read-only modes in one tool: without `primers`, list the project's
+    /// stored primers with their binding sites; with `primers`, test those
+    /// ad-hoc primers against the sequence instead (DNA only, nothing
+    /// persisted, `amplicon` for one binding fwd + one binding rev).
+    pub(crate) async fn inspect_primers_impl(
         &self,
-        request: CheckPrimerBindingRequest,
+        request: InspectPrimersRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = self.require_dna_project(request.project_id).await?;
+        match request.primers.filter(|v| !v.is_empty()) {
+            None => self.list_stored_primers(request.project_id).await,
+            Some(inputs) => self.check_ad_hoc_primers(request.project_id, inputs).await,
+        }
+    }
+
+    async fn list_stored_primers(
+        &self,
+        project_id: String,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let (id, project) = self.resolve_project_light(project_id).await?;
+        let tlen = project.length;
+        let topology = project.topology.as_str();
+        let primers: Vec<serde_json::Value> = project
+            .primers
+            .iter()
+            .map(|p| {
+                let sites: Vec<serde_json::Value> = p
+                    .binding_sites
+                    .iter()
+                    .map(|s| primer_site_json(&project.sequence, topology, &p.primer_seq, s, tlen))
+                    .collect();
+                serde_json::json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "type": p.r#type,
+                    "seq": p.primer_seq,
+                    "length": p.primer_seq.len(),
+                    "bindingSiteCount": p.binding_sites.len(),
+                    "sites": sites,
+                })
+            })
+            .collect();
+        let count = primers.len();
+        let mut v = serde_json::json!({
+            "ok": true,
+            "message": format!("{} primer(s)", count),
+            "projectId": id,
+            "unit": unit_for(&project.molecule_type),
+            "primerCount": count,
+            "primers": primers,
+        });
+        insert_seq_hashes(
+            &mut v,
+            &libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type),
+        );
+        Ok(Json(v))
+    }
+
+    async fn check_ad_hoc_primers(
+        &self,
+        project_id: String,
+        inputs_req: Vec<PrimerInput>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        let id = self.require_dna_project(project_id).await?;
         let seq_hashes = self.project_seq_hashes(&id).await;
-        let mut primers: Vec<Primer> = Vec::with_capacity(request.primers.len());
-        let mut inputs: Vec<(String, String, usize)> = Vec::with_capacity(request.primers.len());
+        let mut primers: Vec<Primer> = Vec::with_capacity(inputs_req.len());
+        let mut inputs: Vec<(String, String, usize)> = Vec::with_capacity(inputs_req.len());
         let fail = |msg: String| -> Json<serde_json::Value> {
             let mut v = fail_envelope(&id, msg);
             if let Some(h) = &seq_hashes {
@@ -574,7 +633,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             Json(v)
         };
-        for p in request.primers {
+        for p in inputs_req {
             let raw_seq = match (p.seq, p.hash) {
                 (Some(s), None) => s,
                 (None, Some(hash)) => {
@@ -613,17 +672,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?
         };
         let circular = topology == "circular";
-        let mut v = payload;
         // The core reports internal 0-based coordinates and its own field
         // names; convert every site to the unified 1-based site shape, and add
         // the caller-facing identity of each primer (the core echoes only the
         // id it received).
-        if let Some(results) = v.get_mut("results").and_then(|r| r.as_array_mut()) {
-            for (i, result) in results.iter_mut().enumerate() {
+        let mut results = payload;
+        if let Some(arr) = results.get_mut("results").and_then(|r| r.as_array_mut()) {
+            for (i, result) in arr.iter_mut().enumerate() {
                 if let Some((name, ty, plen)) = inputs.get(i) {
                     result["name"] = serde_json::json!(name);
                     result["type"] = serde_json::json!(ty);
-                    result["primerLength"] = serde_json::json!(plen);
+                    result["length"] = serde_json::json!(plen);
                 }
                 for key in ["site", "sites"] {
                     match result.get_mut(key) {
@@ -638,21 +697,24 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 }
             }
         }
-        let mut resp = serde_json::json!({
+        let checked = results["results"].clone();
+        let mut v = serde_json::json!({
             "ok": true,
             "message": format!("Checked {} primer(s) for binding", inputs.len()),
             "projectId": id,
-            "results": v["results"],
+            "unit": "bp",
+            "primerCount": inputs.len(),
+            "primers": checked,
         });
         // A single fwd + single rev primer define an amplicon: report its size
         // so the caller does not have to export the product to measure it.
-        if let Some(amp) = amplicon_json(&resp["results"], &inputs, tlen, circular) {
-            resp["amplicon"] = amp;
+        if let Some(amp) = amplicon_json(&v["primers"], &inputs, tlen, circular) {
+            v["amplicon"] = amp;
         }
         if let Some(h) = &seq_hashes {
-            insert_seq_hashes(&mut resp, h);
+            insert_seq_hashes(&mut v, h);
         }
-        Ok(Json(resp))
+        Ok(Json(v))
     }
 }
 

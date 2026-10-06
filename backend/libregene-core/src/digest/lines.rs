@@ -133,7 +133,7 @@ pub(crate) fn alignment_line(a: &crate::models::Alignment) -> String {
 }
 
 /// Per-read column view of a region window: template bases, a match mask (the
-/// check_primer_binding convention: `|` match, `.` mismatch, `-` read gap) and
+/// primer-site convention: `|` match, `.` mismatch, `-` read gap) and
 /// the read bases. Only template columns the read covers are rendered, in
 /// 1-based order (wrapping the origin on circular templates); insertions and
 /// uncovered template runs are listed below the block. Views wider than

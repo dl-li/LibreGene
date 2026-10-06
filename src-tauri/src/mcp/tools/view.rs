@@ -1,5 +1,5 @@
-//! Read-only MCP tools: project list/digests, sequence reads, search,
-//! restriction sites, primers, ORFs.
+//! Read-only MCP tools: project list/digests, sequence reads,
+//! restriction sites, ORFs.
 
 use std::collections::HashMap;
 
@@ -12,11 +12,10 @@ use libregene_core::models::{Enzyme, Feature};
 use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{
     MAX_FLANK, fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope,
-    primer_site_json, to1, unit_for,
+    to1, unit_for,
 };
 use crate::mcp::types::{
-    FindOrfsRequest, FindRestrictionSitesRequest, ListPrimersRequest,
-    OverviewRequest, RegionRequest, SearchEnzymesRequest, SequenceRequest,
+    FindOrfsRequest, FindRestrictionSitesRequest, OverviewRequest, RegionRequest, SequenceRequest,
 };
 
 /// Feature/translation hits containing internal 0-based `position`,
@@ -351,53 +350,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    /// Enzyme-name discovery: the built-in database, filtered and capped.
-    /// Name discovery used to be an implicit protocol (probe
-    /// find_restriction_sites with a name and read the suggestions out of the
-    /// error); this is the explicit, general replacement.
-    pub(crate) async fn search_enzymes_impl(
-        &self,
-        request: SearchEnzymesRequest,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let query = request
-            .query
-            .as_deref()
-            .map(str::trim)
-            .filter(|q| !q.is_empty())
-            .map(|q| q.to_lowercase());
-        let limit = request.limit.unwrap_or(50).clamp(1, 200);
-        let db = libregene_core::enzyme::search::get_db();
-        let mut matched: Vec<&libregene_core::enzyme::data::EnzymeRecord> = db
-            .enzymes
-            .iter()
-            .filter(|e| match &query {
-                None => true,
-                Some(q) => {
-                    e.name.to_lowercase().contains(q) || e.site.to_lowercase().contains(q)
-                }
-            })
-            .collect();
-        matched.sort_by(|a, b| a.name.cmp(&b.name));
-        let total = matched.len();
-        let enzymes: Vec<serde_json::Value> = matched
-            .into_iter()
-            .take(limit)
-            .map(|e| serde_json::json!({ "name": e.name, "site": e.site }))
-            .collect();
-        let count = enzymes.len();
-        Ok(Json(serde_json::json!({
-            "ok": true,
-            "message": match &query {
-                Some(q) => format!("{} of {} enzyme(s) match '{}'", count, total, q),
-                None => format!("{} of {} enzyme(s)", count, total),
-            },
-            "query": request.query,
-            "total": total,
-            "count": count,
-            "enzymes": enzymes,
-        })))
-    }
-
     pub(crate) async fn find_restriction_sites_impl(
         &self,
         request: FindRestrictionSitesRequest,
@@ -424,8 +376,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // (resolved), in the enzyme database but no site here (no_site), and
         // unknown to the database (unknown). Unknown names are data, not a
         // call failure: they are reported under `unknownEnzymes` (with
-        // near-match suggestions) and the rest of the query still answers.
-        // Name discovery belongs to search_enzymes.
+        // near-match suggestions — this is also the enzyme-name discovery
+        // path) and the rest of the query still answers.
         let mut requested: Vec<String> = Vec::new();
         let mut no_site: Vec<String> = Vec::new();
         let mut unknown: Vec<(String, Vec<String>)> = Vec::new();
@@ -568,49 +520,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .collect();
         }
         Ok(Json(resp))
-    }
-
-    pub(crate) async fn list_primers_impl(
-        &self,
-        request: ListPrimersRequest,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let (id, project) = self.resolve_project_light(request.project_id).await?;
-        let tlen = project.length;
-        let topology = project.topology.as_str();
-        let primers: Vec<serde_json::Value> = project
-            .primers
-            .iter()
-            .map(|p| {
-                let sites: Vec<serde_json::Value> = p
-                    .binding_sites
-                    .iter()
-                    .map(|s| primer_site_json(&project.sequence, topology, &p.primer_seq, s, tlen))
-                    .collect();
-                serde_json::json!({
-                    "id": p.id,
-                    "name": p.name,
-                    "type": p.r#type,
-                    "seq": p.primer_seq,
-                    "length": p.primer_seq.len(),
-                    "bindingSiteCount": p.binding_sites.len(),
-                    "sites": sites,
-                })
-            })
-            .collect();
-        let count = primers.len();
-        let mut v = serde_json::json!({
-            "ok": true,
-            "message": format!("{} primer(s)", count),
-            "projectId": id,
-            "unit": unit_for(&project.molecule_type),
-            "primerCount": count,
-            "primers": primers,
-        });
-        insert_seq_hashes(
-            &mut v,
-            &libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type),
-        );
-        Ok(Json(v))
     }
 
     pub(crate) async fn find_orfs_impl(

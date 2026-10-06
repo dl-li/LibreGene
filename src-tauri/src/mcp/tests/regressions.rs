@@ -65,7 +65,7 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn check_primer_binding_reports_1based_sites() {
+    async fn inspect_primers_check_reports_1based_sites() {
         let seq = synthetic_dna(200, 31);
         let project = ProjectData {
             name: "chk".to_string(),
@@ -77,25 +77,25 @@ use libregene_core::models::ProjectData;
         };
         let server = handler_with_project(project).await;
         let out = server
-            .check_primer_binding(Parameters(CheckPrimerBindingRequest {
+            .inspect_primers(Parameters(InspectPrimersRequest {
                 project_id: "chk".to_string(),
-                primers: vec![PrimerInput {
+                primers: Some(vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
                     seq: Some(seq[50..70].to_string()),
                     hash: None,
-                }],
+                }]),
             }))
             .await
             .unwrap();
         let v = out.0;
         // Internal site [50, 70) → 1-based inclusive 51..70: templateStart
         // shifts by one, templateEnd keeps its value.
-        assert_eq!(v["results"][0]["bindingSiteCount"], 1, "{v}");
-        assert_eq!(v["results"][0]["site"]["templateStart"], 51, "{v}");
-        assert_eq!(v["results"][0]["site"]["templateEnd"], 70, "{v}");
-        assert_eq!(v["results"][0]["sites"][0]["templateStart"], 51, "{v}");
-        assert_eq!(v["results"][0]["sites"][0]["templateEnd"], 70, "{v}");
+        assert_eq!(v["primers"][0]["bindingSiteCount"], 1, "{v}");
+        assert_eq!(v["primers"][0]["site"]["templateStart"], 51, "{v}");
+        assert_eq!(v["primers"][0]["site"]["templateEnd"], 70, "{v}");
+        assert_eq!(v["primers"][0]["sites"][0]["templateStart"], 51, "{v}");
+        assert_eq!(v["primers"][0]["sites"][0]["templateEnd"], 70, "{v}");
     }
 
     #[tokio::test]

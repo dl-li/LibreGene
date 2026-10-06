@@ -337,21 +337,14 @@ pub(crate) struct FindRestrictionSitesRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SearchEnzymesRequest {
-    /// Case-insensitive substring to match against enzyme NAMES or their
-    /// recognition SITE (e.g. "eco", "Bam", "GAATTC"); omitted = every enzyme.
-    pub(crate) query: Option<String>,
-    /// Maximum entries to return (default 50, max 200). `total` still reports
-    /// how many enzymes matched.
-    #[schemars(with = "Option<i64>")]
-    pub(crate) limit: Option<usize>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListPrimersRequest {
+pub(crate) struct InspectPrimersRequest {
     /// Required: the project to inspect (see list_workspace).
     pub(crate) project_id: String,
+    /// Optional: TEST these primers against the project without persisting
+    /// them, INSTEAD of listing the stored primers (DNA projects only).
+    /// Exactly one binding fwd + one binding rev additionally report an
+    /// `amplicon`.
+    pub(crate) primers: Option<Vec<PrimerInput>>,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
@@ -429,18 +422,9 @@ pub(crate) struct PrimerInput {
     pub(crate) hash: Option<String>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CheckPrimerBindingRequest {
-    /// Required: the project to check against (see list_workspace).
-    pub(crate) project_id: String,
-    /// Primers to test; nothing is persisted.
-    pub(crate) primers: Vec<PrimerInput>,
-}
-
 /// Optional region selector of `save_file` (subsequence export). Exactly one
 /// of the three modes: start+end / featureId / cut1+cut2. Enzyme or primer
-/// coordinates come from find_restriction_sites / check_primer_binding, so the
+/// coordinates come from find_restriction_sites / inspect_primers, so the
 /// selector stays a pair of numbers instead of re-deriving engine results.
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]

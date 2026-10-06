@@ -304,7 +304,7 @@ fn enzyme_fragments(project: &ProjectData, names: &[String]) -> Result<Vec<Fragm
     }
     if !unknown.is_empty() {
         let mut v = fail(format!(
-            "{} unknown enzyme name(s) — use search_enzymes to discover valid names",
+            "{} unknown enzyme name(s) (see unknownEnzymes for near-match suggestions)",
             unknown.len()
         ));
         v["unknownEnzymes"] = serde_json::json!(unknown);
