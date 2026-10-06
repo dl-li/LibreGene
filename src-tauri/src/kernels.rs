@@ -1751,6 +1751,7 @@ mod tests {
             pm: pm.clone(),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
+            workspace: Arc::new(RwLock::new(Vec::new())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         });

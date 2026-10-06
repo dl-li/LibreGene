@@ -81,6 +81,7 @@ use libregene_core::project::ProjectManager;
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             agent_tabs.clone(),
+            Arc::new(RwLock::new(Vec::new())),
         );
         // Any tool call that resolves the project re-locks the tab.
         server

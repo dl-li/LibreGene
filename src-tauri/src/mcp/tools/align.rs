@@ -274,19 +274,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
 
         let mut trace_path: Option<String> = None;
-        let seq = match (request.bases, request.path) {
-            (Some(_), Some(_)) => {
+        let seq = match (request.bases, request.path, request.hash) {
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (None, Some(_), Some(_)) => {
                 return Ok(fail(
-                    "Provide exactly one of `bases` or `path`, not both".to_string(),
+                    "Provide exactly one of `bases`, `path` or `hash`, not several".to_string(),
                 ));
             }
-            (None, None) => {
+            (None, None, None) => {
                 return Ok(fail(
-                    "Provide exactly one of `bases` (sequence string) or `path` (sequence file)".to_string(),
+                    "Provide exactly one of `bases` (sequence string), `path` (sequence file) or `hash` (workspace hash)".to_string(),
                 ));
             }
-            (Some(bases), None) => bases,
-            (None, Some(path)) => {
+            (Some(bases), None, None) => bases,
+            (None, None, Some(hash)) => {
+                match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                    Ok(r) => r.sequence,
+                    Err(e) => return Ok(fail(e)),
+                }
+            }
+            (None, Some(path), None) => {
                 let ext = crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
                     ErrorData::invalid_params(format!("invalid path: {}", e), None)
                 })?;

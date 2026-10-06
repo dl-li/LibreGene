@@ -31,7 +31,7 @@ fn region_pieces(project: &ProjectData, s: i64, e: i64) -> Vec<(i64, i64)> {
 /// the larger cut ([lo, hi-1]). Circular: the forward arc from cut1 to cut2,
 /// wrapping over the origin when cut1 > cut2, the whole molecule when they
 /// coincide.
-fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, i64)>, String> {
+pub(crate) fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, i64)>, String> {
     let len = project.length;
     if project.topology == "circular" {
         if c1 < c2 {

@@ -167,9 +167,9 @@ async fn read_tools_share_the_success_envelope() {
 }
 
 #[tokio::test]
-async fn list_projects_uses_the_envelope_without_a_project_id() {
+async fn list_workspace_uses_the_envelope_without_a_project_id() {
     let server = handler_with_project(dna_test_project()).await;
-    let v = server.list_projects().await.unwrap().0;
+    let v = server.list_workspace().await.unwrap().0;
     assert_envelope(&v, None);
     assert!(v.get("projectId").is_none(), "{v}");
     assert_eq!(v["projects"][0]["unit"], "bp", "{v}");
@@ -252,7 +252,8 @@ async fn primer_site_shape_is_shared_by_all_three_primer_tools() {
             project_id: "feat".to_string(),
             name: "p1".to_string(),
             r#type: "fwd".to_string(),
-            seq: seq.clone(),
+            seq: Some(seq.clone()),
+            hash: None,
         }))
         .await
         .unwrap()
@@ -279,8 +280,9 @@ async fn primer_site_shape_is_shared_by_all_three_primer_tools() {
             primers: vec![PrimerInput {
                 name: "p1".to_string(),
                 r#type: "fwd".to_string(),
-                seq: seq.clone(),
-            }],
+                seq: Some(seq.clone()),
+                    hash: None,
+                }],
         }))
         .await
         .unwrap()
@@ -318,8 +320,8 @@ async fn check_primer_binding_reports_the_amplicon_size() {
         .check_primer_binding(Parameters(CheckPrimerBindingRequest {
             project_id: "feat".to_string(),
             primers: vec![
-                PrimerInput { name: "F".to_string(), r#type: "fwd".to_string(), seq: fwd },
-                PrimerInput { name: "R".to_string(), r#type: "rev".to_string(), seq: rev },
+                PrimerInput { name: "F".to_string(), r#type: "fwd".to_string(), seq: Some(fwd), hash: None },
+                PrimerInput { name: "R".to_string(), r#type: "rev".to_string(), seq: Some(rev), hash: None },
             ],
         }))
         .await
@@ -338,8 +340,9 @@ async fn check_primer_binding_reports_the_amplicon_size() {
             primers: vec![PrimerInput {
                 name: "F".to_string(),
                 r#type: "fwd".to_string(),
-                seq: template[10..30].to_string(),
-            }],
+                seq: Some(template[10..30].to_string()),
+                    hash: None,
+                }],
         }))
         .await
         .unwrap()
@@ -457,10 +460,11 @@ async fn reverse_translation_without_a_stop_codon_is_noted() {
 #[test]
 fn tool_descriptions_are_concise_and_state_their_response() {
     let tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
-    assert_eq!(tools.len(), 17, "unexpected tool count");
+    assert_eq!(tools.len(), 18, "unexpected tool count");
     for t in tools {
         assert_ne!(t.name, "list_species", "species keys live in the convert_sequence description");
         assert_ne!(t.name, "close_project", "close_project was removed");
+        assert_ne!(t.name, "list_projects", "renamed to list_workspace");
         assert_ne!(t.name, "search_sequence", "search_sequence is a bash-replaceable string scan");
         assert_ne!(t.name, "list_enzymes", "the enzyme lookup tool is search_enzymes");
         let d = t.description.as_deref().unwrap_or_default();

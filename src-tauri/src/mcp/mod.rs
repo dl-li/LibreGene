@@ -14,7 +14,7 @@
 //!   (bad range, unknown enzyme, failed guard, ...). A domain failure keeps
 //!   the same keys plus diagnostics, so callers parse one shape either way.
 //! - `message` — one-line human summary.
-//! - `projectId` — the addressed project (omitted by `list_projects`;
+//! - `projectId` — the addressed project (omitted by `list_workspace`;
 //!   per item in `convert_sequence`).
 //! - `unit` — `bp` | `nt` | `aa`, present whenever lengths of a project
 //!   molecule are reported.
@@ -68,6 +68,7 @@ mod server;
 mod support;
 mod tools;
 mod types;
+pub(crate) mod workspace;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -98,6 +99,7 @@ use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite};
 pub(crate) use tools::*;
 pub(crate) use support::*;
 pub(crate) use types::*;
+pub(crate) use workspace::*;
 
 // Public surface parity with the pre-split module: lib.rs names
 // `mcp::McpServer`; `McpConfig` stays reachable at `crate::mcp::McpConfig`.
@@ -116,6 +118,7 @@ pub struct LibreGeneMcp<R: Runtime> {
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
+    workspace: Workspace,
 }
 
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -150,8 +153,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
+        workspace: Workspace,
     ) -> Self {
-        Self { app_handle, pm, wp, agent_tabs }
+        Self { app_handle, pm, wp, agent_tabs, workspace }
     }
 
     /// Resolving a project also re-locks any agent tab bound to it — the user
@@ -428,16 +432,54 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
 #[tool_router]
 impl<R: Runtime> LibreGeneMcp<R> {
-    /// List the open projects — the sequence files currently loaded in memory.
+    /// List the workspace: the open projects (implicit workspace members) plus
+    /// the staged fragments added with add_to_workspace.
     ///
     /// Returns {ok, message, projects: [{id, name, length, topology, moleculeType,
-    /// unit, dirty, sequenceHash, revCompHash}], activeId}. The id of a file-backed
-    /// project is its path; every other tool addresses a project by that id.
-    /// `activeId` is the project the USER is viewing — informational only; avoid
-    /// mutating it while other agents work in parallel.
+    /// unit, dirty, sequenceHash, revCompHash}], activeId, workspace: [{id, name,
+    /// length, moleculeType, unit, featureCount, source, temporary, sequenceHash,
+    /// revCompHash}]}. The id of a file-backed project is its path; every other
+    /// tool addresses a project by that id. `activeId` is the project the USER is
+    /// viewing — informational only; avoid mutating it while other agents work in
+    /// parallel. Workspace entries are session-scoped and agent-only (the user
+    /// never sees them); the sequenceHash/revCompHash pair of any entry or open
+    /// project can be passed as the `hash` input of sequence-taking tools — a
+    /// swapped "revCompHash/sequenceHash" pair means the entry's reverse
+    /// complement (annotations flip with it).
     #[tool]
-    async fn list_projects(&self) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.list_projects_impl().await
+    async fn list_workspace(&self) -> Result<Json<serde_json::Value>, ErrorData> {
+        self.list_workspace_impl().await
+    }
+
+    /// Stage a fragment of a project in the session workspace (read-only on the
+    /// project — it does NOT need to be your agent tab), keeping the annotations
+    /// that overlap the fragment (features/primers rebased to the fragment
+    /// coordinates). Returns {ok, message, projectId, unit, added: [entry],
+    /// workspaceCount, sequenceHash, revCompHash}; each `added` entry has the
+    /// list_workspace workspace shape, and its hash pair is the handle every
+    /// sequence-taking tool accepts as `hash`.
+    ///
+    /// Exactly one selector:
+    /// - `featureId`: the feature's sequence, segments joined 5'->3'
+    ///   (reverse-complemented for a minus-strand DNA feature).
+    /// - `start` + `end`: 1-based inclusive; start > end wraps the origin on
+    ///   circular sequences.
+    /// - `enzymes` (DNA projects only): one enzyme name that cuts EXACTLY twice
+    ///   (linear → the middle fragment; circular → BOTH fragments), or two names
+    ///   that each cut EXACTLY once → the fragment running from the first
+    ///   enzyme's cut to the second's (on linear templates a first cut past the
+    ///   second yields the reverse complement, honoring that direction). Unknown
+    ///   names and wrong site counts fail with ok:false and diagnostics.
+    ///
+    /// `name` overrides the default fragment name (single-fragment calls only).
+    /// Workspace items are temporary: they live in memory and vanish when the
+    /// app exits.
+    #[tool]
+    async fn add_to_workspace(
+        &self,
+        Parameters(request): Parameters<AddToWorkspaceRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        self.add_to_workspace_impl(request).await
     }
 
     /// Compact text digest of a whole project (`text`): features, primers,
@@ -628,8 +670,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Give the replacement as `replacementPath` (PREFERRED — a file cannot be
     /// mistyped, and its features/primers travel with the sequence: clipped to the
-    /// inserted span, rebased, strand-flipped when `strand` is "-") or as short
-    /// plain text in `replacement`. `strand: "-"` reverse-complements the
+    /// inserted span, rebased, strand-flipped when `strand` is "-"), as
+    /// `replacementHash` (a workspace hash "fwd7" or "fwd7/rev7" from
+    /// list_workspace — a swapped pair inserts the entry's reverse complement with
+    /// its annotations flipped, and combines with `strand: "-"` as an XOR), or as
+    /// short plain text in `replacement`. `strand: "-"` reverse-complements the
     /// replacement (DNA projects only). `expectedOld` guards the edit: on mismatch
     /// the failure carries the authoritative `currentContent` (copy it as
     /// `expectedOld` and retry; there are no other diagnostics).
@@ -671,7 +716,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Add a primer to a DNA project and recompute its binding sites. Sequences are
-    /// short (~20-60 nt), so `seq` is plain text. `name` must be unique across the
+    /// short (~20-60 nt), so `seq` is plain text; alternatively pass `hash` (a
+    /// workspace hash, see list_workspace). Exactly one of `seq`/`hash`.
+    /// `name` must be unique across the
     /// project's primers AND features (rename with a "-F"/"-R" suffix if taken).
     ///
     /// Returns {ok, message, projectId, unit, primerId, name, type, seq, length,
@@ -690,8 +737,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (ids aln-1, aln-2, ...; existing alignments are never touched).
     ///
     /// Give exactly one of `path` (PREFERRED: .gbk/.gb/.genbank, .dna/.rna/.prot,
-    /// .gpt, .fa/.fasta, .ab1 — for .ab1 the basecalled sequence is used) or `bases`
-    /// (short hand-authored reads only). `algorithm`: "blast" (default; chains any
+    /// .gpt, .fa/.fasta, .ab1 — for .ab1 the basecalled sequence is used), `bases`
+    /// (short hand-authored reads only) or `hash` (a workspace hash, sequence only
+    /// — see list_workspace). `algorithm`: "blast" (default; chains any
     /// number of colinear segments, so split/multi-hit reads align in full) or
     /// "smith-waterman" (single local block plus at most one flank).
     ///
@@ -774,7 +822,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Test primers against a DNA project's sequence without persisting them
-    /// (sequences are short, so plain text). `binds: true` means the 3' anneal core
+    /// (sequences are short, so plain text `seq`; each primer may instead pass a
+    /// workspace `hash` — exactly one of seq/hash). `binds: true` means the 3' anneal core
     /// matched; a 5' tail may still mismatch. Tm/annealLength describe the ACTUAL
     /// contiguous 3' match, so a tailed primer can report a higher value than
     /// design_primers did.
@@ -821,6 +870,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// - `inputPath` (PREFERRED for real sequences): .gbk/.gb/.genbank/.dna/.rna/
     /// .fasta/.fa/.ab1 nucleotide, .gpt/.prot protein (with `featureId` +
     /// `species`, that file's CDS is optimized and the rest of the file kept).
+    /// - `hash`: a workspace entry hash ("fwd7" or "fwd7/rev7" — swapped order =
+    ///   reverse complement); `from` defaults to the entry's molecule type.
     /// - `sequence`: short hand-authored text only.
     ///
     /// `outputPath` (sequence/inputPath modes) writes the result — .gbk/.gb/.genbank
@@ -859,7 +910,7 @@ pub(crate) fn splice_species_keys(tools: &mut [rmcp::model::Tool]) {
     }
 }
 
-#[tool_handler(name = "LibreGene", instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_projects' activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent.")]
+#[tool_handler(name = "LibreGene", instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_workspace's activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent. WORKSPACE: add_to_workspace stages a project fragment (feature / start+end region / enzyme-digest fragment, annotations kept) in a session-scoped in-memory workspace; open projects are implicit members. Sequence-taking tools accept a workspace hash — `hash` (edit_sequence: `replacementHash`) as '<sequenceHash>' or '<sequenceHash>/<revCompHash>' from list_workspace; a swapped pair means the entry's reverse complement (annotations flip with it).")]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";

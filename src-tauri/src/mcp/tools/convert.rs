@@ -278,12 +278,33 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// infer/validate the from→to pair, run the conversion and build the
     /// per-item result JSON (the caller adds `index` / `ok`).
     async fn convert_one(&self, item: &ConvertItem) -> Result<serde_json::Value, String> {
-        let mode = resolve_optimize_input(
-            item.project_id.as_deref(),
-            item.feature_id.as_deref(),
-            item.sequence.as_deref(),
-            item.input_path.as_deref(),
-        )?;
+        let mode = match &item.hash {
+            Some(hash) => {
+                if item.project_id.is_some()
+                    || item.sequence.is_some()
+                    || item.input_path.is_some()
+                    || item.feature_id.is_some()
+                {
+                    return Err(
+                        "`hash` cannot be combined with projectId/featureId/sequence/inputPath — use exactly one input mode"
+                            .to_string(),
+                    );
+                }
+                let resolved =
+                    crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, hash)
+                        .await?;
+                OptimizeInput::Workspace {
+                    sequence: resolved.sequence,
+                    molecule_type: resolved.molecule_type,
+                }
+            }
+            None => resolve_optimize_input(
+                item.project_id.as_deref(),
+                item.feature_id.as_deref(),
+                item.sequence.as_deref(),
+                item.input_path.as_deref(),
+            )?,
+        };
 
         let apply = item.apply.unwrap_or(false);
         if !matches!(mode, OptimizeInput::Project { .. }) && apply && item.output_path.is_none() {
@@ -339,6 +360,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 check_conversion(&from, &to, item)?;
                 require_species_for(&from, &to, item)?;
                 self.convert_sequence_input(item, seq, &from, &to).await
+            }
+            OptimizeInput::Workspace { sequence, molecule_type } => {
+                let from = item.from.clone().unwrap_or(molecule_type);
+                let to = default_to(item.to.as_deref(), &from);
+                check_conversion(&from, &to, item)?;
+                require_species_for(&from, &to, item)?;
+                self.convert_sequence_input(item, sequence, &from, &to).await
             }
             OptimizeInput::File { path, feature_id } => {
                 self.convert_file_input(item, path, feature_id).await
@@ -839,11 +867,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             Some(items) => items,
             None => {
-                if single.project_id.is_some() || single.sequence.is_some() || single.input_path.is_some() {
+                if single.project_id.is_some() || single.sequence.is_some() || single.input_path.is_some() || single.hash.is_some() {
                     vec![single]
                 } else {
                     return Err(ErrorData::invalid_params(
-                        "items is required: a batch of 1-64 conversion items (a single conversion may put the item fields at the top level instead — one of projectId / sequence / inputPath)",
+                        "items is required: a batch of 1-64 conversion items (a single conversion may put the item fields at the top level instead — one of projectId / sequence / inputPath / hash)",
                         None,
                     ));
                 }

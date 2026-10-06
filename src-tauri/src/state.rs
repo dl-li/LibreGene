@@ -89,6 +89,10 @@ pub struct AppState {
     /// MCP-agent-bound projects, keyed by project id. Lock order: never take
     /// this lock while holding `pm` or `window_projects`.
     pub agent_tabs: AgentTabs,
+    /// Session-scoped MCP sequence workspace (agent-only, in-memory, cleared
+    /// on exit). Same lock-order rule as `agent_tabs`: never held together
+    /// with `pm` or `window_projects`.
+    pub workspace: crate::mcp::Workspace,
     /// Paths handed to us by the OS (Open With / double-click / second
     /// instance) that the frontend hasn't consumed yet. The frontend drains
     /// this via `take_pending_opens` on mount so cold-start events that

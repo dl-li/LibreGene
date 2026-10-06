@@ -18,6 +18,7 @@ use tokio::sync::RwLock;
 use libregene_core::project::ProjectManager;
 
 use super::auth::{generate_auth_token, load_or_create_token, persist_token, token_eq};
+use super::workspace::Workspace;
 use super::{LibreGeneMcp, MCP_PORT};
 
 /// Runtime MCP server configuration. The frontend persists the source of truth
@@ -49,6 +50,7 @@ pub struct McpServer<R: Runtime> {
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
+    workspace: Workspace,
     config: Arc<StdMutex<McpConfig>>,
     task: Arc<StdMutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// Bearer token required on every MCP request so that other local
@@ -70,6 +72,7 @@ impl<R: Runtime> Clone for McpServer<R> {
             pm: self.pm.clone(),
             wp: self.wp.clone(),
             agent_tabs: self.agent_tabs.clone(),
+            workspace: self.workspace.clone(),
             config: self.config.clone(),
             task: self.task.clone(),
             auth_token: self.auth_token.clone(),
@@ -84,6 +87,7 @@ impl<R: Runtime> McpServer<R> {
         pm: Arc<RwLock<ProjectManager>>,
         wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
+        workspace: Workspace,
         status: impl Fn(bool, u16) + Send + Sync + 'static,
     ) -> Self {
         let auth_token = load_or_create_token(&app_handle);
@@ -92,6 +96,7 @@ impl<R: Runtime> McpServer<R> {
             pm,
             wp,
             agent_tabs,
+            workspace,
             config: Arc::new(StdMutex::new(McpConfig::default())),
             task: Arc::new(StdMutex::new(None)),
             auth_token: Arc::new(StdMutex::new(auth_token)),
@@ -157,13 +162,14 @@ impl<R: Runtime> McpServer<R> {
             let pm = self.pm.clone();
             let wp = self.wp.clone();
             let agent_tabs = self.agent_tabs.clone();
+            let workspace = self.workspace.clone();
             let port = cfg.port;
             let token = self.auth_token.clone();
             let config = self.config.clone();
             let status = self.status.clone();
             let serve_config = self.config.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app.clone(), pm, wp, agent_tabs, port, token, serve_config).await
+                if let Err(e) = serve_mcp(app.clone(), pm, wp, agent_tabs, workspace, port, token, serve_config).await
                 {
                     log::error!("MCP server error on port {}: {}", port, e);
                     // Give-up (e.g. the port is held by another app): the
@@ -230,6 +236,7 @@ pub(crate) async fn serve_mcp<R: Runtime>(
     pm: Arc<RwLock<ProjectManager>>,
     wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
+    workspace: Workspace,
     port: u16,
     auth_token: Arc<StdMutex<String>>,
     config: Arc<StdMutex<McpConfig>>,
@@ -264,6 +271,7 @@ pub(crate) async fn serve_mcp<R: Runtime>(
                 pm.clone(),
                 wp.clone(),
                 agent_tabs.clone(),
+                workspace.clone(),
             ))
         },
         Arc::new(session_manager),

@@ -245,7 +245,8 @@ use libregene_core::models::ProjectData;
                 primers: vec![PrimerInput {
                     name: "cand".to_string(),
                     r#type: "fwd".to_string(),
-                    seq: primer_seq,
+                    seq: Some(primer_seq),
+                    hash: None,
                 }],
             }))
             .await
@@ -320,7 +321,8 @@ use libregene_core::models::ProjectData;
                 primers: vec![PrimerInput {
                     name: "cand".to_string(),
                     r#type: "rev".to_string(),
-                    seq: primer_seq,
+                    seq: Some(primer_seq),
+                    hash: None,
                 }],
             }))
             .await
@@ -404,7 +406,8 @@ use libregene_core::models::ProjectData;
                 project_id: "feat".to_string(),
                 name: "p1".to_string(),
                 r#type: "fwd".to_string(),
-                seq: "123 ---".to_string(),
+                seq: Some("123 ---".to_string()),
+                hash: None,
             }))
             .await
             .unwrap();
@@ -419,7 +422,8 @@ use libregene_core::models::ProjectData;
                 project_id: "feat".to_string(),
                 name: "p1".to_string(),
                 r#type: "sideways".to_string(),
-                seq: "ACGTACGT".to_string(),
+                seq: Some("ACGTACGT".to_string()),
+                hash: None,
             }))
             .await
             .unwrap();
@@ -436,7 +440,8 @@ use libregene_core::models::ProjectData;
                 primers: vec![PrimerInput {
                     name: "x".to_string(),
                     r#type: "bad".to_string(),
-                    seq: "ACGTACGT".to_string(),
+                    seq: Some("ACGTACGT".to_string()),
+                    hash: None,
                 }],
             }))
             .await

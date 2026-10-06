@@ -12,7 +12,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OverviewRequest {
-    /// Required: the project to inspect (see list_projects).
+    /// Required: the project to inspect (see list_workspace).
     pub(crate) project_id: String,
     #[schemars(with = "Option<i64>")]
     pub(crate) max_features: Option<usize>,
@@ -23,7 +23,7 @@ pub(crate) struct OverviewRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegionRequest {
-    /// Required: the project to inspect (see list_projects).
+    /// Required: the project to inspect (see list_workspace).
     pub(crate) project_id: String,
     /// Window start, 1-based inclusive; start > end wraps the origin on
     /// circular sequences.
@@ -48,7 +48,7 @@ pub(crate) struct RegionRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SequenceRequest {
-    /// Required: the project to read from (see list_projects).
+    /// Required: the project to read from (see list_workspace).
     pub(crate) project_id: String,
     /// Window mode: window start, 1-based inclusive; start > end wraps the
     /// origin on circular sequences. Requires `end`; mutually exclusive with
@@ -86,7 +86,7 @@ pub(crate) struct OpenProjectRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SaveFileRequest {
-    /// Required: the project to save (see list_projects).
+    /// Required: the project to save (see list_workspace).
     pub(crate) project_id: String,
     /// Output path (.gbk/.gb/.genbank for DNA/RNA, .gpt for protein).
     pub(crate) path: String,
@@ -110,13 +110,21 @@ pub(crate) struct EditSequenceRequest {
     /// Last base of the replaced range, 1-based inclusive (>= start-1).
     pub(crate) end: i64,
     /// Replacement sequence as plain text (empty = delete). Exactly one of
-    /// `replacement` / `replacementPath`. Short hand-authored edits only
-    /// (point mutations, short inserts) — otherwise use `replacementPath`.
+    /// `replacement` / `replacementPath` / `replacementHash`. Short hand-authored
+    /// edits only (point mutations, short inserts) — otherwise use
+    /// `replacementPath` or `replacementHash`.
     pub(crate) replacement: Option<String>,
     /// PREFERRED input: read the replacement from a local sequence file
     /// (.gbk/.gb/.genbank/.dna/.rna/.fasta/.fa/.ab1 — the open_project
     /// formats); its annotations travel with the sequence.
     pub(crate) replacement_path: Option<String>,
+    /// Workspace input: a hash "fwd7" or "fwd7/rev7" from list_workspace
+    /// (a workspace fragment or an open project). A swapped
+    /// "revCompHash/sequenceHash" pair inserts the entry's reverse complement
+    /// with its annotations flipped; combined with `strand: "-"` the two flips
+    /// cancel (XOR). Annotations travel with the sequence like
+    /// `replacementPath`.
+    pub(crate) replacement_hash: Option<String>,
     /// Insertion direction: "+" (default, insert as given) or "-"
     /// (reverse-complement first). DNA projects only.
     pub(crate) strand: Option<String>,
@@ -141,6 +149,10 @@ pub(crate) struct ConvertItem {
     /// .dna/.rna/.fasta/.fa/.ab1 — nucleotide; .gpt/.prot — protein).
     /// `from` defaults to the file's molecule type.
     pub(crate) input_path: Option<String>,
+    /// Standalone mode: a workspace entry hash ("fwd7" or "fwd7/rev7" from
+    /// list_workspace — swapped order = reverse complement). `from` defaults
+    /// to the entry's molecule type; behaves like `sequence` mode otherwise.
+    pub(crate) hash: Option<String>,
     /// Input molecule type: "dna" | "rna" | "protein". Defaults: project
     /// mode → "dna"; `inputPath` → the file's type; `sequence` → "dna".
     pub(crate) from: Option<String>,
@@ -235,7 +247,34 @@ pub(crate) struct AddPrimerRequest {
     pub(crate) r#type: String,
     /// Primer sequence, plain text (short, ~20–60 nt — the intended input
     /// form). Non-letters are stripped and the sequence is uppercased.
-    pub(crate) seq: String,
+    /// Exactly one of `seq` / `hash`.
+    pub(crate) seq: Option<String>,
+    /// Workspace entry hash ("fwd7" or "fwd7/rev7" — swapped order = reverse
+    /// complement); the entry's sequence becomes the primer sequence.
+    pub(crate) hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AddToWorkspaceRequest {
+    /// Required: the project to extract from (see list_workspace). Read-only —
+    /// the project does NOT need to be bound as your agent tab.
+    pub(crate) project_id: String,
+    /// Selector: add this feature's sequence (segments joined 5'→3',
+    /// reverse-complemented for a minus-strand DNA feature).
+    pub(crate) feature_id: Option<String>,
+    /// Selector: region start, 1-based inclusive (start > end wraps the origin
+    /// on circular sequences). Requires `end`.
+    pub(crate) start: Option<i64>,
+    /// Selector: region end, 1-based inclusive. Requires `start`.
+    pub(crate) end: Option<i64>,
+    /// Selector (DNA projects only): 1 enzyme name that cuts exactly twice, or
+    /// 2 enzyme names that each cut exactly once (the fragment runs from the
+    /// first enzyme's cut to the second's).
+    pub(crate) enzymes: Option<Vec<String>>,
+    /// Optional custom name for the fragment (only when exactly one fragment
+    /// is produced).
+    pub(crate) name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -253,6 +292,9 @@ pub(crate) struct AddAlignmentRequest {
     /// .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1). Export a project region first
     /// with save_file's `region` if needed.
     pub(crate) path: Option<String>,
+    /// Workspace entry hash ("fwd7" or "fwd7/rev7" from list_workspace —
+    /// swapped order = reverse complement); only the entry's sequence is used.
+    pub(crate) hash: Option<String>,
     /// true = omit `orientedSequence` and `text` from the response; the new
     /// alignment's difference details and coverage are still returned.
     pub(crate) compact: Option<bool>,
@@ -274,7 +316,7 @@ pub(crate) struct AddAlignmentRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FindOrfsRequest {
-    /// Required: the project to scan (see list_projects).
+    /// Required: the project to scan (see list_workspace).
     pub(crate) project_id: String,
     /// Minimum ORF length in amino acids (default 75).
     #[schemars(with = "Option<i64>")]
@@ -286,7 +328,7 @@ pub(crate) struct FindOrfsRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FindRestrictionSitesRequest {
-    /// Required: the project to scan (see list_projects).
+    /// Required: the project to scan (see list_workspace).
     pub(crate) project_id: String,
     /// Enzyme names to report (case-insensitive); omitted/empty = every enzyme
     /// with a recognition site on this sequence.
@@ -308,7 +350,7 @@ pub(crate) struct SearchEnzymesRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ListPrimersRequest {
-    /// Required: the project to inspect (see list_projects).
+    /// Required: the project to inspect (see list_workspace).
     pub(crate) project_id: String,
 }
 
@@ -325,7 +367,7 @@ pub(crate) struct SegParam {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesignPrimersRequest {
-    /// Required: the project to design against (see list_projects).
+    /// Required: the project to design against (see list_workspace).
     pub(crate) project_id: String,
     /// "amplify" | "oepcr" | "mutagenesis".
     pub(crate) mode: String,
@@ -380,14 +422,17 @@ pub(crate) struct PrimerInput {
     #[serde(rename = "type")]
     pub(crate) r#type: String,
     /// Primer sequence, plain text (short, ~20–60 nt — the intended input
-    /// form).
-    pub(crate) seq: String,
+    /// form). Exactly one of `seq` / `hash`.
+    pub(crate) seq: Option<String>,
+    /// Workspace entry hash ("fwd7" or "fwd7/rev7" — swapped order = reverse
+    /// complement); the entry's sequence becomes the primer sequence.
+    pub(crate) hash: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CheckPrimerBindingRequest {
-    /// Required: the project to check against (see list_projects).
+    /// Required: the project to check against (see list_workspace).
     pub(crate) project_id: String,
     /// Primers to test; nothing is persisted.
     pub(crate) primers: Vec<PrimerInput>,
@@ -420,7 +465,7 @@ pub(crate) struct RegionSpec {
 // convert_sequence input resolution (project / raw sequence / file)
 // ---------------------------------------------------------------------------
 
-/// One of the three mutually exclusive input modes of `convert_sequence`.
+/// One of the mutually exclusive input modes of `convert_sequence`.
 pub(crate) enum OptimizeInput {
     /// Open-project mode: `feature_id` names the CDS/mRNA feature to optimize.
     Project {
@@ -429,6 +474,9 @@ pub(crate) enum OptimizeInput {
     },
     /// Raw DNA coding sequence text.
     Sequence(String),
+    /// Workspace entry resolved from a `hash` input; behaves like `Sequence`
+    /// except `from` defaults to the entry's own molecule type.
+    Workspace { sequence: String, molecule_type: String },
     /// Local sequence/protein file (`file_io::parse_file`).
     File {
         path: String,

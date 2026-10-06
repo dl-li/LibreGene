@@ -161,15 +161,30 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let primer_id = next_id("primer");
         let name = request.name.clone();
         let primer_type = request.r#type.clone();
-        let clean_seq = match clean_primer_input(&request.name, &request.r#type, &request.seq) {
-            Ok(s) => s,
-            Err(e) => {
-                let mut v = fail_envelope(&id, e);
-                if let Some(h) = &seq_hashes {
-                    insert_seq_hashes(&mut v, h);
-                }
-                return Ok(Json(v));
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
             }
+            Json(v)
+        };
+        let raw_seq = match (request.seq, request.hash) {
+            (Some(s), None) => s,
+            (None, Some(hash)) => {
+                match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                    Ok(r) => r.sequence,
+                    Err(e) => return Ok(fail(e)),
+                }
+            }
+            _ => {
+                return Ok(fail(
+                    "Provide exactly one of `seq` (plain text) or `hash` (workspace hash)".to_string(),
+                ));
+            }
+        };
+        let clean_seq = match clean_primer_input(&request.name, &request.r#type, &raw_seq) {
+            Ok(s) => s,
+            Err(e) => return Ok(fail(e)),
         };
         let primer = Primer {
             id: primer_id.clone(),
@@ -552,16 +567,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let seq_hashes = self.project_seq_hashes(&id).await;
         let mut primers: Vec<Primer> = Vec::with_capacity(request.primers.len());
         let mut inputs: Vec<(String, String, usize)> = Vec::with_capacity(request.primers.len());
+        let fail = |msg: String| -> Json<serde_json::Value> {
+            let mut v = fail_envelope(&id, msg);
+            if let Some(h) = &seq_hashes {
+                insert_seq_hashes(&mut v, h);
+            }
+            Json(v)
+        };
         for p in request.primers {
-            let clean_seq = match clean_primer_input(&p.name, &p.r#type, &p.seq) {
-                Ok(s) => s,
-                Err(e) => {
-                    let mut v = fail_envelope(&id, e);
-                    if let Some(h) = &seq_hashes {
-                        insert_seq_hashes(&mut v, h);
+            let raw_seq = match (p.seq, p.hash) {
+                (Some(s), None) => s,
+                (None, Some(hash)) => {
+                    match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                        Ok(r) => r.sequence,
+                        Err(e) => return Ok(fail(e)),
                     }
-                    return Ok(Json(v));
                 }
+                _ => {
+                    return Ok(fail(format!(
+                        "primer '{}': provide exactly one of `seq` (plain text) or `hash` (workspace hash)",
+                        p.name
+                    )));
+                }
+            };
+            let clean_seq = match clean_primer_input(&p.name, &p.r#type, &raw_seq) {
+                Ok(s) => s,
+                Err(e) => return Ok(fail(e)),
             };
             inputs.push((p.name.clone(), p.r#type.clone(), clean_seq.len()));
             primers.push(Primer {

@@ -172,21 +172,48 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let start = from1(u_start);
         let end = from1(u_end);
 
-        let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path) {
-            (Some(_), Some(_)) => {
+        // (flipped, label, match_count) of a replacementHash resolution, for
+        // the response notes.
+        let mut hash_notes: Option<(bool, String, usize)> = None;
+
+        let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path, request.replacement_hash) {
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (None, Some(_), Some(_)) => {
                 return Ok(fail(
-                    "Provide exactly one of `replacement` or `replacementPath`, not both"
+                    "Provide exactly one of `replacement`, `replacementPath` or `replacementHash`, not several"
                         .to_string(),
                 ));
             }
-            (None, None) => {
+            (None, None, None) => {
                 return Ok(fail(
-                    "Provide exactly one of `replacement` (sequence string, empty = delete) or `replacementPath` (sequence file)"
+                    "Provide exactly one of `replacement` (sequence string, empty = delete), `replacementPath` (sequence file) or `replacementHash` (workspace hash)"
                         .to_string(),
                 ));
             }
-            (Some(s), None) => (s, None),
-            (None, Some(path)) => {
+            (Some(s), None, None) => (s, None),
+            (None, None, Some(hash)) => {
+                // A hash that matches nothing is a domain rejection.
+                let resolved = match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                    Ok(r) => r,
+                    Err(e) => return Ok(fail(e)),
+                };
+                if project.molecule_type == "protein" && resolved.molecule_type != "protein" {
+                    return Ok(fail(format!(
+                        "replacementHash resolved to a {} entry but the project is protein",
+                        resolved.molecule_type
+                    )));
+                }
+                if project.molecule_type != "protein" && resolved.molecule_type == "protein" {
+                    return Ok(fail(
+                        "replacementHash resolved to a protein entry but the project is DNA/RNA".to_string(),
+                    ));
+                }
+                hash_notes = Some((resolved.flipped, resolved.label.clone(), resolved.match_count));
+                (
+                    resolved.sequence,
+                    Some((resolved.features, resolved.primers)),
+                )
+            }
+            (None, Some(path), None) => {
                 crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
                     ErrorData::invalid_params(format!("invalid replacementPath: {}", e), None)
                 })?;
@@ -494,6 +521,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         if let Some(note) = alphabet_note {
             push_note(&mut v, note);
+        }
+        if let Some((flipped, label, match_count)) = hash_notes {
+            if flipped {
+                push_note(&mut v, format!(
+                    "replacementHash matched in swapped orientation — inserted the reverse complement of '{}' (annotations flipped)",
+                    label
+                ));
+            }
+            if match_count > 1 {
+                push_note(&mut v, format!(
+                    "replacementHash matched {} workspace entries/open projects; used the first ('{}')",
+                    match_count, label
+                ));
+            }
         }
         if let Some(rv) = old_region {
             v["textBefore"] = serde_json::json!(rv);

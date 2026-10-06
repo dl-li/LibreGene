@@ -104,6 +104,7 @@ use crate::mcp::*;
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(Vec::new())),
             |_, _| {},
         )
     }
@@ -117,6 +118,7 @@ use crate::mcp::*;
             Arc::new(RwLock::new(ProjectManager::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(Vec::new())),
         )
     }
 
@@ -169,6 +171,7 @@ use crate::mcp::*;
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             agent_tabs,
+            Arc::new(RwLock::new(Vec::new())),
         )
     }
 
@@ -186,6 +189,7 @@ use crate::mcp::*;
             pm,
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(Vec::new())),
         )
     }
 

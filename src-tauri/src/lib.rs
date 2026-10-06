@@ -53,6 +53,7 @@ pub fn run() {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
             window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
+            workspace: Arc::new(RwLock::new(Vec::new())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -63,6 +64,7 @@ pub fn run() {
                 state.pm.clone(),
                 state.window_projects.clone(),
                 state.agent_tabs.clone(),
+                state.workspace.clone(),
                 {
                     // Server state can change without a set_config call (bind
                     // failure): refresh the tray status line so it matches

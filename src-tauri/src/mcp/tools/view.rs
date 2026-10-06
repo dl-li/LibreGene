@@ -79,29 +79,40 @@ fn project_label(project_id: &str, project: &libregene_core::models::ProjectData
 }
 
 impl<R: Runtime> LibreGeneMcp<R> {
-    pub(crate) async fn list_projects_impl(&self) -> Result<Json<serde_json::Value>, ErrorData> {
-        let pm = self.pm.read().await;
-        let mut projects = pm.list_projects();
-        for entry in projects.iter_mut() {
-            if let Some(p) = entry
-                .get("id")
-                .and_then(|v| v.as_str())
-                .and_then(|id| pm.get_project_by_id(id))
-            {
-                entry["unit"] = serde_json::json!(unit_for(&p.molecule_type));
-                insert_seq_hashes(
-                    entry,
-                    &libregene_core::utils::orientation_hashes(&p.sequence, &p.molecule_type),
-                );
+    pub(crate) async fn list_workspace_impl(&self) -> Result<Json<serde_json::Value>, ErrorData> {
+        let (projects, active_id, count) = {
+            let pm = self.pm.read().await;
+            let mut projects = pm.list_projects();
+            for entry in projects.iter_mut() {
+                if let Some(p) = entry
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .and_then(|id| pm.get_project_by_id(id))
+                {
+                    entry["unit"] = serde_json::json!(unit_for(&p.molecule_type));
+                    insert_seq_hashes(
+                        entry,
+                        &libregene_core::utils::orientation_hashes(&p.sequence, &p.molecule_type),
+                    );
+                }
             }
-        }
-        let active_id = pm.active_id().map(|s| s.to_string());
-        let count = projects.len();
+            let active_id = pm.active_id().map(|s| s.to_string());
+            let count = projects.len();
+            (projects, active_id, count)
+        };
+        // Lock order: the pm guard above is already dropped; never hold the
+        // workspace lock together with it.
+        let workspace: Vec<serde_json::Value> = {
+            let ws = self.workspace.read().await;
+            ws.iter().map(crate::mcp::workspace::workspace_item_json).collect()
+        };
+        let wcount = workspace.len();
         Ok(Json(serde_json::json!({
             "ok": true,
-            "message": format!("{} project(s) open", count),
+            "message": format!("{} project(s) open, {} workspace fragment(s)", count, wcount),
             "projects": projects,
             "activeId": active_id,
+            "workspace": workspace,
         })))
     }
 

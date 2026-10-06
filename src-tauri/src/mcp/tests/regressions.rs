@@ -82,7 +82,8 @@ use libregene_core::models::ProjectData;
                 primers: vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
-                    seq: seq[50..70].to_string(),
+                    seq: Some(seq[50..70].to_string()),
+                    hash: None,
                 }],
             }))
             .await
@@ -243,9 +244,9 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn list_projects_entries_carry_sequence_hashes() {
+    async fn list_workspace_entries_carry_sequence_hashes() {
         let server = handler_with_project(edit_test_project()).await;
-        let out = server.list_projects().await.unwrap();
+        let out = server.list_workspace().await.unwrap();
         let v = out.0;
         let entry = v["projects"]
             .as_array()

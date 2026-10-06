@@ -39,7 +39,8 @@ use crate::mcp::*;
                 primers: vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
-                    seq: "ACGTACGTAC".to_string(),
+                    seq: Some("ACGTACGTAC".to_string()),
+                    hash: None,
                 }],
             }))
             .await

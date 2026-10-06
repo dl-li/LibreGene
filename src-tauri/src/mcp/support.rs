@@ -5,7 +5,7 @@
 //! `{ok, message, projectId?, unit?, sequenceHash?, revCompHash?, text?, ...}`
 //! - `ok` — true on success, false when the domain rejected the request.
 //! - `message` — one-line human-readable summary (always present).
-//! - `projectId` — the addressed project (omitted by list_projects; per item
+//! - `projectId` — the addressed project (omitted by list_workspace; per item
 //!   in convert_sequence).
 //! - `unit` — "bp" | "nt" | "aa": the molecule's length unit, present on every
 //!   response that reports lengths of a project molecule.
