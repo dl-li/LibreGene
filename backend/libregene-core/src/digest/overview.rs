@@ -310,13 +310,17 @@ pub fn project_digest(
                     }
                 } else {
                     if !single.is_empty() {
-                        out.push_str("SINGLE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
+                        out.push_str("SINGLE CUTTERS (top-strand cut N; enzymes sharing N are grouped):\n");
+                        let mut groups: BTreeMap<i64, Vec<&str>> = BTreeMap::new();
                         for e in single {
-                            let _ = writeln!(out,
-                                "        {:<10} {}",
-                                e.name,
-                                cuts_desc(e, project.length, circular)
-                            );
+                            let (n, _) = cut_flanks(e.cut_index, project.length, circular);
+                            groups.entry(n).or_default().push(e.name.as_str());
+                        }
+                        for names in groups.values_mut() {
+                            names.sort_unstable();
+                        }
+                        for (n, names) in groups {
+                            let _ = writeln!(out, "        {:<30} {}", names.join(", "), n);
                         }
                     }
                     if !double_names.is_empty() {

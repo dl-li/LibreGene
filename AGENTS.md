@@ -116,7 +116,7 @@ src-tauri/src/          # lib.rs（门面）、state/payload/kernels/tray、comm
 已适配（功能 → 工具）：
 
 - 项目/文件管理、Agent 标签绑定、子序列导出、workspace 暂存 → `open_project` / `save_file` / `list_workspace` / `add_to_workspace`（`close_project` 已移除：卸载项目交给用户，Agent 只需 save_file）
-- 序列读取、坐标转换、自动标注/甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`（overview 的酶段落：单切点酶给名称+切点，双切点酶给名称，≥3 位点不列）
+- 序列读取、坐标转换、自动标注/甲基化展示 → `read_sequence` / `get_project_overview` / `get_region_view`（overview 的酶段落：单切点酶按上链切点合并成「名称 + N」一行、只给 N，双切点酶给名称，≥3 位点不列）
 - 序列编辑（连同已存比对自动重算）→ `edit_sequence`；特征 → `set_feature`
 - 引物 → `add_primer` / `list_primers` / `check_primer_binding` / `design_primers`
 - ORF → `find_orfs`；比对 → `add_alignment`（`algorithm`: "blast" 默认 / "smith-waterman"）；酶库检索 → `search_enzymes`，酶切位点 → `find_restriction_sites`（未知酶名不报错，作为数据返回；名字发现走 `search_enzymes`）；序列转换/密码子优化 → `convert_sequence`（dna↔rna、→protein、protein 逆转录、密码子优化，批量逐项错误隔离）

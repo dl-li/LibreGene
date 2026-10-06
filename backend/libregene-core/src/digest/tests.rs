@@ -998,9 +998,15 @@ fn compact_enzymes_collapses_cutter_lists() {
 fn overview_lists_single_cutters_and_names_double_cutters() {
     let p = synthetic_project();
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
-    // Single-cut enzymes: name + cuts only (no recognition site / cut type).
-    assert!(out.contains("SINGLE CUTTERS (cuts shown as N^N+1 = between 1-based bases N and N+1):"));
-    assert!(out.contains("EcoRI      top 10^11 bot 14^15"));
+    // Single-cut enzymes: grouped by top-strand cut, one N per line.
+    assert!(out.contains("SINGLE CUTTERS (top-strand cut N; enzymes sharing N are grouped):"));
+    assert!(
+        out.lines()
+            .any(|l| l.trim_start().starts_with("EcoRI") && l.trim_end().ends_with(" 10")),
+        "{out}"
+    );
+    assert!(!out.contains("top "), "{out}");
+    assert!(!out.contains("bot "), "{out}");
     assert!(!out.contains("GAATTC"), "recognition sequences belong to find_restriction_sites");
     assert!(!out.contains("5' overhang"), "{out}");
     // Double-cut enzymes are named without cuts.
@@ -1011,6 +1017,22 @@ fn overview_lists_single_cutters_and_names_double_cutters() {
     let region = project_digest(&p, &DigestOptions::default(), Some((30, 5))).unwrap();
     assert!(region.contains("ENZYMES CUTTING IN REGION"));
     assert!(!region.contains("SINGLE CUTTERS"));
+}
+
+#[test]
+fn overview_groups_single_cutters_sharing_a_top_cut() {
+    let mut p = synthetic_project();
+    let mut twin = p.enzymes[0].clone(); // EcoRI, cut_index 10
+    twin.id = "twin".into();
+    twin.name = "TwinI".into();
+    p.enzymes.push(twin);
+    let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with("EcoRI"))
+        .unwrap_or_else(|| panic!("no EcoRI line in {out}"));
+    assert!(line.contains("TwinI"), "shared cut must group: {line}");
+    assert!(line.trim_end().ends_with(" 10"), "only the top cut N: {line}");
 }
 
 #[test]
