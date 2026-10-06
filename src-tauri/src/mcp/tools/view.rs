@@ -12,7 +12,7 @@ use libregene_core::models::{Enzyme, Feature};
 use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{
     MAX_FLANK, fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope,
-    site_json_to_1based, to1,
+    primer_site_json, push_note, to1, unit_for,
 };
 use crate::mcp::types::{
     FindOrfsRequest, FindRestrictionSitesRequest, ListPrimersRequest, OverviewRequest,
@@ -56,6 +56,30 @@ fn position_context_json(
     })
 }
 
+/// `"<name>: 5214 bp circular"` (falling back to the file name for a project
+/// without a stored name, and to `"5214 bp circular"` when neither exists).
+fn project_label(project_id: &str, project: &libregene_core::models::ProjectData) -> String {
+    let desc = format!(
+        "{} {} {}",
+        project.length,
+        unit_for(&project.molecule_type),
+        project.topology
+    );
+    let label = if !project.name.is_empty() {
+        project.name.clone()
+    } else {
+        std::path::Path::new(project_id)
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default()
+    };
+    if label.is_empty() {
+        desc
+    } else {
+        format!("{}: {}", label, desc)
+    }
+}
+
 impl<R: Runtime> LibreGeneMcp<R> {
     pub(crate) async fn list_projects_impl(&self) -> Result<Json<serde_json::Value>, ErrorData> {
         let pm = self.pm.read().await;
@@ -66,6 +90,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .and_then(|v| v.as_str())
                 .and_then(|id| pm.get_project_by_id(id))
             {
+                entry["unit"] = serde_json::json!(unit_for(&p.molecule_type));
                 insert_seq_hashes(
                     entry,
                     &libregene_core::utils::orientation_hashes(&p.sequence, &p.molecule_type),
@@ -73,7 +98,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         }
         let active_id = pm.active_id().map(|s| s.to_string());
+        let count = projects.len();
         Ok(Json(serde_json::json!({
+            "ok": true,
+            "message": format!("{} project(s) open", count),
             "projects": projects,
             "activeId": active_id,
         })))
@@ -85,6 +113,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let label = project_label(&id, &project);
+        let unit = unit_for(&project.molecule_type);
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
@@ -98,7 +128,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let mut v = serde_json::json!({ "projectId": id, "text": text });
+        let mut v = ok_envelope(&id, format!("Overview of {}", label), Some(text));
+        v["unit"] = serde_json::json!(unit);
         insert_seq_hashes(&mut v, &hashes);
         Ok(Json(v))
     }
@@ -109,6 +140,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let unit = unit_for(&project.molecule_type);
+        let tlen = project.length;
+        let (start, end) = (request.start, request.end);
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
@@ -121,7 +155,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .await
             .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let mut v = serde_json::json!({ "projectId": id, "text": text });
+        let mut v = ok_envelope(
+            &id,
+            format!("Region {}..{} ({} {})", start, end, tlen, unit),
+            Some(text),
+        );
+        v["unit"] = serde_json::json!(unit);
+        v["region"] = serde_json::json!({ "start": start, "end": end });
         insert_seq_hashes(&mut v, &hashes);
         Ok(Json(v))
     }
@@ -131,6 +171,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         request: SequenceRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project_light(request.project_id).await?;
+        let unit = unit_for(&project.molecule_type);
         let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         // Reads never mutate, so the resolve-time hash stays valid; the
         // closure also serves fail paths that run inside a lock below (no
@@ -147,25 +188,32 @@ impl<R: Runtime> LibreGeneMcp<R> {
             || request.aa_position.is_some();
         if window_active == coord_active {
             return Ok(fail(
-                "Provide exactly one input form: `start` + `end` (window read); `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+                "Provide exactly one input form: `start` + `end` (window read); `position`; `featureId` + `featureOffset`; or `featureId` + `aaPosition`".to_string(),
             ));
         }
 
         if window_active {
-            let (s, e) = match (request.start, request.end) {
-                (Some(s), Some(e)) => (from1(s), from1(e)),
+            let (s1, e1) = match (request.start, request.end) {
+                (Some(s), Some(e)) => (s, e),
                 _ => {
                     return Ok(fail(
                         "start and end are both required (1-based inclusive)".to_string(),
                     ))
                 }
             };
+            let (s, e) = (from1(s1), from1(e1));
             let text = read_sequence(&project, s, e)
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
             let bases = libregene_core::digest::read_sequence_bases(&project, s, e)
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
             let mut v = serde_json::json!({
+                "ok": true,
+                "message": format!("Read {} {} at {}..{}", bases.len(), unit, s1, e1),
                 "projectId": id,
+                "unit": unit,
+                "start": s1,
+                "end": e1,
+                "length": bases.len(),
                 "sequence": bases,
                 "text": text,
                 "startContext": position_context_json(s, &project.sequence, &project.features),
@@ -190,7 +238,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let has_aa_position = request.feature_id.is_some() && request.aa_position.is_some();
         if has_position + has_feature_offset as u8 + has_aa_position as u8 != 1 {
             return Ok(fail(
-                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+                "Provide exactly one of: `position`; `featureId` + `featureOffset`; or `featureId` + `aaPosition`".to_string(),
             ));
         }
 
@@ -201,7 +249,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 ));
             }
             position = pos1 - 1;
-            input_json = serde_json::json!({ "kind": "template", "position": pos1 });
+            input_json = serde_json::json!({ "mode": "position", "position": pos1 });
             codon_positions_opt = None;
         } else if let Some(feature_id) = &request.feature_id {
             let f = features
@@ -224,7 +272,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         }
                         position = pos0;
                         input_json = serde_json::json!({
-                            "kind": "featureOffset",
+                            "mode": "featureOffset",
                             "featureId": feature_id,
                             "featureOffset": offset1,
                         });
@@ -237,7 +285,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     Ok((positions, codon, aa)) => {
                         position = positions[0];
                         input_json = serde_json::json!({
-                            "kind": "aminoAcid",
+                            "mode": "aminoAcid",
                             "featureId": feature_id,
                             "aaPosition": aa1,
                             "codon": codon,
@@ -250,12 +298,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             } else {
                 // Unreachable because of the mutual-exclusion check above.
                 return Ok(fail(
-                    "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+                    "Provide exactly one of: `position`; `featureId` + `featureOffset`; or `featureId` + `aaPosition`".to_string(),
                 ));
             }
         } else {
             return Ok(fail(
-                "Provide exactly one of: `position`; `feature_id` + `feature_offset`; or `feature_id` + `aa_position`".to_string(),
+                "Provide exactly one of: `position`; `featureId` + `featureOffset`; or `featureId` + `aaPosition`".to_string(),
             ));
         }
 
@@ -267,13 +315,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         let bases = libregene_core::digest::read_sequence_bases(&project, ws, we)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let base = sequence[position as usize..position as usize + 1].to_ascii_uppercase();
         let mut v = serde_json::json!({
+            "ok": true,
+            "message": format!("Position {} = {}", position + 1, base),
             "projectId": id,
+            "unit": unit,
+            "mode": input_json["mode"],
             "input": input_json,
             "position": position + 1,
-            "base": sequence[position as usize..position as usize + 1].to_ascii_uppercase(),
+            "base": base,
             "features": ctx["features"],
             "translations": ctx["translations"],
+            "start": ws + 1,
+            "end": we + 1,
+            "length": bases.len(),
             "sequence": bases,
             "text": text,
         });
@@ -292,7 +348,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
         let hashes = self.project_seq_hashes(&id).await;
-        let matches = crate::do_search_sequence(&self.pm, &id, request.query)
+        let query = request.query;
+        let palindromic = {
+            let upper = query.to_ascii_uppercase();
+            upper == libregene_core::utils::reverse_complement(&upper)
+        };
+        let matches = crate::do_search_sequence(&self.pm, &id, query.clone())
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
         let matches: Vec<serde_json::Value> = matches
@@ -305,7 +366,26 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 })
             })
             .collect();
-        let mut v = serde_json::json!({ "projectId": id, "matches": matches });
+        let count = matches.len();
+        let mut v = serde_json::json!({
+            "ok": true,
+            "message": format!("{} match(es) for '{}'", count, query),
+            "projectId": id,
+            "query": query,
+            "matchCount": count,
+            "searchedStrands": if palindromic { "plus" } else { "both" },
+            "matches": matches,
+        });
+        if !palindromic
+            && v["matches"]
+                .as_array()
+                .is_some_and(|m| m.iter().any(|h| h["strand"] == -1))
+        {
+            push_note(
+                &mut v,
+                "Both strands matched. If the query is one arm of a self-complementary target (e.g. an shRNA stem), the plus-strand and minus-strand hits are the two arms — not a duplicated sequence.",
+            );
+        }
         if let Some(h) = &hashes {
             insert_seq_hashes(&mut v, h);
         }
@@ -418,8 +498,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     if circular { x.rem_euclid(tlen) } else { x }
                 };
                 sites.sort_by_key(|e| wrap(e.rec_start));
+                let site_count = sites.len();
                 serde_json::json!({
                     "name": n,
+                    "siteCount": site_count,
                     "sites": sites.iter().map(|e| {
                         let rec_start = to1(wrap(e.rec_start));
                         let rec_end = to1(wrap(e.rec_end));
@@ -455,7 +537,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             "recSeq": e.rec_seq,
                             "strand": e.recognition_strand,
                             "cuts": cuts,
-                            "cutsOutsideRecognitionSite": outside,
+                            "hasCutsOutsideRecognitionSite": outside,
                             "methylationBlocked": e.methylation_blocked,
                             "unique": e.is_unique,
                         });
@@ -475,12 +557,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         for n in &no_site {
             enzymes_json.push(serde_json::json!({
                 "name": n,
+                "siteCount": 0,
                 "sites": [],
                 "note": "enzyme exists in the enzyme database but has no recognition site on this sequence",
             }));
         }
         enzymes_json.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
-        let mut resp = serde_json::json!({ "projectId": id, "enzymes": enzymes_json });
+        let enzyme_count = enzymes_json.len();
+        let mut resp = serde_json::json!({
+            "ok": true,
+            "message": format!("{} enzyme(s) reported on {} {}", enzyme_count, project.length, unit_for(&project.molecule_type)),
+            "projectId": id,
+            "unit": unit_for(&project.molecule_type),
+            "enzymeCount": enzyme_count,
+            "enzymes": enzymes_json,
+        });
         insert_seq_hashes(&mut resp, &hashes);
         if !unknown.is_empty() {
             resp["unknownEnzymes"] = unknown
@@ -488,7 +579,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .map(|(n, sugg)| {
                     serde_json::json!({
                         "name": n,
-                        "error": format!("Unknown enzyme '{}': not in the enzyme database", n),
+                        "message": format!("Unknown enzyme '{}': not in the enzyme database", n),
                         "similar": sugg,
                     })
                 })
@@ -503,7 +594,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project_light(request.project_id).await?;
         let tlen = project.length;
-        let circular = project.topology == "circular";
+        let topology = project.topology.as_str();
         let primers: Vec<serde_json::Value> = project
             .primers
             .iter()
@@ -511,27 +602,28 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let sites: Vec<serde_json::Value> = p
                     .binding_sites
                     .iter()
-                    .map(|s| {
-                        let mut site = serde_json::json!({
-                            "strand": s.strand,
-                            "templateStart": s.template_start,
-                            "templateEnd": s.template_end,
-                        });
-                        site_json_to_1based(&mut site, tlen, circular);
-                        site
-                    })
+                    .map(|s| primer_site_json(&project.sequence, topology, &p.primer_seq, s, tlen))
                     .collect();
                 serde_json::json!({
                     "id": p.id,
                     "name": p.name,
                     "type": p.r#type,
                     "seq": p.primer_seq,
+                    "length": p.primer_seq.len(),
                     "bindingSiteCount": p.binding_sites.len(),
                     "sites": sites,
                 })
             })
             .collect();
-        let mut v = serde_json::json!({ "projectId": id, "primers": primers });
+        let count = primers.len();
+        let mut v = serde_json::json!({
+            "ok": true,
+            "message": format!("{} primer(s)", count),
+            "projectId": id,
+            "unit": unit_for(&project.molecule_type),
+            "primerCount": count,
+            "primers": primers,
+        });
         insert_seq_hashes(
             &mut v,
             &libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type),
@@ -545,13 +637,23 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let id = self.require_dna_project(request.project_id).await?;
         let seq_hashes = self.project_seq_hashes(&id).await;
+        let min_aa = request.min_aa;
         let orfs = crate::do_find_orfs(&self.pm, &id, request.min_aa)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         if !request.add_as_features.unwrap_or(false) {
             let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
-            let mut v = serde_json::json!({ "projectId": id, "orfs": orfs_json });
+            let count = orfs_json.len();
+            let mut v = serde_json::json!({
+                "ok": true,
+                "message": format!("{} ORF(s) found", count),
+                "projectId": id,
+                "unit": "bp",
+                "minAa": min_aa,
+                "orfCount": count,
+                "orfs": orfs_json,
+            });
             if let Some(h) = &seq_hashes {
                 insert_seq_hashes(&mut v, h);
             }
@@ -559,11 +661,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         self.require_agent_tab(&id).await?;
         if orfs.is_empty() {
-            let mut v = serde_json::json!({
-                "ok": true,
-                "message": "No ORFs found",
-                "projectId": id,
-            });
+            let mut v = ok_envelope(&id, "No ORFs found", None);
+            v["unit"] = serde_json::json!("bp");
+            v["featureCount"] = serde_json::json!(0);
             if let Some(h) = &seq_hashes {
                 insert_seq_hashes(&mut v, h);
             }
@@ -571,6 +671,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         let min_s = orfs.iter().map(|f| f.start).min().unwrap_or(0);
         let max_e = orfs.iter().map(|f| f.end).max().unwrap_or(0);
+        let feature_count = orfs.len();
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
@@ -590,11 +691,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(Json(v));
         }
         let region = self.digest_region(&id, Some((min_s, max_e)), true).await;
-        let mut v = ok_envelope(&id, "Added ORFs as CDS features".to_string(), region);
+        let mut v = ok_envelope(&id, format!("Added {} ORF(s) as CDS features", feature_count), region);
+        v["unit"] = serde_json::json!("bp");
+        v["featureCount"] = serde_json::json!(feature_count);
         if let Some(h) = &seq_hashes {
             insert_seq_hashes(&mut v, h);
         }
         Ok(Json(v))
     }
-
 }

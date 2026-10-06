@@ -29,7 +29,7 @@ use libregene_core::models::Segment;
             .unwrap();
         let v = out.0;
         assert_eq!(v["projectId"], "coord_test", "{v}");
-        assert_eq!(v["input"]["kind"], "template", "{v}");
+        assert_eq!(v["input"]["mode"], "position", "{v}");
         assert_eq!(v["input"]["position"], 2, "{v}");
         assert_eq!(v["position"], 2, "{v}");
         assert_eq!(v["base"], "T", "{v}");
@@ -48,7 +48,7 @@ use libregene_core::models::Segment;
             .await
             .unwrap();
         let v = out.0;
-        assert_eq!(v["input"]["kind"], "featureOffset", "{v}");
+        assert_eq!(v["input"]["mode"], "featureOffset", "{v}");
         assert_eq!(v["position"], 2, "{v}");
         assert_eq!(v["features"][0]["featureOffset"], 2, "{v}");
 
@@ -63,7 +63,7 @@ use libregene_core::models::Segment;
             .await
             .unwrap();
         let v = out.0;
-        assert_eq!(v["input"]["kind"], "aminoAcid", "{v}");
+        assert_eq!(v["input"]["mode"], "aminoAcid", "{v}");
         assert_eq!(v["input"]["aaPosition"], 2, "{v}");
         assert_eq!(v["position"], 4, "{v}");
         assert_eq!(v["base"], "G", "{v}");

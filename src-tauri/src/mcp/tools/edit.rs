@@ -8,7 +8,7 @@ use libregene_core::models::{Feature, Segment};
 
 use crate::mcp::LibreGeneMcp;
 use crate::mcp::next_id;
-use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, to1};
+use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, push_note, to1, unit_for};
 use crate::mcp::types::{EditSequenceRequest, FeatureSegmentSpec, SetFeatureRequest};
 
 /// `removedFeatures`/`clippedFeatures` echo for edit_sequence, 1-based
@@ -175,20 +175,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path) {
             (Some(_), Some(_)) => {
                 return Ok(fail(
-                    "Provide exactly one of `replacement` or `replacement_path`, not both"
+                    "Provide exactly one of `replacement` or `replacementPath`, not both"
                         .to_string(),
                 ));
             }
             (None, None) => {
                 return Ok(fail(
-                    "Provide exactly one of `replacement` (sequence string, empty = delete) or `replacement_path` (sequence file)"
+                    "Provide exactly one of `replacement` (sequence string, empty = delete) or `replacementPath` (sequence file)"
                         .to_string(),
                 ));
             }
             (Some(s), None) => (s, None),
             (None, Some(path)) => {
                 crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
-                    ErrorData::invalid_params(format!("invalid replacement_path: {}", e), None)
+                    ErrorData::invalid_params(format!("invalid replacementPath: {}", e), None)
                 })?;
                 let parsed = tokio::task::spawn_blocking(move || {
                     libregene_core::file_io::parse_file(std::path::Path::new(&path))
@@ -204,13 +204,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         // would corrupt the sequence).
                         if project.molecule_type == "protein" && data.molecule_type != "protein" {
                             return Ok(fail(format!(
-                                "replacement_path is a {} file but the project is protein — pass a protein file (.gpt/.prot)",
+                                "replacementPath is a {} file but the project is protein — pass a protein file (.gpt/.prot)",
                                 data.molecule_type
                             )));
                         }
                         if project.molecule_type != "protein" && data.molecule_type == "protein" {
                             return Ok(fail(
-                                "replacement_path is a protein file (.gpt/.prot) but the project is DNA/RNA — pass a nucleotide sequence file".to_string(),
+                                "replacementPath is a protein file (.gpt/.prot) but the project is DNA/RNA — pass a nucleotide sequence file".to_string(),
                             ));
                         }
                         (
@@ -346,7 +346,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     let mut v = fail_envelope(
                         &id,
                         format!(
-                            "expected_old mismatch at content position {} (1-based, within [{}..{}]): expected context '{}' vs current context '{}'",
+                            "expectedOld mismatch at content position {} (1-based, within [{}..{}]): expected context '{}' vs current context '{}'",
                             diff_at + 1,
                             u_start,
                             u_end,
@@ -367,10 +367,18 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 }
             }
 
-            let context_before =
-                p.sequence[(start - 30).max(0) as usize..start as usize].to_string();
-            let context_after_end = (end + 1 + 30).min(p.length) as usize;
-            let context_after = p.sequence[(end + 1) as usize..context_after_end].to_string();
+            // Flanking context, 1-based inclusive spans so the caller never has
+            // to derive them from the edit coordinates.
+            let cb_lo = (start - 30).max(0);
+            let cb = p.sequence[cb_lo as usize..start as usize].to_string();
+            let context_before = (!cb.is_empty()).then(|| {
+                serde_json::json!({ "start": cb_lo + 1, "end": start, "sequence": cb })
+            });
+            let ca_hi = (end + 1 + 30).min(p.length);
+            let ca = p.sequence[(end + 1) as usize..ca_hi as usize].to_string();
+            let context_after = (!ca.is_empty()).then(|| {
+                serde_json::json!({ "start": end + 2, "end": ca_hi, "sequence": ca })
+            });
 
             // Side effects on features, derived from the pre-edit list with
             // the same span math as the adjust below.
@@ -454,11 +462,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let repl_len = replacement.len() as i64;
-        let unit = match project.molecule_type.as_str() {
-            "rna" => "nt",
-            "protein" => "aa",
-            _ => "bp",
-        };
+        let unit = unit_for(&project.molecule_type);
         let new_win = (
             (start - 30).max(0),
             (start + repl_len + 30 - 1).min(new_len - 1),
@@ -522,13 +526,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 len
             ),
             "projectId": id,
+            "unit": unit,
             "oldLength": len,
             "newLength": new_len,
-            "contextBefore": context_before,
-            "contextAfter": context_after,
             "removedFeatures": removed_json,
             "clippedFeatures": clipped_json,
         });
+        // Flanking context, 1-based inclusive spans; omitted at the sequence
+        // ends (nothing to show).
+        if let Some(ctx) = context_before {
+            v["contextBefore"] = ctx;
+        }
+        if let Some(ctx) = context_after {
+            v["contextAfter"] = ctx;
+        }
         if !content_changed_features.is_empty() {
             v["contentChangedFeatures"] = serde_json::json!(content_changed_features);
         }
@@ -539,13 +550,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             v["transferredPrimers"] = serde_json::json!(transferred_primer_names);
         }
         if let Some(note) = alphabet_note {
-            v["note"] = serde_json::json!(note);
+            push_note(&mut v, note);
         }
         if let Some(rv) = old_region {
-            v["regionViewBefore"] = serde_json::json!(rv);
+            v["textBefore"] = serde_json::json!(rv);
         }
         if let Some(rv) = new_region {
-            v["regionView"] = serde_json::json!(rv);
+            v["text"] = serde_json::json!(rv);
         }
         insert_seq_hashes(
             &mut v,
@@ -651,9 +662,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             if let Some(err) = Self::payload_error(&payload) {
                 return Ok(fail(err));
             }
-            let message = {
+            let (message, unit) = {
                 let pm = self.pm.read().await;
-                pm.get_project_by_id(&id)
+                let unit = pm
+                    .get_project_by_id(&id)
+                    .map(|p| unit_for(&p.molecule_type))
+                    .unwrap_or("bp");
+                let message = pm
+                    .get_project_by_id(&id)
                     .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
                     .map(|f| {
                         format!(
@@ -665,10 +681,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             f.strand
                         )
                     })
-                    .unwrap_or_else(|| format!("Updated feature {}", feature_id))
+                    .unwrap_or_else(|| format!("Updated feature {}", feature_id));
+                (message, unit)
             };
             let region = self.digest_feature_region(&id, &feature_id).await;
             let mut v = ok_envelope(&id, message, region);
+            v["unit"] = serde_json::json!(unit);
+            v["featureId"] = serde_json::json!(feature_id);
             if let Some(h) = &seq_hashes {
                 insert_seq_hashes(&mut v, h);
             }
@@ -680,7 +699,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             Some(n) if !n.is_empty() => n,
             _ => {
                 return Ok(fail(
-                    "name is required when creating a feature (omit feature_id = create; pass feature_id to update)".to_string(),
+                    "name is required when creating a feature (omit featureId = create; pass featureId to update)".to_string(),
                 ))
             }
         };
@@ -688,7 +707,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             Some(t) if !t.is_empty() => t,
             _ => {
                 return Ok(fail(
-                    "ftype is required when creating a feature (omit feature_id = create; pass feature_id to update)".to_string(),
+                    "ftype is required when creating a feature (omit featureId = create; pass featureId to update)".to_string(),
                 ))
             }
         };
@@ -743,6 +762,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             region,
         );
         v["featureId"] = serde_json::json!(feature_id);
+        v["unit"] = serde_json::json!(self
+            .pm
+            .read()
+            .await
+            .get_project_by_id(&id)
+            .map(|p| unit_for(&p.molecule_type))
+            .unwrap_or("bp"));
         if let Some(h) = &seq_hashes {
             insert_seq_hashes(&mut v, h);
         }

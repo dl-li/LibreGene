@@ -9,7 +9,7 @@ use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite, Project
 
 use crate::mcp::LibreGeneMcp;
 use super::convert::output_project_name;
-use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope};
+use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, unit_for};
 use crate::mcp::types::{CloseProjectRequest, OpenProjectRequest, RegionSpec, SaveFileRequest};
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ fn resolve_primer_binding_site(
         })
 }
 
-/// Bounding box for the export regionView digest. min/max over all pieces:
+/// Bounding box for the export `text` digest. min/max over all pieces:
 /// first/last is wrong for multi-segment minus-strand features, whose pieces
 /// come back from `resolve_export_region` in descending order. On circular
 /// templates, pieces that straddle the origin ((s, len-1) + (0, e)) collapse
@@ -225,7 +225,7 @@ pub(crate) fn resolve_export_region(
         .count();
     if active != 1 {
         return Err(
-            "exactly one region selector required: (start+end), (feature_id), (enzyme1+enzyme2 | cut1+cut2), or (fwd_primer+rev_primer)"
+            "exactly one region selector required: (start+end), (featureId), (enzyme1+enzyme2 | cut1+cut2), or (fwdPrimer+revPrimer)"
                 .to_string(),
         );
     }
@@ -392,7 +392,7 @@ pub(crate) fn resolve_export_region(
     let rev = req.rev_primer.as_deref().unwrap_or("");
     if fwd.is_empty() || rev.is_empty() {
         return Err(
-            "fwd_primer and rev_primer are both required (name or sequence)".to_string(),
+            "fwdPrimer and revPrimer are both required (name or sequence)".to_string(),
         );
     }
     let fsite = resolve_primer_binding_site(project, fwd, 1, "fwd primer")?;
@@ -679,7 +679,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
         let summary = self.project_summary(&id).await.unwrap_or_else(|| format!("Opened {}", id));
         let region = self.digest_region(&id, None, true).await;
+        let unit = self
+            .pm
+            .read()
+            .await
+            .get_project_by_id(&id)
+            .map(|p| crate::mcp::support::unit_for(&p.molecule_type))
+            .unwrap_or("bp");
         let mut v = ok_envelope(&id, summary, region);
+        v["unit"] = serde_json::json!(unit);
+        v["locked"] = serde_json::json!(true);
         if let Some(h) = self.project_seq_hashes(&id).await {
             insert_seq_hashes(&mut v, &h);
         }
@@ -713,6 +722,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             ));
         }
 
+        let unit = unit_for(&project.molecule_type);
+
         let Some(spec) = request.region else {
             // Whole-project save.
             let payload = crate::do_save_file(&self.pm, id.clone(), path.clone())
@@ -726,6 +737,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let region = self.digest_region(&id, None, true).await;
             let mut env = ok_envelope(&id, format!("Saved {}", path), region);
             insert_seq_hashes(&mut env, &seq_hashes);
+            env["unit"] = serde_json::json!(unit);
+            env["path"] = serde_json::json!(path);
+            env["length"] = serde_json::json!(project.length);
             if let Some(b) = bytes_written {
                 env["bytesWritten"] = serde_json::json!(b);
             }
@@ -752,11 +766,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
             )));
         }
-        let unit = match project.molecule_type.as_str() {
-            "rna" => "nt",
-            "protein" => "aa",
-            _ => "bp",
-        };
+        let unit = unit_for(&project.molecule_type);
 
         // Region start/end arrive 1-based inclusive; convert to the internal
         // 0-based model. cut1/cut2 stay raw — resolve_export_region validates
@@ -813,8 +823,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             format!("Exported {} ({} {}) to {}", desc, length, unit, message_path),
             region,
         );
-        v["outputPath"] = serde_json::json!(message_path);
+        v["unit"] = serde_json::json!(unit);
+        v["path"] = serde_json::json!(message_path);
         v["length"] = serde_json::json!(length);
+        v["primerCount"] = serde_json::json!(primer_names.len());
+        if let Some(bytes) = std::fs::metadata(&message_path).ok().map(|m| m.len()) {
+            v["bytesWritten"] = serde_json::json!(bytes);
+        }
         if !primer_names.is_empty() {
             v["primers"] = serde_json::json!(primer_names);
         }
@@ -853,11 +868,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             return Ok(Json(v));
         }
-        let mut v = serde_json::json!({
-            "ok": true,
-            "message": format!("Closed project {}", id),
-            "projectId": id,
-        });
+        let mut v = ok_envelope(&id, format!("Closed project {}", id), None);
         if let Some(h) = &hashes {
             insert_seq_hashes(&mut v, h);
         }

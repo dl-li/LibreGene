@@ -1,4 +1,7 @@
 //! Primer MCP tools: add_primer, design_primers, check_primer_binding.
+//!
+//! The three tools report primer binding sites in one shape (see
+//! `support::primer_site_json`), and every Tm is °C rounded to 0.1.
 
 use rmcp::{ErrorData, handler::server::wrapper::Json};
 use tauri::Runtime;
@@ -7,7 +10,10 @@ use libregene_core::models::Primer;
 
 use crate::mcp::LibreGeneMcp;
 use crate::mcp::next_id;
-use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, site_json_to_1based, to1};
+use crate::mcp::support::{
+    fail_envelope, from1, insert_seq_hashes, ok_envelope, primer_site_json, push_note,
+    push_warning, rename_key, round1, site_json_to_1based, to1, unit_for,
+};
 use crate::mcp::types::{AddPrimerRequest, CheckPrimerBindingRequest, DesignPrimersRequest};
 
 /// analyze_mutagenesis reports internal 0-based coordinates; bump the
@@ -15,7 +21,8 @@ use crate::mcp::types::{AddPrimerRequest, CheckPrimerBindingRequest, DesignPrime
 /// inclusive MCP convention. `codonIndex` becomes 1-based within the CDS
 /// (then equal to `aaPosition1Based`); `aaPosition1Based`/
 /// `aaPositionExcludingMet` are amino-acid numbering (already 1-based
-/// conventions) and stay untouched.
+/// conventions) and stay untouched. The block-level `warning` is hoisted to
+/// the response's `warnings` array by the caller.
 fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAnalysis) -> serde_json::Value {
     let mut v = serde_json::to_value(info).unwrap_or_default();
     v["segStart"] = serde_json::json!(to1(info.seg_start));
@@ -41,7 +48,7 @@ fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAna
 /// of silently producing the wrong amino acid.
 fn orientation_hint(info: &libregene_core::primer::design::MutagenesisAnalysis) -> String {
     let base = format!(
-        "mut_seq was applied as the PLUS-strand (top-strand) content of seg {}..{}.",
+        "mutSeq was applied as the PLUS-strand (top-strand) content of seg {}..{}.",
         info.seg_start + 1,
         info.seg_end + 1
     );
@@ -52,7 +59,7 @@ fn orientation_hint(info: &libregene_core::primer::design::MutagenesisAnalysis) 
                 .map(|p| p.to_string())
                 .unwrap_or_else(|| cds.aa_position_1_based.to_string());
             format!(
-                "{} CDS '{}' is on the MINUS strand: the coding-strand effect is the reverse complement of the plus-strand edit — codonAfter '{}' = {} at aa {}. If {} is NOT the amino acid you intended, you most likely passed CODING-strand sequence as mut_seq; reverse-complement it and retry.",
+                "{} CDS '{}' is on the MINUS strand: the coding-strand effect is the reverse complement of the plus-strand edit — codonAfter '{}' = {} at aa {}. If {} is NOT the amino acid you intended, you most likely passed CODING-strand sequence as mutSeq; reverse-complement it and retry.",
                 base, cds.name, cds.codon_after, cds.aa_after, aa_pos, cds.aa_after
             )
         }
@@ -120,6 +127,61 @@ fn resolve_enzyme_site(name: &str) -> Result<String, String> {
     }
 }
 
+/// Map one shared-core candidate to the unified MCP candidate shape: `id`
+/// (stable within the response, e.g. "fwd-1"), `recommended`, and the
+/// `...Length`/`gcPercent` naming.
+fn candidate_json(candidate: &serde_json::Value, group_type: &str, index: usize, default_index: usize) -> serde_json::Value {
+    let mut c = candidate.clone();
+    rename_key(&mut c, "tailLen", "tailLength");
+    rename_key(&mut c, "annealLen", "annealLength");
+    rename_key(&mut c, "designedAnnealLen", "designedAnnealLength");
+    if let Some(gc) = c.get("gc").and_then(|v| v.as_f64()) {
+        c["gcPercent"] = serde_json::json!(round1(gc));
+        if let Some(obj) = c.as_object_mut() {
+            obj.remove("gc");
+        }
+    }
+    if let Some(tm) = c.get("tm").and_then(|v| v.as_f64()) {
+        c["tm"] = serde_json::json!(round1(tm));
+    }
+    if let Some(tm) = c.get("designedTm").and_then(|v| v.as_f64()) {
+        c["designedTm"] = serde_json::json!(round1(tm));
+    }
+    c["id"] = serde_json::json!(format!("{}-{}", group_type, index + 1));
+    c["recommended"] = serde_json::json!(index == default_index);
+    c
+}
+
+/// Map one primer-design group to `{name, type, recommendedIndex, candidates}`
+/// with unified candidate fields.
+fn group_json(group: &libregene_core::primer::design::PrimerGroup) -> serde_json::Value {
+    let default_index = group.default_index;
+    let candidates: Vec<serde_json::Value> = group
+        .candidates
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let raw = serde_json::to_value(c).unwrap_or_default();
+            candidate_json(&raw, &group.r#type, i, default_index)
+        })
+        .collect();
+    serde_json::json!({
+        "name": group.name,
+        "type": group.r#type,
+        "recommendedIndex": default_index,
+        "candidates": candidates,
+    })
+}
+
+/// The best binding site of a result entry on the wanted strand (sites are
+/// best-first). `want` is 1 (forward) or -1 (reverse).
+fn best_site_on_strand(result: &serde_json::Value, want: i64) -> Option<&serde_json::Value> {
+    result
+        .get("sites")
+        .and_then(|s| s.as_array())
+        .and_then(|sites| sites.iter().find(|s| s["strand"].as_i64() == Some(want)))
+}
+
 impl<R: Runtime> LibreGeneMcp<R> {
     pub(crate) async fn add_primer_impl(
         &self,
@@ -130,6 +192,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let seq_hashes = self.project_seq_hashes(&id).await;
         let primer_id = next_id("primer");
         let name = request.name.clone();
+        let primer_type = request.r#type.clone();
         let clean_seq = match clean_primer_input(&request.name, &request.r#type, &request.seq) {
             Ok(s) => s,
             Err(e) => {
@@ -144,7 +207,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             id: primer_id.clone(),
             name: request.name,
             r#type: request.r#type,
-            primer_seq: clean_seq,
+            primer_seq: clean_seq.clone(),
             binding_sites: Vec::new(),
         };
         let payload = crate::do_add_primer(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None, &id, primer)
@@ -157,39 +220,47 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             return Ok(Json(v));
         }
-        let (sites, region) = {
+        let (sites, region, unit) = {
             let pm = self.pm.read().await;
-            let project = pm.get_project_by_id(&id);
-            let primer = project.and_then(|p| p.primers.iter().find(|pr| pr.id == primer_id));
-            match (project, primer) {
-                (Some(p), Some(pr)) => {
-                    let sites: Vec<serde_json::Value> = pr
-                        .binding_sites
+            match pm.get_project_by_id(&id) {
+                Some(p) => {
+                    let sites: Vec<serde_json::Value> = p
+                        .primers
                         .iter()
-                        .map(|s| {
-                            let mut site = serde_json::json!({
-                                "strand": s.strand,
-                                "templateStart": s.template_start,
-                                "templateEnd": s.template_end,
-                                "tm": (s.tm * 10.0).round() / 10.0,
-                                "3PrimeMismatch": s.has_3_prime_mismatch,
-                                "annealLen": libregene_core::primer::align::anneal_len(
-                                    &p.sequence, &p.topology, &pr.primer_seq, s,
-                                ),
-                            });
-                            site_json_to_1based(&mut site, p.length, p.topology == "circular");
-                            site
+                        .find(|pr| pr.id == primer_id)
+                        .map(|pr| {
+                            pr.binding_sites
+                                .iter()
+                                .map(|s| {
+                                    primer_site_json(
+                                        &p.sequence,
+                                        &p.topology,
+                                        &pr.primer_seq,
+                                        s,
+                                        p.length,
+                                    )
+                                })
+                                .collect()
                         })
-                        .collect();
-                    let region = pr.binding_sites.first().map(|s| {
-                        (
-                            (s.template_start - 10).max(0),
-                            (s.template_end - 1 + 10).min(p.length - 1),
-                        )
-                    });
-                    (sites, region)
+                        .unwrap_or_default();
+                    let region = p
+                        .primers
+                        .iter()
+                        .find(|pr| pr.id == primer_id)
+                        .and_then(|pr| pr.binding_sites.first())
+                        .map(|s| {
+                            (
+                                (s.template_start - 10).max(0),
+                                (s.template_end - 1 + 10).min(p.length - 1),
+                            )
+                        });
+                    let unit = unit_for(&p.molecule_type);
+                    match region {
+                        Some(r) => (sites, Some(r), unit),
+                        None => (sites, None, unit),
+                    }
                 }
-                _ => (Vec::new(), None),
+                None => (Vec::new(), None, "bp"),
             }
         };
         let region_view = match region {
@@ -201,7 +272,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             format!("Added primer {} ({} binding site(s))", name, sites.len()),
             region_view,
         );
-        env["bindingSites"] = serde_json::json!(sites);
+        env["unit"] = serde_json::json!(unit);
+        env["primerId"] = serde_json::json!(primer_id);
+        env["name"] = serde_json::json!(name);
+        env["type"] = serde_json::json!(primer_type);
+        env["seq"] = serde_json::json!(clean_seq);
+        env["length"] = serde_json::json!(clean_seq.len());
+        env["bindingSiteCount"] = serde_json::json!(sites.len());
+        env["sites"] = serde_json::json!(sites);
         if let Some(h) = &seq_hashes {
             insert_seq_hashes(&mut env, h);
         }
@@ -221,6 +299,28 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             Json(v)
         };
+        let mode = request.mode.clone();
+        // Parameters that only apply to another mode are reported instead of
+        // being silently dropped (a caller that misread the mode would
+        // otherwise wonder why its names/enzymes never showed up).
+        let mut ignored: Vec<&str> = Vec::new();
+        if mode != "oepcr"
+            && (request.name1.is_some() || request.name2.is_some() || request.seg2.is_some())
+        {
+            ignored.push("name1/name2/seg2 apply to oepcr mode only — ignored");
+        }
+        if mode != "amplify"
+            && (request.fwd_enzyme.is_some()
+                || request.rev_enzyme.is_some()
+                || request.protect_bases.is_some())
+        {
+            ignored.push("fwdEnzyme/revEnzyme/protectBases apply to amplify mode only — ignored");
+        }
+        if mode != "mutagenesis"
+            && (request.mut_seq.is_some() || request.site_name.is_some() || request.arm_len.is_some())
+        {
+            ignored.push("mutSeq/siteName/armLen apply to mutagenesis mode only — ignored");
+        }
         let seg = request.seg.map(|s| libregene_core::models::Segment {
             start: from1(s.start),
             end: from1(s.end),
@@ -325,6 +425,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
 
         let mut mutation_info = None;
+        let mut mutation_warning = None;
         if request.mode == "mutagenesis" {
             let (sequence, features) = {
                 let pm = self.pm.read().await;
@@ -342,7 +443,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 request.mut_seq.as_deref().unwrap_or(""),
                 &features,
             ) {
-                Ok(info) => mutation_info = Some(mutagenesis_json_1based(&info)),
+                Ok(info) => {
+                    if let Some(w) = info.warning.clone() {
+                        mutation_warning = Some(w);
+                    }
+                    mutation_info = Some(mutagenesis_json_1based(&info));
+                }
                 Err(e) => {
                     // analyze_mutagenesis reports internal 0-based seg
                     // coordinates; restate them 1-based inclusive for the
@@ -393,19 +499,31 @@ impl<R: Runtime> LibreGeneMcp<R> {
         )
         .await
         .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let groups_json: Vec<serde_json::Value> = groups.iter().map(group_json).collect();
         let mut v = serde_json::json!({
+            "ok": true,
+            "message": format!("{} primer group(s) designed ({} mode)", groups_json.len(), mode),
             "projectId": id,
-            "groups": groups,
-            "tmBasis": "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLen/Tm (expected for tailed primers — see check_primer_binding per-site alignedTemplate/matchMask)",
+            "mode": mode,
+            "groups": groups_json,
+            "tmBasis": "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLength/Tm (expected for tailed primers — see check_primer_binding per-site alignedTemplate/matchMask)",
         });
+        for note in ignored {
+            push_note(&mut v, note);
+        }
         if let Some(info) = mutation_info {
             v["mutation"] = info;
         }
+        if let Some(w) = mutation_warning {
+            push_warning(&mut v, w);
+        }
         if mode_is_amplify {
             v["internalSites"] = serde_json::json!(internal_sites);
+            v["internalSiteCount"] = serde_json::json!(internal_sites.len());
             if !internal_sites.is_empty() {
-                v["warning"] = serde_json::json!(
-                    "The enzyme recognition site occurs inside the amplified segment; digestion will cut the product"
+                push_warning(
+                    &mut v,
+                    "The enzyme recognition site occurs inside the amplified segment; digestion will cut the product",
                 );
             }
             if let Some((ss, se)) = seg_bounds {
@@ -478,6 +596,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let id = self.require_dna_project(request.project_id).await?;
         let seq_hashes = self.project_seq_hashes(&id).await;
         let mut primers: Vec<Primer> = Vec::with_capacity(request.primers.len());
+        let mut inputs: Vec<(String, String, usize)> = Vec::with_capacity(request.primers.len());
         for p in request.primers {
             let clean_seq = match clean_primer_input(&p.name, &p.r#type, &p.seq) {
                 Ok(s) => s,
@@ -489,6 +608,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     return Ok(Json(v));
                 }
             };
+            inputs.push((p.name.clone(), p.r#type.clone(), clean_seq.len()));
             primers.push(Primer {
                 id: p.name.clone(),
                 name: p.name,
@@ -500,37 +620,95 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let payload = crate::do_check_primers_binding(&self.pm, &id, primers)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
-        let (tlen, circular) = {
+        let (tlen, topology) = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
-                .map(|p| (p.length, p.topology == "circular"))
+                .map(|p| (p.length, p.topology.clone()))
                 .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?
         };
+        let circular = topology == "circular";
         let mut v = payload;
-        // The core reports internal 0-based coordinates; convert every site's
-        // templateStart/templateEnd to the 1-based inclusive MCP convention.
+        // The core reports internal 0-based coordinates and its own field
+        // names; convert every site to the unified 1-based site shape, and add
+        // the caller-facing identity of each primer (the core echoes only the
+        // id it received).
         if let Some(results) = v.get_mut("results").and_then(|r| r.as_array_mut()) {
-            for result in results.iter_mut() {
-                if let Some(site) = result.get_mut("site") {
-                    if !site.is_null() {
-                        site_json_to_1based(site, tlen, circular);
-                    }
+            for (i, result) in results.iter_mut().enumerate() {
+                if let Some((name, ty, plen)) = inputs.get(i) {
+                    result["name"] = serde_json::json!(name);
+                    result["type"] = serde_json::json!(ty);
+                    result["primerLength"] = serde_json::json!(plen);
                 }
-                if let Some(sites) = result.get_mut("sites").and_then(|s| s.as_array_mut()) {
-                    for site in sites.iter_mut() {
-                        site_json_to_1based(site, tlen, circular);
+                for key in ["site", "sites"] {
+                    match result.get_mut(key) {
+                        Some(serde_json::Value::Array(sites)) => {
+                            for site in sites.iter_mut() {
+                                remap_site(site, tlen, circular);
+                            }
+                        }
+                        Some(site) if !site.is_null() => remap_site(site, tlen, circular),
+                        _ => {}
                     }
                 }
             }
         }
-        v["projectId"] = serde_json::json!(id);
-        v["tmBasis"] = serde_json::json!(
-            "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLen/Tm (expected for tailed primers — see per-site alignedTemplate/matchMask)"
-        );
-        if let Some(h) = &seq_hashes {
-            insert_seq_hashes(&mut v, h);
+        let mut resp = serde_json::json!({
+            "ok": true,
+            "message": format!("Checked {} primer(s) for binding", inputs.len()),
+            "projectId": id,
+            "tmBasis": "3' continuous match; 5' tail bases that accidentally match the adjacent template are included in annealLength/Tm (expected for tailed primers — see per-site alignedTemplate/matchMask)",
+            "results": v["results"],
+        });
+        // A single fwd + single rev primer define an amplicon: report its size
+        // so the caller does not have to export the product to measure it.
+        if let Some(amp) = amplicon_json(&resp["results"], &inputs, tlen, circular) {
+            resp["amplicon"] = amp;
         }
-        Ok(Json(v))
+        if let Some(h) = &seq_hashes {
+            insert_seq_hashes(&mut resp, h);
+        }
+        Ok(Json(resp))
     }
+}
 
+/// Shared-core site → unified MCP site shape (1-based inclusive).
+fn remap_site(site: &mut serde_json::Value, tlen: i64, circular: bool) {
+    rename_key(site, "annealLen", "annealLength");
+    rename_key(site, "mismatchedTail", "tailLength");
+    if let Some(tm) = site.get("tm").and_then(|v| v.as_f64()) {
+        site["tm"] = serde_json::json!(round1(tm));
+    }
+    site_json_to_1based(site, tlen, circular);
+}
+
+/// `{forwardStart, reverseEnd, length, note}` for the fwd/rev primer pair, when
+/// the request holds exactly one primer of each type and both bind the strand
+/// their role needs. The best (highest-Tm) site per role is used.
+fn amplicon_json(
+    results: &serde_json::Value,
+    inputs: &[(String, String, usize)],
+    tlen: i64,
+    circular: bool,
+) -> Option<serde_json::Value> {
+    if inputs.len() != 2 {
+        return None;
+    }
+    let fwd_idx = inputs.iter().position(|(_, t, _)| t == "fwd")?;
+    let rev_idx = inputs.iter().position(|(_, t, _)| t == "rev")?;
+    let results = results.as_array()?;
+    let fwd_start = best_site_on_strand(results.get(fwd_idx)?, 1)?["templateStart"].as_i64()?;
+    let rev_end = best_site_on_strand(results.get(rev_idx)?, -1)?["templateEnd"].as_i64()?;
+    let length = if circular {
+        (rev_end - fwd_start).rem_euclid(tlen) + 1
+    } else if rev_end >= fwd_start {
+        rev_end - fwd_start + 1
+    } else {
+        return None;
+    };
+    Some(serde_json::json!({
+        "forwardStart": fwd_start,
+        "reverseEnd": rev_end,
+        "length": length,
+        "note": "Length of the fwd/rev primer pair's PCR product (top strand), derived from the best binding site of each primer; binding sites are best-first (Tm descending)",
+    }))
 }

@@ -16,7 +16,7 @@ use libregene_core::models::ProjectData;
             .await
             .unwrap();
         let v = out.0;
-        assert!(v.get("ok").is_none(), "{v}");
+        assert_eq!(v["ok"], true, "{v}");
         let entry = &v["enzymes"][0];
         assert_eq!(entry["name"], "AgeI", "{v}");
         assert_eq!(entry["sites"], serde_json::json!([]), "{v}");
@@ -58,7 +58,7 @@ use libregene_core::models::ProjectData;
             "{v}"
         );
         assert!(
-            v["unknownEnzymes"][0]["error"]
+            v["unknownEnzymes"][0]["message"]
                 .as_str()
                 .unwrap_or("")
                 .contains("not in the enzyme database"),
@@ -116,7 +116,7 @@ use libregene_core::models::ProjectData;
         let site = &v["enzymes"][0]["sites"][0];
         let top = site["cuts"][0]["topCutIndex"].as_i64().unwrap();
         assert!(top > internal.rec_end + 1, "BbsI cuts downstream: {v}");
-        assert_eq!(site["cutsOutsideRecognitionSite"], true, "{v}");
+        assert_eq!(site["hasCutsOutsideRecognitionSite"], true, "{v}");
         assert!(
             site["note"].as_str().unwrap_or("").contains("type IIS"),
             "{v}"
@@ -170,7 +170,7 @@ use libregene_core::models::ProjectData;
         }
         // BbsI genuinely cuts outside its recognition sequence (upstream of a
         // bottom-strand site), so the flag must survive the frame wrap.
-        assert_eq!(site["cutsOutsideRecognitionSite"], true, "{v}");
+        assert_eq!(site["hasCutsOutsideRecognitionSite"], true, "{v}");
     }
 
     #[tokio::test]
@@ -207,5 +207,5 @@ use libregene_core::models::ProjectData;
         assert!((1..=60).contains(&rec_end), "{v}");
         // Origin-spanning recognition reads recStart > recEnd after wrapping.
         assert_eq!((rec_start, rec_end), (56, 1), "{v}");
-        assert_eq!(site["cutsOutsideRecognitionSite"], false, "{v}");
+        assert_eq!(site["hasCutsOutsideRecognitionSite"], false, "{v}");
     }

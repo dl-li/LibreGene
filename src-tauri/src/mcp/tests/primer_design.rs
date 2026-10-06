@@ -231,11 +231,11 @@ use libregene_core::models::ProjectData;
             .find(|g| g["type"] == "fwd")
             .cloned()
             .expect("fwd group");
-        let default_idx = fwd_group["defaultIndex"].as_u64().map(|n| n as usize).unwrap_or(0);
+        let default_idx = fwd_group["recommendedIndex"].as_u64().map(|n| n as usize).unwrap_or(0);
         let cand = &fwd_group["candidates"][default_idx];
         let primer_seq = cand["seq"].as_str().unwrap().to_string();
-        let designed_len = cand["designedAnnealLen"].as_u64().unwrap() as usize;
-        let unified_len = cand["annealLen"].as_u64().unwrap() as usize;
+        let designed_len = cand["designedAnnealLength"].as_u64().unwrap() as usize;
+        let unified_len = cand["annealLength"].as_u64().unwrap() as usize;
         assert!(
             unified_len > designed_len,
             "tail should extend anneal_len: designed={designed_len}, unified={unified_len}"
@@ -255,9 +255,9 @@ use libregene_core::models::ProjectData;
             .unwrap();
         let site = &chk.0["results"][0]["site"];
         assert_eq!(
-            site["annealLen"].as_u64().unwrap() as usize,
+            site["annealLength"].as_u64().unwrap() as usize,
             unified_len,
-            "annealLen mismatch"
+            "annealLength mismatch"
         );
         assert!(
             (site["tm"].as_f64().unwrap() - cand["tm"].as_f64().unwrap()).abs() < 0.05,
@@ -307,11 +307,11 @@ use libregene_core::models::ProjectData;
             .find(|g| g["type"] == "rev")
             .cloned()
             .expect("rev group");
-        let default_idx = rev_group["defaultIndex"].as_u64().map(|n| n as usize).unwrap_or(0);
+        let default_idx = rev_group["recommendedIndex"].as_u64().map(|n| n as usize).unwrap_or(0);
         let cand = &rev_group["candidates"][default_idx];
         let primer_seq = cand["seq"].as_str().unwrap().to_string();
-        let designed_len = cand["designedAnnealLen"].as_u64().unwrap() as usize;
-        let unified_len = cand["annealLen"].as_u64().unwrap() as usize;
+        let designed_len = cand["designedAnnealLength"].as_u64().unwrap() as usize;
+        let unified_len = cand["annealLength"].as_u64().unwrap() as usize;
         assert!(
             unified_len > designed_len,
             "rev tail should extend anneal_len: designed={designed_len}, unified={unified_len}"
@@ -330,9 +330,9 @@ use libregene_core::models::ProjectData;
             .unwrap();
         let site = &chk.0["results"][0]["site"];
         assert_eq!(
-            site["annealLen"].as_u64().unwrap() as usize,
+            site["annealLength"].as_u64().unwrap() as usize,
             unified_len,
-            "annealLen mismatch"
+            "annealLength mismatch"
         );
         assert!(
             (site["tm"].as_f64().unwrap() - cand["tm"].as_f64().unwrap()).abs() < 0.05,

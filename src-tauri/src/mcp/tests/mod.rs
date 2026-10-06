@@ -12,3 +12,4 @@ mod read_sequence;
 mod restriction_sites;
 mod open_close_guards;
 mod regressions;
+mod output_contract;

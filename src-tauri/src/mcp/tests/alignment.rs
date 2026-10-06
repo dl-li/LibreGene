@@ -36,7 +36,7 @@ use crate::mcp::*;
         assert_eq!(
             v["mismatchDetails"],
             serde_json::json!([{
-                "pos": 111,
+                "position": 111,
                 "templateBase": (orig as char).to_string(),
                 "readBase": (flipped as char).to_string(),
             }]),
@@ -127,24 +127,33 @@ use crate::mcp::*;
         // Only the in-window mismatch is detailed; totals stay global.
         let details = v["mismatchDetails"].as_array().unwrap();
         assert_eq!(details.len(), 1, "{v}");
-        assert_eq!(details[0]["pos"], 111, "{v}");
+        assert_eq!(details[0]["position"], 111, "{v}");
         assert_eq!(v["mismatches"], 2, "{v}");
-        // Full read omitted; focused regionView + focus echo present.
+        // Full read omitted; focused text + window echo present.
         assert!(v.get("orientedSequence").is_none(), "{v}");
-        assert!(v.get("regionView").is_some(), "{v}");
-        assert_eq!(v["focus"]["start"], 100, "{v}");
-        assert_eq!(v["focus"]["end"], 120, "{v}");
-        // The out-of-window mismatch is counted in outsideWindow.
+        assert!(v.get("text").is_some(), "{v}");
+        assert_eq!(v["window"]["start"], 100, "{v}");
+        assert_eq!(v["window"]["end"], 120, "{v}");
+        // window counts the in-window mismatch; the top-level total stays global.
+        assert_eq!(v["window"]["mismatches"], 1, "{v}");
         assert_eq!(
-            v["outsideWindow"],
-            serde_json::json!({"mismatches": 1, "deletions": 0, "insertions": 0}),
+            v["window"],
+            serde_json::json!({
+                "start": 100,
+                "end": 120,
+                "featureId": serde_json::Value::Null,
+                "flank": 0,
+                "mismatches": 1,
+                "insertions": 0,
+                "deletions": 0,
+                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total mismatches/insertions/deletions still describe the whole read",
+            }),
             "{v}"
         );
         // The alignments entry mirrors the filtering.
         let entry = &v["alignments"][0];
         assert!(entry.get("orientedSequence").is_none(), "{entry}");
         assert_eq!(entry["mismatchDetails"].as_array().unwrap().len(), 1, "{entry}");
-        assert_eq!(entry["outsideWindow"]["mismatches"], 1, "{entry}");
     }
 
     #[tokio::test]
@@ -176,16 +185,12 @@ use crate::mcp::*;
             .unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "{v}");
-        assert_eq!(v["focus"]["start"], 96, "{v}");
-        assert_eq!(v["focus"]["end"], 116, "{v}");
-        assert_eq!(v["focus"]["featureId"], "f1", "{v}");
+        assert_eq!(v["window"]["start"], 96, "{v}");
+        assert_eq!(v["window"]["end"], 116, "{v}");
+        assert_eq!(v["window"]["featureId"], "f1", "{v}");
+        assert_eq!(v["window"]["mismatches"], 1, "{v}");
+        assert_eq!(v["window"]["flank"], 5, "{v}");
         assert_eq!(v["mismatchDetails"].as_array().unwrap().len(), 1, "{v}");
-        // The only mismatch is inside the window: nothing outside.
-        assert_eq!(
-            v["outsideWindow"],
-            serde_json::json!({"mismatches": 0, "deletions": 0, "insertions": 0}),
-            "{v}"
-        );
 
         // Unknown feature id is rejected before aligning.
         let out = server
@@ -294,7 +299,7 @@ use crate::mcp::*;
 
         let read = template[50..150].to_string();
 
-        // compact=true drops orientedSequence and regionView, keeps coverage.
+        // compact=true drops orientedSequence and text, keeps coverage.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
@@ -309,7 +314,7 @@ use crate::mcp::*;
         let v = out.0;
         assert_eq!(v["ok"], true, "{v}");
         assert!(v.get("orientedSequence").is_none(), "{v}");
-        assert!(v.get("regionView").is_none(), "{v}");
+        assert!(v.get("text").is_none(), "{v}");
         assert_eq!(
             v["coverage"],
             serde_json::json!([{ "start": 51, "end": 150 }]),
@@ -319,7 +324,7 @@ use crate::mcp::*;
         assert!(entry.get("orientedSequence").is_none(), "{entry}");
         assert!(entry.get("coverage").is_some(), "{entry}");
 
-        // compact=false / omitted keeps orientedSequence and regionView.
+        // compact=false / omitted keeps orientedSequence and text.
         let out = server
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
@@ -333,7 +338,7 @@ use crate::mcp::*;
             .unwrap();
         let v = out.0;
         assert!(v.get("orientedSequence").is_some(), "{v}");
-        assert!(v.get("regionView").is_some(), "{v}");
+        assert!(v.get("text").is_some(), "{v}");
         // alignments[1] is the newly added read → full detail; alignments[0]
         // is the earlier compact read → stats-only (no orientedSequence,
         // no per-column details).
@@ -453,15 +458,15 @@ use crate::mcp::*;
             "mismatches": 0, "insertions": 0, "deletions": 10,
             "mismatchDetails": [],
             "insertionDetails": [],
-            "deletionDetails": [{"pos": 8, "length": 10, "bases": "XXXXXXXXXX"}],
+            "deletionDetails": [{"position": 8, "length": 10, "bases": "XXXXXXXXXX"}],
         });
-        filter_alignment_json_focus(&mut v, 1, 10, 100, false);
-        assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 1, "{v}");
+        // In-window base counts: (mismatches, insertions, deletions) — only the
+        // 3 bases of the deletion inside 1..10 count.
         assert_eq!(
-            v["outsideWindow"],
-            serde_json::json!({"mismatches": 0, "deletions": 7, "insertions": 0}),
-            "{v}"
+            filter_alignment_json_focus(&mut v, 1, 10, 100, false),
+            (0, 0, 3)
         );
+        assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 1, "{v}");
     }
 
     #[test]
@@ -472,20 +477,19 @@ use crate::mcp::*;
             "mismatches": 0, "insertions": 0, "deletions": 5,
             "mismatchDetails": [],
             "insertionDetails": [],
-            "deletionDetails": [{"pos": 18, "length": 5, "bases": "XXXXX"}],
+            "deletionDetails": [{"position": 18, "length": 5, "bases": "XXXXX"}],
         });
         let mut v = mk();
-        filter_alignment_json_focus(&mut v, 1, 3, 20, true);
+        // Window 1..3 covers the wrapped arc 1,2 → 2 in-window bases.
+        assert_eq!(filter_alignment_json_focus(&mut v, 1, 3, 20, true), (0, 0, 2));
         assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 1, "{v}");
-        assert_eq!(v["outsideWindow"]["deletions"], 3, "{v}");
         let mut v = mk();
-        filter_alignment_json_focus(&mut v, 18, 20, 20, true);
-        assert_eq!(v["outsideWindow"]["deletions"], 2, "{v}");
+        // Window 18..20 covers the terminal arc → 3 in-window bases.
+        assert_eq!(filter_alignment_json_focus(&mut v, 18, 20, 20, true), (0, 0, 3));
         // A window touching neither arc drops the entry entirely.
         let mut v = mk();
-        filter_alignment_json_focus(&mut v, 5, 10, 20, true);
+        assert_eq!(filter_alignment_json_focus(&mut v, 5, 10, 20, true), (0, 0, 0));
         assert_eq!(v["deletionDetails"].as_array().unwrap().len(), 0, "{v}");
-        assert_eq!(v["outsideWindow"]["deletions"], 5, "{v}");
     }
 
     #[tokio::test]
@@ -509,7 +513,7 @@ use crate::mcp::*;
         // Second read with mismatches at 1-based 61 (outside focus) and 111
         // (inside), added with compact + focus: the history entry must be
         // stats-only (previously compact kept FULL details for history) and
-        // the new entry must be focus-filtered with outsideWindow
+        // the new entry must be focus-filtered with in-window counts
         // (previously compact skipped the focus filter entirely).
         let mut read2 = template[50..150].to_string();
         for i in [10usize, 60] {
@@ -536,9 +540,10 @@ use crate::mcp::*;
         let new = &v["alignments"][1];
         let det = new["mismatchDetails"].as_array().unwrap();
         assert_eq!(det.len(), 1, "{new}");
-        assert_eq!(det[0]["pos"], 111, "{new}");
-        assert_eq!(new["outsideWindow"]["mismatches"], 1, "{new}");
+        assert_eq!(det[0]["position"], 111, "{new}");
         assert!(new.get("orientedSequence").is_none(), "{new}");
-        assert_eq!(v["focus"]["start"], 100, "{v}");
-        assert!(v.get("regionView").is_none(), "compact suppresses regionView: {v}");
+        assert_eq!(v["window"]["start"], 100, "{v}");
+        assert_eq!(v["window"]["mismatches"], 1, "{v}");
+        assert_eq!(v["mismatches"], 2, "total stays whole-read: {v}");
+        assert!(v.get("text").is_none(), "compact suppresses text: {v}");
     }

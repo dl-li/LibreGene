@@ -3,6 +3,14 @@ use crate::mcp::*;
 use libregene_core::models::ProjectData;
 use libregene_core::models::Feature;
 
+/// A single failing item no longer aborts the call: the response is an
+/// `ok: false` envelope whose first result slot carries the message.
+fn item_failure(v: &serde_json::Value) -> String {
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["results"][0]["ok"], false, "{v}");
+    v["results"][0]["message"].as_str().unwrap_or_default().to_string()
+}
+
     #[test]
     fn clean_coding_sequence_strips_junk_and_validates() {
         assert_eq!(
@@ -173,12 +181,10 @@ use libregene_core::models::Feature;
             apply: Some(true),
             ..Default::default()
         }]);
-        let err = match server.convert_sequence(Parameters(req)).await {
-            Err(e) => e,
-            Ok(_) => panic!("expected apply validation error"),
-        };
-        assert!(err.message.contains("apply=true"), "{}", err.message);
-        assert!(err.message.contains("output_path"), "{}", err.message);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let msg = item_failure(&out.0);
+        assert!(msg.contains("apply=true"), "{msg}");
+        assert!(msg.contains("outputPath"), "{msg}");
 
         // sequence + input_path conflict
         let req = convert_req(vec![ConvertItem {
@@ -187,7 +193,12 @@ use libregene_core::models::Feature;
             input_path: Some("x.gbk".to_string()),
             ..Default::default()
         }]);
-        assert!(server.convert_sequence(Parameters(req)).await.is_err());
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert!(
+            item_failure(&out.0).contains("exactly one input"),
+            "{}",
+            out.0
+        );
 
         // project mode without feature_id → clear error
         let req = convert_req(vec![ConvertItem {
@@ -195,22 +206,16 @@ use libregene_core::models::Feature;
             species: Some("e_coli".to_string()),
             ..Default::default()
         }]);
-        let err = match server.convert_sequence(Parameters(req)).await {
-            Err(e) => e,
-            Ok(_) => panic!("expected missing-feature_id error"),
-        };
-        assert!(err.message.contains("feature_id"), "{}", err.message);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert!(item_failure(&out.0).contains("featureId"), "{}", out.0);
 
         // no input at all → clear error
         let req = convert_req(vec![ConvertItem {
             species: Some("e_coli".to_string()),
             ..Default::default()
         }]);
-        let err = match server.convert_sequence(Parameters(req)).await {
-            Err(e) => e,
-            Ok(_) => panic!("expected missing-project_id error"),
-        };
-        assert!(err.message.contains("project_id"), "{}", err.message);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert!(item_failure(&out.0).contains("projectId"), "{}", out.0);
 
         // an explicit empty batch → clear error
         let err = match server
@@ -516,9 +521,9 @@ use libregene_core::models::Feature;
         assert_eq!(r[0]["ok"], true);
         assert_eq!(r[0]["sequence"], "AUGUAA");
         assert_eq!(r[1]["ok"], false);
-        assert!(r[1]["error"].as_str().unwrap().contains("protein"), "{}", r[1]);
+        assert!(r[1]["message"].as_str().unwrap().contains("protein"), "{}", r[1]);
         assert_eq!(r[2]["ok"], false);
-        assert!(r[2]["error"].as_str().unwrap().contains("revComp"), "{}", r[2]);
+        assert!(r[2]["message"].as_str().unwrap().contains("revComp"), "{}", r[2]);
         assert_eq!(r[3]["ok"], true);
         assert_eq!(r[3]["sequence"], "GCAT");
     }
@@ -540,11 +545,17 @@ use libregene_core::models::Feature;
                 ..Default::default()
             },
         ]);
-        let err = match server.convert_sequence(Parameters(req)).await {
-            Err(e) => e,
-            Ok(v) => panic!("expected all-failed error, got {}", v.0),
-        };
-        assert!(err.message.contains("all 2 item(s) failed"), "{}", err.message);
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], false, "{v}");
+        assert_eq!(v["resultCount"], 2, "{v}");
+        assert_eq!(v["okCount"], 0, "{v}");
+        assert_eq!(v["failedCount"], 2, "{v}");
+        assert!(
+            v["message"].as_str().unwrap().contains("All 2 item(s) failed"),
+            "{v}"
+        );
+        assert_eq!(v["results"].as_array().unwrap().len(), 2, "{v}");
     }
 
     /// convert_sequence's output_path follows the save_file overwrite rule:
@@ -562,12 +573,12 @@ use libregene_core::models::Feature;
             output_path: Some(out_path.to_string_lossy().into_owned()),
             ..Default::default()
         }]);
-        let err = server
-            .convert_sequence(Parameters(req))
-            .await
-            .err()
-            .expect("existing output_path without overwrite must fail");
-        assert!(err.message.contains("overwrite"), "{err}");
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        assert!(
+            item_failure(&out.0).contains("overwrite"),
+            "{}",
+            out.0
+        );
 
         let req = convert_req(vec![ConvertItem {
             species: Some("e_coli".to_string()),
@@ -589,7 +600,7 @@ use libregene_core::models::Feature;
         let mut p = dna_test_project();
         p.features = vec![feature("f1", "cds", 10, 60, "+")];
         let server = handler_with_project(p).await;
-        let err = match server
+        let out = server
             .convert_sequence(Parameters(convert_req(vec![ConvertItem {
                 project_id: Some("feat".to_string()),
                 feature_id: Some("f1".to_string()),
@@ -598,16 +609,13 @@ use libregene_core::models::Feature;
                 ..Default::default()
             }])))
             .await
-        {
-            Err(e) => e,
-            Ok(v) => panic!("expected output_path rejection, got {}", v.0),
-        };
-        assert!(err.message.contains("output_path"), "{}", err.message);
+            .unwrap();
+        assert!(item_failure(&out.0).contains("outputPath"), "{}", out.0);
         assert!(!std::path::Path::new("/tmp/libregene-should-not-write.gbk").exists());
 
         // RNA projects have no coding DNA to re-encode either.
         let server = handler_with_project(rna_test_project()).await;
-        let err = match server
+        let out = server
             .convert_sequence(Parameters(convert_req(vec![ConvertItem {
                 project_id: Some("rna".to_string()),
                 feature_id: Some("f1".to_string()),
@@ -615,9 +623,6 @@ use libregene_core::models::Feature;
                 ..Default::default()
             }])))
             .await
-        {
-            Err(e) => e,
-            Ok(v) => panic!("expected rna rejection, got {}", v.0),
-        };
-        assert!(err.message.contains("rna"), "{}", err.message);
+            .unwrap();
+        assert!(item_failure(&out.0).contains("rna"), "{}", out.0);
     }

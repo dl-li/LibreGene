@@ -118,7 +118,9 @@ use libregene_core::project::ProjectManager;
         let v = out.0;
         assert_eq!(v["ok"], true, "{v}");
         assert_eq!(v["projectId"], path.to_str().unwrap(), "{v}");
-        assert!(v["regionView"].is_string(), "{v}");
+        assert!(v["text"].is_string(), "{v}");
+        assert_eq!(v["unit"], "bp", "{v}");
+        assert_eq!(v["locked"], true, "{v}");
         let id = path.to_string_lossy().into_owned();
         {
             let pm = server.pm.read().await;

@@ -574,7 +574,7 @@ use crate::mcp::*;
             .await
             .unwrap();
         assert_eq!(out.0["ok"], true, "{}", out.0);
-        let note = out.0["note"].as_str().unwrap_or_default();
+        let note = out.0["notes"][0].as_str().unwrap_or_default();
         assert!(note.contains("Converted 1 U→T"), "{}", out.0);
         // No U left in the sequence after normalization.
         assert!(server
@@ -606,7 +606,7 @@ use crate::mcp::*;
             .unwrap();
         assert_eq!(out.0["ok"], true, "{}", out.0);
         assert!(
-            !out.0["note"].as_str().unwrap_or_default().contains("Converted"),
+            !out.0["notes"][0].as_str().unwrap_or_default().contains("Converted"),
             "{}",
             out.0
         );

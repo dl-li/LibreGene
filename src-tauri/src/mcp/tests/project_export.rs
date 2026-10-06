@@ -35,7 +35,7 @@ use libregene_core::models::Primer;
         let v = out.0;
         assert_eq!(v["ok"], true);
         assert_eq!(v["length"], 121);
-        assert_eq!(v["outputPath"], out_path.to_str().unwrap());
+        assert_eq!(v["path"], out_path.to_str().unwrap());
         let parsed = libregene_core::file_io::parse_file(&out_path).unwrap();
         assert_eq!(parsed.sequence, seq[40..=160].to_ascii_uppercase());
         let f = parsed
@@ -202,8 +202,8 @@ use libregene_core::models::Primer;
     }
 
     /// Regression: a multi-segment minus-strand feature (e.g. spliced CDS)
-    /// produced a regionView bbox with start > end before the fix, which
-    /// either dropped the regionView digest (linear) or showed a wrong
+    /// produced a text-digest bbox with start > end before the fix, which
+    /// either dropped the text digest (linear) or showed a wrong
     /// wrap-around window (circular). The bbox must cover the full span
     /// occupied by the feature on the template, regardless of piece order.
     #[tokio::test]
@@ -252,13 +252,13 @@ use libregene_core::models::Primer;
         let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "export should succeed");
-        // The headline assertion: regionView must be present (non-null) and
+        // The headline assertion: text digest must be present (non-null) and
         // describe a span within the feature's real coordinates [10, 60].
-        // Before the fix, bbox was (40, 30) → start > end → regionView dropped.
-        let region = v["regionView"].as_str().unwrap_or("");
+        // Before the fix, bbox was (40, 30) → start > end → text digest dropped.
+        let region = v["text"].as_str().unwrap_or("");
         assert!(
             !region.is_empty(),
-            "regionView must not be empty for a multi-segment minus-strand feature (was dropped by bbox bug)"
+            "text digest must not be empty for a multi-segment minus-strand feature (was dropped by bbox bug)"
         );
         std::fs::remove_file(&out_path).ok();
     }
@@ -310,10 +310,10 @@ use libregene_core::models::Primer;
         let out = server.save_file(Parameters(req)).await.unwrap();
         let v = out.0;
         assert_eq!(v["ok"], true, "export should succeed");
-        let region = v["regionView"].as_str().unwrap_or("");
+        let region = v["text"].as_str().unwrap_or("");
         assert!(
             region.contains("REGION: 91..21"),
-            "regionView should show the 1-based wrap window 91..21, got: {}",
+            "text digest should show the 1-based wrap window 91..21, got: {}",
             region.lines().next().unwrap_or("")
         );
         std::fs::remove_file(&out_path).ok();

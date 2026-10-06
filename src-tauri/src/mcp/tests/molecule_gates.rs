@@ -71,14 +71,13 @@ use crate::mcp::*;
             species: Some("e_coli".to_string()),
             ..Default::default()
         }]);
-        let err = match server.convert_sequence(Parameters(req)).await {
-            Err(e) => e,
-            Ok(_) => panic!("expected protein project-mode rejection"),
-        };
+        let out = server.convert_sequence(Parameters(req)).await.unwrap();
+        let msg = out.0["results"][0]["message"].as_str().unwrap_or_default();
+        assert_eq!(out.0["ok"], false, "{}", out.0);
         assert!(
-            err.message.contains("input_path") && err.message.contains("reverse-translated"),
+            msg.contains("inputPath") && msg.contains("reverse-translated"),
             "{}",
-            err.message
+            out.0
         );
     }
 

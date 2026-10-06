@@ -7,7 +7,7 @@ use tauri::Runtime;
 use libregene_core::models::{Feature, ProjectData};
 
 use crate::mcp::LibreGeneMcp;
-use crate::mcp::support::insert_seq_hashes;
+use crate::mcp::support::{insert_seq_hashes, round1};
 use crate::mcp::types::{ConvertItem, ConvertSequenceRequest, OptimizeInput};
 
 /// Validate the input-mode combination and resolve it to exactly one
@@ -20,19 +20,19 @@ pub(crate) fn resolve_optimize_input(
 ) -> Result<OptimizeInput, String> {
     match (sequence, input_path) {
         (Some(_), Some(_)) => Err(
-            "provide exactly one input: `project_id` (+`feature_id`), `sequence`, or `input_path` — not both `sequence` and `input_path`"
+            "provide exactly one input: `projectId` (+`featureId`), `sequence`, or `inputPath` — not both `sequence` and `inputPath`"
                 .to_string(),
         ),
         (Some(seq), None) => {
             if project_id.is_some() {
                 return Err(
-                    "`project_id` cannot be combined with `sequence`; use exactly one input mode"
+                    "`projectId` cannot be combined with `sequence`; use exactly one input mode"
                         .to_string(),
                 );
             }
             if feature_id.is_some() {
                 return Err(
-                    "`feature_id` is only valid with `project_id` (project mode) or an `input_path` file that has features"
+                    "`featureId` is only valid with `projectId` (project mode) or an `inputPath` file that has features"
                         .to_string(),
                 );
             }
@@ -41,7 +41,7 @@ pub(crate) fn resolve_optimize_input(
         (None, Some(path)) => {
             if project_id.is_some() {
                 return Err(
-                    "`project_id` cannot be combined with `input_path`; use exactly one input mode"
+                    "`projectId` cannot be combined with `inputPath`; use exactly one input mode"
                         .to_string(),
                 );
             }
@@ -52,11 +52,11 @@ pub(crate) fn resolve_optimize_input(
         }
         (None, None) => {
             let project_id = project_id.ok_or_else(|| {
-                "`project_id` is required in project mode (or pass `sequence` or `input_path` for standalone input)"
+                "`projectId` is required in project mode (or pass `sequence` or `inputPath` for standalone input)"
                     .to_string()
             })?;
             let feature_id = feature_id.ok_or_else(|| {
-                "`feature_id` is required in project mode (or pass `sequence` or `input_path` for standalone input)"
+                "`featureId` is required in project mode (or pass `sequence` or `inputPath` for standalone input)"
                     .to_string()
             })?;
             Ok(OptimizeInput::Project {
@@ -167,8 +167,8 @@ pub(crate) fn codon_preview_json(
         "newCodons": result.new_codons,
         "caiBefore": result.cai_before,
         "caiAfter": result.cai_after,
-        "gcBefore": result.gc_before,
-        "gcAfter": result.gc_after,
+        "gcPercentBefore": round1(result.gc_before * 100.0),
+        "gcPercentAfter": round1(result.gc_after * 100.0),
         "repairs": repairs,
         "repairCount": repairs.len(),
         "unresolved": unresolved,
@@ -288,22 +288,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let apply = item.apply.unwrap_or(false);
         if !matches!(mode, OptimizeInput::Project { .. }) && apply && item.output_path.is_none() {
             return Err(
-                "apply=true is only meaningful in project mode; in sequence/input_path mode pass `output_path` to write the result to a file (or set apply=false)"
+                "apply=true is only meaningful in project mode; in sequence/inputPath mode pass `outputPath` to write the result to a file (or set apply=false)"
                     .to_string(),
             );
         }
         if matches!(mode, OptimizeInput::Project { .. }) && item.output_path.is_some() {
             return Err(
-                "output_path is only supported in sequence/input_path modes; in project mode use apply=true to write the optimized CDS back into the project, then save_file to export a file"
+                "outputPath is only supported in sequence/inputPath modes; in project mode use apply=true to write the optimized CDS back into the project, then save_file to export a file"
                     .to_string(),
             );
         }
         if let Some(op) = &item.output_path {
             crate::validate_user_path(op, crate::CONVERT_OUTPUT_EXTS)
-                .map_err(|e| format!("invalid output_path: {}", e))?;
+                .map_err(|e| format!("invalid outputPath: {}", e))?;
             if !item.overwrite.unwrap_or(false) && std::path::Path::new(op).exists() {
                 return Err(format!(
-                    "{} already exists — pass overwrite: true to replace it, or choose a different output_path",
+                    "{} already exists — pass overwrite: true to replace it, or choose a different outputPath",
                     op
                 ));
             }
@@ -314,7 +314,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 if let Some(f) = &item.from {
                     if f != "dna" {
                         return Err(format!(
-                            "project mode is dna→dna codon optimization; from=\"{}\" is not supported (projects hold the molecule they hold — export a region with save_file and use input_path/sequence for {} input)",
+                            "project mode is dna→dna codon optimization; from=\"{}\" is not supported (projects hold the molecule they hold — export a region with save_file and use inputPath/sequence for {} input)",
                             f, f
                         ));
                     }
@@ -322,7 +322,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let to = item.to.clone().unwrap_or_else(|| "dna".to_string());
                 if to != "dna" {
                     return Err(format!(
-                        "project mode only supports dna→dna codon optimization (to=\"{}\" requested); for conversions export the region with save_file first, then use input_path",
+                        "project mode only supports dna→dna codon optimization (to=\"{}\" requested); for conversions export the region with save_file first, then use inputPath",
                         to
                     ));
                 }
@@ -368,7 +368,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         if !project.is_dna() {
             return Err(format!(
-                "convert_sequence project mode re-encodes a CDS feature inside a DNA project; a {} project has no coding DNA to re-encode — pass `sequence` or `input_path` instead (a protein .gpt/.prot file or sequence with from=\"protein\" is reverse-translated to optimized DNA)",
+                "convert_sequence project mode re-encodes a CDS feature inside a DNA project; a {} project has no coding DNA to re-encode — pass `sequence` or `inputPath` instead (a protein .gpt/.prot file or sequence with from=\"protein\" is reverse-translated to optimized DNA)",
                 project.molecule_type
             ));
         }
@@ -385,8 +385,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| format!("task join error: {}", e))??;
 
         let mut v = codon_preview_json(&result, &coding.aa, coding.codons.len(), &method, species);
+        v["ok"] = serde_json::json!(true);
         v["from"] = serde_json::json!("dna");
         v["to"] = serde_json::json!("dna");
+        v["length"] = serde_json::json!(coding.codons.len() * 3);
         v["projectId"] = serde_json::json!(id);
         v["message"] = serde_json::json!(format!(
             "Codon optimization preview for {} ({}): CAI {:.3} → {:.3}, GC {:.1}% → {:.1}%, {} repairs, {} unresolved",
@@ -416,7 +418,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 return Err(err);
             }
             if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
-                v["regionView"] = serde_json::json!(rv);
+                v["text"] = serde_json::json!(rv);
             }
             v["message"] = serde_json::json!(format!(
                 "Optimized CDS {} ({}): CAI {:.3} → {:.3}, {} repairs, {} unresolved",
@@ -485,7 +487,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         feature_id: Option<String>,
     ) -> Result<serde_json::Value, String> {
         crate::validate_user_path(&path, crate::SEQ_EXTS)
-            .map_err(|e| format!("invalid input_path: {}", e))?;
+            .map_err(|e| format!("invalid inputPath: {}", e))?;
         let p = path.clone();
         let project = tokio::task::spawn_blocking(move || {
             libregene_core::file_io::parse_file(std::path::Path::new(&p)).map_err(|e| {
@@ -578,7 +580,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         if feature_id.is_some() {
             return Err(
-                "feature_id is only meaningful for dna→dna codon optimization (pass `species` to optimize, or drop `feature_id` to convert the whole file sequence)"
+                "featureId is only meaningful for dna→dna codon optimization (pass `species` to optimize, or drop `featureId` to convert the whole file sequence)"
                     .to_string(),
             );
         }
@@ -628,6 +630,8 @@ struct Conversion {
     sequence: String,
     preview: Option<serde_json::Value>,
     message: String,
+    /// Informational strings surfaced as the item's `notes` array.
+    notes: Vec<String>,
 }
 
 /// `to` defaults: reverse translation for a protein input, otherwise a
@@ -730,10 +734,18 @@ fn convert_sequence_text(
             result.repairs.len(),
             result.unresolved.len(),
         );
+        let notes = if aa.ends_with('*') {
+            Vec::new()
+        } else {
+            vec![
+                "Input protein has no trailing '*' stop codon, so the output carries no stop codon either — append one explicitly if the construct needs it".to_string(),
+            ]
+        };
         return Ok(Conversion {
             sequence: out,
             preview: Some(codon_preview_json(&result, &aa, aa.chars().count(), method, &sp)),
             message,
+            notes,
         });
     }
     if optimize {
@@ -766,6 +778,7 @@ fn convert_sequence_text(
             sequence: optimized,
             preview: Some(codon_preview_json(&result, &aa, codons.len(), method, &sp)),
             message,
+            notes: Vec::new(),
         });
     }
     let dna = if from == "rna" {
@@ -793,17 +806,21 @@ fn convert_sequence_text(
         out.len(),
         unit
     );
-    Ok(Conversion { sequence: out, preview: None, message })
+    Ok(Conversion { sequence: out, preview: None, message, notes: Vec::new() })
 }
 
 /// The per-item result JSON shared by the sequence/input_path modes.
 fn standalone_result_json(conv: &Conversion, from: &str, to: &str) -> serde_json::Value {
     let mut v = conv.preview.clone().unwrap_or_else(|| serde_json::json!({}));
+    v["ok"] = serde_json::json!(true);
     v["from"] = serde_json::json!(from);
     v["to"] = serde_json::json!(to);
     v["sequence"] = serde_json::json!(conv.sequence);
     v["length"] = serde_json::json!(conv.sequence.len());
     v["message"] = serde_json::json!(conv.message);
+    if !conv.notes.is_empty() {
+        v["notes"] = serde_json::json!(conv.notes);
+    }
     v
 }
 
@@ -826,7 +843,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     vec![single]
                 } else {
                     return Err(ErrorData::invalid_params(
-                        "items is required: a batch of 1-64 conversion items (a single conversion may put the item fields at the top level instead — one of project_id / sequence / input_path)",
+                        "items is required: a batch of 1-64 conversion items (a single conversion may put the item fields at the top level instead — one of projectId / sequence / inputPath)",
                         None,
                     ));
                 }
@@ -850,21 +867,35 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     results.push(v);
                 }
                 Err(e) => {
-                    results.push(serde_json::json!({ "index": i, "ok": false, "error": e }));
+                    results.push(serde_json::json!({
+                        "index": i,
+                        "ok": false,
+                        "message": e,
+                    }));
                 }
             }
         }
-        if ok_count == 0 {
+        let total = results.len();
+        let failed = total - ok_count;
+        let message = if failed == 0 {
+            format!("Converted {} item(s)", ok_count)
+        } else if ok_count == 0 {
             let detail = results
                 .iter()
-                .map(|r| format!("[{}] {}", r["index"], r["error"].as_str().unwrap_or_default()))
+                .map(|r| format!("[{}] {}", r["index"], r["message"].as_str().unwrap_or_default()))
                 .collect::<Vec<_>>()
                 .join("; ");
-            return Err(ErrorData::invalid_params(
-                format!("all {} item(s) failed: {}", results.len(), detail),
-                None,
-            ));
-        }
-        Ok(Json(serde_json::json!({ "ok": true, "results": results })))
+            format!("All {} item(s) failed: {}", total, detail)
+        } else {
+            format!("Converted {} of {} item(s); {} failed", ok_count, total, failed)
+        };
+        Ok(Json(serde_json::json!({
+            "ok": ok_count > 0,
+            "message": message,
+            "resultCount": total,
+            "okCount": ok_count,
+            "failedCount": failed,
+            "results": results,
+        })))
     }
 }
