@@ -169,7 +169,7 @@ pub(crate) fn rename_key(v: &mut serde_json::Value, from: &str, to: &str) {
 }
 
 /// The single primer binding-site shape shared by add_primer and
-/// inspect_primers (1-based inclusive):
+/// test_primers (1-based inclusive):
 /// `{strand, templateStart, templateEnd, tm, annealLength, tailLength,
 /// alignedTemplate, matchMask}`. The 3'-most base mismatches exactly when
 /// `matchMask` ends with '.'.

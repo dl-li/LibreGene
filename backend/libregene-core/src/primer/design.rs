@@ -410,7 +410,7 @@ pub fn build_mutagenesis_groups(
 
 /// Recompute every candidate's `tm`/`anneal_len` to the actual contiguous 3'
 /// match reported by the binding engine, exactly like `add_primer` and
-/// `inspect_primers`' ad-hoc binding check. The original designed values are
+/// `test_primers`' ad-hoc binding check. The original designed values are
 /// preserved in `designed_tm`/`designed_anneal_len`.
 ///
 /// `segs` are the target template segments (0-based inclusive) used to pick the
@@ -452,7 +452,7 @@ pub fn unify_candidate_tm(
                     // The binding engine computes Tm on the footprint in the
                     // primer's own 5'→3' orientation for both strands (the NN
                     // table is duplex-symmetric), so the anneal core is used
-                    // as-is. Matches add_primer / the inspect_primers binding check.
+                    // as-is. Matches add_primer / the test_primers binding check.
                     let duplex: String = cand.seq[cand.seq.len() - al..].to_string();
                     cand.anneal_len = al;
                     cand.tm = round1(compute_tm_with_params(&duplex, params));

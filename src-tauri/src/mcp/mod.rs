@@ -482,11 +482,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.add_to_workspace_impl(request).await
     }
 
-    /// Compact text digest of a whole project (`text`): features, primers,
-    /// enzymes, methylation, auto-annotated common features — RNA/protein
-    /// projects omit the DNA-only sections. The enzyme section groups single-cut
-    /// enzymes by top-strand cut (`names + N`, enzymes sharing N on one line)
-    /// and names every double-cut enzyme; enzymes with >=3 sites are omitted
+    /// Compact text digest of a whole project (`text`): features, primers (with
+    /// type and sequence), enzymes, methylation, auto-annotated common features —
+    /// RNA/protein projects omit the DNA-only sections. The enzyme section groups
+    /// single-cut enzymes by top-strand cut (`N names`, enzymes sharing N on one
+    /// line) and names every double-cut enzyme; enzymes with >=3 sites are omitted
     /// (find_restriction_sites reports every site of every enzyme). CDS/mRNA
     /// features whose stored /translation
     /// disagrees with the DNA get a WARNING line, and positions where >=2 stored
@@ -577,21 +577,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.find_restriction_sites_impl(request).await
     }
 
-    /// Report primer binding on a project's template (read-only). Two modes:
-    ///
-    /// - Omit `primers`: list the project's STORED primers with their binding
-    ///   sites.
-    /// - Give `primers` = [{name, type ("fwd"|"rev"), seq|hash}]: instead TEST
-    ///   those ad-hoc primers against the sequence without persisting them (DNA
-    ///   projects only). Sequences are short, so plain text `seq`; each primer
-    ///   may instead pass a workspace `hash` — exactly one of seq/hash.
-    ///   `binds: true` means the 3' anneal core matched; a 5' tail may still
-    ///   mismatch. Tm/annealLength describe the ACTUAL contiguous 3' match, so
-    ///   a tailed primer can report a higher value than design_primers did.
+    /// Test primers against a DNA project's template WITHOUT persisting them
+    /// (read-only). `primers` = [{name, type ("fwd"|"rev"), seq|hash}]: sequences
+    /// are short, so plain text `seq`; each primer may instead pass a workspace
+    /// `hash` — exactly one of seq/hash. `binds: true` means the 3' anneal core
+    /// matched; a 5' tail may still mismatch. Tm/annealLength describe the ACTUAL
+    /// contiguous 3' match, so a tailed primer can report a higher value than
+    /// design_primers did. (The project's STORED primers are listed in
+    /// get_project_overview's PRIMERS section.)
     ///
     /// Returns {ok, message, projectId, unit, primerCount, primers: [primer],
-    /// amplicon?, hashes}. Stored primers are {id, name, type, seq, length,
-    /// bindingSiteCount, sites}; tested primers are {name, type, length, binds,
+    /// amplicon?, hashes} with primer = {name, type, length, binds,
     /// bindingSiteCount, site, sites}. Sites are best-first (Tm descending),
     /// empty when the primer does not bind, in the shape shared with
     /// add_primer: {strand, templateStart, templateEnd, tm, annealLength,
@@ -602,11 +598,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// reverseEnd, length, note} with the PCR product's size (no export
     /// needed).
     #[tool]
-    async fn inspect_primers(
+    async fn test_primers(
         &self,
-        Parameters(request): Parameters<InspectPrimersRequest>,
+        Parameters(request): Parameters<TestPrimersRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.inspect_primers_impl(request).await
+        self.test_primers_impl(request).await
     }
 
     // -----------------------------------------------------------------------
@@ -649,7 +645,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// carried along.
     /// - `cut1` + `cut2`: the fragment between two cuts; a cut at N severs the DNA
     /// between the 1-based bases N and N+1. Take the positions from
-    /// find_restriction_sites (`topCutIndex`) or inspect_primers' `amplicon`
+    /// find_restriction_sites (`topCutIndex`) or test_primers' `amplicon`
     /// instead of deriving them by hand.
     /// Exports are always linear, include every overlapping feature (clipped) and
     /// primer, do NOT mark the project clean, and return {ok, message, projectId,
@@ -726,7 +722,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Returns {ok, message, projectId, unit, primerId, name, type, seq, length,
     /// bindingSiteCount, sites: [site], text, hashes}; the site shape is the shared
-    /// one (see inspect_primers) — sites best-first, empty when the primer does not
+    /// one (see test_primers) — sites best-first, empty when the primer does not
     /// bind.
     #[tool]
     async fn add_primer(

@@ -414,9 +414,9 @@ fn overview_renders_segmented_and_complement_features() {
 #[test]
 fn overview_renders_primer_sites_and_unbound() {
     let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-    assert!(out.contains("primer_bind     3..12   P1  [Tm 58.3, + strand]  (id: p1)"));
-    assert!(out.contains("primer_bind     51..60   P1  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
-    assert!(out.contains("Primers without binding sites: orphan (id: p2)"));
+    assert!(out.contains("primer_bind     3..12   P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 58.3, + strand]  (id: p1)"));
+    assert!(out.contains("primer_bind     51..60   P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
+    assert!(out.contains("Primers without binding sites: orphan (rev, 6 nt, GGGGGG, id: p2)"));
 }
 
 #[test]
@@ -465,8 +465,8 @@ fn region_view_circular_wrap_covers_origin() {
     assert!(out.contains("ENZYMES CUTTING IN REGION"));
     assert!(out.contains("BsaI"));
     // P1 sites 2..11 (overlaps 0..5) and 50..59 (in [30..59])
-    assert!(out.contains("P1  [Tm 58.3"));
-    assert!(out.contains("P1  [Tm 60.1"));
+    assert!(out.contains("P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 58.3"));
+    assert!(out.contains("P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 60.1"));
 }
 
 #[test]
@@ -1002,7 +1002,7 @@ fn overview_lists_single_cutters_and_names_double_cutters() {
     assert!(out.contains("SINGLE CUTTERS (top-strand cut N; enzymes sharing N are grouped):"));
     assert!(
         out.lines()
-            .any(|l| l.trim_start().starts_with("EcoRI") && l.trim_end().ends_with(" 10")),
+            .any(|l| l.trim_start().starts_with("10  ") && l.contains("EcoRI")),
         "{out}"
     );
     assert!(!out.contains("top "), "{out}");
@@ -1029,10 +1029,9 @@ fn overview_groups_single_cutters_sharing_a_top_cut() {
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     let line = out
         .lines()
-        .find(|l| l.trim_start().starts_with("EcoRI"))
-        .unwrap_or_else(|| panic!("no EcoRI line in {out}"));
-    assert!(line.contains("TwinI"), "shared cut must group: {line}");
-    assert!(line.trim_end().ends_with(" 10"), "only the top cut N: {line}");
+        .find(|l| l.trim_start().starts_with("10  "))
+        .unwrap_or_else(|| panic!("no cut-10 line in {out}"));
+    assert!(line.contains("EcoRI") && line.contains("TwinI"), "shared cut must group: {line}");
 }
 
 #[test]

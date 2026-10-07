@@ -93,7 +93,7 @@ LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听
 - **项目与文件** — `open_project`、`save_file`（支持子序列/区域导出）、`list_workspace`、`add_to_workspace`
 - **读取** — `read_sequence`、`get_project_overview`、`get_region_view`
 - **编辑** — `edit_sequence`（插入/删除/替换）、`set_feature`（创建与更新）
-- **引物** — `add_primer`、`inspect_primers`（已存引物 + 临时引物结合检查，含 Tm 与扩增子大小）、`design_primers`（扩增 / OE-PCR / 诱变）
+- **引物** — `add_primer`、`test_primers`（临时引物结合检查，含 Tm 与扩增子大小）、`design_primers`（扩增 / OE-PCR / 诱变）
 - **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`convert_sequence`（序列转换 + 9 个物种的密码子优化）
 
 #### 示例任务

@@ -337,14 +337,13 @@ pub(crate) struct FindRestrictionSitesRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InspectPrimersRequest {
-    /// Required: the project to inspect (see list_workspace).
+pub(crate) struct TestPrimersRequest {
+    /// Required: the project to test against (see list_workspace).
     pub(crate) project_id: String,
-    /// Optional: TEST these primers against the project without persisting
-    /// them, INSTEAD of listing the stored primers (DNA projects only).
-    /// Exactly one binding fwd + one binding rev additionally report an
-    /// `amplicon`.
-    pub(crate) primers: Option<Vec<PrimerInput>>,
+    /// Required: TEST these primers against the project without persisting
+    /// them (DNA projects only). Exactly one binding fwd + one binding rev
+    /// additionally report an `amplicon`.
+    pub(crate) primers: Vec<PrimerInput>,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
@@ -424,7 +423,7 @@ pub(crate) struct PrimerInput {
 
 /// Optional region selector of `save_file` (subsequence export). Exactly one
 /// of the three modes: start+end / featureId / cut1+cut2. Enzyme or primer
-/// coordinates come from find_restriction_sites / inspect_primers, so the
+/// coordinates come from find_restriction_sites / test_primers, so the
 /// selector stays a pair of numbers instead of re-deriving engine results.
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]

@@ -79,10 +79,13 @@ pub(crate) fn primer_site_line(site: &PrimerBindingSite, primer: &crate::models:
     (
         site.template_start,
         format!(
-            "        primer_bind     {}..{}   {}  [Tm {:.1}, {}{}]  (id: {})",
+            "        primer_bind     {}..{}   {} ({}, {} nt, {})  [Tm {:.1}, {}{}]  (id: {})",
             site.template_start + 1,
             site.template_end,
             primer.name,
+            primer.r#type,
+            primer.primer_seq.len(),
+            primer.primer_seq,
             site.tm,
             strand,
             mismatch,

@@ -137,9 +137,14 @@ async fn read_tools_share_the_success_envelope() {
     assert_eq!(sites["enzymes"][0]["siteCount"], 1, "{sites}");
 
     let primers = server
-        .inspect_primers(Parameters(InspectPrimersRequest {
+        .test_primers(Parameters(TestPrimersRequest {
             project_id: "enz".to_string(),
-            ..Default::default()
+            primers: vec![PrimerInput {
+                name: "p1".to_string(),
+                r#type: "fwd".to_string(),
+                seq: Some("ACGTACGTACGTACGTACGT".to_string()),
+                hash: None,
+            }],
         }))
         .await
         .unwrap()
@@ -246,26 +251,15 @@ async fn primer_site_shape_is_shared_by_both_primer_tools() {
     assert_eq!(added["bindingSiteCount"], 1, "{added}");
     let added_keys = keys(&added["sites"][0]);
 
-    let listed = server
-        .inspect_primers(Parameters(InspectPrimersRequest {
-            project_id: "feat".to_string(),
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .0;
-    assert_eq!(listed["primerCount"], 1, "{listed}");
-    assert_eq!(keys(&listed["primers"][0]["sites"][0]), added_keys, "{listed}");
-
     let checked = server
-        .inspect_primers(Parameters(InspectPrimersRequest {
+        .test_primers(Parameters(TestPrimersRequest {
             project_id: "feat".to_string(),
-            primers: Some(vec![PrimerInput {
+            primers: vec![PrimerInput {
                 name: "p1".to_string(),
                 r#type: "fwd".to_string(),
                 seq: Some(seq.clone()),
                     hash: None,
-                }]),
+                }],
         }))
         .await
         .unwrap()
@@ -275,7 +269,7 @@ async fn primer_site_shape_is_shared_by_both_primer_tools() {
     assert_eq!(checked["primers"][0]["name"], "p1", "{checked}");
     assert_eq!(checked["primers"][0]["type"], "fwd", "{checked}");
     assert_eq!(checked["primers"][0]["length"], 20, "{checked}");
-    // add_primer and the inspect_primers binding check must agree on the site.
+    // add_primer and the test_primers binding check must agree on the site.
     assert_eq!(
         added["sites"][0]["templateStart"],
         checked["primers"][0]["sites"][0]["templateStart"],
@@ -289,7 +283,7 @@ async fn primer_site_shape_is_shared_by_both_primer_tools() {
 }
 
 #[tokio::test]
-async fn inspect_primers_reports_the_amplicon_size() {
+async fn test_primers_reports_the_amplicon_size() {
     let project = dna_test_project();
     let template = project.sequence.clone();
     let server = handler_with_project(project).await;
@@ -300,12 +294,12 @@ async fn inspect_primers_reports_the_amplicon_size() {
     let rev = libregene_core::utils::reverse_complement(&template[80..100]);
 
     let checked = server
-        .inspect_primers(Parameters(InspectPrimersRequest {
+        .test_primers(Parameters(TestPrimersRequest {
             project_id: "feat".to_string(),
-            primers: Some(vec![
+            primers: vec![
                 PrimerInput { name: "F".to_string(), r#type: "fwd".to_string(), seq: Some(fwd), hash: None },
                 PrimerInput { name: "R".to_string(), r#type: "rev".to_string(), seq: Some(rev), hash: None },
-            ]),
+            ],
         }))
         .await
         .unwrap()
@@ -318,14 +312,14 @@ async fn inspect_primers_reports_the_amplicon_size() {
 
     // A single primer cannot define an amplicon.
     let single = server
-        .inspect_primers(Parameters(InspectPrimersRequest {
+        .test_primers(Parameters(TestPrimersRequest {
             project_id: "feat".to_string(),
-            primers: Some(vec![PrimerInput {
+            primers: vec![PrimerInput {
                 name: "F".to_string(),
                 r#type: "fwd".to_string(),
                 seq: Some(template[10..30].to_string()),
                     hash: None,
-                }]),
+                }],
         }))
         .await
         .unwrap()
@@ -450,8 +444,9 @@ fn tool_descriptions_are_concise_and_state_their_response() {
         assert_ne!(t.name, "list_projects", "renamed to list_workspace");
         assert_ne!(t.name, "search_sequence", "search_sequence is a bash-replaceable string scan");
         assert_ne!(t.name, "search_enzymes", "search_enzymes was removed; name discovery is find_restriction_sites' unknownEnzymes.similar");
-        assert_ne!(t.name, "check_primer_binding", "merged into inspect_primers' optional `primers` input");
-        assert_ne!(t.name, "list_primers", "renamed to inspect_primers");
+        assert_ne!(t.name, "check_primer_binding", "renamed to test_primers");
+        assert_ne!(t.name, "list_primers", "stored primers are listed in get_project_overview's PRIMERS section");
+        assert_ne!(t.name, "inspect_primers", "split: stored primers moved to get_project_overview, the ad-hoc check is test_primers");
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
         assert!(

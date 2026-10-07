@@ -65,7 +65,7 @@ use libregene_core::models::ProjectData;
     }
 
     #[tokio::test]
-    async fn inspect_primers_check_reports_1based_sites() {
+    async fn test_primers_reports_1based_sites() {
         let seq = synthetic_dna(200, 31);
         let project = ProjectData {
             name: "chk".to_string(),
@@ -77,14 +77,14 @@ use libregene_core::models::ProjectData;
         };
         let server = handler_with_project(project).await;
         let out = server
-            .inspect_primers(Parameters(InspectPrimersRequest {
+            .test_primers(Parameters(TestPrimersRequest {
                 project_id: "chk".to_string(),
-                primers: Some(vec![PrimerInput {
+                primers: vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
                     seq: Some(seq[50..70].to_string()),
                     hash: None,
-                }]),
+                }],
             }))
             .await
             .unwrap();

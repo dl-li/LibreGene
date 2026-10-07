@@ -1,8 +1,8 @@
-//! Primer MCP tools: add_primer, design_primers, inspect_primers.
+//! Primer MCP tools: add_primer, design_primers, test_primers.
 //!
-//! Both site-reporting tools (add_primer, inspect_primers — including its
-//! ad-hoc binding check) share one binding-site shape (see
-//! `support::primer_site_json`), and every Tm is °C rounded to 0.1.
+//! Both site-reporting tools (add_primer, test_primers) share one
+//! binding-site shape (see `support::primer_site_json`), and every Tm is °C
+//! rounded to 0.1.
 
 use rmcp::{ErrorData, handler::server::wrapper::Json};
 use tauri::Runtime;
@@ -15,7 +15,7 @@ use crate::mcp::support::{
     fail_envelope, from1, insert_seq_hashes, ok_envelope, primer_site_json, push_note,
     push_warning, rename_key, round1, site_json_to_1based, to1, unit_for,
 };
-use crate::mcp::types::{AddPrimerRequest, DesignPrimersRequest, InspectPrimersRequest, PrimerInput};
+use crate::mcp::types::{AddPrimerRequest, DesignPrimersRequest, PrimerInput, TestPrimersRequest};
 
 /// analyze_mutagenesis reports internal 0-based coordinates; bump the
 /// template span, the diff offsets and the CDS codon index to the 1-based
@@ -560,61 +560,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
         Ok(Json(v))
     }
 
-    /// Two read-only modes in one tool: without `primers`, list the project's
-    /// stored primers with their binding sites; with `primers`, test those
-    /// ad-hoc primers against the sequence instead (DNA only, nothing
-    /// persisted, `amplicon` for one binding fwd + one binding rev).
-    pub(crate) async fn inspect_primers_impl(
+    /// Test ad-hoc primers against the project's sequence (read-only, DNA
+    /// only, nothing persisted); exactly one binding fwd + one binding rev
+    /// additionally report the pair's `amplicon`.
+    pub(crate) async fn test_primers_impl(
         &self,
-        request: InspectPrimersRequest,
+        request: TestPrimersRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        match request.primers.filter(|v| !v.is_empty()) {
-            None => self.list_stored_primers(request.project_id).await,
-            Some(inputs) => self.check_ad_hoc_primers(request.project_id, inputs).await,
+        if request.primers.is_empty() {
+            let id = self.require_dna_project(request.project_id).await?;
+            let mut v = fail_envelope(&id, "primers must name at least one primer to test");
+            if let Some(h) = self.project_seq_hashes(&id).await {
+                insert_seq_hashes(&mut v, &h);
+            }
+            return Ok(Json(v));
         }
-    }
-
-    async fn list_stored_primers(
-        &self,
-        project_id: String,
-    ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let (id, project) = self.resolve_project_light(project_id).await?;
-        let tlen = project.length;
-        let topology = project.topology.as_str();
-        let primers: Vec<serde_json::Value> = project
-            .primers
-            .iter()
-            .map(|p| {
-                let sites: Vec<serde_json::Value> = p
-                    .binding_sites
-                    .iter()
-                    .map(|s| primer_site_json(&project.sequence, topology, &p.primer_seq, s, tlen))
-                    .collect();
-                serde_json::json!({
-                    "id": p.id,
-                    "name": p.name,
-                    "type": p.r#type,
-                    "seq": p.primer_seq,
-                    "length": p.primer_seq.len(),
-                    "bindingSiteCount": p.binding_sites.len(),
-                    "sites": sites,
-                })
-            })
-            .collect();
-        let count = primers.len();
-        let mut v = serde_json::json!({
-            "ok": true,
-            "message": format!("{} primer(s)", count),
-            "projectId": id,
-            "unit": unit_for(&project.molecule_type),
-            "primerCount": count,
-            "primers": primers,
-        });
-        insert_seq_hashes(
-            &mut v,
-            &libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type),
-        );
-        Ok(Json(v))
+        self.check_ad_hoc_primers(request.project_id, request.primers).await
     }
 
     async fn check_ad_hoc_primers(

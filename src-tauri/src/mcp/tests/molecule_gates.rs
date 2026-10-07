@@ -34,19 +34,19 @@ use crate::mcp::*;
         // RNA projects are gated the same way
         let server = handler_with_project(rna_test_project()).await;
         let err = match server
-            .inspect_primers(Parameters(InspectPrimersRequest {
+            .test_primers(Parameters(TestPrimersRequest {
                 project_id: "rna".to_string(),
-                primers: Some(vec![PrimerInput {
+                primers: vec![PrimerInput {
                     name: "p1".to_string(),
                     r#type: "fwd".to_string(),
                     seq: Some("ACGTACGTAC".to_string()),
                     hash: None,
-                }]),
+                }],
             }))
             .await
         {
             Err(e) => e,
-            Ok(_) => panic!("the inspect_primers binding check should reject an rna project"),
+            Ok(_) => panic!("the test_primers binding check should reject an rna project"),
         };
         assert!(err.message.contains("only supports DNA"), "{}", err.message);
     }

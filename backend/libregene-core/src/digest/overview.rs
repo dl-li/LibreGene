@@ -138,7 +138,14 @@ pub fn project_digest(
     let mut unbound: Vec<String> = Vec::new();
     for p in &project.primers {
         if p.binding_sites.is_empty() {
-            unbound.push(format!("{} (id: {})", p.name, p.id));
+            unbound.push(format!(
+                "{} ({}, {} nt, {}, id: {})",
+                p.name,
+                p.r#type,
+                p.primer_seq.len(),
+                p.primer_seq,
+                p.id
+            ));
             continue;
         }
         for s in &p.binding_sites {
@@ -319,8 +326,9 @@ pub fn project_digest(
                         for names in groups.values_mut() {
                             names.sort_unstable();
                         }
+                        let w = project.length.to_string().len();
                         for (n, names) in groups {
-                            let _ = writeln!(out, "        {:<30} {}", names.join(", "), n);
+                            let _ = writeln!(out, "        {:>w$}  {}", n, names.join(", "), w = w);
                         }
                     }
                     if !double_names.is_empty() {
