@@ -12,6 +12,31 @@ use std::path::Path;
 
 use crate::models::ProjectData;
 
+/// Upper bound for any single input file read through the parsers (sequence
+/// documents, Sanger traces, SnapGene history). Real inputs top out around a
+/// bacterial chromosome (~15 MB); anything larger is corrupt or crafted, and
+/// reading it whole would just balloon memory.
+pub const MAX_INPUT_FILE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Fail fast when the file is larger than [`MAX_INPUT_FILE_BYTES`], before
+/// any reader pulls it into memory. Callers re-read from disk later (e.g. the
+/// history views), so they re-check at their own read site.
+pub fn ensure_within_size_limit(path: &Path) -> io::Result<()> {
+    let len = fs::metadata(path)?.len();
+    if len > MAX_INPUT_FILE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{} is {} bytes — over the {} byte input cap",
+                path.display(),
+                len,
+                MAX_INPUT_FILE_BYTES
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Parse a file, dispatching on extension.
 pub fn parse_file(path: &Path) -> io::Result<ProjectData> {
     parse_file_with_molecule_type(path, None)
@@ -25,6 +50,7 @@ pub fn parse_file_with_molecule_type(
     path: &Path,
     molecule_type: Option<&str>,
 ) -> io::Result<ProjectData> {
+    ensure_within_size_limit(path)?;
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -328,5 +354,24 @@ mod tests {
         assert_eq!(parsed.molecule_type, "dna");
         assert_eq!(parsed.sequence, "acgtacgtacgt");
         std::fs::remove_file(&dna_path).ok();
+    }
+
+    #[test]
+    fn rejects_files_over_the_size_cap() {
+        // A sparse file: set_len reserves the length without writing data, so
+        // the test is instant even for a 256 MiB "file".
+        let path = std::env::temp_dir().join(format!(
+            "libregene_oversize_{}.gbk",
+            std::process::id()
+        ));
+        let f = std::fs::File::create(&path).unwrap();
+        f.set_len(MAX_INPUT_FILE_BYTES + 1).unwrap();
+        drop(f);
+        let err = parse_file(&path).unwrap_err();
+        assert!(
+            err.to_string().contains("cap"),
+            "expected a size-cap error, got: {err}"
+        );
+        std::fs::remove_file(&path).ok();
     }
 }

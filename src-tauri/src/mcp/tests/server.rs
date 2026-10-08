@@ -68,6 +68,42 @@ use std::time::Duration;
     }
 
     #[tokio::test]
+    async fn connections_beyond_the_cap_are_dropped() {
+        let server = test_server();
+        let token = server.auth_token();
+        server.set_config(true, 20011, false).await.unwrap();
+        assert!(wait_up(20011, &token).await, "server should be up");
+
+        // Hold every slot with idle slowloris-style sockets (connected, no
+        // bytes sent). handshake_ok used one and released it, so reopen all.
+        let mut idle = Vec::new();
+        for _ in 0..MAX_MCP_CONNECTIONS {
+            if let Ok(s) = tokio::net::TcpStream::connect(("127.0.0.1", 20011)).await {
+                idle.push(s);
+            }
+        }
+        // Give the accept loop a moment to take all the slots.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // One connection past the cap must be closed by the server promptly:
+        // the read resolves (rather than timing out) with an error/EOF.
+        let mut extra = tokio::net::TcpStream::connect(("127.0.0.1", 20011)).await.unwrap();
+        use tokio::io::AsyncReadExt as _;
+        let n = tokio::time::timeout(Duration::from_secs(3), extra.read_u8()).await;
+        assert!(n.is_ok(), "over-cap connection was left hanging");
+        assert!(n.unwrap().is_err(), "expected EOF/error on the over-cap connection");
+
+        // Releasing the idle sockets frees slots again.
+        drop(idle);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            handshake_ok(20011, &token).await,
+            "server must serve again once idle connections are gone"
+        );
+        server.set_config(false, 20011, false).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn regenerated_token_takes_effect_without_restart() {
         let server = test_server();
         server.set_config(true, 20003, true).await.unwrap();

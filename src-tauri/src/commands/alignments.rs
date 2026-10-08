@@ -173,6 +173,8 @@ pub(crate) async fn remove_alignment(
 pub(crate) async fn get_chromatogram(path: String) -> Result<libregene_core::models::Chromatogram, String> {
     validate_user_path(&path, &["ab1"])?;
     tokio::task::spawn_blocking(move || {
+        libregene_core::file_io::ensure_within_size_limit(std::path::Path::new(&path))
+            .map_err(|e| e.to_string())?;
         let data = std::fs::read(&path).map_err(|e| e.to_string())?;
         libregene_core::file_io::ab1::extract_chromatogram(&data).map_err(|e| e.to_string())
     })
@@ -218,6 +220,7 @@ pub(crate) async fn get_snapgene_history(
     }
     let path = std::path::PathBuf::from(&project_id);
     let result = tokio::task::spawn_blocking(move || {
+        libregene_core::file_io::ensure_within_size_limit(&path).map_err(|e| e.to_string())?;
         let data = std::fs::read(&path).map_err(|e| e.to_string())?;
         Ok::<_, String>(
             libregene_core::file_io::snapgene_history::parse_snapgene_history(&data)
@@ -268,6 +271,8 @@ pub(crate) async fn open_snapgene_snapshot(
         let history = match source {
             Source::Memory(history) => history,
             Source::File(path) => {
+                libregene_core::file_io::ensure_within_size_limit(&path)
+                    .map_err(|e| e.to_string())?;
                 let data = std::fs::read(&path).map_err(|e| e.to_string())?;
                 libregene_core::file_io::snapgene_history::parse_snapgene_history(&data)
                     .ok_or("this file carries no SnapGene history")?

@@ -104,7 +104,7 @@ pub(crate) use workspace::*;
 // Public surface parity with the pre-split module: lib.rs names
 // `mcp::McpServer`; `McpConfig` stays reachable at `crate::mcp::McpConfig`.
 #[allow(unused_imports)]
-pub use server::{McpConfig, McpServer};
+pub use server::{McpConfig, McpServer, MAX_MCP_CONNECTIONS};
 
 /// Loopback port for the embedded MCP server (settings toggle comes later).
 pub const MCP_PORT: u16 = 8766;

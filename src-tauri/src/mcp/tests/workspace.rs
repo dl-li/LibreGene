@@ -406,3 +406,38 @@ async fn add_primer_accepts_workspace_hash() {
     assert_eq!(v["seq"], seq[10..30].to_ascii_uppercase(), "{v}");
     assert_eq!(v["bindingSiteCount"], 1, "{v}");
 }
+
+#[tokio::test]
+async fn add_to_workspace_rejects_filling_past_the_cap() {
+    let seq = synthetic_dna(200, 7);
+    let project = ProjectData {
+        name: "ws_cap".to_string(),
+        sequence: seq,
+        length: 200,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        ..Default::default()
+    };
+    let server = handler_with_project(project).await;
+    for _ in 0..64 {
+        let mut req = add_req("ws_cap");
+        req.start = Some(1);
+        req.end = Some(10);
+        let v = server.add_to_workspace(Parameters(req)).await.unwrap().0;
+        assert_eq!(v["ok"], true, "{v}");
+    }
+    assert_eq!(server.workspace.read().await.len(), 64);
+
+    // The 65th fragment must be rejected, not appended.
+    let mut req = add_req("ws_cap");
+    req.start = Some(1);
+    req.end = Some(10);
+    let v = server.add_to_workspace(Parameters(req)).await.unwrap().0;
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["message"].as_str().unwrap().contains("cap"),
+        "{}",
+        v["message"]
+    );
+    assert_eq!(server.workspace.read().await.len(), 64);
+}
