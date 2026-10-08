@@ -238,6 +238,7 @@ pub(crate) async fn delete_project(
         &state.pm,
         &state.window_projects,
         &state.agent_tabs,
+        &state.workspace,
         Some(webview_window.label()),
         id,
         true,

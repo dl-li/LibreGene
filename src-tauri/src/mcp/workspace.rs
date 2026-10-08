@@ -1,7 +1,8 @@
-//! Session-scoped sequence workspace: an in-memory, agent-only staging area
-//! for sequence fragments (feature/region/enzyme-digest extracts) that other
-//! tools can consume by hash. Nothing here is persisted — the workspace dies
-//! with the app process.
+//! Agent-only sequence workspace: an in-memory staging area for sequence
+//! fragments (feature/region/enzyme-digest extracts) that other tools can
+//! consume by hash. Nothing is persisted: a fragment is removed when its
+//! source project closes, closing the main window counts as closing every
+//! file (all fragments removed), and everything dies with the app process.
 //!
 //! Open projects are implicit workspace members: they are not copied into the
 //! Vec, `list_workspace` and `resolve_workspace_hash` merge them in live
@@ -35,12 +36,30 @@ pub(crate) struct WorkspaceItem {
     pub primers: Vec<Primer>,
     /// Human-readable provenance, e.g. "proj.gbk (feature 'ampR')".
     pub source: String,
+    /// Project the fragment was extracted from; the fragment is removed when
+    /// that project closes.
+    pub source_project: String,
     /// true for add_to_workspace extracts (agent-only, temporary); false for
     /// the implicit membership of an open project.
     pub temporary: bool,
 }
 
 pub(crate) type Workspace = Arc<RwLock<Vec<WorkspaceItem>>>;
+
+/// Drop every temporary fragment extracted from `project_id` — called when
+/// that project closes.
+pub(crate) async fn remove_fragments_of(workspace: &Workspace, project_id: &str) {
+    workspace
+        .write()
+        .await
+        .retain(|item| item.source_project != project_id);
+}
+
+/// Drop all temporary fragments — closing the main window counts as closing
+/// every file.
+pub(crate) async fn clear_fragments(workspace: &Workspace) {
+    workspace.write().await.clear();
+}
 
 /// `{id, name, length, moleculeType, unit, featureCount, source, temporary,
 /// sequenceHash, revCompHash}` — one workspace array entry of list_workspace.
@@ -464,14 +483,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut added: Vec<serde_json::Value> = Vec::new();
         {
             let mut ws = self.workspace.write().await;
-            // Temporary fragments are agent-controlled and live until the app
-            // exits; without a cap a looping agent grows the workspace (each
-            // item up to a whole project sequence) without bound.
+            // Temporary fragments are agent-controlled and live until their
+            // source project closes; without a cap a looping agent grows the
+            // workspace (each item up to a whole project sequence) without
+            // bound.
             const MAX_TEMPORARY_ITEMS: usize = 64;
             if ws.len() + specs.len() > MAX_TEMPORARY_ITEMS {
                 let have = ws.len();
                 return Ok(fail(format!(
-                    "workspace holds {have} temporary fragments; adding {} more would exceed the cap of {MAX_TEMPORARY_ITEMS}. Extract fewer or narrower fragments — items vanish when the app exits.",
+                    "workspace holds {have} temporary fragments; adding {} more would exceed the cap of {MAX_TEMPORARY_ITEMS}. Extract fewer or narrower fragments — fragments are removed when their source project or the main window closes.",
                     specs.len()
                 )));
             }
@@ -486,6 +506,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     features,
                     primers,
                     source: format!("{} ({})", id, spec.desc),
+                    source_project: id.clone(),
                     temporary: true,
                 };
                 added.push(workspace_item_json(&item));

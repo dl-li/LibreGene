@@ -38,14 +38,20 @@ pub fn run() {
         // Close-to-tray: closing the main window only hides it, keeping the
         // process (and the MCP server) alive. Project windows close normally.
         // Without a tray icon there is no way to bring a hidden window back,
-        // so in that case let the window close normally.
+        // so in that case let the window close normally. Either way, closing
+        // the main window counts as closing every file: drop all MCP
+        // workspace fragments (the projects themselves stay loaded).
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main"
-                    && window.app_handle().tray_by_id("main-tray").is_some()
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
+                if window.label() == "main" {
+                    let workspace = window.app_handle().state::<AppState>().workspace.clone();
+                    tauri::async_runtime::spawn(async move {
+                        mcp::clear_fragments(&workspace).await;
+                    });
+                    if window.app_handle().tray_by_id("main-tray").is_some() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
             }
         })

@@ -441,3 +441,35 @@ async fn add_to_workspace_rejects_filling_past_the_cap() {
     );
     assert_eq!(server.workspace.read().await.len(), 64);
 }
+
+#[tokio::test]
+async fn workspace_fragments_are_removed_with_their_source_project() {
+    let server = handler_with_project(edit_test_project()).await;
+    server
+        .pm
+        .write()
+        .await
+        .load("feat", dna_test_project())
+        .unwrap();
+
+    for id in ["edit_test", "feat"] {
+        let mut req = add_req(id);
+        req.start = Some(1);
+        req.end = Some(10);
+        let v = server.add_to_workspace(Parameters(req)).await.unwrap().0;
+        assert_eq!(v["ok"], true, "{v}");
+    }
+    assert_eq!(server.workspace.read().await.len(), 2);
+
+    // Closing one project removes only its own fragments.
+    remove_fragments_of(&server.workspace, "edit_test").await;
+    {
+        let ws = server.workspace.read().await;
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0].source_project, "feat");
+    }
+
+    // Main-window close semantics: every file counts as closed.
+    clear_fragments(&server.workspace).await;
+    assert_eq!(server.workspace.read().await.len(), 0);
+}

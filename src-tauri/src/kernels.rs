@@ -552,6 +552,7 @@ pub(crate) async fn do_delete_project<R: Runtime>(
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
+    workspace: &crate::mcp::Workspace,
     source: Option<&str>,
     id: String,
     force: bool,
@@ -593,6 +594,8 @@ pub(crate) async fn do_delete_project<R: Runtime>(
                 let mut at = agent_tabs.write().await;
                 at.remove(&id);
             }
+            // Workspace fragments extracted from this project die with it.
+            crate::mcp::remove_fragments_of(workspace, &id).await;
             broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
             for label in orphan_labels {
                 if let Some(win) = app_handle.get_webview_window(&label) {
