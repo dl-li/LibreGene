@@ -564,8 +564,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         spec.start = spec.start.map(from1);
         spec.end = spec.end.map(from1);
 
-        let (pieces, flip, desc) = resolve_export_region(&project, &spec)
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        // An invalid region selector is a domain rejection (ok:false with
+        // diagnostics), like the overwrite refusal above.
+        let (pieces, flip, desc) = match resolve_export_region(&project, &spec) {
+            Ok(r) => r,
+            Err(e) => return Ok(fail(e)),
+        };
         let bbox = region_bbox(&pieces, project.length, project.topology == "circular");
         let out_name = output_project_name(&path);
         let message_path = path.clone();

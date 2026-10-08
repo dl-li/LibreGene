@@ -219,6 +219,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 "message": format!("Read {} {} at {}..{}", bases.len(), unit, s1, e1),
                 "projectId": id,
                 "unit": unit,
+                "mode": "window",
                 "start": s1,
                 "end": e1,
                 "length": bases.len(),
@@ -532,15 +533,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let orfs = crate::do_find_orfs(&self.pm, &id, request.min_aa)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
+        let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
+        let count = orfs_json.len();
+        let unit = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id)
+                .map(|p| unit_for(&p.molecule_type))
+                .unwrap_or("bp")
+        };
 
         if !request.add_as_features.unwrap_or(false) {
-            let orfs_json: Vec<serde_json::Value> = orfs.iter().map(feature_json_1based).collect();
-            let count = orfs_json.len();
             let mut v = serde_json::json!({
                 "ok": true,
                 "message": format!("{} ORF(s) found", count),
                 "projectId": id,
-                "unit": "bp",
+                "unit": unit,
                 "minAa": min_aa,
                 "orfCount": count,
                 "orfs": orfs_json,
@@ -552,9 +559,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         self.require_agent_tab(&id).await?;
         if orfs.is_empty() {
-            let mut v = ok_envelope(&id, "No ORFs found", None);
-            v["unit"] = serde_json::json!("bp");
-            v["featureCount"] = serde_json::json!(0);
+            let mut v = serde_json::json!({
+                "ok": true,
+                "message": "No ORFs found",
+                "projectId": id,
+                "unit": unit,
+                "minAa": min_aa,
+                "orfCount": 0,
+                "orfs": [],
+            });
             if let Some(h) = &seq_hashes {
                 insert_seq_hashes(&mut v, h);
             }
@@ -562,7 +575,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         let min_s = orfs.iter().map(|f| f.start).min().unwrap_or(0);
         let max_e = orfs.iter().map(|f| f.end).max().unwrap_or(0);
-        let feature_count = orfs.len();
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
@@ -582,9 +594,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(Json(v));
         }
         let region = self.digest_region(&id, Some((min_s, max_e)), true, false).await;
-        let mut v = ok_envelope(&id, format!("Added {} ORF(s) as CDS features", feature_count), region);
-        v["unit"] = serde_json::json!("bp");
-        v["featureCount"] = serde_json::json!(feature_count);
+        let mut v = ok_envelope(&id, format!("Added {} ORF(s) as CDS features", count), region);
+        v["unit"] = serde_json::json!(unit);
+        v["minAa"] = serde_json::json!(min_aa);
+        v["orfCount"] = serde_json::json!(count);
+        v["orfs"] = serde_json::json!(orfs_json);
         if let Some(h) = &seq_hashes {
             insert_seq_hashes(&mut v, h);
         }

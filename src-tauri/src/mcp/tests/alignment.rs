@@ -18,7 +18,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "read1".to_string(),
-                bases: Some(read.clone()),
+                seq: Some(read.clone()),
                 path: None,
                 ..Default::default()
             }))
@@ -115,7 +115,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "focused".to_string(),
-                bases: Some(read),
+                seq: Some(read),
                 path: None,
                 region: Some(SegParam { start: 100, end: 120 }),
                 ..Default::default()
@@ -128,14 +128,15 @@ use crate::mcp::*;
         let details = v["mismatchDetails"].as_array().unwrap();
         assert_eq!(details.len(), 1, "{v}");
         assert_eq!(details[0]["position"], 111, "{v}");
-        assert_eq!(v["mismatches"], 2, "{v}");
+        assert_eq!(v["mismatchCount"], 2, "{v}");
+        assert!(v.get("mismatches").is_none(), "old field name must not reappear: {v}");
         // Full read omitted; focused text + window echo present.
         assert!(v.get("orientedSequence").is_none(), "{v}");
         assert!(v.get("text").is_some(), "{v}");
         assert_eq!(v["window"]["start"], 100, "{v}");
         assert_eq!(v["window"]["end"], 120, "{v}");
         // window counts the in-window mismatch; the top-level total stays global.
-        assert_eq!(v["window"]["mismatches"], 1, "{v}");
+        assert_eq!(v["window"]["mismatchCount"], 1, "{v}");
         assert_eq!(
             v["window"],
             serde_json::json!({
@@ -143,10 +144,10 @@ use crate::mcp::*;
                 "end": 120,
                 "featureId": serde_json::Value::Null,
                 "flank": 0,
-                "mismatches": 1,
-                "insertions": 0,
-                "deletions": 0,
-                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total mismatches/insertions/deletions still describe the whole read",
+                "mismatchCount": 1,
+                "insertionCount": 0,
+                "deletionCount": 0,
+                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total mismatchCount/insertionCount/deletionCount still describe the whole read",
             }),
             "{v}"
         );
@@ -175,7 +176,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "ffocus".to_string(),
-                bases: Some(read.clone()),
+                seq: Some(read.clone()),
                 path: None,
                 feature_id: Some("f1".to_string()),
                 flank: Some(5),
@@ -188,7 +189,7 @@ use crate::mcp::*;
         assert_eq!(v["window"]["start"], 96, "{v}");
         assert_eq!(v["window"]["end"], 116, "{v}");
         assert_eq!(v["window"]["featureId"], "f1", "{v}");
-        assert_eq!(v["window"]["mismatches"], 1, "{v}");
+        assert_eq!(v["window"]["mismatchCount"], 1, "{v}");
         assert_eq!(v["window"]["flank"], 5, "{v}");
         assert_eq!(v["mismatchDetails"].as_array().unwrap().len(), 1, "{v}");
 
@@ -197,7 +198,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "bad".to_string(),
-                bases: Some(read.clone()),
+                seq: Some(read.clone()),
                 path: None,
                 feature_id: Some("nope".to_string()),
                 ..Default::default()
@@ -216,7 +217,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "both".to_string(),
-                bases: Some(read),
+                seq: Some(read),
                 path: None,
                 region: Some(SegParam { start: 1, end: 10 }),
                 feature_id: Some("f1".to_string()),
@@ -246,7 +247,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "rev_read".to_string(),
-                bases: Some(read),
+                seq: Some(read),
                 path: None,
                 ..Default::default()
             }))
@@ -275,7 +276,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "wrap_read".to_string(),
-                bases: Some(read.clone()),
+                seq: Some(read.clone()),
                 path: None,
                 ..Default::default()
             }))
@@ -304,7 +305,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "compact_read".to_string(),
-                bases: Some(read.clone()),
+                seq: Some(read.clone()),
                 path: None,
                 compact: Some(true),
                 ..Default::default()
@@ -329,7 +330,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "full_read".to_string(),
-                bases: Some(read),
+                seq: Some(read),
                 path: None,
                 compact: Some(false),
                 ..Default::default()
@@ -363,7 +364,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "read1".to_string(),
-                bases: Some(read1.clone()),
+                seq: Some(read1.clone()),
                 path: None,
                 ..Default::default()
             }))
@@ -375,7 +376,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "read2".to_string(),
-                bases: Some(read2),
+                seq: Some(read2),
                 path: None,
                 ..Default::default()
             }))
@@ -399,9 +400,9 @@ use crate::mcp::*;
             "strand",
             "segmentCount",
             "alignedLength",
-            "mismatches",
-            "insertions",
-            "deletions",
+            "mismatchCount",
+            "insertionCount",
+            "deletionCount",
             "coverage",
         ] {
             assert!(v["alignments"][0].get(key).is_some(), "missing {key}: {v}");
@@ -455,12 +456,12 @@ use crate::mcp::*;
         // A deletion kept by a partial overlap must count only its in-window
         // bases against the window, not its full length.
         let mut v = serde_json::json!({
-            "mismatches": 0, "insertions": 0, "deletions": 10,
+            "mismatchCount": 0, "insertionCount": 0, "deletionCount": 10,
             "mismatchDetails": [],
             "insertionDetails": [],
             "deletionDetails": [{"position": 8, "length": 10, "bases": "XXXXXXXXXX"}],
         });
-        // In-window base counts: (mismatches, insertions, deletions) — only the
+        // In-window base counts: (mismatchCount, insertionCount, deletionCount) — only the
         // 3 bases of the deletion inside 1..10 count.
         assert_eq!(
             filter_alignment_json_focus(&mut v, 1, 10, 100, false),
@@ -474,7 +475,7 @@ use crate::mcp::*;
         // Circular tlen=20: a merged deletion at 1-based pos 18 length 5
         // covers bases 18,19,20,1,2 (coordinates past tlen wrap back).
         let mk = || serde_json::json!({
-            "mismatches": 0, "insertions": 0, "deletions": 5,
+            "mismatchCount": 0, "insertionCount": 0, "deletionCount": 5,
             "mismatchDetails": [],
             "insertionDetails": [],
             "deletionDetails": [{"position": 18, "length": 5, "bases": "XXXXX"}],
@@ -502,7 +503,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "r1".to_string(),
-                bases: Some(template[50..150].to_string()),
+                seq: Some(template[50..150].to_string()),
                 path: None,
                 ..Default::default()
             }))
@@ -525,7 +526,7 @@ use crate::mcp::*;
             .add_alignment(Parameters(AddAlignmentRequest {
                 project_id: "aln_test".to_string(),
                 name: "r2".to_string(),
-                bases: Some(read2),
+                seq: Some(read2),
                 path: None,
                 compact: Some(true),
                 region: Some(SegParam { start: 100, end: 120 }),
@@ -543,7 +544,7 @@ use crate::mcp::*;
         assert_eq!(det[0]["position"], 111, "{new}");
         assert!(new.get("orientedSequence").is_none(), "{new}");
         assert_eq!(v["window"]["start"], 100, "{v}");
-        assert_eq!(v["window"]["mismatches"], 1, "{v}");
-        assert_eq!(v["mismatches"], 2, "total stays whole-read: {v}");
+        assert_eq!(v["window"]["mismatchCount"], 1, "{v}");
+        assert_eq!(v["mismatchCount"], 2, "total stays whole-read: {v}");
         assert!(v.get("text").is_none(), "compact suppresses text: {v}");
     }

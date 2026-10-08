@@ -6,7 +6,9 @@ use tauri::Runtime;
 use libregene_core::digest::cut_flanks;
 
 use crate::mcp::LibreGeneMcp;
-use crate::mcp::support::{MAX_FLANK, fail_envelope, insert_seq_hashes, ok_envelope, push_note};
+use crate::mcp::support::{
+    MAX_FLANK, fail_envelope, insert_seq_hashes, ok_envelope, push_note, to1, unit_for,
+};
 use crate::mcp::types::AddAlignmentRequest;
 
 /// Per-alignment JSON for add_alignment responses, with every template
@@ -31,16 +33,16 @@ fn alignment_json_1based(
         "segmentCount": a.segments.len(),
         "alignedLength": diff.aligned_length,
         "readLength": a.seq.len(),
-        "mismatches": diff.mismatches.len(),
-        "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
-        "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
+        "mismatchCount": diff.mismatches.len(),
+        "insertionCount": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
+        "deletionCount": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
         "mismatchDetails": diff.mismatches.iter().map(|m| serde_json::json!({
-            "position": m.pos + 1,
+            "position": to1(m.pos as i64),
             "templateBase": m.template_base,
             "readBase": m.read_base,
         })).collect::<Vec<_>>(),
         "deletionDetails": diff.deletions.iter().map(|d| serde_json::json!({
-            "position": d.pos + 1,
+            "position": to1(d.pos as i64),
             "length": d.length,
             "bases": d.bases,
         })).collect::<Vec<_>>(),
@@ -50,8 +52,8 @@ fn alignment_json_1based(
             "length": i.length,
         })).collect::<Vec<_>>(),
         "coverage": a.segments.iter().map(|s| serde_json::json!({
-            "start": s.start + 1,
-            "end": s.end + 1,
+            "start": to1(s.start as i64),
+            "end": to1(s.end as i64),
         })).collect::<Vec<_>>(),
     });
     if !compact {
@@ -79,12 +81,12 @@ fn alignment_stats_json_1based(
         "segmentCount": a.segments.len(),
         "alignedLength": diff.aligned_length,
         "readLength": a.seq.len(),
-        "mismatches": diff.mismatches.len(),
-        "insertions": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
-        "deletions": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
+        "mismatchCount": diff.mismatches.len(),
+        "insertionCount": diff.insertions.iter().map(|i| i.length).sum::<usize>(),
+        "deletionCount": diff.deletions.iter().map(|d| d.length).sum::<usize>(),
         "coverage": a.segments.iter().map(|s| serde_json::json!({
-            "start": s.start + 1,
-            "end": s.end + 1,
+            "start": to1(s.start as i64),
+            "end": to1(s.end as i64),
         })).collect::<Vec<_>>(),
     })
 }
@@ -104,8 +106,8 @@ fn in_window_1based(p: i64, s: i64, e: i64) -> bool {
 /// template bases `position` and `position + 1`, so they are kept when either
 /// flanking base is inside the window; a `position + 1` past the last base
 /// wraps to 1 on circular templates. Returns the in-window base counts
-/// `(mismatches, insertions, deletions)` so the caller can report them next to
-/// the whole-read totals.
+/// `(mismatchCount, insertionCount, deletionCount)` so the caller can report
+/// them next to the whole-read totals.
 pub(crate) fn filter_alignment_json_focus(
     v: &mut serde_json::Value,
     s1: i64,
@@ -215,6 +217,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let id = self.require_dna_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
         let seq_hashes = self.project_seq_hashes(&id).await;
+        let unit = {
+            let pm = self.pm.read().await;
+            pm.get_project_by_id(&id)
+                .map(|p| unit_for(&p.molecule_type))
+                .unwrap_or("bp")
+        };
         let fail = |msg: String| -> Json<serde_json::Value> {
             let mut v = fail_envelope(&id, msg);
             if let Some(h) = &seq_hashes {
@@ -274,15 +282,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
 
         let mut trace_path: Option<String> = None;
-        let seq = match (request.bases, request.path, request.hash) {
+        let seq = match (request.seq, request.path, request.hash) {
             (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (None, Some(_), Some(_)) => {
                 return Ok(fail(
-                    "Provide exactly one of `bases`, `path` or `hash`, not several".to_string(),
+                    "Provide exactly one of `seq`, `path` or `hash`, not several".to_string(),
                 ));
             }
             (None, None, None) => {
                 return Ok(fail(
-                    "Provide exactly one of `bases` (sequence string), `path` (sequence file) or `hash` (workspace hash)".to_string(),
+                    "Provide exactly one of `seq` (sequence string), `path` (sequence file) or `hash` (workspace hash)".to_string(),
                 ));
             }
             (Some(bases), None, None) => bases,
@@ -336,7 +344,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     "ok": false,
                     "message": e,
                     "projectId": id.clone(),
-                    "unit": "bp",
+                    "unit": unit,
                     "significant": false,
                 });
                 if let Some(h) = &seq_hashes {
@@ -420,7 +428,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         };
         let mut env = ok_envelope(&id, format!("Aligned {}", name), region_view);
-        env["unit"] = serde_json::json!("bp");
+        env["unit"] = serde_json::json!(unit);
         if let Some(s) = summary {
             env["significant"] = serde_json::json!(true);
             for (k, v) in s.as_object().unwrap_or(&serde_json::Map::new()) {
@@ -432,18 +440,19 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         env["alignments"] = serde_json::json!(alignments);
         // Window block: the detail lists above are filtered to it, while the
-        // total mismatches/insertions/deletions still describe the whole read.
+        // total mismatchCount/insertionCount/deletionCount still describe the
+        // whole read.
         if let Some((s, e)) = focus {
             let (m, i, d) = in_window.unwrap_or((0, 0, 0));
             env["window"] = serde_json::json!({
-                "start": s + 1,
-                "end": e + 1,
+                "start": to1(s),
+                "end": to1(e),
                 "featureId": request.feature_id,
                 "flank": request.flank.unwrap_or(0),
-                "mismatches": m,
-                "insertions": i,
-                "deletions": d,
-                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total mismatches/insertions/deletions still describe the whole read",
+                "mismatchCount": m,
+                "insertionCount": i,
+                "deletionCount": d,
+                "note": "mismatchDetails/deletionDetails/insertionDetails are filtered to this window; total mismatchCount/insertionCount/deletionCount still describe the whole read",
             });
         }
         if let Some(note) = coverage_note {

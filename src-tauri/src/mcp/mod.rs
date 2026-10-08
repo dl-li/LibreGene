@@ -26,6 +26,11 @@
 //! - Only "the request cannot be executed at all" failures (unknown project,
 //!   project not bound as an agent tab, DNA-only tool on another molecule
 //!   type, internal errors) are MCP protocol errors instead.
+//! - `convert_sequence` is a batch tool: its top-level `ok` means at least one
+//!   item succeeded, and each item in `results[]` is its own mini-envelope
+//!   whose `sequenceHash`/`revCompHash` hash the item's OUTPUT sequence
+//!   (project mode with `apply: true` hashes the whole project after the
+//!   edit, matching the change-detection semantics of the other tools).
 //!
 //! Naming: camelCase everywhere (inputs and outputs), 1-based inclusive
 //! coordinates; spans are `start`/`end`, single coordinates `position`,
@@ -523,25 +528,26 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Read bases or resolve a coordinate — INSPECTION only: to move a sequence
-    /// between tools, write it to a file with save_file's `region` instead.
+    /// between tools, export it to a file with save_file's `region` instead.
     ///
     /// WINDOW MODE — `start` + `end` (1-based inclusive; start > end wraps the
     /// origin on circular sequences; at most 10000 bp). Returns {ok, message,
-    /// projectId, unit, start, end, length, sequence, text, startContext,
-    /// endContext}: `sequence` is the uppercase bases, `text` the same window with
-    /// a coordinate ruler, and each context describes the window's first/last base
-    /// (containing features with their feature-relative offset, plus codon and
-    /// amino-acid hits inside CDS/mRNA features).
+    /// projectId, unit, mode: "window", start, end, length, sequence, text,
+    /// startContext, endContext, sequenceHash, revCompHash}: `sequence` is the
+    /// uppercase bases, `text` the same window with a coordinate ruler, and each
+    /// context describes the window's first/last base (containing features with
+    /// their feature-relative offset, plus codon and amino-acid hits inside
+    /// CDS/mRNA features).
     ///
     /// COORDINATE MODE — exactly one of `position` (absolute template position),
     /// `featureId` + `featureOffset` (1-based along the feature's own 5'->3'
     /// direction), or `featureId` + `aaPosition` (1-based inside a CDS/mRNA,
     /// counting the initiator Met as 1 — literature numbering that skips the Met is
     /// this value minus 1, and the response echoes it as `codonIndex`). Returns
-    /// {ok, message, projectId, unit, mode, input,
-    /// position, base, codonPositions?, features, translations, start, end,
-    /// sequence, text}; `sequence`/`text` cover `flank` bases on each side
-    /// (default 30, clamped).
+    /// {ok, message, projectId, unit, mode, input, position, base,
+    /// codonPositions?, features, translations, start, end, length, sequence,
+    /// text, sequenceHash, revCompHash}; `sequence`/`text` cover `flank` bases on
+    /// each side of the resolved position (default 30, clamped).
     #[tool]
     async fn read_sequence(
         &self,
@@ -559,9 +565,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// in a window use get_region_view with `compact: false`.
     ///
     /// Returns {ok, message, projectId, unit, enzymeCount, enzymes: [{name,
-    /// siteCount, sites: [site], note?}], unknownEnzymes?, hashes}, with site =
-    /// {recStart, recEnd, recSeq, strand, cuts: [{topCutIndex, botCutIndex}],
-    /// unique, methylationBlocked, hasCutsOutsideRecognitionSite, note?}.
+    /// siteCount, sites: [site], note?}], unknownEnzymes?, sequenceHash,
+    /// revCompHash}, with site = {recStart, recEnd, recSeq, strand, cuts:
+    /// [{topCutIndex, botCutIndex}], unique, methylationBlocked,
+    /// hasCutsOutsideRecognitionSite, note?}.
     /// recStart/recEnd are 1-based inclusive (recStart > recEnd when the
     /// recognition sequence spans the circular origin). A cut at topCutIndex N
     /// severs the DNA between the 1-based bases N and N+1, so the upstream fragment
@@ -587,10 +594,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// get_project_overview's PRIMERS section.)
     ///
     /// Returns {ok, message, projectId, unit, primerCount, primers: [primer],
-    /// amplicon?, hashes} with primer = {name, type, length, binds,
-    /// bindingSiteCount, site, sites}. Sites are best-first (Tm descending),
-    /// empty when the primer does not bind, in the shape shared with
-    /// add_primer: {strand, templateStart, templateEnd, tm, annealLength,
+    /// amplicon?, sequenceHash, revCompHash} with primer = {name, type, length,
+    /// binds, bindingSiteCount, site, sites}. Sites are best-first (Tm
+    /// descending), empty when the primer does not bind, in the shape shared
+    /// with add_primer: {strand, templateStart, templateEnd, tm, annealLength,
     /// tailLength, alignedTemplate, matchMask} — templateStart/templateEnd
     /// 1-based inclusive; read `alignedTemplate`/`matchMask` to see exactly
     /// which primer bases pair. When exactly one fwd and one rev primer are
@@ -634,7 +641,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Whole project (no `region`): sequence + features go through the normal
     /// serializer (.gbk/.gb/.genbank for DNA/RNA, .gpt for protein) and the project
     /// is marked clean. Returns {ok, message, projectId, unit, path, length,
-    /// bytesWritten, text, hashes}.
+    /// bytesWritten, text, sequenceHash, revCompHash}.
     ///
     /// `region`: export one subsequence — the recommended way to create a new file
     /// from a known region of an open project (never retype a sequence into another
@@ -649,8 +656,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// instead of deriving them by hand.
     /// Exports are always linear, include every overlapping feature (clipped) and
     /// primer, do NOT mark the project clean, and return {ok, message, projectId,
-    /// unit, path, length, bytesWritten, primerCount, primers?, text, hashes}; the
-    /// exported sequence itself is not echoed.
+    /// unit, path, length, bytesWritten, primerCount, primers?, text,
+    /// sequenceHash, revCompHash}; the exported sequence itself is not echoed.
+    /// Invalid selectors (conflicting/missing fields, unknown feature, cut
+    /// outside the sequence) answer with ok:false and diagnostics.
     ///
     /// `overwrite: true` is required when `path` already exists, unless it is the
     /// project's own source path for a whole-project save (a region export over the
@@ -680,12 +689,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Enzymes, primer sites, translations AND stored read alignments are
     /// recomputed, so alignment data read earlier may be superseded.
-    /// Returns {ok, message, projectId, unit, oldLength, newLength, contextBefore?,
-    /// contextAfter?, removedFeatures, clippedFeatures, transferredFeatures?,
-    /// transferredPrimers?, notes?, textBefore?,
-    /// text, hashes}: contexts are {start, end, sequence} 1-based spans; equal-length
-    /// replacements keep every feature at its coordinates (safe for point mutations
-    /// and case normalization); U<->T normalization is reported in `notes`.
+    /// Returns {ok, message, projectId, unit, oldLength, newLength,
+    /// contextBefore?, contextAfter?, removedFeatures, clippedFeatures,
+    /// transferredFeatures?, transferredPrimers?, notes?, textBefore?, text,
+    /// sequenceHash, revCompHash}: contexts are {start, end, sequence} 1-based
+    /// spans; each removedFeature is {name, ftype, start, end, segments?} and
+    /// each clippedFeature {name, ftype, before, after, beforeSegments?,
+    /// afterSegments?} with 1-based inclusive coordinates; equal-length
+    /// replacements keep every feature at its coordinates (safe for point
+    /// mutations and case normalization); U<->T normalization is reported in
+    /// `notes`.
     #[tool]
     async fn edit_sequence(
         &self,
@@ -705,7 +718,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// start+end/segments (notes cannot be updated). `segments` is mutually
     /// exclusive with `start`/`end` in both modes; neither form touches `strand`.
     ///
-    /// Returns {ok, message, projectId, unit, featureId, text, hashes}.
+    /// Returns {ok, message, projectId, unit, featureId, text, sequenceHash,
+    /// revCompHash}.
     #[tool]
     async fn set_feature(
         &self,
@@ -721,9 +735,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// project's primers AND features (rename with a "-F"/"-R" suffix if taken).
     ///
     /// Returns {ok, message, projectId, unit, primerId, name, type, seq, length,
-    /// bindingSiteCount, sites: [site], text, hashes}; the site shape is the shared
-    /// one (see test_primers) — sites best-first, empty when the primer does not
-    /// bind.
+    /// bindingSiteCount, sites: [site], text, sequenceHash, revCompHash}; the site
+    /// shape is the shared one (see test_primers) — sites best-first, empty when
+    /// the primer does not bind.
     #[tool]
     async fn add_primer(
         &self,
@@ -736,7 +750,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// (ids aln-1, aln-2, ...; existing alignments are never touched).
     ///
     /// Give exactly one of `path` (PREFERRED: .gbk/.gb/.genbank, .dna/.rna/.prot,
-    /// .gpt, .fa/.fasta, .ab1 — for .ab1 the basecalled sequence is used), `bases`
+    /// .gpt, .fa/.fasta, .ab1 — for .ab1 the basecalled sequence is used), `seq`
     /// (short hand-authored reads only) or `hash` (a workspace hash, sequence only
     /// — see list_workspace). `algorithm`: "blast" (default; chains any
     /// number of colinear segments, so split/multi-hit reads align in full) or
@@ -748,10 +762,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `text` entirely.
     ///
     /// Returns {ok, message, projectId, unit, significant, alignmentId, name,
-    /// identity, strand, segmentCount, alignedLength, readLength, mismatches,
-    /// insertions, deletions, mismatchDetails, deletionDetails, insertionDetails,
-    /// coverage, orientedSequence?, window?,
-    /// notes?, alignments, text, hashes}.
+    /// identity, strand, segmentCount, alignedLength, readLength, mismatchCount,
+    /// insertionCount, deletionCount, mismatchDetails, deletionDetails,
+    /// insertionDetails, coverage, orientedSequence?, window?,
+    /// notes?, alignments, text, sequenceHash, revCompHash}.
     /// `identity` is a 0-1 fraction; `alignedLength` is the covered template span
     /// while `readLength` is the read's own length; the mismatch/insertion/deletion
     /// counts describe the WHOLE read (an insertion sits between bases `position`
@@ -772,10 +786,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     // -----------------------------------------------------------------------
 
     /// Find open reading frames (ATG->stop, both strands, all frames) on a DNA
-    /// project. `minAa` defaults to 75; `addAsFeatures: true` appends the ORFs as
-    /// real CDS features (mutation envelope with `featureCount` and `text`).
-    /// Otherwise returns {ok, message, projectId, unit, minAa, orfCount, orfs:
-    /// [feature], hashes} with 1-based inclusive coordinates.
+    /// project. `minAa` defaults to 75.
+    ///
+    /// Returns {ok, message, projectId, unit, minAa, orfCount, orfs: [feature],
+    /// text?, sequenceHash, revCompHash} with 1-based inclusive coordinates
+    /// (feature shape as in get_project_overview/set_feature). With
+    /// `addAsFeatures: true` the ORFs are additionally persisted as real CDS
+    /// features (the same recompute path as set_feature) and the response gains
+    /// the `text` digest; otherwise nothing is written.
     #[tool]
     async fn find_orfs(
         &self,
@@ -801,17 +819,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// the edited codon(s). Amino-acid positions count the initiator Met as 1
     /// (literature numbering that skips it = minus 1).
     ///
-    /// Returns {ok, message, projectId, mode, groups: [{name, type,
+    /// Returns {ok, message, projectId, unit, mode, groups: [{name, type,
     /// recommendedIndex, candidates: [{id (unique within its group), recommended,
     /// seq, tail, tailLength, annealLength, tm, gcPercent, designedAnnealLength?,
     /// designedTm?}]}],
-    /// mutation?, internalSites?, internalSiteCount?, orientation?, cdsOverlaps?,
-    /// warnings?, notes?, hashes} (parameters that only apply to another mode are
-    /// reported in `notes` instead of being silently dropped). Use the candidate
-    /// with `recommended: true` (or `recommendedIndex`) — `annealLength`/`tm`
-    /// describe the ACTUAL contiguous 3' match, `designedAnnealLength`/`designedTm`
-    /// the designed core before 3'-end unification. `orientation` is the product's
-    /// top strand, `cdsOverlaps[].strand` maps overlapping CDS features onto it.
+    /// mutation?, internalSites?, internalSiteCount?, product?, cdsOverlaps?,
+    /// warnings?, notes?, sequenceHash, revCompHash} (parameters that only apply
+    /// to another mode are reported in `notes` instead of being silently
+    /// dropped). Use the candidate with `recommended: true` (or
+    /// `recommendedIndex`) — `annealLength`/`tm` describe the ACTUAL contiguous
+    /// 3' match, `designedAnnealLength`/`designedTm` the designed core before
+    /// 3'-end unification. In amplify mode `product` = {start, end, length}
+    /// (1-based inclusive): the product's top strand is the template's top
+    /// strand over this span, and `cdsOverlaps[].strand` maps overlapping CDS
+    /// features onto it.
     #[tool]
     async fn design_primers(
         &self,
@@ -858,11 +879,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// when it exists. Prefer the written file over the echoed `sequence`.
     ///
     /// Returns {ok, message, resultCount, okCount, failedCount, results: [{index,
-    /// ok, from, to, message, sequence?, length?, path?, projectId?, text?, notes?,
-    /// aa?, codonCount?, newCodons?, caiBefore?, caiAfter?, gcPercentBefore?,
-    /// gcPercentAfter?, repairs?, repairCount?, unresolved?, method?, species?,
-    /// sequenceHash?, revCompHash?}]}. Failed items carry only {index, ok: false,
-    /// message}; `repairs[].codonIndex` is 1-based and `unresolved` entries are
+    /// ok, from, to, unit, message, sequence?, length?, path?, projectId?, text?,
+    /// notes?, aa?, codonCount?, newCodons?, caiBefore?, caiAfter?,
+    /// gcPercentBefore?, gcPercentAfter?, repairs?, repairCount?, unresolved?,
+    /// method?, species?, sequenceHash?, revCompHash?}]}. Top-level `ok` means at
+    /// least one item succeeded; failed items carry only {index, ok: false,
+    /// message}. Per item, `unit` and `length` describe the OUTPUT sequence, and
+    /// `sequenceHash`/`revCompHash` hash that output — except project mode with
+    /// `apply: true`, where they hash the whole project sequence after the edit
+    /// (the same change-detection semantics as every other tool).
+    /// `repairs[].codonIndex` is 1-based and `unresolved` entries are
     /// "<reason> <start>..<end>" with 1-based inclusive base offsets.
     #[tool]
     async fn convert_sequence(

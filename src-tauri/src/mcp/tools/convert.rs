@@ -7,7 +7,7 @@ use tauri::Runtime;
 use libregene_core::models::{Feature, ProjectData};
 
 use crate::mcp::LibreGeneMcp;
-use crate::mcp::support::{insert_seq_hashes, round1};
+use crate::mcp::support::{insert_seq_hashes, round1, unit_for};
 use crate::mcp::types::{ConvertItem, ConvertSequenceRequest, OptimizeInput};
 
 /// Validate the input-mode combination and resolve it to exactly one
@@ -416,6 +416,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         v["ok"] = serde_json::json!(true);
         v["from"] = serde_json::json!("dna");
         v["to"] = serde_json::json!("dna");
+        v["unit"] = serde_json::json!(unit_for("dna"));
         v["length"] = serde_json::json!(coding.codons.len() * 3);
         v["projectId"] = serde_json::json!(id);
         v["message"] = serde_json::json!(format!(
@@ -458,10 +459,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 result.unresolved.len(),
             ));
         }
-        // After apply this is the post-mutation hash; a preview leaves the
-        // sequence unchanged, so the same read serves both.
-        if let Some(h) = self.project_seq_hashes(&id).await {
-            insert_seq_hashes(&mut v, &h);
+        // Hash semantics: the item's OUTPUT sequence. After apply this is the
+        // post-mutation hash of the whole project (matching the
+        // change-detection semantics of the other tools); a preview leaves the
+        // project untouched, so it hashes the optimized CDS itself.
+        if apply {
+            if let Some(h) = self.project_seq_hashes(&id).await {
+                insert_seq_hashes(&mut v, &h);
+            }
+        } else {
+            let optimized: String = result.new_codons.concat();
+            insert_seq_hashes(&mut v, &libregene_core::utils::orientation_hashes(&optimized, "dna"));
         }
         Ok(v)
     }
@@ -496,9 +504,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| format!("task join error: {}", e))??;
 
         let mut v = standalone_result_json(&conv, from, to);
-        // Hashes describe the INPUT sequence (whitespace/case-insensitive, so
-        // hashing the raw text equals hashing the cleaned form).
-        insert_seq_hashes(&mut v, &libregene_core::utils::orientation_hashes(&sequence, from));
+        // Hashes describe the OUTPUT sequence.
+        insert_seq_hashes(&mut v, &libregene_core::utils::orientation_hashes(&conv.sequence, to));
         if let Some(op) = &item.output_path {
             let written = write_convert_output(op, &conv.sequence, to, None, None)?;
             v["path"] = serde_json::json!(written);
@@ -591,12 +598,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
             );
             v["from"] = serde_json::json!("dna");
             v["to"] = serde_json::json!("dna");
+            v["unit"] = serde_json::json!(unit_for("dna"));
             v["sequence"] = serde_json::json!(new_sequence);
             v["length"] = serde_json::json!(new_sequence.len());
             v["message"] = serde_json::json!(message);
+            // Hashes describe the OUTPUT sequence (the file sequence with the
+            // CDS replaced by its optimized form).
             insert_seq_hashes(
                 &mut v,
-                &libregene_core::utils::orientation_hashes(&project.sequence, "dna"),
+                &libregene_core::utils::orientation_hashes(&new_sequence, "dna"),
             );
             if let Some(op) = &item.output_path {
                 let mut source_project = project.clone();
@@ -638,10 +648,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| format!("task join error: {}", e))??;
 
         let mut v = standalone_result_json(&conv, &from, &to);
-        // Hashes describe the input file's parsed sequence.
+        // Hashes describe the OUTPUT sequence.
         insert_seq_hashes(
             &mut v,
-            &libregene_core::utils::orientation_hashes(&project.sequence, &from),
+            &libregene_core::utils::orientation_hashes(&conv.sequence, &to),
         );
         if let Some(op) = &item.output_path {
             // Label the minimal project's CDS after the source file (e.g.
@@ -848,6 +858,7 @@ fn standalone_result_json(conv: &Conversion, from: &str, to: &str) -> serde_json
     v["ok"] = serde_json::json!(true);
     v["from"] = serde_json::json!(from);
     v["to"] = serde_json::json!(to);
+    v["unit"] = serde_json::json!(unit_for(to));
     v["sequence"] = serde_json::json!(conv.sequence);
     v["length"] = serde_json::json!(conv.sequence.len());
     v["message"] = serde_json::json!(conv.message);

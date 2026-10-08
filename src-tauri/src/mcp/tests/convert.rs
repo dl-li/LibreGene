@@ -169,9 +169,16 @@ fn item_failure(v: &serde_json::Value) -> String {
         assert_eq!(v["ok"], true);
         assert_eq!(v["from"], "dna");
         assert_eq!(v["to"], "dna");
+        assert_eq!(v["unit"], "bp", "{v}");
         assert_eq!(v["aa"], "EEE*");
         assert_eq!(v["codonCount"], 4);
         assert_eq!(v["sequence"], "GAAGAAGAATAA"); // E→GAA, stop→TAA (e_coli best)
+        // Hashes describe the OUTPUT sequence.
+        assert_eq!(
+            v["sequenceHash"],
+            libregene_core::utils::sequence_hash("GAAGAAGAATAA"),
+            "{v}"
+        );
         assert!(v.get("projectId").is_none());
 
         // apply=true without output_path in sequence mode → clear error
@@ -433,8 +440,10 @@ fn item_failure(v: &serde_json::Value) -> String {
         assert_eq!(out.0["ok"], true);
         let r = &out.0["results"];
         assert_eq!(r[0]["sequence"], "AUGUAAC");
+        assert_eq!(r[0]["unit"], "nt", "{r}"); // unit describes the OUTPUT
         assert_eq!(r[1]["sequence"], "ATGTAA");
         assert_eq!(r[2]["sequence"], "GCAT");
+        assert_eq!(r[2]["unit"], "bp", "{r}");
         assert_eq!(r[3]["sequence"], "GCAU");
         assert_eq!(r[4]["sequence"], "GCAT");
         // plain conversions carry no optimizer fields
@@ -480,8 +489,16 @@ fn item_failure(v: &serde_json::Value) -> String {
         let r = &out.0["results"];
         assert_eq!(r[0]["sequence"], "MVS*");
         assert_eq!(r[0]["length"], 4);
+        assert_eq!(r[0]["unit"], "aa", "{r}");
         assert_eq!(r[1]["sequence"], "MVS*");
         assert_eq!(r[2]["sequence"], "ATGGTGAGCTAA");
+        assert_eq!(r[2]["unit"], "bp", "{r}");
+        // Reverse translation: the output hash describes the optimized DNA.
+        assert_eq!(
+            r[2]["sequenceHash"],
+            libregene_core::utils::sequence_hash("ATGGTGAGCTAA"),
+            "{r}"
+        );
         assert_eq!(r[2]["aa"], "MVS*");
         assert_eq!(r[2]["codonCount"], 4);
         assert_eq!(r[3]["sequence"], "AUGGUGAGCUAA");

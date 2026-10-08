@@ -320,12 +320,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // with modulo/clamping instead of erroring, so an out-of-bounds
         // segment would silently yield garbage candidates. seg/seg2 are
         // 0-based here; messages are 1-based inclusive like every other tool.
-        let (tlen, circular) = {
+        let (tlen, circular, unit) = {
             let pm = self.pm.read().await;
             let p = pm
                 .get_project_by_id(&id)
                 .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
-            (p.length, p.topology == "circular")
+            (p.length, p.topology == "circular", unit_for(&p.molecule_type))
         };
         for (label, s) in [("seg", &seg), ("seg2", &seg2)] {
             let Some(s) = s else { continue };
@@ -488,6 +488,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "ok": true,
             "message": format!("{} primer group(s) designed ({} mode)", groups_json.len(), mode),
             "projectId": id,
+            "unit": unit,
             "mode": mode,
             "groups": groups_json,
         });
@@ -510,11 +511,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 );
             }
             if let Some((ss, se)) = seg_bounds {
-                v["orientation"] = serde_json::json!(format!(
-                    "product top strand = template top strand of seg {}..{}",
-                    ss + 1,
-                    se + 1
-                ));
+                v["product"] = serde_json::json!({
+                    "start": to1(ss),
+                    "end": to1(se),
+                    "length": (se - ss).rem_euclid(tlen) + 1,
+                });
                 let cds_overlaps: Vec<serde_json::Value> = {
                     let pm = self.pm.read().await;
                     match pm.get_project_by_id(&id) {
@@ -626,10 +627,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let payload = crate::do_check_primers_binding(&self.pm, &id, primers)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
-        let (tlen, topology) = {
+        let (tlen, topology, unit) = {
             let pm = self.pm.read().await;
             pm.get_project_by_id(&id)
-                .map(|p| (p.length, p.topology.clone()))
+                .map(|p| (p.length, p.topology.clone(), unit_for(&p.molecule_type)))
                 .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?
         };
         let circular = topology == "circular";
@@ -663,7 +664,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "ok": true,
             "message": format!("Checked {} primer(s) for binding", inputs.len()),
             "projectId": id,
-            "unit": "bp",
+            "unit": unit,
             "primerCount": inputs.len(),
             "primers": checked,
         });

@@ -253,8 +253,8 @@ struct FragmentSpec {
 /// fragment(s). Cut positions are the internal 0-based
 /// `cut_pairs[0].top_cut_index` of each site (a cut at C severs between bases
 /// C-1 and C), wrapped into 0..len on circular templates.
-fn enzyme_fragments(project: &ProjectData, names: &[String]) -> Result<Vec<FragmentSpec>, serde_json::Value> {
-    let fail = |msg: String| -> serde_json::Value { fail_envelope(&project.name, msg) };
+fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -> Result<Vec<FragmentSpec>, serde_json::Value> {
+    let fail = |msg: String| -> serde_json::Value { fail_envelope(project_id, msg) };
     let len = project.length;
     let circular = project.topology == "circular";
     let db = libregene_core::enzyme::search::get_db();
@@ -434,10 +434,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
-            match enzyme_fragments(&project, &names) {
+            match enzyme_fragments(&id, &project, &names) {
                 Ok(f) => specs = f,
                 Err(mut v) => {
-                    v["projectId"] = serde_json::json!(id);
                     insert_seq_hashes(&mut v, &seq_hashes);
                     return Ok(Json(v));
                 }

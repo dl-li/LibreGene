@@ -14,6 +14,7 @@ use serde::Deserialize;
 pub(crate) struct OverviewRequest {
     /// Required: the project to inspect (see list_workspace).
     pub(crate) project_id: String,
+    /// Cap on the feature list (used together with `featureFilter`).
     #[schemars(with = "Option<i64>")]
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
@@ -30,6 +31,7 @@ pub(crate) struct RegionRequest {
     pub(crate) start: i64,
     /// Window end, 1-based inclusive.
     pub(crate) end: i64,
+    /// Cap on the feature list (used together with `featureFilter`).
     #[schemars(with = "Option<i64>")]
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
@@ -284,10 +286,10 @@ pub(crate) struct AddAlignmentRequest {
     pub(crate) project_id: String,
     /// Name for the new alignment.
     pub(crate) name: String,
-    /// Read sequence as plain text — short hand-authored reads only; prefer
-    /// `path`.
-    #[serde(alias = "seq")]
-    pub(crate) bases: Option<String>,
+    /// Read sequence as plain text — accepts a short hand-authored sequence
+    /// only; prefer `path`. (Legacy alias: `bases`.)
+    #[serde(alias = "bases")]
+    pub(crate) seq: Option<String>,
     /// PREFERRED input: read the sequence from a file (.gbk/.gb/.genbank,
     /// .dna/.rna/.prot, .gpt, .fa/.fasta, .ab1). Export a project region first
     /// with save_file's `region` if needed.

@@ -1,5 +1,6 @@
 use super::common::*;
 use crate::mcp::*;
+use libregene_core::models::ProjectData;
 
 /// Assert the unified envelope keys of a success response.
 fn assert_envelope(v: &serde_json::Value, project_id: Option<&str>) {
@@ -63,6 +64,22 @@ fn wire_params_are_camel_case() {
     .expect("camelCase convert item");
     assert_eq!(convert.rev_comp, Some(true));
     assert_eq!(convert.output_path.as_deref(), Some("/tmp/out.gbk"));
+
+    // add_alignment takes the read sequence as `seq` (legacy alias: `bases`).
+    let aln: AddAlignmentRequest = serde_json::from_value(serde_json::json!({
+        "projectId": "p",
+        "name": "r1",
+        "seq": "ACGT",
+    }))
+    .expect("add_alignment seq");
+    assert_eq!(aln.seq.as_deref(), Some("ACGT"));
+    let aln: AddAlignmentRequest = serde_json::from_value(serde_json::json!({
+        "projectId": "p",
+        "name": "r1",
+        "bases": "ACGT",
+    }))
+    .expect("add_alignment legacy bases alias");
+    assert_eq!(aln.seq.as_deref(), Some("ACGT"));
 }
 
 #[tokio::test]
@@ -106,6 +123,7 @@ async fn read_tools_share_the_success_envelope() {
         .unwrap()
         .0;
     assert_envelope(&read, Some("enz"));
+    assert_eq!(read["mode"], "window", "{read}");
     assert_eq!(read["start"], 5, "{read}");
     assert_eq!(read["end"], 25, "{read}");
     assert_eq!(read["length"], 21, "{read}");
@@ -485,6 +503,91 @@ async fn convert_sequence_description_lists_the_builtin_species() {
     for t in &tools {
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.contains("{species}"), "{} left a placeholder", t.name);
+    }
+}
+
+#[tokio::test]
+async fn find_orfs_report_and_mutation_modes_share_one_shape() {
+    // Plus-strand ORF: ATG + 10 codons + stop (1-based 3..37).
+    let seq = format!("GGATG{}TAAGG", "GCT".repeat(10));
+    let project = ProjectData {
+        name: "orf_test".to_string(),
+        sequence: seq,
+        length: 38,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        ..Default::default()
+    };
+    let server = handler_with_project(project).await;
+
+    // Report mode: nothing is written.
+    let v = server
+        .find_orfs(Parameters(FindOrfsRequest {
+            project_id: "orf_test".to_string(),
+            min_aa: Some(5),
+            add_as_features: None,
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_envelope(&v, Some("orf_test"));
+    assert_eq!(v["unit"], "bp", "{v}");
+    assert_eq!(v["minAa"], 5, "{v}");
+    assert!(v["orfCount"].as_u64().unwrap() >= 1, "{v}");
+    assert_eq!(v["orfCount"], v["orfs"].as_array().unwrap().len() as u64, "{v}");
+    assert!(v["orfs"][0]["start"].as_i64().unwrap() >= 1, "1-based: {v}");
+    assert!(v.get("text").is_none(), "report mode carries no digest: {v}");
+    assert!(v.get("featureCount").is_none(), "old field name must not reappear: {v}");
+    {
+        let pm = server.pm.read().await;
+        assert!(pm.get_project_by_id("orf_test").unwrap().features.is_empty());
+    }
+
+    // Mutation mode: same keys plus the digest.
+    let v = server
+        .find_orfs(Parameters(FindOrfsRequest {
+            project_id: "orf_test".to_string(),
+            min_aa: Some(5),
+            add_as_features: Some(true),
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_envelope(&v, Some("orf_test"));
+    assert_eq!(v["unit"], "bp", "{v}");
+    assert_eq!(v["minAa"], 5, "{v}");
+    let n = v["orfCount"].as_u64().unwrap();
+    assert_eq!(n, v["orfs"].as_array().unwrap().len() as u64, "{v}");
+    assert!(v["text"].is_string(), "mutation mode carries the digest: {v}");
+    assert!(v.get("featureCount").is_none(), "old field name must not reappear: {v}");
+    let pm = server.pm.read().await;
+    assert_eq!(pm.get_project_by_id("orf_test").unwrap().features.len(), n as usize);
+}
+
+#[tokio::test]
+async fn add_alignment_uses_count_suffixed_field_names() {
+    let project = alignment_test_project("linear");
+    let template = project.sequence.clone();
+    let server = handler_with_project(project).await;
+    let v = server
+        .add_alignment(Parameters(AddAlignmentRequest {
+            project_id: "aln_test".to_string(),
+            name: "read1".to_string(),
+            seq: Some(template[50..150].to_string()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_envelope(&v, Some("aln_test"));
+    for new in ["mismatchCount", "insertionCount", "deletionCount"] {
+        assert!(v.get(new).is_some(), "missing {new}: {v}");
+        assert!(v["alignments"][0].get(new).is_some(), "alignments[0] missing {new}: {v}");
+    }
+    // Tombstones: the pre-rename count field names must not come back.
+    for old in ["mismatches", "insertions", "deletions"] {
+        assert!(v.get(old).is_none(), "old field {old} reappeared: {v}");
+        assert!(v["alignments"][0].get(old).is_none(), "alignments[0] old field {old}: {v}");
     }
 }
 

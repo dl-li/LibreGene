@@ -794,7 +794,7 @@ use libregene_core::models::Primer;
         let server = handler_with_project(project).await;
         let out_path = std::env::temp_dir()
             .join(format!("libregene-mcp-export-prot-{}.gpt", std::process::id()));
-        let err = server
+        let v = server
             .save_file(Parameters(SaveFileRequest {
                 project_id: "prot_test".to_string(),
                 path: out_path.to_string_lossy().into_owned(),
@@ -805,10 +805,13 @@ use libregene_core::models::Primer;
                 ..Default::default()
             }))
             .await
-            .err()
-            .expect("minus-strand feature export on a protein project must fail");
-        assert!(err.message.contains("minus strand"), "{err}");
-        assert!(err.message.contains("DNA"), "{err}");
+            .expect("selector rejection is an ok:false envelope, not a protocol error")
+            .0;
+        assert_eq!(v["ok"], false, "{v}");
+        assert_eq!(v["projectId"], "prot_test", "{v}");
+        assert!(v["sequenceHash"].is_string(), "{v}");
+        assert!(v["message"].as_str().unwrap().contains("minus strand"), "{v}");
+        assert!(v["message"].as_str().unwrap().contains("DNA"), "{v}");
         assert!(!out_path.exists(), "no file written on refusal");
     }
 
@@ -841,7 +844,7 @@ use libregene_core::models::Primer;
                 fid,
                 std::process::id()
             ));
-            let err = server
+            let v = server
                 .save_file(Parameters(SaveFileRequest {
                     project_id: "poison_test".to_string(),
                     path: out_path.to_string_lossy().into_owned(),
@@ -852,9 +855,10 @@ use libregene_core::models::Primer;
                     ..Default::default()
                 }))
                 .await
-                .err()
-                .expect("out-of-range feature segments must be rejected, not sliced");
-            assert!(err.message.contains("out of range"), "{err}");
+                .expect("out-of-range segments are an ok:false envelope, not a protocol error")
+                .0;
+            assert_eq!(v["ok"], false, "{v}");
+            assert!(v["message"].as_str().unwrap().contains("out of range"), "{v}");
             assert!(!out_path.exists(), "no file written on refusal");
         }
     }

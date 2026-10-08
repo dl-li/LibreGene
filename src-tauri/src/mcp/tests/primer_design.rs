@@ -3,9 +3,9 @@ use crate::mcp::*;
 use libregene_core::models::ProjectData;
 
     #[tokio::test]
-    async fn design_primers_amplify_reports_orientation_and_cds_strand() {
+    async fn design_primers_amplify_reports_product_and_cds_strand() {
         // Minus-strand CDS overlapping the seg: the response must spell out
-        // the product orientation and the CDS strand so Fwd/Rev are not
+        // the product span and the CDS strand so Fwd/Rev are not
         // misread as coding-direction names.
         let project = ProjectData {
             name: "amp_test".to_string(),
@@ -30,8 +30,13 @@ use libregene_core::models::ProjectData;
             .unwrap();
         let v = out.0;
         assert!(v["groups"].as_array().is_some_and(|g| g.len() == 2), "{v}");
-        let orientation = v["orientation"].as_str().expect("orientation note");
-        assert_eq!(orientation, "product top strand = template top strand of seg 51..151", "{orientation}");
+        assert_eq!(v["unit"], "bp", "{v}");
+        assert_eq!(
+            v["product"],
+            serde_json::json!({"start": 51, "end": 151, "length": 101}),
+            "{v}"
+        );
+        assert!(v.get("orientation").is_none(), "replaced by product: {v}");
         let overlaps = v["cdsOverlaps"].as_array().expect("cdsOverlaps");
         assert_eq!(overlaps.len(), 1, "{v}");
         assert_eq!(
