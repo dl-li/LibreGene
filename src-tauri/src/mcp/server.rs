@@ -5,14 +5,18 @@
 // ---------------------------------------------------------------------------
 
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session,
 };
 use tauri::{AppHandle, Runtime};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::RwLock;
 
 use libregene_core::project::ProjectManager;
@@ -20,6 +24,84 @@ use libregene_core::project::ProjectManager;
 use super::auth::{generate_auth_token, load_or_create_token, persist_token, token_eq};
 use super::workspace::Workspace;
 use super::{LibreGeneMcp, MCP_PORT};
+
+/// Concurrent sockets the MCP server will hold. Each agent session uses a
+/// couple (POSTs + an optional SSE stream), so 64 is generous; the bound
+/// keeps a local slow-client from exhausting the process's file descriptors.
+pub const MAX_MCP_CONNECTIONS: usize = 64;
+
+/// A listener that caps concurrently-open sockets: over the cap the fresh
+/// connection is closed immediately (the socket drops → FIN) and accepting
+/// continues. Slots free when the served stream object is dropped, so the
+/// count tracks real live connections.
+struct CappedListener {
+    inner: tokio::net::TcpListener,
+    live: Arc<AtomicUsize>,
+}
+
+/// TcpStream wrapper that releases its connection slot on drop.
+struct CountedStream {
+    inner: tokio::net::TcpStream,
+    live: Arc<AtomicUsize>,
+}
+
+impl Drop for CountedStream {
+    fn drop(&mut self) {
+        self.live.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl axum::serve::Listener for CappedListener {
+    type Io = CountedStream;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            match self.inner.accept().await {
+                Ok((stream, addr)) => {
+                    if self.live.load(Ordering::Relaxed) >= MAX_MCP_CONNECTIONS {
+                        continue; // drop the fresh socket, keep accepting
+                    }
+                    self.live.fetch_add(1, Ordering::Relaxed);
+                    return (CountedStream { inner: stream, live: self.live.clone() }, addr);
+                }
+                Err(_) => continue, // same retry-on-error shape as axum's TcpListener impl
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
+impl AsyncRead for CountedStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for CountedStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 /// Runtime MCP server configuration. The frontend persists the source of truth
 /// in localStorage and pushes it here via `set_mcp_config` on startup and on
@@ -430,8 +512,12 @@ pub(crate) async fn serve_mcp<R: Runtime>(
                 } else {
                     "auth disabled"
                 };
-                log::info!("MCP server listening on http://{addr}/mcp ({auth})");
-                return axum::serve(listener, router).await.map_err(Into::into);
+                log::info!("MCP server listening on http://{addr}/mcp ({auth}, max {MAX_MCP_CONNECTIONS} connections)");
+                let capped = CappedListener {
+                    inner: listener,
+                    live: Arc::new(AtomicUsize::new(0)),
+                };
+                return axum::serve(capped, router).await.map_err(Into::into);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 attempt += 1;

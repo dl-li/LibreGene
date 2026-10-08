@@ -464,6 +464,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut added: Vec<serde_json::Value> = Vec::new();
         {
             let mut ws = self.workspace.write().await;
+            // Temporary fragments are agent-controlled and live until the app
+            // exits; without a cap a looping agent grows the workspace (each
+            // item up to a whole project sequence) without bound.
+            const MAX_TEMPORARY_ITEMS: usize = 64;
+            if ws.len() + specs.len() > MAX_TEMPORARY_ITEMS {
+                let have = ws.len();
+                return Ok(fail(format!(
+                    "workspace holds {have} temporary fragments; adding {} more would exceed the cap of {MAX_TEMPORARY_ITEMS}. Extract fewer or narrower fragments — items vanish when the app exits.",
+                    specs.len()
+                )));
+            }
             for spec in &specs {
                 let (sequence, features, primers) = build_export_data(&project, &spec.pieces, spec.flip);
                 let name = request.name.clone().unwrap_or_else(|| spec.desc.clone());
