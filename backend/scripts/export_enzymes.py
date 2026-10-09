@@ -34,6 +34,30 @@ def classify_type_iis(enz, rec_len):
         return True
     return False
 
+# Manual corrections to Biopython/REBASE data, cross-checked against NEB/REBASE
+# canonical cut notations:
+# - AbaSI: REBASE simplifies the site to "C", but NEB (R0665) gives
+#   CNNNNNNNNNNN/NNNNNNNNNG — a 22 bp window (C + 20N + G, the G being the
+#   second modified C on the opposite strand). Cut geometry 11/9 with a 2-nt
+#   3' overhang is unchanged.
+# - MlyI/SchI: Bio.Restriction.elucidate() truncates the "^" marker for
+#   remote cutters; GAGTC(5/5) blunt per NEB.
+# - TspRI/TscAI: Biopython reports ovhg=10, but the overhang sequence
+#   NNCASTGNN is 9 nt (9-nt 3' overhang per REBASE/literature).
+OVERRIDES = {
+    "AbaSI": {
+        "site": "CNNNNNNNNNNNNNNNNNNNNG",
+        "fst5": 12,
+        "fst3": -12,
+        "is_palindromic": True,
+        "elucidate": "CNNNNNNNNN_NN^NNNNNNNNNG",
+    },
+    "MlyI": {"elucidate": "GAGTCNNNNN^_"},
+    "SchI": {"elucidate": "GAGTCNNNNN^_"},
+    "TspRI": {"overhang_len": 9},
+    "TscAI": {"overhang_len": 9},
+}
+
 results = []
 for enz in CommOnly:
     name = str(enz)
@@ -53,8 +77,9 @@ for enz in CommOnly:
     is_meth_dep = "Meth_Dep" in mro_names
 
     # Methylation-dependent (requires methylation to cut): known by name.
-    # DpnI is the classic example — it only cuts Dam-methylated GATC.
-    is_meth_dependent = name in ("DpnI",)
+    # DpnI only cuts Dam-methylated GATC; the PvuRts1I-family enzymes
+    # (AbaSI, FspEI, MspJI, SgeI, LpnPI) only cut at modified cytosines.
+    is_meth_dependent = name in ("DpnI", "AbaSI", "FspEI", "MspJI", "SgeI", "LpnPI")
 
     entry = {
         "name": name,
@@ -71,6 +96,7 @@ for enz in CommOnly:
         "methylation_dependent": is_meth_dependent,
         "elucidate": enz.elucidate(),
     }
+    entry.update(OVERRIDES.get(name, {}))
     results.append(entry)
 
 # Print stats
