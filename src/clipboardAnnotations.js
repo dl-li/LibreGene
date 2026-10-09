@@ -82,7 +82,9 @@ export function revCompClipboardMeta(meta) {
   const features = (meta.features || []).map((f) => ({
     ...f,
     strand: f.strand === '+' ? '-' : f.strand === '-' ? '+' : f.strand,
-    segments: [...f.segments].reverse().map((s) => ({ start: L - 1 - s.end, end: L - 1 - s.start })),
+    segments: [...f.segments]
+      .reverse()
+      .map((s) => ({ start: L - 1 - s.end, end: L - 1 - s.start })),
   }));
   return { ...meta, features };
 }

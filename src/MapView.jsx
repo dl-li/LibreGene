@@ -793,11 +793,7 @@ export function LinearMap({
           fill="#222"
           pointerEvents="none"
         >
-          {middleEllipsize(
-            `${name} · ${length} bp`,
-            x1 - x0 - 20,
-            'bold 13px TeX Gyre Heros',
-          )}
+          {middleEllipsize(`${name} · ${length} bp`, x1 - x0 - 20, 'bold 13px TeX Gyre Heros')}
         </text>
       )}
     </svg>

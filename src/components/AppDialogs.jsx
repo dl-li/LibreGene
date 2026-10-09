@@ -104,8 +104,8 @@ export default function AppDialogs({
             <DialogTitle>Add as Alignment?</DialogTitle>
             <DialogDescription>
               Add {dropConfirm?.paths.length === 1 ? 'this file' : 'these files'} to the current
-              project as {dropConfirm?.paths.length === 1 ? 'an alignment' : 'alignments'}, or
-              open as new {dropConfirm?.paths.length === 1 ? 'project' : 'projects'}?
+              project as {dropConfirm?.paths.length === 1 ? 'an alignment' : 'alignments'}, or open
+              as new {dropConfirm?.paths.length === 1 ? 'project' : 'projects'}?
             </DialogDescription>
           </DialogHeader>
           <ul className="max-h-40 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs font-mono text-muted-foreground">

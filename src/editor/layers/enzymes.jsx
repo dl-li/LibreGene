@@ -1,18 +1,8 @@
 import React from 'react';
-import {
-  cw,
-  bgColor,
-  monoFont,
-  complement,
-  enzymeActiveBlue,
-} from '../../editorConstants';
+import { cw, bgColor, monoFont, complement, enzymeActiveBlue } from '../../editorConstants';
 import { isIISEnzyme, splitEnzName } from '../seqUtils';
 
-export function renderEnzymeLines({
-  enzymeLayout,
-  enzymeLinesPath,
-  lp,
-}) {
+export function renderEnzymeLines({ enzymeLayout, enzymeLinesPath, lp }) {
   if (!enzymeLayout.length) return null;
   return (
     <g>
@@ -72,9 +62,7 @@ export function renderEnzymeLabels({
   setIsDragging,
   setIsEnzymeDragging,
 }) {
-  const hoveredName = hoveredEnzyme
-    ? enzymeLayout.find((l) => l.id === hoveredEnzyme)?.name
-    : null;
+  const hoveredName = hoveredEnzyme ? enzymeLayout.find((l) => l.id === hoveredEnzyme)?.name : null;
   return enzymeLayout.map((l) => {
     if (l.labelHidden) return null;
     const e = enzymes.find((x) => x.id === l.groupId);
@@ -467,8 +455,7 @@ export function renderTooltips({
   if (!hoveredEntry) return null;
   const e = enzymes.find((x) => x.id === hoveredEntry.groupId);
   if (!e || e.displayStart === undefined) return null;
-  const isGray =
-    e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
+  const isGray = e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
   const ttColor = isGray ? '#9CA3AF' : isEnzymeDragging ? enzymeActiveBlue : '#2563EB';
 
   const tlen = cleanSeq.length;
@@ -549,15 +536,7 @@ export function renderTooltips({
 
         return (
           <g key={`tt-${entry.id}`}>
-            <rect
-              x={leftX}
-              y={ttY}
-              width={ttW}
-              height={ttH}
-              rx={8}
-              fill="#FFFFFF"
-              stroke="none"
-            />
+            <rect x={leftX} y={ttY} width={ttW} height={ttH} rx={8} fill="#FFFFFF" stroke="none" />
             <path
               d={borderD}
               fill="none"

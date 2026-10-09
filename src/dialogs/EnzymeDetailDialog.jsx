@@ -20,7 +20,10 @@ function Field({ label, children }) {
 function EnzymeName({ name, className = '' }) {
   const s = splitEnzymeName(name);
   return (
-    <span className={`text-blue-700 ${className}`} style={{ fontFamily: monoFont, fontWeight: 700 }}>
+    <span
+      className={`text-blue-700 ${className}`}
+      style={{ fontFamily: monoFont, fontWeight: 700 }}
+    >
       {s.normal ? (
         <>
           <span style={{ fontStyle: 'italic' }}>{s.italic}</span>
@@ -172,9 +175,7 @@ export default function EnzymeDetailDialog({
 
         <div className="mt-4 space-y-2">
           {providerKeys.length === 0 && (
-            <div className="text-sm text-muted-foreground">
-              No provider data for this enzyme.
-            </div>
+            <div className="text-sm text-muted-foreground">No provider data for this enzyme.</div>
           )}
           {providerKeys.map((key) => {
             const variants = entry.providers[key]?.variants || [];

@@ -57,9 +57,7 @@ export function renderPrimers({
       for (const seg of segs) {
         const lo = rowStarts[seg.row] + seg.colStart;
         const hi = rowStarts[seg.row] + seg.colEnd;
-        seg.renderCols = p.renderCols.filter(
-          (rc) => rc.templateCol >= lo && rc.templateCol <= hi,
-        );
+        seg.renderCols = p.renderCols.filter((rc) => rc.templateCol >= lo && rc.templateCol <= hi);
       }
     }
     const tailSeg = isFwd ? segs[0] : segs[segs.length - 1];
@@ -217,11 +215,7 @@ export function renderPrimers({
                   <>
                     {showMisDots && (
                       <tspan
-                        x={
-                          isFwd
-                            ? x1 - (drawMisLen + 1.5) * cw
-                            : x2 + (drawMisLen + 2.5) * cw
-                        }
+                        x={isFwd ? x1 - (drawMisLen + 1.5) * cw : x2 + (drawMisLen + 2.5) * cw}
                         y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
                         textAnchor="middle"
                       >
@@ -232,8 +226,7 @@ export function renderPrimers({
                       <tspan
                         key={`mis-${k}`}
                         x={
-                          (isFwd ? x1 - (drawMisLen - k) * cw : x2 + (drawMisLen - k) * cw) +
-                          cw / 2
+                          (isFwd ? x1 - (drawMisLen - k) * cw : x2 + (drawMisLen - k) * cw) + cw / 2
                         }
                         y={misY + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY)}
                         textAnchor="middle"
@@ -360,9 +353,7 @@ export function renderPrimers({
                 x={Math.min(...pts.map((p) => p[0])) - 4}
                 y={Math.min(...pts.map((p) => p[1])) - 20}
                 width={Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])) + 8}
-                height={
-                  Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])) + 40
-                }
+                height={Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])) + 40}
                 fill="transparent"
                 onMouseDown={(e) => {
                   if (e.button !== 0) return;
