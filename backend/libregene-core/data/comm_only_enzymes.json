@@ -1651,18 +1651,18 @@
   },
   {
     "name": "AbaSI",
-    "site": "C",
+    "site": "CNNNNNNNNNNNNNNNNNNNNG",
     "fst5": 12,
-    "fst3": 9,
+    "fst3": -12,
     "scd5": null,
     "scd3": null,
-    "is_palindromic": false,
+    "is_palindromic": true,
     "cut_type": "3overhang",
     "overhang_len": 2,
     "is_cut_twice": false,
     "methylation": "none",
-    "methylation_dependent": false,
-    "elucidate": "CNNNNNNNNN_NN^N"
+    "methylation_dependent": true,
+    "elucidate": "CNNNNNNNNN_NN^NNNNNNNNNG"
   },
   {
     "name": "AluBI",
