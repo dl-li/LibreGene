@@ -883,7 +883,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         if (last && (alignNavAnimRef.current != null || Math.abs(leftNow - last.left) < 2)) {
           baseSite = last.site;
         } else {
-          baseSite = absFromStream(Math.max(0, (leftNow - startX) / cw));
+          baseSite = absFromStream(Math.max(0, (leftNow + el.clientWidth / 2 - startX) / cw));
         }
         let target;
         if (dir > 0) {
@@ -901,7 +901,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
           }
         }
         if (target == null) return;
-        const newLeft = Math.max(0, startX + colVis(target - rowStarts[0], 0) * cw - 120);
+        const newLeft = Math.max(
+          0,
+          startX + colVis(target - rowStarts[0], 0) * cw - el.clientWidth / 2,
+        );
         el.scrollTo({ left: newLeft, behavior: 'smooth' });
         alignNavLastRef.current = { site: target, left: newLeft };
         if (alignNavAnimRef.current) clearTimeout(alignNavAnimRef.current);
