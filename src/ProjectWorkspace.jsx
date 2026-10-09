@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import SequenceEditor from './SequenceEditor';
 import {
   getProjectById,
@@ -12,6 +13,7 @@ import {
 } from './tauriApi';
 import { orientChromatogram } from './chromatogram';
 import FeatureScrollbar from './components/FeatureScrollbar';
+import { BASE_HILITE_BG } from './editor/alignmentLayout';
 import MapView from './MapView';
 import {
   loadProviderData,
@@ -155,6 +157,31 @@ export default function ProjectWorkspace({
   // The editor's inner container div (the horizontal scroll host in
   // continuous mode); SequenceEditor merges it with its own containerRef.
   const editorScrollRef = useRef(null);
+  // SequenceEditor's jumpToAlignSite, for the continuous-mode navigator
+  // rendered below the top horizontal scrollbar.
+  const alignNavRef = useRef(null);
+  // The navigator stays absolutely positioned below the top scrollbar, but
+  // shifts horizontally so it centres on the window (lining up with the
+  // titlebar title) rather than on the workspace container.
+  const topScrollWrapRef = useRef(null);
+  const [alignNavShift, setAlignNavShift] = useState(0);
+  useEffect(() => {
+    if (hidden || viewMode !== 'continuous') return undefined;
+    const el = topScrollWrapRef.current;
+    if (!el) return undefined;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setAlignNavShift(window.innerWidth / 2 - (r.left + r.width / 2));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [hidden, viewMode]);
   const lastSelectionRef = useRef(null);
 
   const {
@@ -952,6 +979,7 @@ export default function ProjectWorkspace({
               viewMode={viewMode}
               onViewModeChange={onViewModeChange}
               editorScrollRef={editorScrollRef}
+              alignNavRef={alignNavRef}
               leftViewportInset={leftViewportInset}
               agentLocked={agentLocked}
               onUnlockAgent={handleUnlockAgent}
@@ -966,7 +994,7 @@ export default function ProjectWorkspace({
             />
           )}
           {!hidden && viewMode === 'continuous' && (
-            <div className="absolute top-0 left-0 right-0">
+            <div ref={topScrollWrapRef} className="absolute top-0 left-0 right-0">
               <FeatureScrollbar
                 orientation="horizontal"
                 scrollContainerRef={editorScrollRef}
@@ -974,6 +1002,34 @@ export default function ProjectWorkspace({
                 sequenceLength={sequence.length}
                 highlightPositions={enzymeHoverCuts}
               />
+              {isDna && visibleAlignments.length > 0 && (
+                <div
+                  style={{
+                    transform: `translateX(calc(-50% + ${alignNavShift}px))`,
+                    '--align-hilite': BASE_HILITE_BG,
+                    '--align-hilite-soft': `${BASE_HILITE_BG}99`,
+                  }}
+                  className="nav-bar-enter absolute left-1/2 top-full z-40 mt-1.5 flex flex-row items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
+                >
+                  <button
+                    type="button"
+                    title="Previous alignment marker"
+                    onClick={() => alignNavRef.current?.(-1)}
+                    className="rounded-l-full py-2 pl-2.5 pr-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
+                  >
+                    <ChevronLeft className="mx-auto size-4" strokeWidth={2.25} />
+                  </button>
+                  <div className="my-auto h-3.5 w-px bg-border/70" />
+                  <button
+                    type="button"
+                    title="Next alignment marker"
+                    onClick={() => alignNavRef.current?.(1)}
+                    className="rounded-r-full py-2 pl-1.5 pr-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
+                  >
+                    <ChevronRight className="mx-auto size-4" strokeWidth={2.25} />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

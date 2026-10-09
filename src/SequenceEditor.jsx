@@ -77,8 +77,6 @@ import {
   Bot,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
   Copy,
   CopyPlus,
@@ -208,6 +206,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // ProjectWorkspace's ref onto the editor container div (the horizontal
   // scroll host in continuous mode); merged with the internal containerRef.
   editorScrollRef,
+  // ProjectWorkspace renders the continuous-mode alignment navigator next to
+  // its top scrollbar; jumpToAlignSite is exposed through this ref.
+  alignNavRef,
   // Width of the collapsed sidebar icon rail overlaying the content's left
   // edge (main window only); continuous-mode label clamping stays clear of it.
   leftViewportInset = 0,
@@ -959,6 +960,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       rowStarts,
     ],
   );
+  useEffect(() => {
+    if (alignNavRef) alignNavRef.current = jumpToAlignSite;
+  }, [alignNavRef, jumpToAlignSite]);
 
   const handleSvgMouseDown = useCallback(
     (e) => {
@@ -2826,38 +2830,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
       {/* Floating prev/next navigator over the alignment tracks' notable
           nodes; right edge, vertically centred, clear of the feature
           scrollbar strip and the bottom-right badge. Hover paints the
-          hovered half with the alignment attention-plate colour. */}
-      {isDna && alignmentTracks.length > 0 && continuous && (
-        <div
-          style={{
-            position: 'fixed',
-            right: 28,
-            bottom: 80,
-            zIndex: 40,
-            '--align-hilite': BASE_HILITE_BG,
-            '--align-hilite-soft': `${BASE_HILITE_BG}99`,
-          }}
-          className="nav-bar-enter flex flex-row items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
-        >
-          <button
-            type="button"
-            title="Previous alignment marker"
-            onClick={() => jumpToAlignSite(-1)}
-            className="rounded-l-full py-2 pl-2.5 pr-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
-          >
-            <ChevronLeft className="mx-auto size-4" strokeWidth={2.25} />
-          </button>
-          <div className="my-auto h-3.5 w-px bg-border/70" />
-          <button
-            type="button"
-            title="Next alignment marker"
-            onClick={() => jumpToAlignSite(1)}
-            className="rounded-r-full py-2 pl-1.5 pr-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
-          >
-            <ChevronRight className="mx-auto size-4" strokeWidth={2.25} />
-          </button>
-        </div>
-      )}
+          hovered half with the alignment attention-plate colour. In
+          continuous mode the navigator lives in ProjectWorkspace, centred
+          just below the top horizontal scrollbar. */}
       {isDna && alignmentTracks.length > 0 && !continuous && (
         <div
           style={{

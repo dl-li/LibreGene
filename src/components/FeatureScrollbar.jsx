@@ -167,6 +167,7 @@ export default function FeatureScrollbar({
     const el = scrollContainerRef?.current;
     const root = rootRef.current;
     if (!el || !root) return;
+    e.preventDefault();
     const rr = root.getBoundingClientRect();
     const track = (horizontal ? rr.width : rr.height) - thumbLen;
     if (track <= 0) return;
@@ -175,6 +176,10 @@ export default function FeatureScrollbar({
     const target = Math.round(offset + ratio * adjRange);
     if (horizontal) el.scrollLeft = target;
     else el.scrollTop = target;
+    // Keep the press alive as a drag: the jump just centred the thumb on the
+    // pointer, so holding and moving scrubs from there.
+    dragOffRef.current = thumbLen / 2;
+    setIsDragging(true);
   };
 
   if (!sequenceLength) return null;
