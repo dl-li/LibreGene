@@ -56,6 +56,8 @@ OVERRIDES = {
     "SchI": {"elucidate": "GAGTCNNNNN^_"},
     "TspRI": {"overhang_len": 9},
     "TscAI": {"overhang_len": 9},
+    # FspEI is correct (CC(12/16)) but its 2-bp site is too dense to display.
+    "FspEI": {"hidden": True},
 }
 
 results = []

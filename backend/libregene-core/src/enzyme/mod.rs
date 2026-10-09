@@ -69,6 +69,7 @@ pub fn recompute(project: &mut ProjectData) {
     let mut result: Vec<Enzyme> = db
         .enzymes
         .par_iter()
+        .filter(|record| !record.hidden)
         .flat_map(|record| {
             process_enzyme(record, seq, seq_str, is_circular, seq_len, &ext_seq)
         })
@@ -504,9 +505,33 @@ mod tests {
     // Molecule-type guard
     // -------------------------------------------------------------------------
 
+    /// Hidden records (e.g. FspEI, 2-bp site too dense to display) never
+    /// produce on-sequence annotations, even where they would match.
     #[test]
-    fn recompute_skips_non_dna_projects() {
+    fn recompute_skips_hidden_enzymes() {
+        let hidden: Vec<&str> = search::get_db()
+            .enzymes
+            .iter()
+            .filter(|r| r.hidden)
+            .map(|r| r.name.as_str())
+            .collect();
+        assert!(!hidden.is_empty(), "test assumes at least one hidden enzyme");
+
         let mut project = ProjectData {
+            sequence: "CC".repeat(100),
+            topology: "circular".to_string(),
+            ..Default::default()
+        };
+        project.length = project.sequence.len() as i64;
+        recompute(&mut project);
+        assert!(
+            project.enzymes.iter().all(|e| !hidden.contains(&e.name.as_str())),
+            "hidden enzymes must not appear in recompute results"
+        );
+    }
+
+    #[test]
+    fn recompute_skips_non_dna_projects() {        let mut project = ProjectData {
             sequence: "GAATTC".repeat(3), // three EcoRI recognition sites
             topology: "circular".to_string(),
             molecule_type: "protein".to_string(),
@@ -768,6 +793,7 @@ mod tests {
             is_cut_twice: false,
             methylation: "none".to_string(),
             methylation_dependent: false,
+            hidden: false,
             elucidate: String::new(),
         }
     }

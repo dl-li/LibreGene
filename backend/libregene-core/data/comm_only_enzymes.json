@@ -8802,6 +8802,7 @@
     "is_cut_twice": false,
     "methylation": "none",
     "methylation_dependent": true,
+    "hidden": true,
     "elucidate": "CCNNNNNNNNNNNN^NNNN_N"
   },
   {
