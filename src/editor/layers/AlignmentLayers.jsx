@@ -222,9 +222,11 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
   expandedChromAlnId,
   onToggleAlignmentChrom,
   onHideAlignment,
-  // Continuous mode: the right edge sits thousands of px away — the label
-  // anchors at the read's own start column instead.
+  // Continuous mode: the label hugs the read's right edge, clamping into the
+  // viewport (SVG-x window) like feature labels; a pinned label floats over
+  // the lane on an opaque, edge-fading background.
   continuous,
+  labelViewport,
 }) {
   const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
   if (!alignmentTracks.length) return null;
@@ -302,12 +304,6 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
           const hKey = `${al.id}:${v.row}`;
           const labelHover = hoverAlignLabel === hKey;
           const hovered = truncated && labelHover;
-          // Hug the right edge of THIS row's read content — rows with fewer
-          // slots have nearer labels; they don't share a common column. In
-          // continuous mode anchor at the read's own start column.
-          const labelX = continuous
-            ? getX(colVis(rowLeft[v.row].colStart, v.row))
-            : getX(rowRight[v.row]) + 8;
           const clipId = `align-label-clip-${al.id}-${v.row}`;
           const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
           // Trace toggle: labels of alignments whose .ab1 resolved are
@@ -317,6 +313,20 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
           const expanded = al.id === expandedChromAlnId;
           const labelText = hovered ? al.name : short;
           const labelW = Math.min(featLabelW(labelText), LABEL_MAX_W);
+          // Hug the right edge of THIS row's read content — rows with fewer
+          // slots have nearer labels; they don't share a common column. In
+          // continuous mode pin the label to the viewport's right edge when
+          // the read runs off-screen (like feature labels), unless the read
+          // starts beyond the screen entirely. Reserve room on the right so
+          // the hover hide button stays on-screen next to a pinned label.
+          let labelX = getX(rowRight[v.row]) + 8;
+          if (continuous && labelViewport) {
+            const leftX = getX(colVis(rowLeft[v.row].colStart, v.row));
+            const reserve = onHideAlignment ? 26 : 8;
+            if (leftX < labelViewport.right && labelX + labelW + reserve > labelViewport.right) {
+              labelX = labelViewport.right - labelW - reserve;
+            }
+          }
           const textEl = (
             <text
               x={labelX}
@@ -367,29 +377,49 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
                   fill={textProps.fill}
                 />
               )}
+              {/* Continuous mode: opaque background fading to transparent at
+                  the outer edges, so a pinned label floats over the lane
+                  without a hard edge. Extends past the label to underlay the
+                  hover hide button. */}
+              {!expanded && continuous && labelViewport && (
+                <rect
+                  x={labelX - 22}
+                  y={y - 12}
+                  width={labelW + 51}
+                  height={16}
+                  fill="url(#align-label-fade)"
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
               {/* Invisible hit area bridging label and eye-off icon, so the
                   icon stays reachable while the pointer moves toward it. */}
-              <rect
-                x={labelX - 4}
-                y={y - 12}
-                width={labelW + (expanded ? 44 : 34)}
-                height={16}
-                fill="transparent"
-              />
+              <rect x={labelX - 4} y={y - 12} width={labelW + 29} height={16} fill="transparent" />
               {truncated ? <g clipPath={`url(#${clipId})`}>{textEl}</g> : textEl}
               {labelHover && onHideAlignment && (
-                <EyeOff
-                  x={labelX + labelW + (expanded ? 20 : 10)}
-                  y={y - 11}
-                  width={13}
-                  height={13}
-                  color={textProps.fill}
-                  style={{ cursor: 'pointer' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onHideAlignment(al.id);
-                  }}
-                />
+                <>
+                  {/* Opaque chip under the icon so it stays legible over the
+                      label background and the read lane. */}
+                  <rect
+                    x={labelX + labelW + 3}
+                    y={y - 12}
+                    width={19}
+                    height={16}
+                    rx={3}
+                    fill={expanded ? textProps.fill : bgColor}
+                  />
+                  <EyeOff
+                    x={labelX + labelW + 6}
+                    y={y - 11}
+                    width={13}
+                    height={13}
+                    color={expanded ? bgColor : textProps.fill}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onHideAlignment(al.id);
+                    }}
+                  />
+                </>
               )}
             </g>
           );
@@ -425,6 +455,7 @@ function AlignmentLayers(props) {
     onHideAlignment,
     continuous,
     visibleCols,
+    labelViewport,
   } = props;
   const laneProps = {
     alignmentTracks,
@@ -464,10 +495,21 @@ function AlignmentLayers(props) {
     onToggleAlignmentChrom,
     onHideAlignment,
     continuous,
+    labelViewport,
   };
   return (
     <>
       <AlignmentTextLanes {...laneProps} />
+      {continuous && labelViewport && (
+        <defs>
+          <linearGradient id="align-label-fade">
+            <stop offset="0" stopColor={bgColor} stopOpacity="0" />
+            <stop offset="0.12" stopColor={bgColor} stopOpacity="1" />
+            <stop offset="0.96" stopColor={bgColor} stopOpacity="1" />
+            <stop offset="1" stopColor={bgColor} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      )}
       <AlignmentLabels {...labelProps} />
     </>
   );

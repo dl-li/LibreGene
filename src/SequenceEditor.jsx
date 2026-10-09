@@ -2980,6 +2980,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 onHideAlignment={onHideAlignment}
                 continuous={continuous}
                 visibleCols={visibleCols}
+                labelViewport={labelViewport}
               />
             )}
             {isDna && (
