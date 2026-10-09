@@ -15,7 +15,7 @@ examples/others/
 # MCP test traces (task logs, reports, generated results) — keep off GitHub
 examples/tasks/_traces/
 examples/tasks/_agents/
-examples/tasks/_mcp_test_run/
+examples/tasks/_mcp_test_*/
 
 # Local kimi-code config
 .kimi-code/
