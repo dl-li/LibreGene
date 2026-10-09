@@ -2142,7 +2142,7 @@
     "is_cut_twice": false,
     "methylation": "sensitive",
     "methylation_dependent": false,
-    "elucidate": "GAGTC^_"
+    "elucidate": "GAGTCNNNNN^_"
   },
   {
     "name": "Bso31I",
@@ -6188,7 +6188,7 @@
     "scd3": null,
     "is_palindromic": true,
     "cut_type": "3overhang",
-    "overhang_len": 10,
+    "overhang_len": 9,
     "is_cut_twice": false,
     "methylation": "sensitive",
     "methylation_dependent": false,
@@ -7523,7 +7523,7 @@
     "scd3": null,
     "is_palindromic": true,
     "cut_type": "3overhang",
-    "overhang_len": 10,
+    "overhang_len": 9,
     "is_cut_twice": false,
     "methylation": "none",
     "methylation_dependent": false,
@@ -8172,7 +8172,7 @@
     "is_cut_twice": false,
     "methylation": "none",
     "methylation_dependent": false,
-    "elucidate": "GAGTC^_"
+    "elucidate": "GAGTCNNNNN^_"
   },
   {
     "name": "CseI",
