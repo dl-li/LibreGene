@@ -161,7 +161,7 @@
     "overhang_len": -4,
     "is_cut_twice": false,
     "methylation": "none",
-    "methylation_dependent": false,
+    "methylation_dependent": true,
     "elucidate": "CNNRNNNNNNNNN^NNNN_N"
   },
   {
@@ -2831,7 +2831,7 @@
     "overhang_len": -4,
     "is_cut_twice": false,
     "methylation": "none",
-    "methylation_dependent": false,
+    "methylation_dependent": true,
     "elucidate": "CNNGNNNNNNNNN^NNNN_N"
   },
   {
@@ -8801,7 +8801,7 @@
     "overhang_len": -4,
     "is_cut_twice": false,
     "methylation": "none",
-    "methylation_dependent": false,
+    "methylation_dependent": true,
     "elucidate": "CCNNNNNNNNNNNN^NNNN_N"
   },
   {
@@ -9116,7 +9116,7 @@
     "overhang_len": -4,
     "is_cut_twice": false,
     "methylation": "none",
-    "methylation_dependent": false,
+    "methylation_dependent": true,
     "elucidate": "CCDGNNNNNNNNNN^NNNN_N"
   },
   {
