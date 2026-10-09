@@ -913,6 +913,11 @@ export default function ProjectWorkspace({
                   ? undefined
                   : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
               }
+              onOpenCodonOptimization={
+                isDna && !disabledPlugins.includes('codonOptimization')
+                  ? () => setPluginDialogs((prev) => ({ ...prev, codonOptimization: true }))
+                  : undefined
+              }
               onOpenDotplot={
                 !isProtein && !disabledPlugins.includes('dotplot')
                   ? () => setPluginDialogs((prev) => ({ ...prev, dotplot: true }))

@@ -186,6 +186,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onOpenMyPrimers,
   onOpenPrimerOverview,
   onOpenDetectFeatures,
+  onOpenCodonOptimization,
   onOpenMyEnzymes,
   onOpenEnzymeDatabase,
   onAddPrimerToMyPrimers,
@@ -2805,6 +2806,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onOpenMyPrimers={onOpenMyPrimers}
           onOpenPrimerOverview={onOpenPrimerOverview}
           onOpenDetectFeatures={onOpenDetectFeatures}
+          onOpenCodonOptimization={onOpenCodonOptimization}
           onAddCurrentPrimerToMyPrimers={handleAddCurrentPrimerToMyPrimers}
           onAddAllPrimersToMyPrimers={onAddAllPrimersToMyPrimers}
           autoAddPrimers={autoAddPrimers}

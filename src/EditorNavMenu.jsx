@@ -24,6 +24,7 @@ import {
   ListChecks,
   Save,
   Database,
+  Dna,
   ArrowDownWideNarrow,
   ScanSearch,
   AudioWaveform,
@@ -182,6 +183,7 @@ export default function EditorNavMenu({
   onToggleOrfs,
   onCreateFeature,
   onOpenDetectFeatures,
+  onOpenCodonOptimization,
   showPrimers,
   onTogglePrimers,
   onCreatePrimer,
@@ -333,6 +335,28 @@ export default function EditorNavMenu({
   // surface a hint instead of silently showing "0/0".
   const shortNucQuery = /^[ACGTURYSWKMBDHVN]{1,2}$/.test(query?.trim().toUpperCase() || '');
 
+  // Plugins contributing a visibility toggle (e.g. GC content); shown in the
+  // View menu.
+  const viewTogglePlugins = plugins.filter(
+    (p) =>
+      p.featuresMenuItem &&
+      !disabledPlugins.includes(p.id) &&
+      !(moleculeType === 'protein' && p.featuresMenuItem.notForProtein) &&
+      pluginToggles[p.id],
+  );
+
+  // Left click on View re-applies the most recently changed View-menu option;
+  // before any menu interaction (or when the layout mode itself was last
+  // changed) it toggles wrap/continuous.
+  const [lastViewOption, setLastViewOption] = useState(null);
+  const viewLeftClick = (() => {
+    if (lastViewOption === 'orfs' && onToggleOrfs) return onToggleOrfs;
+    const pluginToggle = lastViewOption && pluginToggles[lastViewOption];
+    if (pluginToggle) return pluginToggle.onToggle;
+    if (!onViewModeChange) return undefined;
+    return () => onViewModeChange(viewMode === 'wrap' ? 'continuous' : 'wrap');
+  })();
+
   return (
     <div
       style={{
@@ -394,6 +418,14 @@ export default function EditorNavMenu({
           <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToLowercase}>
             <CaseLower /> To Lowercase
           </DropdownMenuItem>
+          {isDna && onOpenCodonOptimization && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onOpenCodonOptimization}>
+                <Dna /> Codon Optimization…
+              </DropdownMenuItem>
+            </>
+          )}
           {isDna && onToggleTopology && (
             <>
               <DropdownMenuSeparator />
@@ -421,6 +453,52 @@ export default function EditorNavMenu({
           )}
         </NavMenu>
 
+        {/* View: left click re-applies the last-changed option (default:
+            toggle wrap/continuous), right click opens the menu */}
+        <NavMenu
+          icon={Eye}
+          label="View"
+          onLeftClick={viewLeftClick}
+          contentClassName="min-w-52 overflow-visible"
+        >
+          <DropdownMenuRadioGroup
+            value={viewMode}
+            onValueChange={(v) => {
+              setLastViewOption('mode');
+              onViewModeChange?.(v);
+            }}
+          >
+            <DropdownMenuRadioItem value="wrap">Wrap (Vertical)</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="continuous">
+              Continuous (Horizontal)
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          {(onToggleOrfs || viewTogglePlugins.length > 0) && <DropdownMenuSeparator />}
+          {onToggleOrfs && (
+            <DropdownMenuCheckboxItem
+              checked={showOrfs}
+              onCheckedChange={() => {
+                setLastViewOption('orfs');
+                onToggleOrfs();
+              }}
+            >
+              Show ORFs
+            </DropdownMenuCheckboxItem>
+          )}
+          {viewTogglePlugins.map((p) => (
+            <DropdownMenuCheckboxItem
+              key={p.id}
+              checked={!!pluginToggles[p.id].checked}
+              onCheckedChange={() => {
+                setLastViewOption(p.id);
+                pluginToggles[p.id].onToggle();
+              }}
+            >
+              {p.featuresMenuItem.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </NavMenu>
+
         {/* Features: left click toggles visibility, right click opens menu */}
         <NavMenu
           icon={Tag}
@@ -431,28 +509,6 @@ export default function EditorNavMenu({
           <DropdownMenuCheckboxItem checked={showFeatures} onCheckedChange={onToggleFeatures}>
             Show Features
           </DropdownMenuCheckboxItem>
-          {onToggleOrfs && (
-            <DropdownMenuCheckboxItem checked={showOrfs} onCheckedChange={onToggleOrfs}>
-              Show ORFs
-            </DropdownMenuCheckboxItem>
-          )}
-          {plugins
-            .filter(
-              (p) =>
-                p.featuresMenuItem &&
-                !disabledPlugins.includes(p.id) &&
-                !(moleculeType === 'protein' && p.featuresMenuItem.notForProtein) &&
-                pluginToggles[p.id],
-            )
-            .map((p) => (
-              <DropdownMenuCheckboxItem
-                key={p.id}
-                checked={!!pluginToggles[p.id].checked}
-                onCheckedChange={pluginToggles[p.id].onToggle}
-              >
-                {p.featuresMenuItem.label}
-              </DropdownMenuCheckboxItem>
-            ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onCreateFeature}>
             <Plus /> Create Feature
@@ -545,6 +601,12 @@ export default function EditorNavMenu({
               <DropdownMenuSubTrigger inset>Enzyme Set</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
+                  {myEnzymes.length > 0 && (
+                    <>
+                      <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   {ENZYME_FILTER_OPTIONS.map((opt) => (
                     <DropdownMenuRadioItem
                       key={opt.value}
@@ -572,12 +634,6 @@ export default function EditorNavMenu({
                       )}
                     </DropdownMenuRadioItem>
                   ))}
-                  {myEnzymes.length > 0 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
-                    </>
-                  )}
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
@@ -692,16 +748,6 @@ export default function EditorNavMenu({
             )}
           </NavMenu>
         )}
-
-        {/* View: sequence layout mode (wrap vs continuous horizontal scroll) */}
-        <NavMenu icon={Eye} label="View" contentClassName="min-w-52 overflow-visible">
-          <DropdownMenuRadioGroup value={viewMode} onValueChange={onViewModeChange}>
-            <DropdownMenuRadioItem value="wrap">Wrap (Vertical)</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="continuous">
-              Continuous (Horizontal)
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </NavMenu>
 
         {/* Search: icon stays in flow; expanding overlay covers the other buttons */}
         <button
