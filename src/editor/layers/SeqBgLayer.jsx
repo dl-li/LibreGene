@@ -15,9 +15,15 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
   cleanSeq,
   getSeqY,
   colRuns,
+  colFromVis,
+  // Continuous mode: the visible stream-cell window; the single row's text is
+  // cropped to it (chunked MonoRuns) instead of emitting every base.
+  visibleCols,
 }) {
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
+  const vStart = visibleCols ? Math.max(0, visibleCols.start) : -1;
+  const vEnd = visibleCols ? visibleCols.end : Infinity;
   // '-' placeholders in the template row keep it column-aligned with the
   // read lane's inserted bases (GenePad renders the same dashes in the
   // reference row). Each slot cell belongs to its own stream row, so a wide
@@ -31,7 +37,9 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
         if (!dashByRow.has(row)) dashByRow.set(row, []);
-        dashByRow.get(row).push(si % visCpl);
+        const vis = si % visCpl;
+        if (vis < vStart || vis > vEnd) continue;
+        dashByRow.get(row).push(vis);
       }
     }
   }
@@ -39,18 +47,32 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
   for (let r = vs; r <= ve; r++) {
     const count = rowCounts[r];
     const rowStart = rowStarts[r];
-    const chunk = count > 0 ? cleanSeq.substring(rowStart, rowStart + count) : '';
+    let c0 = 0;
+    let c1 = count - 1;
+    if (visibleCols && colFromVis && count > 0) {
+      c0 = Math.min(colFromVis(vStart, r), count);
+      c1 = Math.min(colFromVis(vEnd, r), count - 1);
+    }
+    const chunk = c1 >= c0 && count > 0 ? cleanSeq.substring(rowStart + c0, rowStart + c1 + 1) : '';
     const dashes = dashByRow.get(r) || [];
     if (!chunk && !dashes.length) continue;
     const sy = getSeqY(r);
     // Contiguous visual runs (split at insertion slots), one tspan per run —
-    // the per-character x list keeps every glyph centred on its cell.
+    // the per-character x list keeps every glyph centred on its cell. Long
+    // runs (continuous mode) are chunked so no tspan carries tens of
+    // thousands of coordinates.
     let cc = 0;
-    const tspans = colRuns(0, count - 1, r).map(([visStart, runLen]) => {
-      const text = chunk.slice(cc, cc + runLen);
-      cc += runLen;
-      return <MonoRun key={visStart} visStart={visStart} text={text} fill="#1f2937" />;
-    });
+    const tspans = [];
+    for (const [visStart, runLen] of colRuns(c0, c1, r)) {
+      for (let off = 0; off < runLen; off += 200) {
+        const n = Math.min(200, runLen - off);
+        const text = chunk.slice(cc, cc + n);
+        cc += n;
+        tspans.push(
+          <MonoRun key={visStart + off} visStart={visStart + off} text={text} fill="#1f2937" />,
+        );
+      }
+    }
     rows.push(
       <text
         key={r}

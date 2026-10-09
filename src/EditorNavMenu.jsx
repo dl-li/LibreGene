@@ -32,6 +32,7 @@ import {
   Map as MapIcon,
   Waypoints,
   Circle,
+  Eye,
   Minus,
   Triangle,
 } from 'lucide-react';
@@ -225,6 +226,8 @@ export default function EditorNavMenu({
   onToggleTopology,
   moleculeType = 'dna',
   onOpenSnapshots,
+  viewMode = 'wrap',
+  onViewModeChange,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -689,6 +692,16 @@ export default function EditorNavMenu({
             )}
           </NavMenu>
         )}
+
+        {/* View: sequence layout mode (wrap vs continuous horizontal scroll) */}
+        <NavMenu icon={Eye} label="View" contentClassName="min-w-52 overflow-visible">
+          <DropdownMenuRadioGroup value={viewMode} onValueChange={onViewModeChange}>
+            <DropdownMenuRadioItem value="wrap">Wrap (Vertical)</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="continuous">
+              Continuous (Horizontal)
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </NavMenu>
 
         {/* Search: icon stays in flow; expanding overlay covers the other buttons */}
         <button

@@ -64,11 +64,27 @@ export function useGcLane({ cleanSeq, topology, moleculeType, enabled, windowSiz
 // columns instead of shifting. The band is nudged up toward the sequence
 // text; the reserved lane height (alignLaneInfo.trackH) is unchanged so
 // nothing else moves.
+// Wide rows (continuous mode = one row spanning the whole sequence) are split
+// into GC_CHUNK-cell blocks, one gradient each: renderers degrade to solid
+// blocks when a single gradient carries thousands of stops.
+const GC_CHUNK = 256;
+
 export function renderGcTrack(ctx, lane) {
   const fracs = lane?.fracs;
   if (!fracs) return null;
-  const { visibleRows, rowBuf, numRows, rowStarts, rowCounts, getSeqY, lp, idPrefix, colVis, colRuns } =
-    ctx;
+  const {
+    visibleRows,
+    rowBuf,
+    numRows,
+    rowStarts,
+    rowCounts,
+    getSeqY,
+    lp,
+    idPrefix,
+    colVis,
+    colRuns,
+    visibleCols,
+  } = ctx;
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
   const rows = [];
@@ -77,27 +93,53 @@ export function renderGcTrack(ctx, lane) {
     if (count <= 0) continue;
     const rowStart = rowStarts[r];
     const y = getSeqY(r) + lp.featBaseOffset - 6;
-    const gid = `${idPrefix}-gc-${r}`;
     const rowVisW = colVis(count - 1, r) + 1;
-    const x0 = getX(0);
-    const x1 = getX(rowVisW);
-    const stops = [];
+    // Bucket columns into fixed-width visual blocks; narrow rows stay a
+    // single block exactly as before.
+    const nBlocks = rowVisW > GC_CHUNK * 2 ? Math.ceil(rowVisW / GC_CHUNK) : 1;
+    const blocks = Array.from({ length: nBlocks }, () => []);
     for (let i = 0; i < count; i++) {
-      stops.push(
+      blocks[Math.min(nBlocks - 1, Math.floor(colVis(i, r) / GC_CHUNK))].push(i);
+    }
+    for (let b = 0; b < nBlocks; b++) {
+      const cols = blocks[b];
+      if (!cols.length) continue;
+      const bvs = b * GC_CHUNK;
+      const bve = Math.min(bvs + GC_CHUNK, rowVisW);
+      if (visibleCols && (bve < visibleCols.start || bvs > visibleCols.end)) continue;
+      const gid = `${idPrefix}-gc-${r}-${b}`;
+      const x0 = getX(bvs);
+      const x1 = getX(bve);
+      const stops = cols.map((i) => (
         <stop
           key={i}
-          offset={(colVis(i, r) + 0.5) / rowVisW}
+          offset={(colVis(i, r) + 0.5 - bvs) / (bve - bvs)}
           stopColor={gcContentColor(fracs[rowStart + i])}
-        />,
+        />
+      ));
+      rows.push(
+        <g key={`${r}-${b}`}>
+          <defs>
+            <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={x0} y1={0} x2={x1} y2={0}>
+              {stops}
+            </linearGradient>
+          </defs>
+          {colRuns(cols[0], cols[cols.length - 1], r).map(([visStart, len]) => (
+            <rect
+              key={visStart}
+              x={getX(visStart)}
+              y={y}
+              width={len * cw}
+              height={GC_TRACK_H}
+              fill={`url(#${gid})`}
+            />
+          ))}
+        </g>,
       );
     }
+    // Border once per row (not per block) so chunked gradients show no seams.
     rows.push(
-      <g key={r}>
-        <defs>
-          <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={x0} y1={0} x2={x1} y2={0}>
-            {stops}
-          </linearGradient>
-        </defs>
+      <g key={`${r}-border`}>
         {colRuns(0, count - 1, r).map(([visStart, len]) => (
           <rect
             key={visStart}
@@ -105,7 +147,7 @@ export function renderGcTrack(ctx, lane) {
             y={y}
             width={len * cw}
             height={GC_TRACK_H}
-            fill={`url(#${gid})`}
+            fill="none"
             stroke="#000000"
             strokeWidth="1"
           />

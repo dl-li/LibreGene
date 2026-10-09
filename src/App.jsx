@@ -91,6 +91,8 @@ export default function App() {
     onEnzymeFilterChange,
     enzymeProvider,
     onEnzymeProviderChange,
+    viewMode,
+    onViewModeChange,
     methylationSystems,
     setMethylationSystems,
     methylationOverlap,
@@ -685,6 +687,8 @@ export default function App() {
       onEnzymeFilterChange,
       enzymeProvider,
       onEnzymeProviderChange,
+      viewMode,
+      onViewModeChange,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
@@ -720,6 +724,8 @@ export default function App() {
       onEnzymeFilterChange,
       enzymeProvider,
       onEnzymeProviderChange,
+      viewMode,
+      onViewModeChange,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
@@ -1074,6 +1080,9 @@ export default function App() {
                   topology={p.topology || 'circular'}
                   moleculeType={p.moleculeType || 'dna'}
                   agentLocked={agentTabs[p.id] === true}
+                  // Collapsed sidebar icon rail (3rem) overlays the left edge
+                  // of the main window's content.
+                  leftViewportInset={48}
                   {...workspaceProps}
                 />
               ))

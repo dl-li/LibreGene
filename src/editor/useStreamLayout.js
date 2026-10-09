@@ -6,7 +6,7 @@ import { alignmentInsertUnion, buildStreamLayout } from './alignmentLayout';
 // reservation, the per-row cell stream, and the column mapping helpers every
 // lane (template chars, features, enzymes, primers, translation,
 // chromatogram, selection, cursor) goes through.
-export default function useStreamLayout({ isDna, alignmentTracks, seqLen, baseCpl }) {
+export default function useStreamLayout({ isDna, alignmentTracks, seqLen, baseCpl, viewMode }) {
   // Insertion reserve: every inserted read base (flank junk included) gets a
   // full cell in the shared visual stream (GenePad's merged gap columns), one
   // cell per base at its own anchor — the read's bases must stay in read order
@@ -15,15 +15,24 @@ export default function useStreamLayout({ isDna, alignmentTracks, seqLen, baseCp
     () => (isDna ? alignmentInsertUnion(alignmentTracks, seqLen) : new Map()),
     [isDna, alignmentTracks, seqLen],
   );
+  // Continuous mode: one row wide enough for the whole stream degenerates the
+  // layout to numRows === 1; every per-row mechanism then works unchanged. The
+  // +1 keeps the past-the-end insert point (stream index === streamLen) from
+  // modulo-wrapping onto visual column 0.
+  const visCpl = useMemo(() => {
+    if (viewMode !== 'continuous') return baseCpl;
+    let insTotal = 0;
+    for (const n of insReserve.values()) insTotal += n;
+    return Math.max(1, seqLen + insTotal + 1);
+  }, [viewMode, baseCpl, insReserve, seqLen]);
   // Visual stream: template columns + slot cells, exactly baseCpl cells per
   // row — the row width is constant and never overflows the viewport.
   const stream = useMemo(
-    () => buildStreamLayout(insReserve, seqLen, baseCpl),
-    [insReserve, seqLen, baseCpl],
+    () => buildStreamLayout(insReserve, seqLen, visCpl),
+    [insReserve, seqLen, visCpl],
   );
-  const { rowStarts, rowCounts, insTotal, streamOf, rowOf, colOfAbs, visCpl, absFromStream } =
-    stream;
-  const charsPerLine = baseCpl;
+  const { rowStarts, rowCounts, insTotal, streamOf, rowOf, colOfAbs, absFromStream } = stream;
+  const charsPerLine = stream.visCpl;
   const numRows = stream.numRows;
   const svgWidth = startX + charsPerLine * cw + startX;
 
@@ -71,7 +80,7 @@ export default function useStreamLayout({ isDna, alignmentTracks, seqLen, baseCp
     streamOf,
     rowOf,
     colOfAbs,
-    visCpl,
+    visCpl: stream.visCpl,
     absFromStream,
     charsPerLine,
     numRows,

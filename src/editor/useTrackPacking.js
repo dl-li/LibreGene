@@ -2,6 +2,10 @@ import { useMemo, useRef } from 'react';
 import { baseSeqY, cw, enzLabelW, getX, primerLabelW } from '../editorConstants';
 import { ensureReadableColor, shiftAbutLightness } from './colors';
 
+// Upper bound on an enzyme label's width in template columns; used to prune
+// x-occupancy during track packing. Real labels are ~20 columns at most.
+const MAX_ENZ_LABEL_COLS = 128;
+
 // Track packing / row geometry: feature color normalization, feature+primer
 // track assignment, per-row enzyme track lifts, adaptive row spacing, the
 // visible row range, and per-row coverage maps.
@@ -21,8 +25,13 @@ export default function useTrackPacking({
   alignLaneInfo,
   scrollY,
   viewportH,
+  continuous,
   ALIGN_FEAT_GAP,
   ROW_BUF,
+  // Continuous view: the visible stream-cell window + its template-column
+  // mapper, used to window features horizontally (null in wrap mode).
+  visibleCols,
+  absFromStream,
 }) {
   // --- collision avoidance: features + primers ---
   // Normalize features and pre-compute colors once
@@ -215,8 +224,10 @@ export default function useTrackPacking({
             const pieceEnd = Math.min(gEnd, rowStarts[r] + rowCounts[r] - 1);
             if (pieceStart > pieceEnd) continue;
             const entry = { start: pieceStart - 0.5, end: pieceEnd + 0.5 };
-            ((gapPiecesByFeatRow[f.id] || (gapPiecesByFeatRow[f.id] = {}))[r] ||
-              (gapPiecesByFeatRow[f.id][r] = [])).push(entry);
+            (
+              (gapPiecesByFeatRow[f.id] || (gapPiecesByFeatRow[f.id] = {}))[r] ||
+              (gapPiecesByFeatRow[f.id][r] = [])
+            ).push(entry);
             if (!segRows.has(r)) (gapBlockersByRow[r] || (gapBlockersByRow[r] = [])).push(entry);
           }
         }
@@ -464,9 +475,17 @@ export default function useTrackPacking({
     return occ;
   }, [primersByRow, primerTracks, sp, pp.trackGap, pp.arrowHeadLen, colVis]);
 
-  const { rowAbove, rowBelow, enzymeRowTracks } = useMemo(() => {
+  const { rowAbove, rowBelow, enzymeRowTracks, hiddenEnzKeys } = useMemo(() => {
     // Per-row enzyme track assignment — cut-twice enzymes are expanded per pair
     const eTracks = {};
+    const hiddenEnzKeys = new Set();
+    // Continuous mode: cap the enzyme label stack so rowAbove stays within a
+    // fraction of the viewport and the sequence row can never be pushed off
+    // screen, no matter how many enzymes are shown. Wrap mode is unbounded
+    // (vertical scrolling reaches every label).
+    const enzLiftCap = continuous
+      ? Math.max(lp.enzTrackHeight * 2, viewportH * 0.45 - (lp.enzLabelBase + lp.enzAbovePad))
+      : Infinity;
     for (let r = 0; r < numRows; r++) {
       const rEnz = enzymesByRow[r];
       if (!rEnz || !rEnz.length) continue;
@@ -488,10 +507,19 @@ export default function useTrackPacking({
       const sorted = expanded.sort(
         (a, b) => b.cutIndex - a.cutIndex || b.name.length - a.name.length,
       );
+      // Items arrive in descending cs order, so an occupied entry whose cs is
+      // more than one max label width ahead of the current cs can never
+      // overlap any upcoming item — drop those with a front pointer instead of
+      // rescanning the whole list. Without this, continuous mode (all enzymes
+      // in a single row) degenerates to O(n²).
       const occupied = [];
+      let occHead = 0;
       for (const item of sorted) {
         const cs = item.cutIndex - rowStarts[r];
         const ce = cs + Math.ceil(enzLabelW(item.name, item.isUnique) / cw);
+        while (occHead < occupied.length && occupied[occHead].cs > cs + MAX_ENZ_LABEL_COLS) {
+          occHead++;
+        }
         // Lift labels whose x-range overlaps a fwd primer label/body. The
         // enzyme text baseline sits (enzLabelBase-5)+lift above the sequence;
         // lift is continuous — just enough to clear the occupancy top by 6px.
@@ -511,13 +539,23 @@ export default function useTrackPacking({
         // x-overlapping labels, stacked on actual lifts.
         for (;;) {
           let bump = 0;
-          for (const o of occupied) {
+          for (let oi = occHead; oi < occupied.length; oi++) {
+            const o = occupied[oi];
             if (Math.abs(o.lift - lift) < lp.enzTrackHeight && !(ce < o.cs || cs > o.ce)) {
               bump = Math.max(bump, o.lift + lp.enzTrackHeight);
             }
           }
           if (!bump) break;
           lift = Math.max(lift, bump);
+          // Past the cap the label will be hidden anyway; stop climbing.
+          if (lift > enzLiftCap) break;
+        }
+        if (lift > enzLiftCap) {
+          // Continuous mode: the label stack is height-capped so the sequence
+          // row can never be pushed out of the viewport. Overflowing labels
+          // are hidden (their cut line still renders) and don't block others.
+          hiddenEnzKeys.add(item.key);
+          continue;
         }
         occupied.push({ lift, cs, ce });
         if (!eTracks[item.key]) eTracks[item.key] = {};
@@ -615,7 +653,7 @@ export default function useTrackPacking({
       below[r] = be;
     }
 
-    return { rowAbove: above, rowBelow: below, enzymeRowTracks: eTracks };
+    return { rowAbove: above, rowBelow: below, enzymeRowTracks: eTracks, hiddenEnzKeys };
   }, [
     numRows,
     enzymesByRow,
@@ -631,6 +669,8 @@ export default function useTrackPacking({
     lp,
     alignLaneInfo,
     featureLabelsBelow,
+    continuous,
+    viewportH,
   ]);
 
   const rowY = useMemo(() => {
@@ -673,9 +713,18 @@ export default function useTrackPacking({
     return visibleRowsRef.current;
   }, [rowY, rowAbove, rowBelow, scrollY, viewportH, numRows]);
 
-  // Virtualize features: only render those overlapping visible rows
+  // Virtualize features: only render those overlapping the visible range
   const visibleFeatures = useMemo(() => {
     if (!processedFeatures.length) return [];
+    if (visibleCols) {
+      // Continuous mode: window by template columns. absFromStream clamps to
+      // [0, seqLen], so extend t1 past the last base to keep end labels live.
+      const t0 = absFromStream(visibleCols.start);
+      const t1 = absFromStream(visibleCols.end) + 1;
+      return processedFeatures.filter((f) =>
+        f.segments.some((seg) => !(seg.end < t0 || seg.start > t1)),
+      );
+    }
     const vs = Math.max(0, visibleRows.start - ROW_BUF);
     const ve = Math.min(numRows - 1, visibleRows.end + ROW_BUF);
     return processedFeatures.filter((f) =>
@@ -685,7 +734,7 @@ export default function useTrackPacking({
         return !(er < vs || sr > ve);
       }),
     );
-  }, [processedFeatures, visibleRows, numRows, rowOf]);
+  }, [processedFeatures, visibleRows, visibleCols, absFromStream, numRows, rowOf]);
 
   // Solid segment coverage per `${row}:${track}` across all features. A
   // segmented feature's gap draws a faint connector line at its track,
@@ -721,6 +770,7 @@ export default function useTrackPacking({
     rowAbove,
     rowBelow,
     enzymeRowTracks,
+    hiddenEnzKeys,
     rowY,
     visibleRows,
     visibleFeatures,

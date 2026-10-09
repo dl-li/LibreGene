@@ -142,6 +142,14 @@ export default function useSettings() {
       return 'all';
     }
   });
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('viewMode'));
+      return v === 'continuous' ? 'continuous' : 'wrap';
+    } catch {
+      return 'wrap';
+    }
+  });
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
   const [alignmentAlgorithm, setAlignmentAlgorithm] = useState(() => {
@@ -271,6 +279,16 @@ export default function useSettings() {
     }
   }, []);
 
+  const onViewModeChange = useCallback((next) => {
+    if (next !== 'wrap' && next !== 'continuous') return;
+    setViewMode(next);
+    try {
+      localStorage.setItem('viewMode', JSON.stringify(next));
+    } catch {
+      // storage may be unavailable; selection still applies in-memory
+    }
+  }, []);
+
   return {
     disabledPlugins,
     handleTogglePlugin,
@@ -294,6 +312,8 @@ export default function useSettings() {
     onEnzymeFilterChange,
     enzymeProvider,
     onEnzymeProviderChange,
+    viewMode,
+    onViewModeChange,
     methylationSystems,
     setMethylationSystems,
     methylationOverlap,

@@ -55,6 +55,11 @@ export default function ProjectWorkspace({
   onEnzymeFilterChange,
   enzymeProvider = 'all',
   onEnzymeProviderChange,
+  viewMode = 'wrap',
+  onViewModeChange,
+  // Width of the collapsed sidebar icon rail overlaying the content's left
+  // edge (main window); forwarded to SequenceEditor for label clamping.
+  leftViewportInset = 0,
   disabledPlugins,
   onDirtyChange,
   registerHandle,
@@ -147,6 +152,9 @@ export default function ProjectWorkspace({
   const sequenceRef = useRef(sequence);
   const operationGenRef = useRef(0);
   const mainScrollRef = useRef(null);
+  // The editor's inner container div (the horizontal scroll host in
+  // continuous mode); SequenceEditor merges it with its own containerRef.
+  const editorScrollRef = useRef(null);
   const lastSelectionRef = useRef(null);
 
   const {
@@ -936,17 +944,32 @@ export default function ProjectWorkspace({
               topology={topologyLive}
               onToggleTopology={handleToggleTopology}
               moleculeType={moleculeType}
+              viewMode={viewMode}
+              onViewModeChange={onViewModeChange}
+              editorScrollRef={editorScrollRef}
+              leftViewportInset={leftViewportInset}
               agentLocked={agentLocked}
               onUnlockAgent={handleUnlockAgent}
             />
           </main>
-          {!hidden && (
+          {!hidden && viewMode !== 'continuous' && (
             <FeatureScrollbar
               scrollContainerRef={mainScrollRef}
               features={displayFeatures}
               sequenceLength={sequence.length}
               highlightPositions={enzymeHoverCuts}
             />
+          )}
+          {!hidden && viewMode === 'continuous' && (
+            <div className="absolute top-0 left-0 right-0">
+              <FeatureScrollbar
+                orientation="horizontal"
+                scrollContainerRef={editorScrollRef}
+                features={displayFeatures}
+                sequenceLength={sequence.length}
+                highlightPositions={enzymeHoverCuts}
+              />
+            </div>
           )}
 
           <MapView

@@ -18,10 +18,14 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
   visCpl,
   streamOf,
   colRuns,
+  colFromVis,
   insReserve,
   alignLaneInfo,
   sequence,
   cleanSeq,
+  // Continuous mode: the visible stream-cell window; the single row's read
+  // text is cropped to it instead of emitting every base.
+  visibleCols,
 }) {
   if (!alignmentTracks.length) return null;
   const vs = Math.max(0, visibleRows.start - rowBuf);
@@ -41,8 +45,23 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
     // key, and React would drop or duplicate the lane content.
     let piece = 0;
     for (const seg of segs) {
-      for (const v of sp(seg.start, seg.end)) {
-        if (v.row < vs || v.row > ve) continue;
+      for (const v0 of sp(seg.start, seg.end)) {
+        if (v0.row < vs || v0.row > ve) continue;
+        let v = v0;
+        if (visibleCols) {
+          const t0 = colFromVis(Math.max(0, visibleCols.start), v0.row);
+          const t1 = colFromVis(visibleCols.end, v0.row);
+          const nc0 = Math.max(v0.colStart, t0);
+          const nc1 = Math.min(v0.colEnd, t1);
+          if (nc1 < nc0) continue;
+          v = {
+            ...v0,
+            colStart: nc0,
+            colEnd: nc1,
+            strOffset: v0.strOffset + nc0 - v0.colStart,
+            len: nc1 - nc0 + 1,
+          };
+        }
         const pieceKey = `${v.row}-${v.colStart}-${piece++}`;
         const y = laneY(v.row);
         const chars = (seg.chars || '').slice(v.strOffset, v.strOffset + v.len);
@@ -125,8 +144,10 @@ const AlignmentTextLanes = React.memo(function AlignmentTextLanes({
         const si = cell0 + k;
         const row = Math.floor(si / visCpl);
         if (row < vs || row > ve) continue;
+        const vis = si % visCpl;
+        if (visibleCols && (vis < visibleCols.start || vis > visibleCols.end)) continue;
         if (!insByRow.has(row)) insByRow.set(row, []);
-        insByRow.get(row).push({ vis: si % visCpl, char: insBases[k] });
+        insByRow.get(row).push({ vis, char: insBases[k] });
       }
     }
     for (const [row, cells] of insByRow) {
@@ -201,6 +222,9 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
   expandedChromAlnId,
   onToggleAlignmentChrom,
   onHideAlignment,
+  // Continuous mode: the right edge sits thousands of px away — the label
+  // anchors at the read's own start column instead.
+  continuous,
 }) {
   const [hoverAlignLabel, setHoverAlignLabel] = useState(null); // `${alignmentId}:${row}`
   if (!alignmentTracks.length) return null;
@@ -231,12 +255,14 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
   };
   return alignmentTracks.map((al, ti) => {
     const rowLabels = {};
+    const rowLeft = {};
     // Real segments and gap-dash placeholder runs both mark a row as part
     // of this track, so gap-only rows get the right-margin label too.
     for (const seg of [...(al.segments || []), ...alignmentGapSegments(al, cleanSeq.length)]) {
       for (const v of sp(seg.start, seg.end)) {
         if (v.row < vs || v.row > ve) continue;
         if (!rowLabels[v.row] || v.colEnd > rowLabels[v.row].colEnd) rowLabels[v.row] = v;
+        if (!rowLeft[v.row] || v.colStart < rowLeft[v.row].colStart) rowLeft[v.row] = v;
       }
     }
     const short = middleTruncate(al.name);
@@ -277,8 +303,11 @@ const AlignmentLabels = React.memo(function AlignmentLabels({
           const labelHover = hoverAlignLabel === hKey;
           const hovered = truncated && labelHover;
           // Hug the right edge of THIS row's read content — rows with fewer
-          // slots have nearer labels; they don't share a common column.
-          const labelX = getX(rowRight[v.row]) + 8;
+          // slots have nearer labels; they don't share a common column. In
+          // continuous mode anchor at the read's own start column.
+          const labelX = continuous
+            ? getX(colVis(rowLeft[v.row].colStart, v.row))
+            : getX(rowRight[v.row]) + 8;
           const clipId = `align-label-clip-${al.id}-${v.row}`;
           const scrollW = hovered ? featLabelW(al.name) - featLabelW(short) + 4 : 0;
           // Trace toggle: labels of alignments whose .ab1 resolved are
@@ -385,6 +414,7 @@ function AlignmentLayers(props) {
     streamOf,
     colVis,
     colRuns,
+    colFromVis,
     insReserve,
     alignLaneInfo,
     sequence,
@@ -393,6 +423,8 @@ function AlignmentLayers(props) {
     expandedChromAlnId,
     onToggleAlignmentChrom,
     onHideAlignment,
+    continuous,
+    visibleCols,
   } = props;
   const laneProps = {
     alignmentTracks,
@@ -406,10 +438,12 @@ function AlignmentLayers(props) {
     visCpl,
     streamOf,
     colRuns,
+    colFromVis,
     insReserve,
     alignLaneInfo,
     sequence,
     cleanSeq,
+    visibleCols,
   };
   const labelProps = {
     alignmentTracks,
@@ -429,6 +463,7 @@ function AlignmentLayers(props) {
     expandedChromAlnId,
     onToggleAlignmentChrom,
     onHideAlignment,
+    continuous,
   };
   return (
     <>

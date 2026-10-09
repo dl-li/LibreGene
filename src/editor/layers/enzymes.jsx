@@ -76,6 +76,7 @@ export function renderEnzymeLabels({
     ? enzymeLayout.find((l) => l.id === hoveredEnzyme)?.name
     : null;
   return enzymeLayout.map((l) => {
+    if (l.labelHidden) return null;
     const e = enzymes.find((x) => x.id === l.groupId);
     const isGray =
       e && (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length));

@@ -55,6 +55,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - **分子类型模式**：`moleculeType`（`"dna"|"rna"|"protein"`，缺省 dna）决定编辑器形态；rna/protein 单链、隐藏 DNA 专属插件（`dnaOnly`/`rnaOnly`）；`.rna/.prot/.dna` 只读、必须 Save As。
 - **插件机制**：编译期静态注册表（`src/plugins/index.js`），无运行时动态加载；新插件须进注册表并可在设置页禁用（localStorage `disabledPlugins`，禁用时 sidebar/dialog/nav 入口全消失）。注册表钩子：`dialog`（谓词 `dialogVisible`）、`track`（`useLane(ctx)` + `render(ctx, lane)`，模板锚定的绘制必须经 ctx 的 `colVis`/`colRuns` 换算，不可假设列与 x 线性对应）、`featuresMenuItem`、`settingsField`。
 - **行布局用可视单元流**（`buildStreamLayout`，`src/editor/alignmentLayout.js`）：模板列与比对插入槽位列合成一条流，每行 `baseCpl` 个单元；坐标一律经 `rowOf`/`colOfAbs`/`colVis`/`colFromVis`/`colRuns`/`sp` 换算，**不要再假设「每行固定 `gridCpl` 个模板列」**。
+- **视图模式** `viewMode`（`'wrap'|'continuous'`，localStorage `viewMode`，View 菜单切换）：continuous = `visCpl = seqLen+insTotal+1` 的单行退化流布局 + 编辑器容器 div 横向滚动（`editorScrollRef`，横向 FeatureScrollbar），横向虚拟化走 `visibleCols`（流单元窗口）；特征标签强制 below 并按 `labelViewport` 钳位到视口边缘，比对 read 名称标签画在 read 起点。
 
 ### 后端（Rust）
 
