@@ -2374,16 +2374,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // Feature-label clamp window in SVG x coordinates (continuous mode): the
   // viewport's left/right edges, accounting for the container's left padding,
-  // the sidebar icon rail, and a margin from the screen edges.
+  // the sidebar icon rail, and a margin from the screen edges. `rightFeat` is
+  // the clamp line for reverse-strand feature labels: pulled in by the same
+  // reserve the alignment-track labels use (whether or not any are present),
+  // so right-pinned feature labels end exactly at the alignment labels' right
+  // edge.
   const labelViewport = useMemo(() => {
     if (!continuous) return null;
     const el = containerRef.current;
     const padL = el ? parseFloat(window.getComputedStyle(el).paddingLeft) || 0 : 16;
+    const right = scrollX - padL + viewportW - 32;
     return {
-      left: scrollX - padL + leftViewportInset + 24,
-      right: scrollX - padL + viewportW - 16,
+      left: scrollX - padL + leftViewportInset + 48,
+      right,
+      rightFeat: right - (onHideAlignment ? 26 : 8),
     };
-  }, [continuous, scrollX, viewportW, leftViewportInset]);
+  }, [continuous, scrollX, viewportW, leftViewportInset, onHideAlignment]);
 
   const renderedFeatureLabels = useMemo(
     () =>

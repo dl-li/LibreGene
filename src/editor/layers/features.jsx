@@ -523,7 +523,9 @@ export function renderFeatureLabels({
             : getX(colVis(cols - 1, vs.row)) + cw;
         const lx = featureLabelsBelow
           ? labelViewport
-            ? Math.min(xr, labelViewport.right)
+            ? // rightFeat keeps right-pinned labels flush with the alignment
+              // track labels' right edge (falls back to right when absent).
+              Math.min(xr, labelViewport.rightFeat ?? labelViewport.right)
             : xr
           : xr + 8;
         const lAnchor = featureLabelsBelow ? 'end' : 'start';
