@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Settings, Puzzle } from 'lucide-react';
+import { Settings, Puzzle, ChevronDown, ChevronRight } from 'lucide-react';
 
 const SECTION_TITLE =
   'text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5';
@@ -50,6 +50,27 @@ export default function SettingsPage({
   focusSection,
 }) {
   const isPluginsView = focusSection === 'plugins';
+  const [showBuiltinPlugins, setShowBuiltinPlugins] = useState(false);
+
+  const distributablePlugins = plugins.filter((p) => p.distributable);
+  const builtinPlugins = plugins.filter((p) => !p.distributable);
+
+  const renderPluginRow = (p) => (
+    <div key={p.id} className="flex items-start gap-2">
+      <Checkbox
+        id={`st-plugin-${p.id}`}
+        className="mt-0.5"
+        checked={!disabledPlugins.includes(p.id)}
+        onCheckedChange={() => onTogglePlugin?.(p.id)}
+      />
+      <div className="flex flex-col">
+        <Label htmlFor={`st-plugin-${p.id}`} className="cursor-pointer text-sm font-normal">
+          {p.name}
+        </Label>
+        {p.description && <span className="text-xs text-muted-foreground">{p.description}</span>}
+      </div>
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,7 +89,7 @@ export default function SettingsPage({
         <div className="space-y-4 py-2">
           {!isPluginsView && (
             <>
-              {/* ── 特征显示 ── */}
+              {/* ── Feature display ── */}
               <div>
                 <div className={SECTION_TITLE}>Features</div>
                 <div className="space-y-3">
@@ -117,7 +138,7 @@ export default function SettingsPage({
 
               <Separator />
 
-              {/* ── 插件设置字段（注册表 settingsField 钩子，如 GC Content） ── */}
+              {/* ── Plugin settings fields (registry settingsField hook, e.g. GC Content) ── */}
               {plugins
                 .filter((p) => p.settingsField && !disabledPlugins.includes(p.id))
                 .map((p) => {
@@ -158,7 +179,7 @@ export default function SettingsPage({
                   );
                 })}
 
-              {/* ── 甲基化 ── */}
+              {/* ── Methylation ── */}
               <div>
                 <div className={SECTION_TITLE}>Methylation</div>
                 <div className="space-y-2">
@@ -234,7 +255,7 @@ export default function SettingsPage({
 
               <Separator />
 
-              {/* ── 序列比对 ── */}
+              {/* ── Sequence alignment ── */}
               <div>
                 <div className={SECTION_TITLE}>Alignment</div>
                 <div className="space-y-2">
@@ -262,7 +283,7 @@ export default function SettingsPage({
 
               <Separator />
 
-              {/* ── 引物分析 ── */}
+              {/* ── Primer analysis ── */}
               <div>
                 <div className={SECTION_TITLE}>Primer Analysis</div>
                 <div className="flex items-center gap-2">
@@ -285,7 +306,7 @@ export default function SettingsPage({
 
               <Separator />
 
-              {/* ── Tm 参数 ── */}
+              {/* ── Tm parameters ── */}
               <div>
                 <div className={SECTION_TITLE}>Tm Calculation</div>
                 <div className="space-y-2.5">
@@ -360,30 +381,29 @@ export default function SettingsPage({
             </>
           )}
 
-          {/* ── 插件（仅从侧边栏 Plugins 入口打开时显示） ── */}
+          {/* ── Plugins (only when opened from the sidebar Plugins entry) ── */}
           {isPluginsView && (
             <div className="space-y-2">
-              {plugins.map((p) => (
-                <div key={p.id} className="flex items-start gap-2">
-                  <Checkbox
-                    id={`st-plugin-${p.id}`}
-                    className="mt-0.5"
-                    checked={!disabledPlugins.includes(p.id)}
-                    onCheckedChange={() => onTogglePlugin?.(p.id)}
-                  />
-                  <div className="flex flex-col">
-                    <Label
-                      htmlFor={`st-plugin-${p.id}`}
-                      className="cursor-pointer text-sm font-normal"
-                    >
-                      {p.name}
-                    </Label>
-                    {p.description && (
-                      <span className="text-xs text-muted-foreground">{p.description}</span>
+              {distributablePlugins.map(renderPluginRow)}
+              {builtinPlugins.length > 0 && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowBuiltinPlugins((v) => !v)}
+                    className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                  >
+                    {showBuiltinPlugins ? (
+                      <ChevronDown className="size-3.5" />
+                    ) : (
+                      <ChevronRight className="size-3.5" />
                     )}
-                  </div>
+                    Built-in plugins ({builtinPlugins.length})
+                  </button>
+                  {showBuiltinPlugins && (
+                    <div className="mt-2 space-y-2">{builtinPlugins.map(renderPluginRow)}</div>
+                  )}
                 </div>
-              ))}
+              )}
               {plugins.length === 0 && (
                 <div className="text-sm text-muted-foreground">No plugins installed</div>
               )}

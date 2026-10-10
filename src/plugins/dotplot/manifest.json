@@ -1,0 +1,22 @@
+{
+  "id": "dotplot",
+  "name": "Dotplot",
+  "version": "1.0.0",
+  "description": "Dot-plot comparison of two DNA/RNA sequences",
+  "entry": "index.js",
+  "hooks": {
+    "dialog": "DotplotDialog.jsx"
+  },
+  "dialogKey": "dotplot",
+  "dialogProps": ["open", "onOpenChange", "sequence", "fileName"],
+  "constraints": {
+    "notForProtein": true
+  },
+  "dependencies": {
+    "react": ">=18"
+  },
+  "hostContract": {
+    "styling": "Tailwind CSS with shadcn-style theme tokens (bg-card, bg-foreground, text-muted-foreground, border-border, bg-accent, bg-muted, ring-ring, accent-primary)",
+    "sequence": "Plain DNA or RNA string; the plugin normalizes case and folds U to T internally"
+  }
+}

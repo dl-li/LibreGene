@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { InlineNotice } from '@/components/ui/notice';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, Label, InlineNotice } from './ui';
 import {
   buildDotplot,
   normalizeSequence,

@@ -5,7 +5,7 @@ export { SHOW_GC_CONTENT_KEY, GC_WINDOW_SIZE_KEY } from './track';
 const gcContentPlugin = {
   id: 'gcContent',
   name: 'GC Content',
-  description: '在序列下方显示逐碱基 GC 含量渐变轨道',
+  description: 'Show a per-base GC content gradient track below the sequence',
   version: '1.0.0',
   dialogKey: null,
   // Per-base GC fraction is meaningless for protein sequences.

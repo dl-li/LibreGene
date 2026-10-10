@@ -3,7 +3,7 @@ import SnapshotsDialog from './SnapshotsDialog';
 const snapgeneHistoryPlugin = {
   id: 'snapgeneHistory',
   name: 'SnapGene History',
-  description: '查看 .dna 文件的历史快照',
+  description: 'Browse historical snapshots of SnapGene .dna files',
   version: '1.0.0',
   dialogKey: 'snapshots',
   // SnapGene .dna files are DNA sequences.
