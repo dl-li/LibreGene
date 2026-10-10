@@ -29,6 +29,7 @@ import {
   ScanSearch,
   AudioWaveform,
   Grid2x2,
+  Rows3,
   History,
   Map as MapIcon,
   Waypoints,
@@ -207,6 +208,7 @@ export default function EditorNavMenu({
   onManageAlignments,
   onOpenRnaFold,
   onOpenDotplot,
+  onOpenGel,
   onOpenMapView,
   background = 'none',
   backgroundOptions = [],
@@ -255,6 +257,7 @@ export default function EditorNavMenu({
       : null;
   const hasFolding = moleculeType === 'rna' && !!onOpenRnaFold;
   const hasDotplot = moleculeType !== 'protein' && !!onOpenDotplot;
+  const hasGel = isDna && !!onOpenGel;
 
   const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
   const SCOPE_WORDS = {
@@ -658,6 +661,14 @@ export default function EditorNavMenu({
             <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
               <Database /> Enzyme Database…
             </DropdownMenuItem>
+            {hasGel && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => onOpenGel()}>
+                  <Rows3 /> Digest and Run Gel
+                </DropdownMenuItem>
+              </>
+            )}
           </NavMenu>
         )}
 
@@ -712,7 +723,7 @@ export default function EditorNavMenu({
         )}
 
         {/* Diagrams: left click toggles the background, right click opens menu */}
-        {(onOpenMapView || hasFolding || hasDotplot) && (
+        {(onOpenMapView || hasFolding || hasDotplot || hasGel) && (
           <NavMenu
             icon={Waypoints}
             label="Diagrams"
@@ -744,6 +755,11 @@ export default function EditorNavMenu({
             {hasDotplot && (
               <DropdownMenuItem onSelect={onOpenDotplot}>
                 <Grid2x2 /> Examine Dotplot
+              </DropdownMenuItem>
+            )}
+            {hasGel && (
+              <DropdownMenuItem onSelect={onOpenGel}>
+                <Rows3 /> Digest and Run Gel
               </DropdownMenuItem>
             )}
           </NavMenu>

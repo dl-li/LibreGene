@@ -1,0 +1,34 @@
+{
+  "id": "gel",
+  "name": "Digest and Run Gel",
+  "version": "1.0.0",
+  "description": "In-silico restriction digest and gel electrophoresis simulation",
+  "entry": "index.js",
+  "hooks": {
+    "dialog": "GelDialog.jsx"
+  },
+  "dialogKey": "gel",
+  "dialogProps": [
+    "open",
+    "onOpenChange",
+    "sequence",
+    "fileName",
+    "enzymes",
+    "topology",
+    "myEnzymes",
+    "dialogState"
+  ],
+  "constraints": {
+    "dnaOnly": true
+  },
+  "dependencies": {
+    "react": ">=18"
+  },
+  "hostContract": {
+    "styling": "Tailwind CSS with shadcn-style theme tokens (bg-card, bg-foreground, text-muted-foreground, border-border, bg-accent, bg-muted, ring-ring, accent-primary)",
+    "sequence": "Plain DNA string",
+    "enzymes": "Per-site restriction enzyme list from project data: [{ name, recSeq, cutIndex, botCutIndex, cutType?, methylationBlocked? }]; cutIndex is the 0-based position the cut falls before",
+    "topology": "'circular' | 'linear'",
+    "localStorage": "Reads the host's `enzymeFilter` value once for the default enzyme group; falls back to 'unique+twice'"
+  }
+}

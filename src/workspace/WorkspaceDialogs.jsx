@@ -15,6 +15,7 @@ export default function WorkspaceDialogs({
   sequence,
   features,
   enzymes,
+  topology,
   alignments,
   primers,
   myPrimers,
@@ -133,6 +134,10 @@ export default function WorkspaceDialogs({
                 }))
               }
               projectId={projectId}
+              topology={topology}
+              enzymes={enzymes}
+              myEnzymes={myEnzymes}
+              dialogState={pluginDialogs[plugin.dialogKey]}
               onOpenSnapshot={onOpenSnapshot}
               sequence={sequence}
               fileName={mapName}

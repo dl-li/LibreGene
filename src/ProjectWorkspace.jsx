@@ -950,6 +950,15 @@ export default function ProjectWorkspace({
                   ? () => setPluginDialogs((prev) => ({ ...prev, dotplot: true }))
                   : undefined
               }
+              onOpenGel={
+                isDna && !disabledPlugins.includes('gel')
+                  ? (enzymeNames) =>
+                      setPluginDialogs((prev) => ({
+                        ...prev,
+                        gel: enzymeNames?.length ? { enzymes: enzymeNames } : true,
+                      }))
+                  : undefined
+              }
               onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
               onOpenSnapshots={
                 !disabledPlugins.includes('snapgeneHistory') &&
@@ -1060,6 +1069,7 @@ export default function ProjectWorkspace({
         sequence={sequence}
         features={features}
         enzymes={enzymes}
+        topology={topologyLive}
         alignments={alignments}
         primers={primers}
         myPrimers={myPrimers}

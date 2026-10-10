@@ -87,6 +87,7 @@ import {
   LockOpen,
   Pencil,
   Scissors,
+  Rows3,
   Tag,
 } from 'lucide-react';
 
@@ -175,6 +176,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onManageAlignments,
   onOpenRnaFold,
   onOpenDotplot,
+  onOpenGel,
   onOpenMapView,
   onOpenSnapshots,
   onEnzymeHoverChange,
@@ -1458,12 +1460,35 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [cleanSeq, topology, clearCursorTimer],
   );
 
+  const handleOpenGel = useCallback(
+    (names) => {
+      if (!onOpenGel) return;
+      // Radix onSelect passes an event — only a real array counts as preset.
+      // selectedEnzymeIds holds label entry ids ("<enzymeId>_p<pairIndex>"),
+      // so match each id back to its enzyme entry before collecting names.
+      const preset = Array.isArray(names)
+        ? names
+        : [
+            ...new Set(
+              selectedEnzymeIds
+                .map((id) => enzymes.find((x) => id === x.id || id.startsWith(`${x.id}_p`))?.name)
+                .filter(Boolean),
+            ),
+          ];
+      onOpenGel(preset);
+    },
+    [onOpenGel, enzymes, selectedEnzymeIds],
+  );
+
   const openEnzymeMenu = useCallback(
     async (e, l) => {
       e.preventDefault();
       e.stopPropagation();
       const enzyme = enzymes.find((x) => x.id === l.groupId);
-      if (enzyme) selectEnzymeSite(enzyme, l.id);
+      // Right-clicking a label that is already part of the enzyme selection
+      // keeps the selection (e.g. both sites of a two-enzyme fragment pick).
+      const keepSelection = selectedEnzymeIds.includes(l.id);
+      if (enzyme && !keepSelection) selectEnzymeSite(enzyme, l.id);
       const items = [
         { icon: CopyPlus, label: 'Copy (+) Strand', onSelect: () => copySelection('sense') },
       ];
@@ -1472,6 +1497,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
           icon: CopyMinus,
           label: 'Copy (−) Strand',
           onSelect: () => copySelection('antisense'),
+        });
+      }
+      if (onOpenGel) {
+        items.push({
+          icon: Rows3,
+          label: 'Digest and Run Gel',
+          onSelect: () => handleOpenGel(keepSelection ? undefined : [enzyme?.name ?? l.name]),
         });
       }
       const db = await loadEnzymeDb();
@@ -1506,7 +1538,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       showContextMenu(e.clientX, e.clientY, items);
     },
-    [enzymes, isDna, copySelection, loadEnzymeDb, selectEnzymeSite],
+    [
+      enzymes,
+      isDna,
+      copySelection,
+      loadEnzymeDb,
+      selectEnzymeSite,
+      onOpenGel,
+      handleOpenGel,
+      selectedEnzymeIds,
+    ],
   );
 
   const providerIndexRef = useRef(null);
@@ -1596,6 +1637,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
             onSelect: () => copySelection('antisense'),
           });
         }
+        if (isEnzymeSelection && onOpenGel && selectedEnzymeIds.length > 0) {
+          items.push({
+            icon: Rows3,
+            label: 'Digest and Run Gel',
+            onSelect: () => handleOpenGel(),
+          });
+        }
         if (blastEnabled) {
           items.push({ type: 'separator' });
           items.push({
@@ -1636,6 +1684,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       background,
       backgroundOptions,
       onBackgroundChange,
+      isEnzymeSelection,
+      selectedEnzymeIds,
+      onOpenGel,
+      handleOpenGel,
     ],
   );
 
@@ -2809,6 +2861,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onManageAlignments={onManageAlignments}
           onOpenRnaFold={onOpenRnaFold}
           onOpenDotplot={onOpenDotplot}
+          onOpenGel={handleOpenGel}
           onOpenMapView={onOpenMapView}
           onOpenSnapshots={onOpenSnapshots}
           background={background}
