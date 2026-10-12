@@ -374,7 +374,7 @@ export const SelectionInfoLayer = React.memo(function SelectionInfoLayer({
   const fontSize = '11px';
   const fontStr = `600 ${fontSize} ${monoFont}`;
   let label = `${len} ${seqUnit}`;
-  if (isDna && showTm) label += `, ${tm}°C`;
+  if (isDna && showTm) label += `, ${Math.round(tm)}°C`;
   const tw = measureWidth(label, fontStr);
   return (
     <g style={{ pointerEvents: 'none' }}>
