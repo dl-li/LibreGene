@@ -97,6 +97,8 @@ export default function App() {
     setMethylationSystems,
     methylationOverlap,
     setMethylationOverlap,
+    maxEnzymeSites,
+    onMaxEnzymeSitesChange,
     primerSeedLength,
     setPrimerSeedLength,
     alignmentAlgorithm,
@@ -686,6 +688,7 @@ export default function App() {
       onEnzymeFilterChange,
       enzymeProvider,
       onEnzymeProviderChange,
+      maxEnzymeSites,
       viewMode,
       onViewModeChange,
       disabledPlugins,
@@ -723,6 +726,7 @@ export default function App() {
       onEnzymeFilterChange,
       enzymeProvider,
       onEnzymeProviderChange,
+      maxEnzymeSites,
       viewMode,
       onViewModeChange,
       disabledPlugins,
@@ -1156,6 +1160,8 @@ export default function App() {
           setMethylationSystems={setMethylationSystems}
           methylationOverlap={methylationOverlap}
           setMethylationOverlap={setMethylationOverlap}
+          maxEnzymeSites={maxEnzymeSites}
+          onMaxEnzymeSitesChange={onMaxEnzymeSitesChange}
           primerSeedLength={primerSeedLength}
           setPrimerSeedLength={setPrimerSeedLength}
           alignmentAlgorithm={alignmentAlgorithm}

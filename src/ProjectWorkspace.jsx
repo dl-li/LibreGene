@@ -58,6 +58,7 @@ export default function ProjectWorkspace({
   onEnzymeFilterChange,
   enzymeProvider = 'all',
   onEnzymeProviderChange,
+  maxEnzymeSites = 50,
   viewMode = 'wrap',
   onViewModeChange,
   // Width of the collapsed sidebar icon rail overlaying the content's left
@@ -482,45 +483,68 @@ export default function ProjectWorkspace({
     // clutter the chromatogram bands — hide them for the trace's project.
     if (mainChromatogram) return EMPTY_ARRAY;
     const all = enzymes || [];
-    if (enzymeFilter === 'all') return all;
-    if (enzymeFilter === 'myEnzymes') {
+    let filtered;
+    if (enzymeFilter === 'all') filtered = all;
+    else if (enzymeFilter === 'myEnzymes') {
       const set = new Set(myEnzymes);
-      return all.filter((e) => set.has(e.name));
-    }
-    if (enzymeFilter === 'unique') return all.filter((e) => e.isUnique);
-    if (enzymeFilter === 'unique6') return all.filter((e) => e.isUnique && e.recSeq?.length === 6);
-    if (enzymeFilter === 'twice') return all.filter((e) => totalNamePairCounts.get(e.name) === 2);
-    if (enzymeFilter === 'unique+twice')
-      return all.filter((e) => e.isUnique || totalNamePairCounts.get(e.name) === 2);
-    const cutType = (e) =>
-      e.cutType ||
-      (e.botCutIndex - e.cutIndex === 0
-        ? 'blunt'
-        : e.botCutIndex - e.cutIndex > 0
-          ? '5overhang'
-          : '3overhang');
-    if (enzymeFilter === 'blunt') return all.filter((e) => cutType(e) === 'blunt');
-    if (enzymeFilter === 'overhang5') return all.filter((e) => cutType(e) === '5overhang');
-    if (enzymeFilter === 'overhang3') return all.filter((e) => cutType(e) === '3overhang');
-    if (enzymeFilter === 'iis')
-      return all.filter((e) => {
-        const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
-        return pairs.some((cp) => {
-          const d = [
-            cp.topCutIndex - e.recEnd,
-            e.recStart - cp.topCutIndex,
-            cp.botCutIndex - e.recEnd,
-            e.recStart - cp.botCutIndex,
-          ];
-          return d.some((v) => v >= 2);
+      filtered = all.filter((e) => set.has(e.name));
+    } else if (enzymeFilter === 'unique') filtered = all.filter((e) => e.isUnique);
+    else if (enzymeFilter === 'unique6')
+      filtered = all.filter((e) => e.isUnique && e.recSeq?.length === 6);
+    else if (enzymeFilter === 'twice')
+      filtered = all.filter((e) => totalNamePairCounts.get(e.name) === 2);
+    else if (enzymeFilter === 'unique+twice')
+      filtered = all.filter((e) => e.isUnique || totalNamePairCounts.get(e.name) === 2);
+    else {
+      const cutType = (e) =>
+        e.cutType ||
+        (e.botCutIndex - e.cutIndex === 0
+          ? 'blunt'
+          : e.botCutIndex - e.cutIndex > 0
+            ? '5overhang'
+            : '3overhang');
+      if (enzymeFilter === 'blunt') filtered = all.filter((e) => cutType(e) === 'blunt');
+      else if (enzymeFilter === 'overhang5')
+        filtered = all.filter((e) => cutType(e) === '5overhang');
+      else if (enzymeFilter === 'overhang3')
+        filtered = all.filter((e) => cutType(e) === '3overhang');
+      else if (enzymeFilter === 'iis')
+        filtered = all.filter((e) => {
+          const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
+          return pairs.some((cp) => {
+            const d = [
+              cp.topCutIndex - e.recEnd,
+              e.recStart - cp.topCutIndex,
+              cp.botCutIndex - e.recEnd,
+              e.recStart - cp.botCutIndex,
+            ];
+            return d.some((v) => v >= 2);
+          });
         });
-      });
-    if (enzymeFilter === 'rec4') return all.filter((e) => e.recSeq?.length === 4);
-    if (enzymeFilter === 'rec5') return all.filter((e) => e.recSeq?.length === 5);
-    if (enzymeFilter === 'rec6') return all.filter((e) => e.recSeq?.length === 6);
-    if (enzymeFilter === 'rec8p') return all.filter((e) => (e.recSeq?.length || 0) >= 8);
-    return all.filter((e) => e.isUnique);
-  }, [enzymes, enzymeFilter, showEnzymes, totalNamePairCounts, myEnzymes, isDna, mainChromatogram]);
+      else if (enzymeFilter === 'rec4') filtered = all.filter((e) => e.recSeq?.length === 4);
+      else if (enzymeFilter === 'rec5') filtered = all.filter((e) => e.recSeq?.length === 5);
+      else if (enzymeFilter === 'rec6') filtered = all.filter((e) => e.recSeq?.length === 6);
+      else if (enzymeFilter === 'rec8p') filtered = all.filter((e) => (e.recSeq?.length || 0) >= 8);
+      else filtered = all.filter((e) => e.isUnique);
+    }
+    // Hard cap on cut sites per enzyme, applied to every filter including
+    // "All": enzymes denser than maxEnzymeSites are never displayed.
+    if (filtered.length) {
+      const counts = new Map();
+      for (const e of all) counts.set(e.name, (counts.get(e.name) || 0) + 1);
+      filtered = filtered.filter((e) => counts.get(e.name) <= maxEnzymeSites);
+    }
+    return filtered;
+  }, [
+    enzymes,
+    enzymeFilter,
+    showEnzymes,
+    totalNamePairCounts,
+    myEnzymes,
+    isDna,
+    mainChromatogram,
+    maxEnzymeSites,
+  ]);
 
   const displayEnzymes = useMemo(() => {
     if (enzymeProvider === 'all' || !providerIndex) return setFilteredEnzymes;

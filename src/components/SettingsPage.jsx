@@ -38,6 +38,8 @@ export default function SettingsPage({
   setMethylationSystems,
   methylationOverlap,
   setMethylationOverlap,
+  maxEnzymeSites = 50,
+  onMaxEnzymeSitesChange,
   primerSeedLength,
   setPrimerSeedLength,
   alignmentAlgorithm = 'blast',
@@ -181,6 +183,33 @@ export default function SettingsPage({
                     </Fragment>
                   );
                 })}
+
+              {/* ── Enzymes ── */}
+              <div>
+                <div className={SECTION_TITLE}>Enzymes</div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground shrink-0">
+                    Hide enzymes with more than
+                  </Label>
+                  <Input
+                    className="w-16 h-8 px-2 py-0 text-sm text-right font-mono"
+                    type="number"
+                    min="1"
+                    value={maxEnzymeSites}
+                    onChange={(e) => {
+                      if (e.target.value === '') return;
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v)) onMaxEnzymeSitesChange?.(v);
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">cut sites</span>
+                </div>
+                <span className="block text-xs text-muted-foreground mt-1.5">
+                  Applies to every enzyme filter, including "All"
+                </span>
+              </div>
+
+              <Separator />
 
               {/* ── Methylation ── */}
               <div>

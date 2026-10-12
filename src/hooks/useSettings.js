@@ -183,6 +183,26 @@ export default function useSettings() {
     }
   });
   const [methylationOverlap, setMethylationOverlap] = useState(2);
+  // Hard cap on displayed cut sites per enzyme, applied to every enzyme filter
+  // including "All". Guards the map against 4-cutters exploding on long sequences.
+  const [maxEnzymeSites, setMaxEnzymeSites] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('maxEnzymeSites'));
+      return Number.isFinite(v) && v >= 1 ? Math.round(v) : 50;
+    } catch {
+      return 50;
+    }
+  });
+  const onMaxEnzymeSitesChange = useCallback((next) => {
+    if (!Number.isFinite(next) || next < 1) return;
+    const v = Math.round(next);
+    setMaxEnzymeSites(v);
+    try {
+      localStorage.setItem('maxEnzymeSites', JSON.stringify(v));
+    } catch {
+      // storage may be unavailable; selection still applies in-memory
+    }
+  }, []);
   const [primerSeedLength, setPrimerSeedLength] = useState(10);
   const [alignmentAlgorithm, setAlignmentAlgorithm] = useState(() => {
     const v = localStorage.getItem('alignmentAlgorithm');
@@ -357,6 +377,8 @@ export default function useSettings() {
     setMethylationSystems,
     methylationOverlap,
     setMethylationOverlap,
+    maxEnzymeSites,
+    onMaxEnzymeSitesChange,
     primerSeedLength,
     setPrimerSeedLength,
     alignmentAlgorithm,
