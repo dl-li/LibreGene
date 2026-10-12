@@ -3,8 +3,13 @@
 //! Two types of methylation interactions:
 //! - **Sensitive** (database `methylation == "sensitive"`): blocked when a methylation
 //!   target overlaps the recognition ± overlap.
-//! - **Dependent** (recognition site IS a known methylation target, e.g. DpnI/GATC=Dam):
-//!   requires that methylation system to be active to cut.
+//! - **Dependent** (database `methylation_dependent`, e.g. DpnI): requires methylation
+//!   to cut. When the required modification is one of the detectable systems
+//!   (Dam/Dcm/EcoKI — the recognition site IS the methylation target, e.g.
+//!   DpnI/GATC=Dam), the enzyme cuts iff that system is active. When the required
+//!   modification is NOT detectable (5mC/5hmC-dependent enzymes: MspJI, SgeI, FspEI,
+//!   LpnPI, AbaSI), the enzyme is always marked `methylation_required` with source
+//!   "Methylation", so the UI grays it out with a "[Methylation Required]" hint.
 //!
 //! A "dependent" enzyme's recognition site *exactly* matches a known methylation target
 //! pattern. For example, DpnI's 4 bp site GATC is the Dam target. Enzymes whose longer
@@ -172,21 +177,32 @@ pub fn apply_methylation(
     // --- Check for methylation-dependent enzymes (from database field) ---
     if initially_required {
         // Find which methylation system this enzyme depends on by checking its rec site.
-        if let Some(target_sys) = find_required_system(rec_window) {
-            let has_system = active_systems.iter().any(|s| s.as_str() == target_sys);
-            if has_system {
-                // System is active → the target IS methylated → enzyme cuts.
-                enzyme.methylation_required = false;
-            } else {
-                // System not active → mark as required.
+        match find_required_system(rec_window) {
+            Some(target_sys) => {
+                let has_system = active_systems.iter().any(|s| s.as_str() == target_sys);
+                if has_system {
+                    // System is active → the target IS methylated → enzyme cuts.
+                    enzyme.methylation_required = false;
+                } else {
+                    // System not active → mark as required.
+                    enzyme.methylation_required = true;
+                    let source = match target_sys {
+                        "dam" => "Dam",
+                        "dcm" => "Dcm",
+                        "ecoki" => "EcoKI",
+                        _ => "Unknown",
+                    };
+                    enzyme.methyl_required_sources.push(source.to_string());
+                }
+            }
+            // Required modification is not one of the detectable systems
+            // (5mC/5hmC-dependent enzymes such as MspJI, SgeI, FspEI, LpnPI,
+            // AbaSI): we can never verify the methylation state, so always
+            // mark as required. The "Methylation" source renders in the UI as
+            // "[Methylation Required]".
+            None => {
                 enzyme.methylation_required = true;
-                let source = match target_sys {
-                    "dam" => "Dam",
-                    "dcm" => "Dcm",
-                    "ecoki" => "EcoKI",
-                    _ => "Unknown",
-                };
-                enzyme.methyl_required_sources.push(source.to_string());
+                enzyme.methyl_required_sources.push("Methylation".to_string());
             }
         }
     }
@@ -251,6 +267,30 @@ mod tests {
 
         assert!(!enzyme.methylation_required);
         assert!(enzyme.methyl_required_sources.is_empty());
+    }
+
+    /// 5mC/5hmC-dependent enzymes (MspJI, SgeI, FspEI, LpnPI, AbaSI) require a
+    /// methylation none of the detectable systems (Dam/Dcm/EcoKI) produces:
+    /// they must always be marked required, regardless of active systems.
+    #[test]
+    fn test_undetectable_required_methylation_always_required() {
+        // MspJI-like: 4 bp rec site "CNNA" matching CNNR — not a Dam/Dcm/EcoKI target.
+        for active_systems in [
+            vec![],
+            vec!["dam".to_string(), "dcm".to_string(), "ecoki".to_string()],
+        ] {
+            let mut enzyme = make_enzyme(10, 13, true, false);
+            let template = "NNNNNNNNNNCNNANNNN";
+
+            apply_methylation(&mut enzyme, template, &active_systems, 2, true);
+
+            assert!(
+                enzyme.methylation_required,
+                "enzyme requiring undetectable methylation must always be marked required"
+            );
+            assert_eq!(enzyme.methyl_required_sources, vec!["Methylation"]);
+            assert!(!enzyme.methylation_blocked);
+        }
     }
 
     #[test]

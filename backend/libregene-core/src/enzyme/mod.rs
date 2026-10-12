@@ -775,6 +775,30 @@ mod tests {
         }
     }
 
+    /// MspJI (5mC/5hmC-dependent) requires a methylation the engine cannot
+    /// detect: always required, always with the generic "Methylation" source,
+    /// even when all three detectable systems are active.
+    #[test]
+    fn test_mspji_always_methylation_required() {
+        // "CTTA" matches the MspJI recognition site CNNR.
+        let mut project = ProjectData {
+            sequence: "NNNNCTTANNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string(),
+            topology: "circular".to_string(),
+            methylation_systems: vec!["dam".to_string(), "dcm".to_string(), "ecoki".to_string()],
+            ..Default::default()
+        };
+        project.length = project.sequence.len() as i64;
+
+        recompute(&mut project);
+
+        let mspji_entries: Vec<_> = project.enzymes.iter().filter(|e| e.name == "MspJI").collect();
+        assert!(!mspji_entries.is_empty(), "Should find MspJI sites in CNNR-containing sequence");
+        for e in &mspji_entries {
+            assert!(e.methylation_required, "MspJI requires undetectable 5mC/5hmC — must always be marked required");
+            assert_eq!(e.methyl_required_sources, vec!["Methylation".to_string()]);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Circular display window tests (tooltip range near the origin)
     // -------------------------------------------------------------------------

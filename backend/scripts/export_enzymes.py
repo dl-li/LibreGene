@@ -79,8 +79,12 @@ for enz in CommOnly:
     is_meth_dep = "Meth_Dep" in mro_names
 
     # Methylation-dependent (requires methylation to cut): known by name.
-    # DpnI only cuts Dam-methylated GATC; the PvuRts1I-family enzymes
-    # (AbaSI, FspEI, MspJI, SgeI, LpnPI) only cut at modified cytosines.
+    # DpnI only cuts Dam-methylated G(m6A)TC — Dam is one of the detectable
+    # systems. The PvuRts1I/MspJI-family enzymes only cut at C5-modified
+    # cytosines (5mC/5hmC), which the engine cannot detect, so they are always
+    # shown as "[Methylation Required]":
+    #   MspJI mCNNR(5mC/5hmC), SgeI mCNNG(5mC), FspEI mCC(5mC/5hmC),
+    #   LpnPI CmCDG(5mC/5hmC), AbaSI (5hmC/5ghmC, also 5mC).
     is_meth_dependent = name in ("DpnI", "AbaSI", "FspEI", "MspJI", "SgeI", "LpnPI")
 
     entry = {
