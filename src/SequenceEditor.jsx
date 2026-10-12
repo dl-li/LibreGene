@@ -52,11 +52,12 @@ import {
   HoverIndexLayer,
 } from './editor/layers/selectionLayers';
 import { trackPlugins, renderTrackLanes } from './editor/layers/trackLanes';
+import { pluginAvailable } from './plugins';
 import FeatureInfoDialog from './dialogs/FeatureInfoDialog';
 import PrimerAlignmentDialog from './dialogs/PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
-import PrimerDesignDialog from './plugins/primerDesign/PrimerDesignDialog';
-import { DESIGN_MODES } from './plugins/primerDesign';
+import PrimerDesignDialog from './plugins/builtin/primerDesign/PrimerDesignDialog';
+import { DESIGN_MODES } from './plugins/builtin/primerDesign';
 import { computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
 import { getRelatedEnzymes } from './enzymeRelated';
 import EnzymeDetailDialog from './dialogs/EnzymeDetailDialog';
@@ -693,8 +694,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       cleanSeq,
       topology,
       moleculeType,
-      enabled: !disabledPlugins.includes(plugin.id) && !!pluginToggles?.[plugin.id]?.checked,
-      windowSize: pluginSettings?.[plugin.id]?.value,
+      enabled:
+        pluginAvailable(plugin, { moleculeType, disabledPlugins }) &&
+        (plugin.featuresMenuItem ? !!pluginToggles?.[plugin.id]?.checked : true),
+      settingValue: pluginSettings?.[plugin.id]?.value,
     }),
   );
   const trackH = trackLanes.reduce((sum, lane) => sum + (lane?.height || 0), 0);

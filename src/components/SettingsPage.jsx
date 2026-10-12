@@ -66,6 +66,9 @@ export default function SettingsPage({
       <div className="flex flex-col">
         <Label htmlFor={`st-plugin-${p.id}`} className="cursor-pointer text-sm font-normal">
           {p.name}
+          {p.version && (
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">v{p.version}</span>
+          )}
         </Label>
         {p.description && <span className="text-xs text-muted-foreground">{p.description}</span>}
       </div>

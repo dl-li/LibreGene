@@ -18,8 +18,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { LoaderCircle, Sparkles } from 'lucide-react';
-import { monoFont } from '../../editorConstants';
-import { listCodonSpecies, previewCodonOptimization, applyCodonOptimization } from '../../tauriApi';
+import { monoFont } from '../../../editorConstants';
+import {
+  listCodonSpecies,
+  previewCodonOptimization,
+  applyCodonOptimization,
+} from '../../../tauriApi';
 
 const SPECIES_LABELS = {
   b_subtilis: 'Bacillus subtilis',

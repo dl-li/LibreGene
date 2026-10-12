@@ -7,13 +7,12 @@ const dotplotPlugin = {
   version: '1.0.0',
   dialogKey: 'dotplot',
   // Self-contained, distributable plugin (see manifest.json/README.md in this
-  // directory): everything it needs lives under src/plugins/dotplot/.
+  // directory): everything it needs lives under src/plugins/example-plugin-dotplot/.
   distributable: true,
   // Dotplot compares nucleotide sequences; not meaningful for protein projects.
   notForProtein: true,
   // Entry point is the "Examine Dotplot" item in the Diagrams menu
-  // (navMenuOnly), wired via SequenceEditor.onOpenDotplot, not the sidebar.
-  navMenuOnly: true,
+  // wired via SequenceEditor.onOpenDotplot, not the sidebar.
   sidebarItems: [],
   dialog: DotplotDialog,
 };

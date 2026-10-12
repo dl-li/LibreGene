@@ -1,5 +1,5 @@
-import { plugins } from '../plugins';
-import AddAlignmentTextDialog from '../plugins/alignment/AddAlignmentTextDialog';
+import { plugins, pluginAvailable } from '../plugins';
+import AddAlignmentTextDialog from '../plugins/builtin/alignment/AddAlignmentTextDialog';
 import SequenceEditDialog from '../dialogs/SequenceEditDialog';
 import PrimerOverviewDialog from '../dialogs/PrimerOverviewDialog';
 import DetectFeaturesDialog from '../dialogs/DetectFeaturesDialog';
@@ -20,6 +20,7 @@ export default function WorkspaceDialogs({
   primers,
   myPrimers,
   myEnzymes,
+  enzymeFilter,
   enzymeProvider,
   onEnzymeProviderChange,
   disabledPlugins,
@@ -112,13 +113,8 @@ export default function WorkspaceDialogs({
       )}
 
       {plugins
-        .filter(
-          (plugin) =>
-            !disabledPlugins.includes(plugin.id) &&
-            (isDna || !plugin.dnaOnly) &&
-            (moleculeType === 'rna' || !plugin.rnaOnly) &&
-            (moleculeType !== 'protein' || !plugin.notForProtein) &&
-            (!plugin.dialogVisible || plugin.dialogVisible({ projectId, moleculeType, isTauri })),
+        .filter((plugin) =>
+          pluginAvailable(plugin, { moleculeType, disabledPlugins, projectId, isTauri }),
         )
         .map((plugin) => {
           const DialogComp = plugin.dialog;
@@ -137,6 +133,7 @@ export default function WorkspaceDialogs({
               topology={topology}
               enzymes={enzymes}
               myEnzymes={myEnzymes}
+              enzymeFilter={enzymeFilter}
               dialogState={pluginDialogs[plugin.dialogKey]}
               onOpenSnapshot={onOpenSnapshot}
               sequence={sequence}

@@ -1,7 +1,5 @@
 import { useGcLane, renderGcTrack } from './track';
 
-export { SHOW_GC_CONTENT_KEY, GC_WINDOW_SIZE_KEY } from './track';
-
 const gcContentPlugin = {
   id: 'gcContent',
   name: 'GC Content',
@@ -10,11 +8,13 @@ const gcContentPlugin = {
   dialogKey: null,
   // Per-base GC fraction is meaningless for protein sequences.
   notForProtein: true,
-  // Entry points are the Features nav menu toggle and the settings field
-  // (navMenuOnly), wired via the featuresMenuItem/settingsField hooks below.
-  navMenuOnly: true,
+  // Entry points are the View nav menu toggle and the settings field
+  // wired via the featuresMenuItem/settingsField hooks below.
   sidebarItems: [],
-  featuresMenuItem: { label: 'Show GC Content', notForProtein: true },
+  featuresMenuItem: {
+    label: 'Show GC Content',
+    storageKey: 'showGcContent',
+  },
   settingsField: {
     label: 'Window size',
     description:
@@ -22,6 +22,8 @@ const gcContentPlugin = {
     min: 1,
     max: 999,
     unit: 'bp',
+    defaultValue: 11,
+    storageKey: 'gcWindowSize',
   },
   track: { useLane: useGcLane, render: renderGcTrack },
 };

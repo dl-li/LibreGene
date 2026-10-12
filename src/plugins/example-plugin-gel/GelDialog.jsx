@@ -25,7 +25,9 @@ const LABEL_W = 64;
 const PAD_R = 18;
 const GEL_W = LABEL_W + (SAMPLE_LANES + 1) * LANE_W + PAD_R;
 
-function readEditorEnzymeFilter() {
+function readEditorEnzymeFilter(preferred) {
+  if (preferred === 'myEnzymes' || ENZYME_GROUP_OPTIONS.some((o) => o.value === preferred))
+    return preferred;
   try {
     const v = JSON.parse(localStorage.getItem('enzymeFilter'));
     if (v === 'myEnzymes' || ENZYME_GROUP_OPTIONS.some((o) => o.value === v)) return v;
@@ -116,8 +118,9 @@ export default function GelDialog({
   topology = 'circular',
   myEnzymes = [],
   dialogState,
+  enzymeFilter,
 }) {
-  const [groupFilter, setGroupFilter] = useState(readEditorEnzymeFilter);
+  const [groupFilter, setGroupFilter] = useState(() => readEditorEnzymeFilter(enzymeFilter));
   const [selected, setSelected] = useState([]);
   const [openCats, setOpenCats] = useState({ single: true, double: false, other: false });
   const [efficiency, setEfficiency] = useState(90);

@@ -1,7 +1,42 @@
 import { useState, useCallback, useMemo } from 'react';
-import { SHOW_GC_CONTENT_KEY, GC_WINDOW_SIZE_KEY } from '../plugins/gcContent';
+import { plugins } from '../plugins';
 import { ENZYME_PROVIDER_VALUES } from '../enzymeProviders';
 import { isTauri, setMcpConfig, getMcpConfig } from '../tauriApi';
+
+// Generic per-plugin UI state derived from the registry: featuresMenuItem
+// declares a persisted boolean toggle, settingsField a persisted number. A
+// plugin may pin its storageKey to keep a legacy localStorage entry working.
+const menuPlugins = plugins.filter((p) => p.featuresMenuItem);
+const fieldPlugins = plugins.filter((p) => p.settingsField);
+const toggleKey = (p) => p.featuresMenuItem.storageKey ?? `pluginToggle:${p.id}`;
+const fieldKey = (p) => p.settingsField.storageKey ?? `pluginSetting:${p.id}`;
+
+const readStoredBool = (key, fallback) => {
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return typeof v === 'boolean' ? v : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const clampField = (field, v) => {
+  let n = Math.round(v);
+  if (field.min != null) n = Math.max(field.min, n);
+  if (field.max != null) n = Math.min(field.max, n);
+  return n;
+};
+
+const readStoredNumber = (field, key) => {
+  const fallback = field.defaultValue ?? field.min ?? 0;
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    if (Number.isFinite(v)) return clampField(field, v);
+  } catch {
+    // fall through to the declared default
+  }
+  return fallback;
+};
 
 // Valid values for the persisted enzyme filter (ENZYME_FILTER_OPTIONS in
 // EditorNavMenu.jsx plus the dynamic 'myEnzymes' entry).
@@ -94,21 +129,19 @@ export default function useSettings() {
     }
   }, []);
   const [showFeatures, setShowFeatures] = useState(true);
-  const [showGcContent, setShowGcContent] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(SHOW_GC_CONTENT_KEY)) || false;
-    } catch {
-      return false;
-    }
-  });
-  const [gcWindowSize, setGcWindowSize] = useState(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem(GC_WINDOW_SIZE_KEY));
-      return Number.isFinite(v) && v >= 1 ? Math.round(v) : 11;
-    } catch {
-      return 11;
-    }
-  });
+  const [pluginToggleValues, setPluginToggleValues] = useState(() =>
+    Object.fromEntries(
+      menuPlugins.map((p) => [
+        p.id,
+        readStoredBool(toggleKey(p), !!p.featuresMenuItem.defaultChecked),
+      ]),
+    ),
+  );
+  const [pluginFieldValues, setPluginFieldValues] = useState(() =>
+    Object.fromEntries(
+      fieldPlugins.map((p) => [p.id, readStoredNumber(p.settingsField, fieldKey(p))]),
+    ),
+  );
   const [alwaysExpandFeatures, setAlwaysExpandFeatures] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('alwaysExpandFeatures')) || false;
@@ -181,25 +214,28 @@ export default function useSettings() {
   });
 
   const onToggleFeatures = useCallback(() => setShowFeatures((v) => !v), []);
-  const onToggleGcContent = useCallback(
-    () =>
-      setShowGcContent((v) => {
-        const next = !v;
+  const handlePluginToggle = useCallback((id) => {
+    setPluginToggleValues((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      const p = menuPlugins.find((pl) => pl.id === id);
+      if (p) {
         try {
-          localStorage.setItem(SHOW_GC_CONTENT_KEY, JSON.stringify(next));
+          localStorage.setItem(toggleKey(p), JSON.stringify(next[id]));
         } catch {
           // storage may be unavailable; toggle still applies in-memory
         }
-        return next;
-      }),
-    [],
-  );
-  const onGcWindowSizeChange = useCallback((next) => {
+      }
+      return next;
+    });
+  }, []);
+  const handlePluginFieldChange = useCallback((id, next) => {
     if (!Number.isFinite(next)) return;
-    const v = Math.min(999, Math.max(1, Math.round(next)));
-    setGcWindowSize(v);
+    const p = fieldPlugins.find((pl) => pl.id === id);
+    if (!p) return;
+    const v = clampField(p.settingsField, next);
+    setPluginFieldValues((prev) => ({ ...prev, [id]: v }));
     try {
-      localStorage.setItem(GC_WINDOW_SIZE_KEY, JSON.stringify(v));
+      localStorage.setItem(fieldKey(p), JSON.stringify(v));
     } catch {
       // storage may be unavailable; selection still applies in-memory
     }
@@ -207,16 +243,24 @@ export default function useSettings() {
   // Generic per-plugin UI state handed to the nav menu (featuresMenuItem
   // toggles), the editor (track lanes) and the settings page (settingsField).
   const pluginToggles = useMemo(
-    () => ({
-      gcContent: { checked: showGcContent, onToggle: onToggleGcContent },
-    }),
-    [showGcContent, onToggleGcContent],
+    () =>
+      Object.fromEntries(
+        menuPlugins.map((p) => [
+          p.id,
+          { checked: !!pluginToggleValues[p.id], onToggle: () => handlePluginToggle(p.id) },
+        ]),
+      ),
+    [pluginToggleValues, handlePluginToggle],
   );
   const pluginSettings = useMemo(
-    () => ({
-      gcContent: { value: gcWindowSize, onChange: onGcWindowSizeChange },
-    }),
-    [gcWindowSize, onGcWindowSizeChange],
+    () =>
+      Object.fromEntries(
+        fieldPlugins.map((p) => [
+          p.id,
+          { value: pluginFieldValues[p.id], onChange: (v) => handlePluginFieldChange(p.id, v) },
+        ]),
+      ),
+    [pluginFieldValues, handlePluginFieldChange],
   );
   const onTogglePrimers = useCallback(() => setShowPrimers((v) => !v), []);
   const onToggleEnzymes = useCallback(() => setShowEnzymes((v) => !v), []);
@@ -296,10 +340,6 @@ export default function useSettings() {
     onToggleAutoAddPrimers,
     showFeatures,
     onToggleFeatures,
-    showGcContent,
-    onToggleGcContent,
-    gcWindowSize,
-    onGcWindowSizeChange,
     alwaysExpandFeatures,
     onToggleAlwaysExpandFeatures,
     showPrimers,

@@ -1,4 +1,4 @@
-import { findOrfs as findOrfsCommand } from '../../tauriApi';
+import { findOrfs as findOrfsCommand } from '../../../tauriApi';
 
 // ORF Search plugin — the sequence scan itself now runs in the backend
 // (libregene_core::orf::find_orfs, ignoring feature annotations) for

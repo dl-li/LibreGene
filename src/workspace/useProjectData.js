@@ -6,7 +6,7 @@ import {
   emitEditorBackground,
   listenEditorBackground,
 } from '../tauriApi';
-import { findOrfs } from '../plugins/orf';
+import { findOrfs } from '../plugins/builtin/orf';
 import { EMPTY_ARRAY } from './constants';
 import { readHiddenAlnNames } from './hiddenAlignments';
 

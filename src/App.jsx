@@ -16,7 +16,7 @@ import {
   getMcpConfig,
   isSequenceFilePath,
 } from './tauriApi';
-import { plugins } from './plugins';
+import { plugins, pluginAvailable } from './plugins';
 import ProjectWorkspace from './ProjectWorkspace';
 import ScrollingLabel from './components/ScrollingLabel';
 import SettingsPage from './components/SettingsPage';
@@ -606,13 +606,12 @@ export default function App() {
   // While the active project's moleculeType is unknown (project list still
   // loading), hide type-gated entries instead of flashing DNA-only items.
   const moleculeTypeKnown = !activeId || !!activeProject;
-  const isActiveDna = activeMoleculeType === 'dna';
-  const isActiveRna = activeMoleculeType === 'rna';
-  const visiblePlugins = plugins.filter(
-    (plugin) =>
-      !disabledPlugins.includes(plugin.id) &&
-      (moleculeTypeKnown ? isActiveDna || !plugin.dnaOnly : !plugin.dnaOnly) &&
-      (moleculeTypeKnown ? isActiveRna || !plugin.rnaOnly : !plugin.rnaOnly),
+  const visiblePlugins = plugins.filter((plugin) =>
+    pluginAvailable(plugin, {
+      moleculeType: moleculeTypeKnown ? activeMoleculeType : null,
+      disabledPlugins,
+      isTauri,
+    }),
   );
 
   // Files dragged onto the window: valid sequence files either attach to the

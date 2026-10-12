@@ -31,5 +31,4 @@ export default {
   dialog: null,
   // The interactive pick-on-sequence flow is wired directly in
   // SequenceEditor/EditorNavMenu (nav menu entry only), not via dialogKey.
-  navMenuOnly: true,
 };

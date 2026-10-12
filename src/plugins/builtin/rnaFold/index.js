@@ -9,9 +9,8 @@ const rnaFoldPlugin = {
   // RNA-only: MFE secondary-structure prediction is meaningful only for
   // single-stranded RNA projects.
   rnaOnly: true,
-  // Entry point is the "Folding" button in EditorNavMenu (navMenuOnly),
+  // Entry point is the "Folding" button in EditorNavMenu,
   // wired via SequenceEditor.onOpenRnaFold, not the sidebar.
-  navMenuOnly: true,
   sidebarItems: [],
   dialog: RnaFoldDialog,
 };

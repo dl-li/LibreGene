@@ -16,7 +16,8 @@
     "enzymes",
     "topology",
     "myEnzymes",
-    "dialogState"
+    "dialogState",
+    "enzymeFilter"
   ],
   "constraints": {
     "dnaOnly": true
@@ -29,6 +30,6 @@
     "sequence": "Plain DNA string",
     "enzymes": "Per-site restriction enzyme list from project data: [{ name, recSeq, cutIndex, botCutIndex, cutType?, methylationBlocked? }]; cutIndex is the 0-based position the cut falls before",
     "topology": "'circular' | 'linear'",
-    "localStorage": "Reads the host's `enzymeFilter` value once for the default enzyme group; falls back to 'unique+twice'"
+    "enzymeFilter": "Editor's current enzyme-set filter; seeds the default enzyme group. Without it the plugin falls back to localStorage `enzymeFilter`, then 'unique+twice'"
   }
 }

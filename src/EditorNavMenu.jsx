@@ -54,7 +54,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
-import { plugins } from './plugins';
+import { plugins, pluginAvailable } from './plugins';
 
 const ENZYME_FILTER_OPTIONS = [
   { value: 'all', label: 'All Enzymes' },
@@ -343,8 +343,7 @@ export default function EditorNavMenu({
   const viewTogglePlugins = plugins.filter(
     (p) =>
       p.featuresMenuItem &&
-      !disabledPlugins.includes(p.id) &&
-      !(moleculeType === 'protein' && p.featuresMenuItem.notForProtein) &&
+      pluginAvailable(p, { moleculeType, disabledPlugins }) &&
       pluginToggles[p.id],
   );
 

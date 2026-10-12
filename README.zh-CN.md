@@ -86,7 +86,7 @@
 
 ### MCP / LLM Agent 集成
 
-LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。启动 LibreGene 后，打开侧边栏的 *MCP Server* 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接），复制自动生成的配置提示词（已内嵌 URL 和访问令牌）发给你的 Agent，它会自行完成配置。
+LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听本机回环 `127.0.0.1:8766`，Bearer token 鉴权），让终端里的 LLM Agent 像真实用户一样操作已打开的质粒——UI 实时同步更新。启动 LibreGene 后，打开侧边栏的 _MCP Server_ 对话框（或空项目界面的 "Connect an LLM agent via MCP" 链接），复制自动生成的配置提示词（已内嵌 URL 和访问令牌）发给你的 Agent，它会自行完成配置。
 
 共暴露 16 个工具，覆盖完整编辑流程：
 
@@ -113,6 +113,10 @@ LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听
 - **多项目标签页** — 侧边栏快速切换
 - **完整的撤销/重做** — 序列编辑和特征修改均可回退
 - **GenBank / SnapGene / FASTA** — 读写 .gb/.gbk 与蛋白 .gpt；读取 .dna/.rna/.prot（[SnapGene](https://www.snapgene.com)）、FASTA 和 Sanger .ab1
+
+## 插件
+
+LibreGene 支持插件——[`src/plugins/`](src/plugins/) 里的 dotplot 查看器和跑胶模拟器就是示例。想开发自己的插件？请看[插件开发指南](src/plugins/README.md)，然后提个 PR。欢迎贡献！
 
 ## 安装
 

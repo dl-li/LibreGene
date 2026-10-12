@@ -24,7 +24,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 ### Feature Annotation
 
 - **Clean, minimal display** — CDS and mRNA features are translated on the fly, amino acids rendered right under the sequence
-- **Auto-detection** — paste a sequence into the *New Sequence* dialog and common features (promoters, resistance markers, ori, tags…) are detected via the [pLannotate](https://github.com/mmcguffi/pLannotate) feature database and can be annotated with one click
+- **Auto-detection** — paste a sequence into the _New Sequence_ dialog and common features (promoters, resistance markers, ori, tags…) are detected via the [pLannotate](https://github.com/mmcguffi/pLannotate) feature database and can be annotated with one click
 - **ORF search** — scan open reading frames on both strands, all six frames, and display them inline
 - **GC content track** — per-base sliding-window GC% rendered as a blue→white→red gradient band below the sequence, with adjustable window size
 - Compound (multi-segment) features, custom colors, strand toggling, enriched GenBank I/O that preserves colors and primers
@@ -86,7 +86,7 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 
 ### MCP / LLM Agent Integration
 
-LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene, open the *MCP Server* dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen), and copy the auto-generated setup prompt — with the URL and access token embedded — to your agent; it configures the connection itself.
+LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene, open the _MCP Server_ dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen), and copy the auto-generated setup prompt — with the URL and access token embedded — to your agent; it configures the connection itself.
 
 16 tools are exposed, covering the full editing workflow:
 
@@ -113,6 +113,10 @@ Ready-to-run agent tasks live in [`examples/tasks`](examples/tasks), each with a
 - **Multi-project tabs** — switch between plasmids in the sidebar
 - **Full undo/redo** — sequence edits and feature changes
 - **GenBank / SnapGene / FASTA I/O** — read/write .gb/.gbk and protein .gpt; read .dna/.rna/.prot ([SnapGene](https://www.snapgene.com)), FASTA and Sanger .ab1
+
+## Plugins
+
+LibreGene supports plugins — the dotplot viewer and gel simulator in [`src/plugins/`](src/plugins/) are examples. Want to build one? Check the [plugin development guide](src/plugins/README.md) and open a PR. Contributions welcome!
 
 ## Installation
 

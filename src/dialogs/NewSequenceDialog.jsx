@@ -22,8 +22,8 @@ import { cn } from '@/lib/utils';
 import { annotateSequenceText } from '../tauriApi';
 import { locationString1based } from '../editorConstants';
 import { CircularMap, LinearMap } from '../MapView';
-import FornaView from '../plugins/rnaFold/FornaView';
-import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from '../plugins/rnaFold/useRnaFold';
+import FornaView from '../plugins/builtin/rnaFold/FornaView';
+import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from '../plugins/builtin/rnaFold/useRnaFold';
 
 const EMPTY_ARRAY = [];
 const NOOP = () => {};

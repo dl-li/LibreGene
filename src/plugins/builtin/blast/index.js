@@ -5,7 +5,6 @@ const blastPlugin = {
   version: '1.0.0',
   // Entry point is the selection right-click menu in SequenceEditor, gated
   // there on disabledPlugins and molecule type (DNA/protein).
-  navMenuOnly: true,
   sidebarItems: [],
 };
 

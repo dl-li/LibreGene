@@ -24,9 +24,10 @@ only runtime dependency is React.
 - `myEnzymes` is the user's saved enzyme name list; adds a "My Enzymes" group.
 - `dialogState` may be `{ enzymes: string[] }` to preselect enzymes on open
   (used by the enzyme-label context menu and the editor's enzyme selection).
+- `enzymeFilter` is the editor's current enzyme-set filter; it seeds the
+  default enzyme group. When absent (outside LibreGene), the plugin falls
+  back to reading localStorage `enzymeFilter`, then `'unique+twice'`.
 - Styling assumes Tailwind CSS with shadcn-style theme tokens.
-- The default enzyme group is read once from localStorage `enzymeFilter`
-  (the editor's current enzyme set).
 
 ## Simulation model
 
@@ -46,11 +47,11 @@ only runtime dependency is React.
 
 ## Installing into a LibreGene host
 
-1. Copy this directory to `src/plugins/gel/`.
+1. Copy this directory to `src/plugins/example-plugin-gel/`.
 2. Register it in the host's plugin registry:
 
 ```js
-import gelPlugin from './gel';
+import gelPlugin from './example-plugin-gel';
 
 export const plugins = [
   // ...

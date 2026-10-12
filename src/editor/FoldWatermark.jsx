@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import FornaView from '../plugins/rnaFold/FornaView';
-import useRnaFold, { MAX_INTERACTIVE_NT } from '../plugins/rnaFold/useRnaFold';
+import FornaView from '../plugins/builtin/rnaFold/FornaView';
+import useRnaFold, { MAX_INTERACTIVE_NT } from '../plugins/builtin/rnaFold/useRnaFold';
 import { bgColor } from '../editorConstants';
 
 // ---------------------------------------------------------------------------

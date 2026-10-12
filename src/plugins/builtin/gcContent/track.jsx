@@ -1,8 +1,5 @@
 import { useMemo } from 'react';
-import { cw, getX } from '../../editorConstants';
-
-export const SHOW_GC_CONTENT_KEY = 'showGcContent';
-export const GC_WINDOW_SIZE_KEY = 'gcWindowSize';
+import { cw, getX } from '../../../editorConstants';
 
 // GC-content track: a full-width per-base gradient band in the first lane
 // below the sequence (everything else shifts down by GC_TRACK_H + GC_GAP).
@@ -28,11 +25,11 @@ export const gcContentColor = (frac) => {
 // Per-base local GC fractions for the GC-content track. Window = the base
 // plus `half` flanks on each side; circular sequences wrap across the origin,
 // linear ones truncate the window at the ends.
-export function useGcLane({ cleanSeq, topology, moleculeType, enabled, windowSize = 11 }) {
+export function useGcLane({ cleanSeq, topology, enabled, settingValue = 11 }) {
   return useMemo(() => {
-    if (!enabled || moleculeType === 'protein' || !cleanSeq.length) return null;
+    if (!enabled || !cleanSeq.length) return null;
     const n = cleanSeq.length;
-    const half = Math.max(0, Math.floor((windowSize - 1) / 2));
+    const half = Math.max(0, Math.floor((settingValue - 1) / 2));
     const pre = new Float64Array(n + 1);
     for (let i = 0; i < n; i++) {
       const c = cleanSeq[i];
@@ -55,7 +52,7 @@ export function useGcLane({ cleanSeq, topology, moleculeType, enabled, windowSiz
       }
     }
     return { height: GC_TRACK_H + GC_GAP, fracs };
-  }, [enabled, moleculeType, cleanSeq, windowSize, topology]);
+  }, [enabled, cleanSeq, settingValue, topology]);
 }
 
 // One gradient per row spanning the row's full visual width, filled into one

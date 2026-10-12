@@ -8,9 +8,8 @@ const snapgeneHistoryPlugin = {
   dialogKey: 'snapshots',
   // SnapGene .dna files are DNA sequences.
   dnaOnly: true,
-  // Entry point is the "History" item in the Edit nav menu (navMenuOnly),
+  // Entry point is the "History" item in the Edit nav menu,
   // wired via SequenceEditor.onOpenSnapshots, not the sidebar.
-  navMenuOnly: true,
   sidebarItems: [],
   dialog: SnapshotsDialog,
   // The dialog only makes sense for projects opened from a .dna file and for

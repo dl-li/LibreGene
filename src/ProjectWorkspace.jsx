@@ -27,6 +27,7 @@ import useUndoHistory from './workspace/useUndoHistory';
 import useEditDialog from './workspace/useEditDialog';
 import useProjectMutations from './workspace/useProjectMutations';
 import WorkspaceDialogs from './workspace/WorkspaceDialogs';
+import { plugins, pluginAvailable } from './plugins';
 import { EMPTY_ARRAY } from './workspace/constants';
 import { readHiddenAlnNames } from './workspace/hiddenAlignments';
 
@@ -841,6 +842,19 @@ export default function ProjectWorkspace({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [hidden, handleUndo, handleRedo, handleSave, handleSaveAs]);
 
+  // Registry-driven plugin gate: disabled state, molecule-type flags and
+  // dialogVisible all come from the plugin object, not local hardcoding.
+  const pluginGate = (id) =>
+    pluginAvailable(
+      plugins.find((p) => p.id === id),
+      {
+        moleculeType,
+        disabledPlugins,
+        projectId,
+        isTauri,
+      },
+    );
+
   // Hidden workspaces stay mounted (CSS-only) so editor state/scroll/undo survive switching
   return (
     <div className={hidden ? 'hidden' : 'relative flex flex-1 min-h-0 min-w-0'}>
@@ -922,10 +936,7 @@ export default function ProjectWorkspace({
                 // Hidden workspaces stay mounted (display:none) — don't fold
                 // or render a watermark for them; a forna layout created
                 // while hidden gets a degenerate 0-size canvas.
-                !hidden &&
-                moleculeType === 'rna' &&
-                !disabledPlugins.includes('rnaFold') &&
-                background === 'folding'
+                !hidden && pluginGate('rnaFold') && background === 'folding'
               }
               mapName={mapName}
               showAlignments={showAlignments}
@@ -936,22 +947,22 @@ export default function ProjectWorkspace({
               onAddAlignmentText={() => setAlignTextOpen(true)}
               onManageAlignments={() => setPluginDialogs((prev) => ({ ...prev, alignment: true }))}
               onOpenRnaFold={
-                disabledPlugins.includes('rnaFold')
-                  ? undefined
-                  : () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
+                pluginGate('rnaFold')
+                  ? () => setPluginDialogs((prev) => ({ ...prev, rnaFold: true }))
+                  : undefined
               }
               onOpenCodonOptimization={
-                isDna && !disabledPlugins.includes('codonOptimization')
+                pluginGate('codonOptimization')
                   ? () => setPluginDialogs((prev) => ({ ...prev, codonOptimization: true }))
                   : undefined
               }
               onOpenDotplot={
-                !isProtein && !disabledPlugins.includes('dotplot')
+                pluginGate('dotplot')
                   ? () => setPluginDialogs((prev) => ({ ...prev, dotplot: true }))
                   : undefined
               }
               onOpenGel={
-                isDna && !disabledPlugins.includes('gel')
+                pluginGate('gel')
                   ? (enzymeNames) =>
                       setPluginDialogs((prev) => ({
                         ...prev,
@@ -961,10 +972,7 @@ export default function ProjectWorkspace({
               }
               onOpenMapView={mapEnabled ? () => setMapViewOpen(true) : undefined}
               onOpenSnapshots={
-                !disabledPlugins.includes('snapgeneHistory') &&
-                isTauri &&
-                isDna &&
-                (/\.dna$/i.test(projectId || '') || /^snapshot-/.test(projectId || ''))
+                pluginGate('snapgeneHistory')
                   ? () => setPluginDialogs((prev) => ({ ...prev, snapshots: true }))
                   : undefined
               }
@@ -1074,6 +1082,7 @@ export default function ProjectWorkspace({
         primers={primers}
         myPrimers={myPrimers}
         myEnzymes={myEnzymes}
+        enzymeFilter={enzymeFilter}
         enzymeProvider={enzymeProvider}
         onEnzymeProviderChange={onEnzymeProviderChange}
         disabledPlugins={disabledPlugins}

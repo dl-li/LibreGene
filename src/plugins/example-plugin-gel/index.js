@@ -7,13 +7,12 @@ const gelPlugin = {
   version: '1.0.0',
   dialogKey: 'gel',
   // Self-contained, distributable plugin (see manifest.json/README.md in this
-  // directory): everything it needs lives under src/plugins/gel/.
+  // directory): everything it needs lives under src/plugins/example-plugin-gel/.
   distributable: true,
   // Digest simulation is only meaningful for DNA projects.
   dnaOnly: true,
   // Entry point is the "Digest and Run Gel" item in the Diagrams menu
-  // (navMenuOnly), wired via SequenceEditor.onOpenGel, not the sidebar.
-  navMenuOnly: true,
+  // wired via SequenceEditor.onOpenGel, not the sidebar.
   sidebarItems: [],
   dialog: GelDialog,
 };
