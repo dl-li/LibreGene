@@ -1068,16 +1068,26 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (dragRef.current.startIdx === null) return;
       const idx = clientToSeqIndex(clientX, clientY);
       if (idx === null) return;
-      const dist = Math.abs(idx - dragRef.current.startIdx);
-      if (dist > 0) {
-        dragRef.current.active = true;
-        setIsDragging(true);
-        // Cursor is at insertion point idx; selected chars are from min to max-1
-        setSelStart(Math.min(dragRef.current.startIdx, idx));
-        setSelEnd(Math.max(dragRef.current.startIdx, idx) - 1);
-        setCursorIndex(idx);
-        resetCursorTimer();
+      if (idx === dragRef.current.startIdx) {
+        // Dragged back onto the origin: collapse the selection entirely
+        // instead of leaving the minimum 1-char selection behind.
+        if (dragRef.current.active) {
+          dragRef.current.active = false;
+          setIsDragging(false);
+          setSelStart(null);
+          setSelEnd(null);
+          setCursorIndex(dragRef.current.startIdx);
+          resetCursorTimer();
+        }
+        return;
       }
+      dragRef.current.active = true;
+      setIsDragging(true);
+      // Cursor is at insertion point idx; selected chars are from min to max-1
+      setSelStart(Math.min(dragRef.current.startIdx, idx));
+      setSelEnd(Math.max(dragRef.current.startIdx, idx) - 1);
+      setCursorIndex(idx);
+      resetCursorTimer();
     },
     [clientToSeqIndex, resetCursorTimer],
   );
