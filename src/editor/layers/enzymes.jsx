@@ -327,7 +327,9 @@ export function renderEnzymeOverlay({
   if (hoveredEnzyme) {
     const hoveredEntry = enzymeLayout.find((l) => l.id === hoveredEnzyme);
     if (hoveredEntry) {
-      const e = enzymes.find((x) => x.name === hoveredEntry.name);
+      // Methylation state is per-site: look up the hovered site by id, not
+      // the first entry sharing the enzyme name.
+      const e = enzymes.find((x) => x.id === hoveredEntry.groupId);
       if (e) {
         const isGray =
           e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
@@ -369,10 +371,6 @@ export function renderEnzymeOverlay({
     <g style={{ pointerEvents: 'none' }}>
       {/* Render lines for each enzyme name */}
       {[...namesToRender].map((name) => {
-        const e = enzymes.find((x) => x.name === name);
-        if (!e) return null;
-        const isGray =
-          e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
         const hoveredName = hoveredEnzyme
           ? enzymeLayout.find((l) => l.id === hoveredEnzyme)?.name
           : null;
@@ -382,6 +380,11 @@ export function renderEnzymeOverlay({
           nameEntries = nameEntries.filter((l) => selectedEnzymeIds.includes(l.id));
         }
         return nameEntries.map((l) => {
+          // Methylation state is per-site: each line takes its own entry's state.
+          const e = enzymes.find((x) => x.id === l.groupId);
+          if (!e) return null;
+          const isGray =
+            e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length);
           const isSel = selectedEnzymeIds.includes(l.id);
           const lineColor = isGray ? '#9CA3AF' : isSel ? enzymeActiveBlue : '#2563EB';
           return (
