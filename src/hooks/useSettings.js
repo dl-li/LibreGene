@@ -4,12 +4,11 @@ import { ENZYME_PROVIDER_VALUES } from '../enzymeProviders';
 import { isTauri, setMcpConfig, getMcpConfig } from '../tauriApi';
 
 // Generic per-plugin UI state derived from the registry: featuresMenuItem
-// declares a persisted boolean toggle, settingsField a persisted number. A
-// plugin may pin its storageKey to keep a legacy localStorage entry working.
+// declares a persisted boolean toggle, settingsField a persisted number.
 const menuPlugins = plugins.filter((p) => p.featuresMenuItem);
 const fieldPlugins = plugins.filter((p) => p.settingsField);
-const toggleKey = (p) => p.featuresMenuItem.storageKey ?? `pluginToggle:${p.id}`;
-const fieldKey = (p) => p.settingsField.storageKey ?? `pluginSetting:${p.id}`;
+const toggleKey = (p) => `pluginToggle:${p.id}`;
+const fieldKey = (p) => `pluginSetting:${p.id}`;
 
 const readStoredBool = (key, fallback) => {
   try {

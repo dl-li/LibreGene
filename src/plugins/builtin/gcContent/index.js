@@ -13,7 +13,6 @@ const gcContentPlugin = {
   sidebarItems: [],
   featuresMenuItem: {
     label: 'Show GC Content',
-    storageKey: 'showGcContent',
   },
   settingsField: {
     label: 'Window size',
@@ -23,7 +22,6 @@ const gcContentPlugin = {
     max: 999,
     unit: 'bp',
     defaultValue: 11,
-    storageKey: 'gcWindowSize',
   },
   track: { useLane: useGcLane, render: renderGcTrack },
 };

@@ -49,14 +49,14 @@ const myPlugin = {
   notForProtein: false, // hidden for protein projects
 
   // View-menu visibility toggle (optional). State is persisted per plugin id
-  // in localStorage; storageKey pins a legacy key, defaultChecked defaults to
+  // in localStorage (key `pluginToggle:<id>`); defaultChecked defaults to
   // false. Also gates the track hook's `enabled` flag.
-  featuresMenuItem: { label, defaultChecked, storageKey },
+  featuresMenuItem: { label, defaultChecked },
 
-  // Numeric field in Settings (optional). Persisted like the toggle;
-  // defaultValue falls back to min. Values are rounded and clamped to
-  // [min, max].
-  settingsField: { label, description, min, max, unit, defaultValue, storageKey },
+  // Numeric field in Settings (optional). Persisted like the toggle (key
+  // `pluginSetting:<id>`); defaultValue falls back to min. Values are rounded
+  // and clamped to [min, max].
+  settingsField: { label, description, min, max, unit, defaultValue },
 
   // Custom track below the sequence (optional). useLane receives
   // { cleanSeq, topology, moleculeType, enabled, settingValue } and returns
