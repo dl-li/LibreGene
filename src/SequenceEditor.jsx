@@ -134,6 +134,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   pluginSettings = {},
   disabledPlugins = [],
   alwaysExpandFeatures = false,
+  alwaysExpandPrimers = false,
   featureLabelsBelow = false,
   showOrfs,
   onToggleOrfs,
@@ -536,6 +537,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       hoverExpand: 26,
       arrowHeadLen: 7,
       arrowHeadHeight: 5,
+      // Label lift when a primer is selected — and in always-expand mode, where
+      // every primer shows its label at the selected position.
+      fwdSelLabelLift: 16,
+      revSelLabelLift: 13,
       ...layoutParams,
     }),
     [layoutParams],
@@ -785,6 +790,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     pp,
     lp,
     featureLabelsBelow: featureLabelsBelow || continuous,
+    alwaysExpandPrimers,
     alignLaneInfo,
     scrollY,
     viewportH,
@@ -2564,6 +2570,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       renderPrimers({
         visiblePrimers,
         hoveredPrimer,
+        alwaysExpandPrimers,
         sp,
         rowStarts,
         rowCounts,
@@ -2606,6 +2613,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [
       visiblePrimers,
       hoveredPrimer,
+      alwaysExpandPrimers,
       charsPerLine,
       pp,
       primerTracks,

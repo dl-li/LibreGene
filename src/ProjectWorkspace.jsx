@@ -49,6 +49,7 @@ export default function ProjectWorkspace({
   pluginToggles,
   pluginSettings,
   alwaysExpandFeatures,
+  alwaysExpandPrimers,
   showPrimers,
   onTogglePrimers,
   featureLabelsBelow,
@@ -926,6 +927,7 @@ export default function ProjectWorkspace({
               pluginSettings={pluginSettings}
               disabledPlugins={disabledPlugins}
               alwaysExpandFeatures={alwaysExpandFeatures}
+              alwaysExpandPrimers={alwaysExpandPrimers}
               featureLabelsBelow={featureLabelsBelow}
               showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}
               onToggleOrfs={

@@ -81,6 +81,8 @@ export default function App() {
     onToggleFeatures,
     alwaysExpandFeatures,
     onToggleAlwaysExpandFeatures,
+    alwaysExpandPrimers,
+    onToggleAlwaysExpandPrimers,
     showPrimers,
     onTogglePrimers,
     featureLabelsBelow,
@@ -679,6 +681,7 @@ export default function App() {
       pluginToggles,
       pluginSettings,
       alwaysExpandFeatures,
+      alwaysExpandPrimers,
       showPrimers,
       onTogglePrimers,
       featureLabelsBelow,
@@ -717,6 +720,7 @@ export default function App() {
       pluginToggles,
       pluginSettings,
       alwaysExpandFeatures,
+      alwaysExpandPrimers,
       showPrimers,
       onTogglePrimers,
       featureLabelsBelow,
@@ -1153,6 +1157,8 @@ export default function App() {
           focusSection={settingsFocus}
           alwaysExpandFeatures={alwaysExpandFeatures}
           onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
+          alwaysExpandPrimers={alwaysExpandPrimers}
+          onToggleAlwaysExpandPrimers={onToggleAlwaysExpandPrimers}
           featureLabelsBelow={featureLabelsBelow}
           onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
           pluginSettings={pluginSettings}

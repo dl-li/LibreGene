@@ -29,6 +29,8 @@ export default function SettingsPage({
   onOpenChange,
   alwaysExpandFeatures = false,
   onToggleAlwaysExpandFeatures,
+  alwaysExpandPrimers = false,
+  onToggleAlwaysExpandPrimers,
   featureLabelsBelow = false,
   onFeatureLabelsBelowChange,
   // Per-plugin settings-field state, keyed by plugin id:
@@ -138,6 +140,32 @@ export default function SettingsPage({
                     Side places name labels on the feature line's left/right extension; Below places
                     them under the feature line
                   </span>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ── Primer display ── */}
+              <div>
+                <div className={SECTION_TITLE}>Primers</div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="st-always-expand-primers"
+                    className="mt-0.5"
+                    checked={alwaysExpandPrimers}
+                    onCheckedChange={() => onToggleAlwaysExpandPrimers?.()}
+                  />
+                  <div className="flex flex-col">
+                    <Label
+                      htmlFor="st-always-expand-primers"
+                      className="cursor-pointer text-sm font-normal"
+                    >
+                      Always expand primers
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      Keep primers fully expanded without hovering over them
+                    </span>
+                  </div>
                 </div>
               </div>
 

@@ -148,6 +148,13 @@ export default function useSettings() {
       return false;
     }
   });
+  const [alwaysExpandPrimers, setAlwaysExpandPrimers] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('alwaysExpandPrimers')) ?? true;
+    } catch {
+      return true;
+    }
+  });
   const [showPrimers, setShowPrimers] = useState(true);
   const [featureLabelsBelow, setFeatureLabelsBelow] = useState(() => {
     try {
@@ -296,6 +303,19 @@ export default function useSettings() {
       }),
     [],
   );
+  const onToggleAlwaysExpandPrimers = useCallback(
+    () =>
+      setAlwaysExpandPrimers((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('alwaysExpandPrimers', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
+    [],
+  );
   const onFeatureLabelsBelowChange = useCallback(
     (next) =>
       setFeatureLabelsBelow(() => {
@@ -361,6 +381,8 @@ export default function useSettings() {
     onToggleFeatures,
     alwaysExpandFeatures,
     onToggleAlwaysExpandFeatures,
+    alwaysExpandPrimers,
+    onToggleAlwaysExpandPrimers,
     showPrimers,
     onTogglePrimers,
     featureLabelsBelow,

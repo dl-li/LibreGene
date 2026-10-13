@@ -4,6 +4,7 @@ import { safePrimerColor } from '../seqUtils';
 export function renderPrimers({
   visiblePrimers,
   hoveredPrimer,
+  alwaysExpandPrimers,
   sp,
   rowStarts,
   rowCounts,
@@ -146,6 +147,7 @@ export function renderPrimers({
           const isSelectedPrimer =
             selectedPrimerIds.includes(p.id) &&
             (selectionMode === 'primer' || selectionMode === 'amplimer');
+          const isExpanded = alwaysExpandPrimers || isHovered || isSelectedPrimer;
           const isDimDuringDrag =
             isPrimerDragging &&
             primerDimActive &&
@@ -154,7 +156,7 @@ export function renderPrimers({
 
           const pathStr = `M ${pts.map((p) => `${p[0]} ${p[1]}`).join(' L ')}`;
           const expD = isFwd ? -1 : 1;
-          const curExp = isHovered || isSelectedPrimer ? pp.hoverExpand : 0;
+          const curExp = isExpanded ? pp.hoverExpand : 0;
           const last = pts[pts.length - 1];
           const hoverPath =
             pathStr +
@@ -177,7 +179,14 @@ export function renderPrimers({
             : '';
 
           const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
-          const labelOff = isSelectedPrimer ? (isFwd ? -16 : 13) : 0;
+          // Always-expand: the label rides at the (raised) selected position so
+          // it clears the permanently expanded band.
+          const labelOff =
+            isSelectedPrimer || alwaysExpandPrimers
+              ? isFwd
+                ? -pp.fwdSelLabelLift
+                : pp.revSelLabelLift
+              : 0;
 
           return (
             <g
@@ -198,6 +207,17 @@ export function renderPrimers({
                   style={{ transition: springAnim }}
                 />
               )}
+              {/* Always-expand: hover cue is a thin outline around the already
+                  expanded band instead of the expansion itself. */}
+              {alwaysExpandPrimers && isHovered && !isSelectedPrimer && (
+                <path
+                  d={hoverPath}
+                  fill="none"
+                  stroke={pColor}
+                  strokeWidth={1.5}
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
 
               <text
                 fill={isSelectedPrimer ? bgColor : pColor}
@@ -205,7 +225,7 @@ export function renderPrimers({
                 fontFamily={monoFont}
                 fontWeight="bold"
                 style={{
-                  opacity: isHovered || isSelectedPrimer ? 1 : 0,
+                  opacity: isExpanded ? 1 : 0,
                   transition: 'opacity 0.2s ease-in-out',
                   pointerEvents: 'none',
                 }}
@@ -322,7 +342,7 @@ export function renderPrimers({
                 strokeLinejoin="round"
                 strokeLinecap="round"
                 style={{
-                  opacity: isHovered && !isSelectedPrimer ? 0 : 1,
+                  opacity: !alwaysExpandPrimers && isHovered && !isSelectedPrimer ? 0 : 1,
                   transition: springAnim,
                   pointerEvents: 'none',
                 }}
@@ -340,7 +360,7 @@ export function renderPrimers({
                 fill={pColor}
                 stroke="none"
                 style={{
-                  opacity: isHovered && !isSelectedPrimer ? 0 : 1,
+                  opacity: !alwaysExpandPrimers && isHovered && !isSelectedPrimer ? 0 : 1,
                   transition: springAnim,
                   pointerEvents: 'none',
                 }}

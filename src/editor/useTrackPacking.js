@@ -22,6 +22,7 @@ export default function useTrackPacking({
   pp,
   lp,
   featureLabelsBelow,
+  alwaysExpandPrimers = false,
   alignLaneInfo,
   scrollY,
   viewportH,
@@ -579,18 +580,35 @@ export default function useTrackPacking({
           if (p.isFwd) {
             const hasTail = r === rowOf(p.matchStart);
             const extra = hasTail ? pp.fwdAboveExtra : pp.fwdAboveNonTailExtra;
-            const h = pp.fwdAboveBase + t * pp.trackGap + extra;
+            // Always-expand: every primer row must fit the expanded band plus
+            // the raised name label (the ≈69px label zone primerLabelOcc
+            // reserves against enzyme labels, plus slack), not just the
+            // collapsed line.
+            const bodyH = alwaysExpandPrimers
+              ? Math.max(
+                  pp.fwdAboveBase + extra,
+                  pp.fwdMatchY + pp.fwdLabelY + pp.fwdSelLabelLift + 18,
+                )
+              : pp.fwdAboveBase + extra;
+            const h = bodyH + t * pp.trackGap;
             maxFwdPrimerH = Math.max(maxFwdPrimerH, h);
             ae = Math.max(ae, h);
           } else {
             const hasTail = r === rowOf(p.matchEnd);
             const extra = hasTail ? pp.revBelowExtra : pp.revBelowNonTailExtra;
+            // Same reservation below the sequence: expanded band + label
+            // raised to its selected position (baseline + descent + halo).
+            const bodyB = alwaysExpandPrimers
+              ? Math.max(
+                  pp.revBelowBase + extra,
+                  pp.revMatchY + pp.misYDelta + pp.revLabelY + pp.revSelLabelLift + 7,
+                )
+              : pp.revBelowBase + extra;
             const featOff = (revPrimerFeatOffsets[p.id] || {})[r] || 0;
             be = Math.max(
               be,
-              pp.revBelowBase +
+              bodyB +
                 t * pp.trackGap +
-                extra +
                 featOff +
                 alignLaneInfo.chromBelow[r] +
                 alignLaneInfo.counts[r] * lp.featTrackHeight +
@@ -669,6 +687,7 @@ export default function useTrackPacking({
     lp,
     alignLaneInfo,
     featureLabelsBelow,
+    alwaysExpandPrimers,
     continuous,
     viewportH,
   ]);
