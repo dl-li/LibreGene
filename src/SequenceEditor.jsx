@@ -453,6 +453,27 @@ const SequenceEditor = React.memo(function SequenceEditor({
   const hasTranslationSelection = selectionMode === 'translation' && translationSel !== null;
   const currentSelColor = designPick ? '#0f766e' : isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
 
+  // Nucleotide span (min..max, including inter-segment gaps) covered by the
+  // selected codons; shared by the delete/replace/paste/case edit triggers.
+  const translationBaseRange = useCallback(() => {
+    if (!translationSel) return null;
+    const cds = cdsFeatureDataRef.current[translationSel.featureId];
+    if (!cds) return null;
+    const start = Math.min(translationSel.startCodon, translationSel.endCodon);
+    const end = Math.max(translationSel.startCodon, translationSel.endCodon);
+    let minPos = Infinity,
+      maxPos = -Infinity;
+    for (let i = start; i <= end; i++) {
+      const t = cds.trans[i];
+      if (t)
+        for (const b of t.bases) {
+          if (b < minPos) minPos = b;
+          if (b > maxPos) maxPos = b;
+        }
+    }
+    return minPos <= maxPos ? [minPos, maxPos] : null;
+  }, [translationSel]);
+
   const handlePrimerDesign = useCallback(
     (mode) => {
       if (!primerDesignEnabled) return;
@@ -1518,6 +1539,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onSelect: () => copySelection('antisense'),
         });
       }
+      const db = await loadEnzymeDb();
+      const related = db.length
+        ? getRelatedEnzymes(l.name, [...new Set(enzymes.map((x) => x.name))], db)
+        : null;
+      if (onOpenGel || related) items.push({ type: 'separator' });
       if (onOpenGel) {
         items.push({
           icon: Rows3,
@@ -1525,10 +1551,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onSelect: () => handleOpenGel(keepSelection ? undefined : [enzyme?.name ?? l.name]),
         });
       }
-      const db = await loadEnzymeDb();
-      const related = db.length
-        ? getRelatedEnzymes(l.name, [...new Set(enzymes.map((x) => x.name))], db)
-        : null;
       if (related) {
         const nameItems = (names) =>
           names.length
@@ -1540,20 +1562,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 },
               }))
             : [{ label: 'None', disabled: true }];
-        items.push(
-          { type: 'separator' },
-          {
-            icon: Scissors,
-            label: 'Related Enzymes',
-            children: [
-              { label: 'Isocaudomers', disabled: true },
-              ...nameItems(related.isocaudomers),
-              { type: 'separator' },
-              { label: 'Isoschizomers', disabled: true },
-              ...nameItems(related.isoschizomers),
-            ],
-          },
-        );
+        items.push({
+          icon: Scissors,
+          label: 'Related Enzymes',
+          children: [
+            { label: 'Isocaudomers', disabled: true },
+            ...nameItems(related.isocaudomers),
+            { type: 'separator' },
+            { label: 'Isoschizomers', disabled: true },
+            ...nameItems(related.isoschizomers),
+          ],
+        });
       }
       showContextMenu(e.clientX, e.clientY, items);
     },
@@ -1715,6 +1734,21 @@ const SequenceEditor = React.memo(function SequenceEditor({
     (clipboardText, clipboardMeta = null) => {
       if (!clipboardText || !onEditRequest) return;
       if (selWraps) return; // replacing across the origin is not supported
+      if (hasTranslationSelection) {
+        const range = translationBaseRange();
+        if (!range) return;
+        const [minPos, maxPos] = range;
+        onEditRequest({
+          type: 'replace',
+          cursorIndex: minPos,
+          selStart: minPos,
+          selEnd: maxPos,
+          selectedText: cleanSeq.substring(minPos, maxPos + 1),
+          clipboardText,
+          clipboardMeta,
+        });
+        return;
+      }
       if (hasSelection) {
         onEditRequest({
           type: 'replace',
@@ -1734,7 +1768,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         });
       }
     },
-    [onEditRequest, hasSelection, selWraps, cursorIndex, selStart, selEnd, cleanSeq],
+    [onEditRequest, hasSelection, hasTranslationSelection, translationBaseRange, selWraps, cursorIndex, selStart, selEnd, cleanSeq],
   );
 
   const pasteFromClipboard = useCallback(() => {
@@ -1753,21 +1787,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
     (toUpper) => {
       if (hasTranslationSelection) {
         // Use the min … max base range of selected codons (includes gaps).
-        const cds = cdsFeatureDataRef.current[translationSel.featureId];
-        if (!cds || !onEditRequest) return;
-        const start = Math.min(translationSel.startCodon, translationSel.endCodon);
-        const end = Math.max(translationSel.startCodon, translationSel.endCodon);
-        let minPos = Infinity,
-          maxPos = -Infinity;
-        for (let i = start; i <= end; i++) {
-          const t = cds.trans[i];
-          if (t)
-            for (const b of t.bases) {
-              if (b < minPos) minPos = b;
-              if (b > maxPos) maxPos = b;
-            }
-        }
-        if (minPos > maxPos) return;
+        const range = translationBaseRange();
+        if (!range || !onEditRequest) return;
+        const [minPos, maxPos] = range;
         const selectedText = cleanSeq.substring(minPos, maxPos + 1);
         onEditRequest({
           type: 'replace',
@@ -1795,7 +1817,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       selWraps,
       selectionMode,
       hasTranslationSelection,
-      translationSel,
+      translationBaseRange,
       onEditRequest,
       cleanSeq,
       selStart,
@@ -1854,6 +1876,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (!(e.ctrlKey || e.metaKey || e.altKey)) {
         // Letter key → replace (any selection) or insert (cursor only)
         if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key) && onEditRequest) {
+          // Translation (codon) selection: replace the covered base range
+          if (hasTranslationSelection) {
+            const range = translationBaseRange();
+            if (range) {
+              const [minPos, maxPos] = range;
+              e.preventDefault();
+              onEditRequest({
+                type: 'replace',
+                cursorIndex: minPos,
+                selStart: minPos,
+                selEnd: maxPos,
+                selectedText: cleanSeq.substring(minPos, maxPos + 1),
+                clipboardText: e.key,
+              });
+              return;
+            }
+          }
           // Replace mode: any active selection (text, enzyme, etc.)
           if (hasSelection && !selWraps) {
             e.preventDefault();
@@ -1877,6 +1916,38 @@ const SequenceEditor = React.memo(function SequenceEditor({
             });
             return;
           }
+        }
+
+        // Delete/Backspace with translation selection → delete the covered bases
+        if (
+          (e.key === 'Delete' || e.key === 'Backspace') &&
+          hasTranslationSelection &&
+          onEditRequest
+        ) {
+          const range = translationBaseRange();
+          if (range) {
+            const [minPos, maxPos] = range;
+            e.preventDefault();
+            onEditRequest({
+              type: 'delete',
+              selStart: minPos,
+              selEnd: maxPos,
+              selectedText: cleanSeq.substring(minPos, maxPos + 1),
+            });
+          }
+          return;
+        }
+
+        // Delete/Backspace on a selected primer → delete the primer itself
+        if (
+          (e.key === 'Delete' || e.key === 'Backspace') &&
+          selectionMode === 'primer' &&
+          selectedPrimerIds.length === 1 &&
+          onPrimerDelete
+        ) {
+          e.preventDefault();
+          onPrimerDelete(selectedPrimerIds[0]);
+          return;
         }
 
         // Delete/Backspace with selection → delete
@@ -2007,9 +2078,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
     enrichedPrimers,
     onEditRequest,
     onFeatureDelete,
+    onPrimerDelete,
     features,
     copySelection,
     translationSel,
+    hasTranslationSelection,
+    translationBaseRange,
     designPick,
     cancelDesignPick,
     isDna,
