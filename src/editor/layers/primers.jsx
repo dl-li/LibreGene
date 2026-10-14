@@ -368,12 +368,11 @@ export function renderPrimers({
                 {p.name}
               </text>
 
-              <path d={pathStr} fill="none" stroke="transparent" strokeWidth="20" />
               <rect
-                x={Math.min(...pts.map((p) => p[0])) - 4}
-                y={Math.min(...pts.map((p) => p[1])) - 20}
-                width={Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])) + 8}
-                height={Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])) + 40}
+                x={Math.min(...pts.map((p) => p[0])) - 2}
+                y={Math.min(...pts.map((p) => p[1])) - 8}
+                width={Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])) + 4}
+                height={Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])) + 16}
                 fill="transparent"
                 onMouseDown={(e) => {
                   if (e.button !== 0) return;
