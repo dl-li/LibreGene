@@ -65,6 +65,15 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
   <img src="screenshots/enzymes.png" alt="Restriction enzyme view" width="700" />
 </p>
 
+### Digest and Run Gel
+
+- **In-silico digest simulation** — pick enzymes from single/double/other cutters (or your own enzyme set), set cutting efficiency, and enumerate every resulting fragment, including partial-digest products
+- **Virtual gel electrophoresis** — agarose/PAGE matrix, concentration and run-time controls with built-in or custom ladders; topology-aware migration (uncut circles run as supercoiled bands) and band diffusion are modeled
+
+<p align="center">
+  <img src="screenshots/digest-and-run-gel.png" alt="Digest and Run Gel simulation" width="700" />
+</p>
+
 ### Sequence Alignment
 
 - **Multiple formats** — import Sanger reads (.ab1), FASTA or GenBank sequences and align them against the reference

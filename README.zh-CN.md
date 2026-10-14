@@ -65,6 +65,15 @@
   <img src="screenshots/enzymes.png" alt="酶切位点视图" width="700" />
 </p>
 
+### 酶切与跑胶模拟
+
+- **电子酶切模拟** — 从单切点/双切点/其他酶（或自定义酶组）中挑选酶，设定切割效率，枚举所有酶切产物，包括不完全酶切的中间产物
+- **虚拟凝胶电泳** — 可选琼脂糖/PAGE 胶基质、浓度与电泳时间，内置或自定义 DNA Ladder；迁移率按拓扑结构计算（未切割的环状质粒以超螺旋条带迁移），并模拟条带扩散
+
+<p align="center">
+  <img src="screenshots/digest-and-run-gel.png" alt="酶切跑胶模拟" width="700" />
+</p>
+
 ### 序列比对
 
 - **多种格式** — 支持导入 Sanger 测序结果（.ab1）、FASTA 和 GenBank 序列，与参考序列比对显示
