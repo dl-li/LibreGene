@@ -167,6 +167,16 @@ export function renderPrimers({
               .join(' ') +
             ' Z';
 
+          // Hit area tracks the visible band (hoverPath), not just the line.
+          const hitMinX = Math.min(...pts.map((p) => p[0]));
+          const hitMaxX = Math.max(...pts.map((p) => p[0]));
+          const lineMinY = Math.min(...pts.map((p) => p[1]));
+          const lineMaxY = Math.max(...pts.map((p) => p[1]));
+          const bandTop = lineMinY + Math.min(0, expD * curExp);
+          const bandBottom = lineMaxY + Math.max(0, expD * curExp);
+          const hitH = Math.max(bandBottom - bandTop + 4, 10);
+          const hitY = (bandTop + bandBottom) / 2 - hitH / 2;
+
           const arrowTipY =
             hasRenderCols && seg.renderCols.length > 0
               ? seg.renderCols[seg.renderCols.length - 1].kind === 'match'
@@ -369,10 +379,10 @@ export function renderPrimers({
               </text>
 
               <rect
-                x={Math.min(...pts.map((p) => p[0])) - 2}
-                y={Math.min(...pts.map((p) => p[1])) - 8}
-                width={Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])) + 4}
-                height={Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])) + 16}
+                x={hitMinX - 2}
+                y={hitY}
+                width={hitMaxX - hitMinX + 4}
+                height={hitH}
                 fill="transparent"
                 onMouseDown={(e) => {
                   if (e.button !== 0) return;
