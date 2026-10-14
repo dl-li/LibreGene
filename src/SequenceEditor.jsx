@@ -90,6 +90,7 @@ import {
   Scissors,
   Rows3,
   Tag,
+  Trash2,
 } from 'lucide-react';
 
 // Extra vertical gap between alignment lanes and the feature tracks below.
@@ -120,6 +121,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onFeatureAdd,
   onFeatureDelete,
   onPrimerDelete,
+  onPrimerDeleteRequest,
   primerSeedLength,
   tmParams = {},
   onSelectionChange,
@@ -1459,9 +1461,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
             setPrimerAlignmentPrimer(enrichedPrimers.find((ep) => ep.id === p.id) || null);
           },
         },
+        { type: 'separator' },
+        {
+          icon: Trash2,
+          label: 'Delete Primer…',
+          danger: true,
+          onSelect: () => onPrimerDeleteRequest?.(p.id),
+        },
       ]);
     },
-    [selectPrimer, primerMenuItems, enrichedPrimers],
+    [selectPrimer, primerMenuItems, enrichedPrimers, onPrimerDeleteRequest],
   );
 
   const enzymeDbRef = useRef(null); // null = not loaded, [] = load failed/empty
@@ -1938,15 +1947,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
           return;
         }
 
-        // Delete/Backspace on a selected primer → delete the primer itself
+        // Delete/Backspace on a selected primer → ask to delete the primer
         if (
           (e.key === 'Delete' || e.key === 'Backspace') &&
           selectionMode === 'primer' &&
           selectedPrimerIds.length === 1 &&
-          onPrimerDelete
+          onPrimerDeleteRequest
         ) {
           e.preventDefault();
-          onPrimerDelete(selectedPrimerIds[0]);
+          onPrimerDeleteRequest(selectedPrimerIds[0]);
           return;
         }
 
@@ -2078,7 +2087,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     enrichedPrimers,
     onEditRequest,
     onFeatureDelete,
-    onPrimerDelete,
+    onPrimerDeleteRequest,
     features,
     copySelection,
     translationSel,

@@ -6,6 +6,15 @@ import DetectFeaturesDialog from '../dialogs/DetectFeaturesDialog';
 import MyPrimersDialog from '../dialogs/MyPrimersDialog';
 import MyEnzymesDialog from '../dialogs/MyEnzymesDialog';
 import EnzymeDatabaseDialog from '../dialogs/EnzymeDatabaseDialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
+import { Button } from '../components/ui/button';
 import { isTauri } from '../tauriApi';
 
 export default function WorkspaceDialogs({
@@ -48,6 +57,9 @@ export default function WorkspaceDialogs({
   editDialog,
   handleEditConfirm,
   handleEditCancel,
+  primerDeleteConfirm,
+  setPrimerDeleteConfirm,
+  handleDeletePrimer,
   handleFeatureAdd,
   handleAddMyPrimerToFile,
   handleAddAllBindingPrimers,
@@ -173,6 +185,39 @@ export default function WorkspaceDialogs({
         moleculeType={moleculeType}
         clipboardMeta={editDialog.clipboardMeta}
       />
+
+      {/* --- Primer delete confirmation --- */}
+      <Dialog
+        open={!!primerDeleteConfirm}
+        onOpenChange={(open) => {
+          if (!open) setPrimerDeleteConfirm(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Primer?</DialogTitle>
+            <DialogDescription>
+              Primer "{primers.find((p) => p.id === primerDeleteConfirm)?.name}" will be removed
+              from this file. You can undo this with Ctrl+Z.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setPrimerDeleteConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const id = primerDeleteConfirm;
+                setPrimerDeleteConfirm(null);
+                await handleDeletePrimer(id);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

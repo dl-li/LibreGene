@@ -153,6 +153,8 @@ export default function ProjectWorkspace({
   });
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
   const [liveSelection, setLiveSelection] = useState(null);
+  // Primer id pending delete confirmation (Backspace on selection / context menu)
+  const [primerDeleteConfirm, setPrimerDeleteConfirm] = useState(null);
   const alignmentCacheRef = useRef({});
   const sequenceRef = useRef(sequence);
   const operationGenRef = useRef(0);
@@ -913,6 +915,7 @@ export default function ProjectWorkspace({
               onFeatureDelete={handleDeleteFeature}
               onPrimerChange={handlePrimerChange}
               onPrimerDelete={handleDeletePrimer}
+              onPrimerDeleteRequest={setPrimerDeleteConfirm}
               primerSeedLength={primerSeedLength}
               tmParams={tmParams}
               onSelectionChange={handleSelectionChange}
@@ -1136,6 +1139,9 @@ export default function ProjectWorkspace({
         editDialog={editDialog}
         handleEditConfirm={handleEditConfirm}
         handleEditCancel={handleEditCancel}
+        primerDeleteConfirm={primerDeleteConfirm}
+        setPrimerDeleteConfirm={setPrimerDeleteConfirm}
+        handleDeletePrimer={handleDeletePrimer}
         handleFeatureAdd={handleFeatureAdd}
         handleAddMyPrimerToFile={handleAddMyPrimerToFile}
         handleAddAllBindingPrimers={handleAddAllBindingPrimers}
