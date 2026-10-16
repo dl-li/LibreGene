@@ -232,6 +232,8 @@ export default function EditorNavMenu({
   onOpenSnapshots,
   viewMode = 'wrap',
   onViewModeChange,
+  showDoubleStrand = false,
+  onToggleDoubleStrand,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -353,6 +355,7 @@ export default function EditorNavMenu({
   const [lastViewOption, setLastViewOption] = useState(null);
   const viewLeftClick = (() => {
     if (lastViewOption === 'orfs' && onToggleOrfs) return onToggleOrfs;
+    if (lastViewOption === 'dsRuler' && onToggleDoubleStrand) return onToggleDoubleStrand;
     const pluginToggle = lastViewOption && pluginToggles[lastViewOption];
     if (pluginToggle) return pluginToggle.onToggle;
     if (!onViewModeChange) return undefined;
@@ -475,7 +478,9 @@ export default function EditorNavMenu({
               Continuous (Horizontal)
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
-          {(onToggleOrfs || viewTogglePlugins.length > 0) && <DropdownMenuSeparator />}
+          {(onToggleOrfs || (isDna && onToggleDoubleStrand) || viewTogglePlugins.length > 0) && (
+            <DropdownMenuSeparator />
+          )}
           {onToggleOrfs && (
             <DropdownMenuCheckboxItem
               checked={showOrfs}
@@ -485,6 +490,17 @@ export default function EditorNavMenu({
               }}
             >
               Show ORFs
+            </DropdownMenuCheckboxItem>
+          )}
+          {isDna && onToggleDoubleStrand && (
+            <DropdownMenuCheckboxItem
+              checked={showDoubleStrand}
+              onCheckedChange={() => {
+                setLastViewOption('dsRuler');
+                onToggleDoubleStrand();
+              }}
+            >
+              Show Both Strands
             </DropdownMenuCheckboxItem>
           )}
           {viewTogglePlugins.map((p) => (

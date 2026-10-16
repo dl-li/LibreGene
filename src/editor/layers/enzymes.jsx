@@ -452,6 +452,9 @@ export function renderTooltips({
   enzymeLayout,
   enzymes,
   cleanSeq,
+  // Double-strand view: bottom baseline of the editor's complement row; the
+  // tooltip's complement text drops to it (default 16 keeps the packed look).
+  dsBottomY = 0,
 }) {
   if (!hoveredEnzyme || isEnzymeDragging) return null;
   const hoveredEntry = enzymeLayout.find((l) => l.id === hoveredEnzyme);
@@ -465,7 +468,12 @@ export function renderTooltips({
   const dispLen = e.displayEnd - e.displayStart + 1;
   const sw = e.isUnique ? '2' : '1';
   const pad = 6;
-  const ttH = 44;
+  // Box height from glyph geometry: tooltip text is uppercase bases (no
+  // descender), so glyph top = cap height ≈ 0.7fs above the baseline and glyph
+  // bottom sits on the baseline. Top margin = 19 - 0.7*14 (box top sy-19 to
+  // the top row's cap top); the bottom edge sits the same margin below the
+  // complement row's baseline.
+  const ttH = dsBottomY ? 19 + dsBottomY + (19 - 14 * 0.7) : 44;
   const cutPairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
   // Circular display window may wrap the origin (displayEnd >= tlen).
   const sub =
@@ -574,7 +582,7 @@ export function renderTooltips({
                 );
               })}
             </text>
-            <text y={sy + 16} fontFamily={monoFont} fontSize="14px">
+            <text y={sy + (dsBottomY || 16)} fontFamily={monoFont} fontSize="14px">
               {comp.split('').map((c, i) => {
                 const bold = isRecBold(i);
                 return (

@@ -39,6 +39,7 @@ import {
   renderTooltips,
 } from './editor/layers/enzymes.jsx';
 import SeqBgLayer from './editor/layers/SeqBgLayer';
+import { RulerLayer, ComplementLayer, DS_BLOCK_H, DS_BOTTOM_Y } from './editor/layers/DsLayers';
 import ChromatogramLayers, { CHROM_TRACK_H, CHROM_GAP } from './editor/layers/ChromatogramLayers';
 import AlignmentLayers from './editor/layers/AlignmentLayers';
 import {
@@ -209,6 +210,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   hidden = false,
   viewMode = 'wrap',
   onViewModeChange,
+  // SnapGene-style three-line rows: top strand, ruler, complement strand.
+  showDoubleStrand = false,
+  onToggleDoubleStrand,
   // ProjectWorkspace's ref onto the editor container div (the horizontal
   // scroll host in continuous mode); merged with the internal containerRef.
   editorScrollRef,
@@ -221,6 +225,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
 }) {
   const isDna = moleculeType === 'dna';
   const continuous = viewMode === 'continuous';
+  // The double-strand block (ruler + complement strand) hangs below the top
+  // strand's baseline; every below-sequence offset shifts down by this much.
+  const dsOn = isDna && showDoubleStrand;
+  const dsShift = dsOn ? DS_BLOCK_H : 0;
   // Length unit for the sequence: base pairs (DNA), nucleotides (ss-RNA),
   // amino acids (protein).
   const seqUnit = isDna ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
@@ -541,8 +549,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     }
   }, [designPick, isDragging, selStart, selEnd, selectionMode, features]);
 
-  const pp = useMemo(
-    () => ({
+  const pp = useMemo(() => {
+    const base = {
       fwdMatchY: 30,
       revMatchY: 26,
       misYDelta: 4,
@@ -565,12 +573,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
       fwdSelLabelLift: 16,
       revSelLabelLift: 13,
       ...layoutParams,
-    }),
-    [layoutParams],
-  );
+    };
+    // Reverse primers draw below the sequence; shift their whole band below
+    // the double-strand block when it is on.
+    if (dsShift) {
+      base.revMatchY += dsShift;
+      base.revBelowBase += dsShift;
+    }
+    return base;
+  }, [layoutParams, dsShift]);
 
-  const lp = useMemo(
-    () => ({
+  const lp = useMemo(() => {
+    const base = {
       minRowGap: 27,
       rowContentGap: 12,
       featTrackHeight: 18,
@@ -584,9 +598,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
       minAboveSpace: 24,
       minBelowSpace: 14,
       ...layoutParams,
-    }),
-    [layoutParams],
-  );
+    };
+    // featBaseOffset anchors everything rendered below the sequence (features,
+    // alignment lanes, chromatograms, track-plugin lanes); shifting it moves
+    // them all clear of the double-strand block, and the packing reservations
+    // built on it grow by the same amount.
+    if (dsShift) base.featBaseOffset += dsShift;
+    return base;
+  }, [layoutParams, dsShift]);
 
   const cleanSeq = moleculeType === 'protein' ? (sequence || '').toUpperCase() : sequence || '';
 
@@ -822,6 +841,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     ROW_BUF,
     visibleCols,
     absFromStream,
+    dsShift,
   });
   const {
     getSeqY,
@@ -2823,8 +2843,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
   );
 
   const renderedTooltips = useMemo(
-    () => renderTooltips({ hoveredEnzyme, isEnzymeDragging, enzymeLayout, enzymes, cleanSeq }),
-    [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging],
+    () =>
+      renderTooltips({
+        hoveredEnzyme,
+        isEnzymeDragging,
+        enzymeLayout,
+        enzymes,
+        cleanSeq,
+        dsBottomY: dsOn ? DS_BOTTOM_Y : 0,
+      }),
+    [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging, dsOn],
   );
 
   return (
@@ -2991,6 +3019,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           moleculeType={moleculeType}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
+          showDoubleStrand={showDoubleStrand}
+          onToggleDoubleStrand={onToggleDoubleStrand}
         />
       )}
       {/* Floating prev/next navigator over the alignment tracks' notable
@@ -3119,6 +3149,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               sp={sp}
               currentSelColor={currentSelColor}
               colRuns={colRuns}
+              dsBottomY={dsOn ? DS_BOTTOM_Y : 0}
             />
             {/* rna/protein are single-strand: no alignment/enzyme/primer layers */}
             {isDna && (
@@ -3193,6 +3224,35 @@ const SequenceEditor = React.memo(function SequenceEditor({
               colFromVis={colFromVis}
               visibleCols={visibleCols}
             />
+            {dsOn && (
+              <RulerLayer
+                visibleRows={visibleRows}
+                rowBuf={ROW_BUF}
+                numRows={numRows}
+                rowCounts={rowCounts}
+                getSeqY={getSeqY}
+                colRuns={colRuns}
+                colFromVis={colFromVis}
+                visibleCols={visibleCols}
+              />
+            )}
+            {dsOn && (
+              <ComplementLayer
+                visibleRows={visibleRows}
+                rowBuf={ROW_BUF}
+                numRows={numRows}
+                insReserve={insReserve}
+                streamOf={streamOf}
+                visCpl={visCpl}
+                rowCounts={rowCounts}
+                rowStarts={rowStarts}
+                cleanSeq={cleanSeq}
+                getSeqY={getSeqY}
+                colRuns={colRuns}
+                colFromVis={colFromVis}
+                visibleCols={visibleCols}
+              />
+            )}
             <SeqSelLayer
               hasSelection={hasSelection}
               selectionMode={selectionMode}
@@ -3204,6 +3264,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               sp={sp}
               rowStarts={rowStarts}
               colVis={colVis}
+              bottomY={dsOn ? DS_BOTTOM_Y : 0}
             />
             {isDna && (
               <TranslationSelectionLayer

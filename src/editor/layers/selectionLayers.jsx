@@ -1,5 +1,13 @@
 import React from 'react';
-import { cw, bgColor, monoFont, getX, measureWidth, amplimerGreen } from '../../editorConstants';
+import {
+  cw,
+  bgColor,
+  monoFont,
+  getX,
+  measureWidth,
+  amplimerGreen,
+  complement,
+} from '../../editorConstants';
 
 // Read-only selection-state render layers. Each is React.memo'd and takes
 // only the state/derived values its body reads.
@@ -73,9 +81,14 @@ export const SelectionLayer = React.memo(function SelectionLayer({
   sp,
   currentSelColor,
   colRuns,
+  // Bottom baseline of the complement row in double-strand mode (0 = off).
+  // The highlight then ends one top-margin (19 - cap height 0.7fs, uppercase
+  // bases have no descender) below it, matching the enzyme tooltip's padding.
+  dsBottomY = 0,
 }) {
   if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
   const segs = sp(selStart, selEnd);
+  const height = dsBottomY ? 19 + dsBottomY + (19 - 14 * 0.7) : 28;
   return (
     <g style={{ pointerEvents: 'none' }}>
       {segs.flatMap((seg) =>
@@ -85,7 +98,7 @@ export const SelectionLayer = React.memo(function SelectionLayer({
             x={getX(visStart)}
             y={getSeqY(seg.row) - 19}
             width={len * cw}
-            height={28}
+            height={height}
             fill={currentSelColor}
             rx="1"
           />
@@ -107,6 +120,9 @@ export const SeqSelLayer = React.memo(function SeqSelLayer({
   sp,
   rowStarts,
   colVis,
+  // Bottom-strand baseline offset (0 = double-strand block off): selected
+  // bottom-strand characters get the same white overlay.
+  bottomY = 0,
 }) {
   if (!hasSelection || (selectionMode !== 'text' && !isEnzymeSelection)) return null;
   const segs = sp(selStart, selEnd);
@@ -119,10 +135,9 @@ export const SeqSelLayer = React.memo(function SeqSelLayer({
     const row = parseInt(rowStr, 10);
     const sy = getSeqY(row);
     const rowStart = rowStarts[row];
-    return (
+    const selText = (y, comp) => (
       <text
-        key={`sel-${row}`}
-        y={sy}
+        y={y}
         fontFamily={monoFont}
         fontSize="14px"
         fontWeight="bold"
@@ -140,12 +155,18 @@ export const SeqSelLayer = React.memo(function SeqSelLayer({
                 textAnchor="middle"
                 fill={bgColor}
               >
-                {c}
+                {comp ? complement(c) : c}
               </tspan>
             ));
           })
           .flat()}
       </text>
+    );
+    return (
+      <g key={`sel-${row}`}>
+        {selText(sy, false)}
+        {bottomY > 0 && selText(sy + bottomY, true)}
+      </g>
     );
   });
 });

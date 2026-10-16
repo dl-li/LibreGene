@@ -189,6 +189,13 @@ export default function useSettings() {
       return 'wrap';
     }
   });
+  const [showDoubleStrand, setShowDoubleStrand] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('showDoubleStrand')) || false;
+    } catch {
+      return false;
+    }
+  });
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   // Hard cap on displayed cut sites per enzyme, applied to every enzyme filter
   // including "All". Guards the map against 4-cutters exploding on long sequences.
@@ -372,6 +379,20 @@ export default function useSettings() {
     }
   }, []);
 
+  const onToggleDoubleStrand = useCallback(
+    () =>
+      setShowDoubleStrand((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('showDoubleStrand', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
+    [],
+  );
+
   return {
     disabledPlugins,
     handleTogglePlugin,
@@ -395,6 +416,8 @@ export default function useSettings() {
     onEnzymeProviderChange,
     viewMode,
     onViewModeChange,
+    showDoubleStrand,
+    onToggleDoubleStrand,
     methylationSystems,
     setMethylationSystems,
     methylationOverlap,

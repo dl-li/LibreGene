@@ -33,6 +33,9 @@ export default function useTrackPacking({
   // mapper, used to window features horizontally (null in wrap mode).
   visibleCols,
   absFromStream,
+  // Extra below-baseline space reserved for the double-strand + ruler block
+  // (0 when the view toggle is off).
+  dsShift = 0,
 }) {
   // --- collision avoidance: features + primers ---
   // Normalize features and pre-compute colors once
@@ -569,7 +572,7 @@ export default function useTrackPacking({
 
     for (let r = 0; r < numRows; r++) {
       let ae = lp.minAboveSpace,
-        be = lp.minBelowSpace;
+        be = lp.minBelowSpace + dsShift;
 
       const rowPrimers = primersByRow[r];
       let maxFwdPrimerH = 0;
@@ -690,6 +693,7 @@ export default function useTrackPacking({
     alwaysExpandPrimers,
     continuous,
     viewportH,
+    dsShift,
   ]);
 
   const rowY = useMemo(() => {

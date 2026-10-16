@@ -62,6 +62,8 @@ export default function ProjectWorkspace({
   maxEnzymeSites = 50,
   viewMode = 'wrap',
   onViewModeChange,
+  showDoubleStrand = false,
+  onToggleDoubleStrand,
   // Width of the collapsed sidebar icon rail overlaying the content's left
   // edge (main window); forwarded to SequenceEditor for label clamping.
   leftViewportInset = 0,
@@ -1024,6 +1026,8 @@ export default function ProjectWorkspace({
               moleculeType={moleculeType}
               viewMode={viewMode}
               onViewModeChange={onViewModeChange}
+              showDoubleStrand={showDoubleStrand}
+              onToggleDoubleStrand={onToggleDoubleStrand}
               editorScrollRef={editorScrollRef}
               alignNavRef={alignNavRef}
               leftViewportInset={leftViewportInset}
