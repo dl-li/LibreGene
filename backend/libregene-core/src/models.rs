@@ -76,9 +76,10 @@ pub struct InsertionDetail {
 
 /// Compact alignment data for frontend per-column rendering.
 ///
-/// `display_sequence` has exactly `template_end - template_start` characters,
-/// one per template position. Gaps in the primer are `-`; insertions are
-/// collapsed into numeric placeholders (e.g. `1`) detailed in `insertion_map`.
+/// `display_sequence` has one character per template column of the displayed
+/// span: matched/mismatched primer bases, `-` for gaps in the primer, and `·`
+/// placeholder pairs marking insertion runs (inserted bases plus one flanking
+/// column on each side collapse into two dots, display-only).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlignmentRenderData {
@@ -88,6 +89,11 @@ pub struct AlignmentRenderData {
     /// Indices within `display_sequence` where primer base ≠ template base.
     #[serde(default)]
     pub mismatch_indices: Vec<usize>,
+    /// Template column of `display_sequence[0]` relative to the site's
+    /// `template_start` (≤ 0 when the aligned 5' region extends left of the
+    /// anchor footprint; 0 for reverse primers whose tail extends right).
+    #[serde(default)]
+    pub start_offset: i64,
 }
 
 /// A single primer binding site with compact render data.
@@ -116,6 +122,11 @@ pub struct PrimerBindingSite {
     /// Unaligned primer bases at the 3' end (primer 5'→3').
     #[serde(default)]
     pub three_prime_tail: String,
+    /// Unaligned 5' primer bases that hang off the display span (primer
+    /// 5'→3'). Unlike `five_prime_tail` (everything before the perfect-match
+    /// anchor), this is the remainder the display alignment leaves unaligned.
+    #[serde(default)]
+    pub display_tail: String,
     /// Compact render data for the frontend.
     pub alignment: AlignmentRenderData,
 }

@@ -80,6 +80,7 @@ fn synthetic_project() -> ProjectData {
                         has_3_prime_mismatch: false,
                         five_prime_tail: String::new(),
                         three_prime_tail: String::new(),
+                        display_tail: String::new(),
                         alignment: Default::default(),
                     },
                     PrimerBindingSite {
@@ -93,6 +94,7 @@ fn synthetic_project() -> ProjectData {
                         has_3_prime_mismatch: true,
                         five_prime_tail: String::new(),
                         three_prime_tail: String::new(),
+                        display_tail: String::new(),
                         alignment: Default::default(),
                     },
                 ],

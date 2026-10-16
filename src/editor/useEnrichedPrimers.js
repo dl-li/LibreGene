@@ -40,31 +40,33 @@ export default function useEnrichedPrimers({
         const aln = bs.alignment || {};
         const ds = aln.displaySequence || '';
         const misSet = new Set(aln.mismatchIndices || []);
-        // Build per-column render data for the binding region
+        // Display region: anchored at the footprint start plus the alignment's
+        // start offset (aligned tail bases extend left of the anchor footprint).
+        const mod = (n) => (tlen > 0 ? ((n % tlen) + tlen) % tlen : n);
+        const dStartRaw = ms + (aln.startOffset || 0);
+        const dStart = mod(dStartRaw);
+        const dEnd = ds.length > 0 ? mod(dStartRaw + ds.length - 1) : me;
+        // Build per-column render data for the display region
         const renderCols = [];
         for (let i = 0; i < ds.length; i++) {
           const ch = ds[i];
-          const tcol = tlen > 0 ? (ms + i) % tlen : ms + i;
-          let kind, primerBase, insDetail;
+          const tcol = mod(dStartRaw + i);
+          let kind;
           if (ch === '-') {
             kind = 'gap';
-            primerBase = '-';
-          } else if (ch >= '0' && ch <= '9') {
-            kind = 'insertion';
-            primerBase = ch;
-            insDetail = aln.insertionMap?.[ch];
+          } else if (ch === '·') {
+            kind = 'insDot';
           } else if (misSet.has(i)) {
             kind = 'mismatch';
-            primerBase = ch;
           } else {
             kind = 'match';
-            primerBase = ch;
           }
-          renderCols.push({ templateCol: tcol, kind, primerBase, insDetail, displayIdx: i });
+          renderCols.push({ templateCol: tcol, kind, primerBase: ch, displayIdx: i });
         }
         const isFwd = (bs.strand ?? 1) === 1;
-        const matchSegs = buildMatchSegs(ms, me, tlen);
-        const matchedBases = matchSegs.map((m) => cleanSeq.substring(m.start, m.end + 1)).join('');
+        const anchorSegs = buildMatchSegs(ms, me, tlen);
+        const matchSegs = ds.length > 0 ? buildMatchSegs(dStart, dEnd, tlen) : anchorSegs;
+        const matchedBases = anchorSegs.map((m) => cleanSeq.substring(m.start, m.end + 1)).join('');
         return {
           ...p,
           matchStart: ms,
@@ -77,7 +79,7 @@ export default function useEnrichedPrimers({
           color: isFwd ? '#166534' : '#4A148C',
           matchStr: isFwd ? matchedBases : complementStr(matchedBases),
           // tails for rendering
-          mismatchStr: bs.fivePrimeTail || '',
+          mismatchStr: bs.displayTail ?? bs.fivePrimeTail ?? '',
           threePrimeTail: bs.threePrimeTail || '',
           // rich alignment data
           renderCols,

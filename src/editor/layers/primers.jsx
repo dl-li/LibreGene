@@ -108,7 +108,13 @@ export function renderPrimers({
 
           // Build per-column path points from renderCols
           let pts = [];
-          let edge3x, edge5x;
+          let edge3x,
+            edge5x,
+            arrowTipY = matchY;
+          // Connection points sit at the left/right quarter of each character
+          // cell; the segment between a cell's two quarters is always flat.
+          const Q1 = cw / 4,
+            Q3 = (3 * cw) / 4;
           const hasRenderCols = seg.renderCols && seg.renderCols.length > 0;
           if (hasRenderCols) {
             // Per-column zigzag path
@@ -123,23 +129,26 @@ export function renderPrimers({
               : getX(colVis(lastCol.templateCol - rowStarts[seg.row], seg.row)); // rev: left edge
             // 5' tail
             if (isTail && hasMis && drawMisLen > 0) {
-              if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-              else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw * 1.5, misY]);
+              if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - Q1, misY]);
+              else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw + Q1, misY]);
+            } else {
+              pts.push([edge5x, firstCol.kind === 'match' ? matchY : misY]);
             }
-            pts.push([edge5x, cols[0].kind === 'match' ? matchY : misY]);
             for (const rc of cols) {
-              const cx = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row)) + cw / 2;
+              const cx = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row));
               const cy = rc.kind === 'match' ? matchY : misY;
-              pts.push([cx, cy]);
+              if (isFwd) pts.push([cx + Q1, cy], [cx + Q3, cy]);
+              else pts.push([cx + Q3, cy], [cx + Q1, cy]);
             }
-            pts.push([edge3x, cols[cols.length - 1].kind === 'match' ? matchY : misY]);
+            pts.push([edge3x, lastCol.kind === 'match' ? matchY : misY]);
+            arrowTipY = lastCol.kind === 'match' ? matchY : misY;
           } else {
             // Fallback: straight line
             if (isTail && hasMis && drawMisLen > 0) {
-              if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - cw / 2, misY]);
-              else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw * 1.5, misY]);
+              if (isFwd) pts.push([x1 - drawMisLen * cw, misY], [x1 - Q1, misY]);
+              else pts.push([x2 + (drawMisLen + 1) * cw, misY], [x2 + cw + Q1, misY]);
             }
-            if (isFwd) pts.push([x1 + cw / 2, matchY], [x2 + cw, matchY]);
+            if (isFwd) pts.push([x1 + Q1, matchY], [x2 + cw, matchY]);
             else pts.push([x2 + cw, matchY], [x1, matchY]);
           }
           if (pts.length < 2) return null;
@@ -177,12 +186,6 @@ export function renderPrimers({
           const hitH = Math.max(bandBottom - bandTop + 4, 10);
           const hitY = (bandTop + bandBottom) / 2 - hitH / 2;
 
-          const arrowTipY =
-            hasRenderCols && seg.renderCols.length > 0
-              ? seg.renderCols[seg.renderCols.length - 1].kind === 'match'
-                ? matchY
-                : misY
-              : matchY;
           const arrowBaseX = hasRenderCols ? edge3x : isFwd ? x2 + cw : x1;
           const arrowPath = isArrow
             ? `M ${arrowBaseX} ${arrowTipY} L ${isFwd ? arrowBaseX - pp.arrowHeadLen : arrowBaseX + pp.arrowHeadLen} ${arrowTipY + expD * pp.arrowHeadHeight}`
@@ -269,24 +272,22 @@ export function renderPrimers({
                 {/* Per-column alignment rendering */}
                 {seg.renderCols &&
                   seg.renderCols.map((rc) => {
-                    const isOffset =
-                      rc.kind === 'mismatch' || rc.kind === 'gap' || rc.kind === 'insertion';
+                    const isOffset = rc.kind !== 'match';
                     const y =
                       (isOffset ? misY : matchY) + (isFwd ? -pp.fwdBaseTextY : pp.revBaseTextY);
                     const x = getX(colVis(rc.templateCol - rowStarts[seg.row], seg.row)) + cw / 2;
                     const isGap = rc.kind === 'gap';
-                    const isIns = rc.kind === 'insertion';
+                    const isInsDot = rc.kind === 'insDot';
                     return (
                       <tspan
                         key={`aln-${rc.templateCol}`}
                         x={x}
                         y={y}
                         textAnchor="middle"
-                        fill={isGap ? '#9ca3af' : undefined}
+                        fill={isGap || isInsDot ? '#9ca3af' : undefined}
                         fontWeight={isGap ? '200' : undefined}
-                        fontSize={isIns ? '10px' : undefined}
                       >
-                        {isIns ? rc.insDetail?.insertedBases || rc.primerBase : rc.primerBase}
+                        {rc.primerBase}
                       </tspan>
                     );
                   })}

@@ -882,6 +882,7 @@ use libregene_core::models::Primer;
             has_3_prime_mismatch: false,
             five_prime_tail: String::new(),
             three_prime_tail: String::new(),
+            display_tail: String::new(),
             alignment: Default::default(),
         };
         let project = ProjectData {
@@ -927,6 +928,7 @@ use libregene_core::models::Primer;
             has_3_prime_mismatch: false,
             five_prime_tail: String::new(),
             three_prime_tail: String::new(),
+            display_tail: String::new(),
             alignment: Default::default(),
         };
         let project = ProjectData {

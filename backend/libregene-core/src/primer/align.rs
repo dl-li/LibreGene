@@ -19,7 +19,7 @@
 
 use std::collections::HashSet;
 
-use crate::models::{PrimerBindingSite, Primer};
+use crate::models::{AlignmentRenderData, PrimerBindingSite, Primer};
 
 use super::formatter;
 use super::matcher::{self, DEFAULT_LIMIT};
@@ -148,12 +148,6 @@ fn search_one_strand(
             primer_bytes[footprint_start..].to_vec()
         };
 
-        // Build render data.
-        let Some(render_data) = formatter::build_render_data(&footprint_bases, &template_region)
-        else {
-            continue;
-        };
-
         // Tm uses the footprint in the primer's own 5'→3' orientation for BOTH
         // strands: the NN table is duplex-symmetric (params(XY) == params of
         // comp(Y)comp(X)), so Tm(F) == Tm(RC(F)), but Tm(rev(F)) differs —
@@ -175,9 +169,138 @@ fn search_one_strand(
             .collect();
         let three_tail = String::new();
 
-        // Display: fwd shows primer 5'→3', rev shows primer 3'→5' (reversed).
-        // Both show actual primer bases, no complementing needed.
-        let final_rd = render_data;
+        // Display render data: align the FULL primer with the same engine the
+        // alignment dialog uses, so the editor's per-column display reflects
+        // the real alignment (mismatches, `-` gaps, `··` insertions) instead
+        // of the bare anneal + hanging-tail split. Display-only — the anchor
+        // coordinates, tails and Tm above are untouched. On failure fall back
+        // to the footprint-only display with the whole tail hanging.
+        const DISPLAY_SLACK: usize = 10;
+        let display = if use_complement {
+            // Rev: display walks the primer 3'→5' (reversed) left→right from
+            // the anchor's left edge; the tail context extends rightward.
+            let rev_primer: Vec<u8> = primer_bytes.iter().rev().copied().collect();
+            let w = (plen + DISPLAY_SLACK).min(if is_circular { tlen } else { tlen - t_start });
+            let region = if is_circular {
+                super::alignment::wrap_template_region(tpl_bytes, t_start, (t_start + w) % tlen)
+            } else {
+                tpl_bytes[t_start..t_start + w].to_vec()
+            };
+            super::alignment::align_first_base_constrained_rev(&rev_primer, &region).and_then(
+                |res| {
+                    // Edge insertion runs = 5' overhang junk that paired
+                    // nothing: hang them instead of collapsing into dots. When
+                    // bases hang, trailing deletion columns are just window
+                    // columns passing under the overhang — drop them too.
+                    let mut ops = &res.ops[..];
+                    let mut hang_len = plen - res.primer_end;
+                    loop {
+                        let trail_ins = ops
+                            .iter()
+                            .rev()
+                            .take_while(|p| p.op == super::alignment::Op::Ins)
+                            .count();
+                        if trail_ins > 0 {
+                            hang_len += trail_ins;
+                            ops = &ops[..ops.len() - trail_ins];
+                            continue;
+                        }
+                        if hang_len > 0 {
+                            let trail_del = ops
+                                .iter()
+                                .rev()
+                                .take_while(|p| p.op == super::alignment::Op::Del)
+                                .count();
+                            if trail_del > 0 {
+                                ops = &ops[..ops.len() - trail_del];
+                                continue;
+                            }
+                        }
+                        break;
+                    }
+                    if ops.is_empty() {
+                        return None;
+                    }
+                    let (cols, mism) = formatter::display_columns(ops, &rev_primer);
+                    let hang: String =
+                        primer_bytes[..hang_len].iter().map(|&b| b as char).collect();
+                    Some((
+                        AlignmentRenderData {
+                            display_sequence: cols,
+                            mismatch_indices: mism,
+                            start_offset: res.template_start as i64,
+                            ..Default::default()
+                        },
+                        hang,
+                    ))
+                },
+            )
+        } else {
+            // Fwd: the window ends at the anchor's 3' end (raw_end, unwrapped).
+            let w = (plen + DISPLAY_SLACK).min(if is_circular { tlen } else { raw_end });
+            let win_start_raw = raw_end as i64 - w as i64;
+            let region = if is_circular {
+                super::alignment::wrap_template_region(
+                    tpl_bytes,
+                    win_start_raw.rem_euclid(tlen as i64) as usize,
+                    raw_end % tlen,
+                )
+            } else {
+                tpl_bytes[win_start_raw as usize..raw_end].to_vec()
+            };
+            super::alignment::align_3prime_constrained(primer_bytes, &region).and_then(|res| {
+                // Edge insertion runs = 5' overhang junk that paired nothing:
+                // hang them instead of collapsing into dots. When bases hang,
+                // leading deletion columns are just window columns passing
+                // under the overhang — drop them too.
+                let mut ops = &res.ops[..];
+                let mut hang_len = res.primer_start;
+                let mut ts = res.template_start;
+                loop {
+                    let lead_ins =
+                        ops.iter().take_while(|p| p.op == super::alignment::Op::Ins).count();
+                    if lead_ins > 0 {
+                        hang_len += lead_ins;
+                        ops = &ops[lead_ins..];
+                        continue;
+                    }
+                    if hang_len > 0 {
+                        let lead_del =
+                            ops.iter().take_while(|p| p.op == super::alignment::Op::Del).count();
+                        if lead_del > 0 {
+                            ts += lead_del;
+                            ops = &ops[lead_del..];
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                if ops.is_empty() {
+                    return None;
+                }
+                let (cols, mism) = formatter::display_columns(ops, primer_bytes);
+                let hang: String = primer_bytes[..hang_len].iter().map(|&b| b as char).collect();
+                Some((
+                    AlignmentRenderData {
+                        display_sequence: cols,
+                        mismatch_indices: mism,
+                        start_offset: win_start_raw + ts as i64 - t_start as i64,
+                        ..Default::default()
+                    },
+                    hang,
+                ))
+            })
+        };
+        let (final_rd, display_tail) = match display {
+            Some(d) => d,
+            None => {
+                let Some(rd) = formatter::build_render_data(&footprint_bases, &template_region)
+                else {
+                    continue;
+                };
+                (rd, five_tail.clone())
+            }
+        };
 
         let has_3prime = site.has_3_prime_mismatch;
 
@@ -192,6 +315,7 @@ fn search_one_strand(
             has_3_prime_mismatch: has_3prime,
             five_prime_tail: five_tail,
             three_prime_tail: three_tail,
+            display_tail,
             alignment: final_rd,
         });
     }
@@ -520,8 +644,94 @@ mod tests {
     }
 
     #[test]
-    fn test_binding_sites_symmetric_under_template_rc() {
-        // Aligning a primer against T vs against RC(T) must yield mirrored
+    fn test_display_render_tail_mismatch_and_hang() {
+        // 13 bp footprint with a 5' tail "TA": T pairs the template, A does
+        // not — the alignment absorbs both, so the display span extends two
+        // columns left of the anchor with the A flagged as mismatch.
+        let template = "CCCTGCGTACGCTAGCGACCC";
+        let primer = "TACGTACGCTAGCGA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!((s.template_start, s.template_end), (5, 18));
+        assert_eq!(s.five_prime_tail, "TA");
+        assert_eq!(s.alignment.display_sequence, "TACGTACGCTAGCGA");
+        assert_eq!(s.alignment.mismatch_indices, vec![1]);
+        assert_eq!(s.alignment.start_offset, -2);
+        assert_eq!(s.display_tail, "");
+    }
+
+    #[test]
+    fn test_display_render_tail_insertion_collapses_to_dots() {
+        // The user's example transplanted into a tail: primer ...TACTAGTACGC
+        // vs template ...TACCGC — insertion TAGTA plus one flanking column
+        // per side renders as `··`.
+        let template = "GGGTACCGCCGTACGCTAGCGAGGG";
+        let primer = "TACTAGTACGCCGTACGCTAGCGA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.alignment.display_sequence, "TA··GCCGTACGCTAGCGA");
+        assert!(s.alignment.mismatch_indices.is_empty());
+        assert_eq!(s.alignment.start_offset, -3);
+        assert_eq!(s.display_tail, "");
+    }
+
+    #[test]
+    fn test_display_render_tail_gap_renders_dashes() {
+        // Template has two extra bases the primer lacks: two `-` columns.
+        let template = "GGGTTAACCCGTACGCTAGCGAGGG";
+        let primer = "TTCCCGTACGCTAGCGA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.alignment.display_sequence, "TT--CCCGTACGCTAGCGA");
+        assert_eq!(s.alignment.start_offset, -4);
+        assert_eq!(s.display_tail, "");
+    }
+
+    #[test]
+    fn test_display_render_unalignable_tail_hangs() {
+        // A 5' adapter with no pairing to the template stays a hanging tail.
+        let template = "GGGGGGCGTACGCTAGCGAGGG";
+        let primer = "TTAATTAACGTACGCTAGCGA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.alignment.display_sequence, "CGTACGCTAGCGA");
+        assert_eq!(s.alignment.start_offset, 0);
+        assert_eq!(s.display_tail, "TTAATTAA");
+    }
+
+    #[test]
+    fn test_display_render_rev_tail_extends_right() {
+        // Rev primer whose 5' tail "TA" pairs the template right of the
+        // footprint: the display span absorbs both columns (matches).
+        let footprint = "CGTACGCTAGCGA";
+        let rc = crate::utils::reverse_complement(footprint);
+        let template = format!("GGG{}TAGGG", rc);
+        let primer = format!("TA{}", footprint);
+        let sites = compute_binding_sites(&template, &primer, "rev", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == -1).expect("rev site");
+        let expect: String = footprint.chars().rev().collect::<String>() + "AT";
+        assert_eq!(s.alignment.display_sequence, expect);
+        assert_eq!(s.alignment.start_offset, 0);
+        assert_eq!(s.display_tail, "");
+        assert!(s.alignment.mismatch_indices.is_empty());
+    }
+
+    #[test]
+    fn test_display_render_rev_tail_hangs() {
+        // Rev tail that pairs nothing right of the footprint hangs as before.
+        let footprint = "CGTACGCTAGCGA";
+        let rc = crate::utils::reverse_complement(footprint);
+        let template = format!("GGG{}GGGGG", rc);
+        let primer = format!("TA{}", footprint);
+        let sites = compute_binding_sites(&template, &primer, "rev", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == -1).expect("rev site");
+        let expect: String = footprint.chars().rev().collect();
+        assert_eq!(s.alignment.display_sequence, expect);
+        assert_eq!(s.display_tail, "TA");
+    }
+
+    #[test]
+    fn test_binding_sites_symmetric_under_template_rc() {        // Aligning a primer against T vs against RC(T) must yield mirrored
         // sites: flipped strand, mirrored coordinates, identical Tm / score /
         // tail. The same physical duplex must not report two Tm values.
         let template = "ATGCGGTACCTAGGCTAACGGTTCAGGCCATGGATCCGTAACGTTAGCCGGTAA";
