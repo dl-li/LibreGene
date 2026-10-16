@@ -188,40 +188,15 @@ fn search_one_strand(
             };
             super::alignment::align_first_base_constrained_rev(&rev_primer, &region).and_then(
                 |res| {
-                    // Edge insertion runs = 5' overhang junk that paired
-                    // nothing: hang them instead of collapsing into dots. When
-                    // bases hang, trailing deletion columns are just window
-                    // columns passing under the overhang — drop them too.
-                    let mut ops = &res.ops[..];
-                    let mut hang_len = plen - res.primer_end;
-                    loop {
-                        let trail_ins = ops
-                            .iter()
-                            .rev()
-                            .take_while(|p| p.op == super::alignment::Op::Ins)
-                            .count();
-                        if trail_ins > 0 {
-                            hang_len += trail_ins;
-                            ops = &ops[..ops.len() - trail_ins];
-                            continue;
-                        }
-                        if hang_len > 0 {
-                            let trail_del = ops
-                                .iter()
-                                .rev()
-                                .take_while(|p| p.op == super::alignment::Op::Del)
-                                .count();
-                            if trail_del > 0 {
-                                ops = &ops[..ops.len() - trail_del];
-                                continue;
-                            }
-                        }
-                        break;
-                    }
+                    // Trim the 5' edge (= trailing end in display orientation).
+                    let rops: Vec<_> = res.ops.iter().rev().cloned().collect();
+                    let (start, hang_plus, _) = trim_display_edge(&rops);
+                    let ops: Vec<_> = rops[start..].iter().rev().cloned().collect();
+                    let hang_len = plen - res.primer_end + hang_plus;
                     if ops.is_empty() {
                         return None;
                     }
-                    let (cols, mism) = formatter::display_columns(ops, &rev_primer);
+                    let (cols, mism) = formatter::display_columns(&ops, &rev_primer);
                     let hang: String =
                         primer_bytes[..hang_len].iter().map(|&b| b as char).collect();
                     Some((
@@ -249,32 +224,10 @@ fn search_one_strand(
                 tpl_bytes[win_start_raw as usize..raw_end].to_vec()
             };
             super::alignment::align_3prime_constrained(primer_bytes, &region).and_then(|res| {
-                // Edge insertion runs = 5' overhang junk that paired nothing:
-                // hang them instead of collapsing into dots. When bases hang,
-                // leading deletion columns are just window columns passing
-                // under the overhang — drop them too.
-                let mut ops = &res.ops[..];
-                let mut hang_len = res.primer_start;
-                let mut ts = res.template_start;
-                loop {
-                    let lead_ins =
-                        ops.iter().take_while(|p| p.op == super::alignment::Op::Ins).count();
-                    if lead_ins > 0 {
-                        hang_len += lead_ins;
-                        ops = &ops[lead_ins..];
-                        continue;
-                    }
-                    if hang_len > 0 {
-                        let lead_del =
-                            ops.iter().take_while(|p| p.op == super::alignment::Op::Del).count();
-                        if lead_del > 0 {
-                            ts += lead_del;
-                            ops = &ops[lead_del..];
-                            continue;
-                        }
-                    }
-                    break;
-                }
+                let (start, hang_plus, tpl_skip) = trim_display_edge(&res.ops);
+                let ops = &res.ops[start..];
+                let hang_len = res.primer_start + hang_plus;
+                let ts = res.template_start + tpl_skip;
                 if ops.is_empty() {
                     return None;
                 }
@@ -321,6 +274,73 @@ fn search_one_strand(
     }
 
     results
+}
+
+// ---------------------------------------------------------------------------
+// Display edge trimming
+// ---------------------------------------------------------------------------
+
+/// Minimum run of consecutive matches that anchors the primer's 5' edge on
+/// the display. A shorter edge run that only aligns via indels is
+/// incidental; it dissolves into the hanging tail instead of forcing `-` /
+/// `··` placeholders.
+const MIN_EDGE_RUN: usize = 4;
+
+/// Trim the primer's 5' edge (index-0 side of `ops`) for display:
+/// hang edge insertion runs, drop deletion columns left dangling under the
+/// overhang, and dissolve an incidental fringe (a short match run that only
+/// aligns via indels) into the hanging tail. A fringe of matches and
+/// mismatches without indels stays aligned.
+///
+/// Returns (ops_start, extra_hang_bases, template_columns_skipped).
+fn trim_display_edge(ops: &[super::alignment::AlignedPair]) -> (usize, usize, usize) {
+    use super::alignment::Op;
+    let mut start = 0;
+    let mut hang = 0;
+    let mut skip = 0;
+    loop {
+        let ins = ops[start..].iter().take_while(|p| p.op == Op::Ins).count();
+        if ins > 0 {
+            hang += ins;
+            start += ins;
+            continue;
+        }
+        if hang > 0 {
+            let del = ops[start..].iter().take_while(|p| p.op == Op::Del).count();
+            if del > 0 {
+                skip += del;
+                start += del;
+                continue;
+            }
+        }
+        break;
+    }
+    let rest = &ops[start..];
+    let mut i = 0;
+    let run_start = loop {
+        while i < rest.len() && rest[i].op != Op::Match {
+            i += 1;
+        }
+        let s = i;
+        while i < rest.len() && rest[i].op == Op::Match {
+            i += 1;
+        }
+        if i - s >= MIN_EDGE_RUN {
+            break Some(s);
+        }
+        if i >= rest.len() {
+            break None;
+        }
+    };
+    if let Some(rs) = run_start {
+        let fringe = &rest[..rs];
+        if fringe.iter().any(|p| matches!(p.op, Op::Ins | Op::Del)) {
+            hang += fringe.iter().filter(|p| p.op != Op::Del).count();
+            skip += fringe.iter().filter(|p| p.op != Op::Ins).count();
+            start += rs;
+        }
+    }
+    (start, hang, skip)
 }
 
 // ---------------------------------------------------------------------------
@@ -661,29 +681,57 @@ mod tests {
     }
 
     #[test]
-    fn test_display_render_tail_insertion_collapses_to_dots() {
+    fn test_display_render_edge_insertion_dissolves_to_tail() {
         // The user's example transplanted into a tail: primer ...TACTAGTACGC
-        // vs template ...TACCGC — insertion TAGTA plus one flanking column
-        // per side renders as `··`.
+        // vs template ...TACCGC — the short TAC match before the insertion is
+        // incidental, so the whole fringe hangs as a tail instead of forcing
+        // `··` dots.
         let template = "GGGTACCGCCGTACGCTAGCGAGGG";
         let primer = "TACTAGTACGCCGTACGCTAGCGA";
         let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
         let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
-        assert_eq!(s.alignment.display_sequence, "TA··GCCGTACGCTAGCGA");
+        assert_eq!(s.alignment.display_sequence, "CGCCGTACGCTAGCGA");
         assert!(s.alignment.mismatch_indices.is_empty());
-        assert_eq!(s.alignment.start_offset, -3);
+        assert_eq!(s.alignment.start_offset, 0);
+        assert_eq!(s.display_tail, "TACTAGTA");
+    }
+
+    #[test]
+    fn test_display_render_interior_insertion_collapses_to_dots() {
+        // Insertion with a solid match run (>= 4) on both sides stays aligned:
+        // the inserted bases plus one flanking column per side render as `··`.
+        let template = "GGGTTTTCCCGTACGCTAGCGAGGG";
+        let primer = "TTTTACACACCCGTACGCTAGCGA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.alignment.display_sequence, "TTT··CCGTACGCTAGCGA");
+        assert!(s.alignment.mismatch_indices.is_empty());
         assert_eq!(s.display_tail, "");
     }
 
     #[test]
-    fn test_display_render_tail_gap_renders_dashes() {
-        // Template has two extra bases the primer lacks: two `-` columns.
+    fn test_display_render_edge_gap_dissolves_to_tail() {
+        // Template has two extra bases the primer lacks, but the short TT
+        // match before the gap is incidental: the fringe hangs as a tail
+        // instead of rendering `TT--`.
         let template = "GGGTTAACCCGTACGCTAGCGAGGG";
         let primer = "TTCCCGTACGCTAGCGA";
         let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
         let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
-        assert_eq!(s.alignment.display_sequence, "TT--CCCGTACGCTAGCGA");
-        assert_eq!(s.alignment.start_offset, -4);
+        assert_eq!(s.alignment.display_sequence, "CCCGTACGCTAGCGA");
+        assert_eq!(s.alignment.start_offset, 0);
+        assert_eq!(s.display_tail, "TT");
+    }
+
+    #[test]
+    fn test_display_render_interior_gap_renders_dashes() {
+        // Gap with a solid match run (>= 4) on both sides stays aligned: one
+        // `-` column per template base the primer lacks.
+        let template = "GGGTTTTAACCCGTACGCTAGCGAGGG";
+        let primer = "TTTTCCCGTACGCTAGCGA";
+        let sites = compute_binding_sites(template, primer, "fwd", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(s.alignment.display_sequence, "TTTT--CCCGTACGCTAGCGA");
         assert_eq!(s.display_tail, "");
     }
 
@@ -728,6 +776,21 @@ mod tests {
         let expect: String = footprint.chars().rev().collect();
         assert_eq!(s.alignment.display_sequence, expect);
         assert_eq!(s.display_tail, "TA");
+    }
+
+    #[test]
+    fn test_display_render_rev_edge_gap_dissolves_to_tail() {
+        // Rev mirror of the fwd edge-gap case: the tail's incidental AA match
+        // across a two-column gap dissolves into the hanging tail.
+        let footprint = "CGTACGCTAGCGA";
+        let rc = crate::utils::reverse_complement(footprint);
+        let template = format!("GGG{}AATTGGG", rc);
+        let primer = format!("AA{}", footprint);
+        let sites = compute_binding_sites(&template, &primer, "rev", "P1", "linear", 0.0);
+        let s = sites.iter().find(|s| s.strand == -1).expect("rev site");
+        let expect: String = footprint.chars().rev().collect();
+        assert_eq!(s.alignment.display_sequence, expect);
+        assert_eq!(s.display_tail, "AA");
     }
 
     #[test]
