@@ -274,7 +274,7 @@ fn run_align(
     for j in 0..=m {
         dp[0][j] = 0;
     }
-    for i in 0..=n {
+    for i in 1..=n {
         dp[i][0] = if free_left_query_col { 0 } else { neg_inf };
     }
 
