@@ -3,30 +3,17 @@ import { RotateCw, TriangleAlert, ChevronRight } from 'lucide-react';
 import { CONTEXT_MENU_EVENT } from '@/contextMenu';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useWheelContainment } from '@/hooks/useWheelContainment';
 
 // 开发调试用：每个菜单末尾固定附带 Reload
 const RELOAD_ITEM = { icon: RotateCw, label: 'Reload', danger: true, reload: true };
-
-// Block wheel on a modal overlay so scrolling doesn't leak to the page behind
-// it. Native listener: React's onWheel is passive, preventDefault is ignored.
-function useWheelLock() {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    const onWheel = (e) => e.preventDefault();
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
-  return ref;
-}
 
 export default function ContextMenuHost() {
   const [menu, setMenu] = useState(null); // { x, y, items }
   const [pos, setPos] = useState(null);
   const [confirmReload, setConfirmReload] = useState(false);
   const menuRef = useRef(null);
-  const confirmRef = useWheelLock();
+  const confirmRef = useWheelContainment();
 
   const close = useCallback(() => setMenu(null), []);
 

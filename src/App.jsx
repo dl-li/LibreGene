@@ -27,6 +27,7 @@ import useSettings from './hooks/useSettings';
 import useProjects from './hooks/useProjects';
 import useTabDrag from './hooks/useTabDrag';
 import useTauriEvents from './hooks/useTauriEvents';
+import { useWheelContainment } from './hooks/useWheelContainment';
 import {
   SidebarProvider,
   Sidebar,
@@ -237,6 +238,9 @@ export default function App() {
   // Sidebar hover state
   const [sidebarHover, setSidebarHover] = useState(false);
   const sidebarLeaveRef = useRef(null);
+  // Wheel gestures that can't scroll the sidebar list must not leak to the
+  // window behind (rubber-banding); the list itself still scrolls normally.
+  const sidebarWheelRef = useWheelContainment();
 
   const handleSidebarEnter = useCallback(() => {
     clearTimeout(sidebarLeaveRef.current);
@@ -760,6 +764,7 @@ export default function App() {
 
   const sidebarContent = (
     <Sidebar
+      ref={sidebarWheelRef}
       collapsible="icon"
       variant="sidebar"
       className={`${titleBarFallback ? '' : 'pt-10 '}transition-[width] duration-300 ease-out`}
