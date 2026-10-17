@@ -49,8 +49,8 @@ export const RulerLayer = React.memo(function RulerLayer({
     }
     rows.push(
       <g key={r} style={{ userSelect: 'none', pointerEvents: 'none' }}>
-        <line x1={getX(c0)} x2={getX(c1) + cw} y1={ry} y2={ry} stroke="#9ca3af" strokeWidth="1" />
-        <path d={ticks.join(' ')} stroke="#9ca3af" strokeWidth="1" />
+        <line x1={getX(c0)} x2={getX(c1) + cw} y1={ry} y2={ry} stroke="#4b5563" strokeWidth="1.5" />
+        <path d={ticks.join(' ')} stroke="#4b5563" strokeWidth="1.5" />
       </g>,
     );
   }
