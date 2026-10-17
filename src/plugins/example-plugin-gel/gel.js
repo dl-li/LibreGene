@@ -45,8 +45,37 @@ export function parseLadderText(text) {
   return { bands, error: null };
 }
 
+// Editor enzyme-label conventions, mirrored locally so the plugin stays
+// self-contained (see the host's editorConstants.js / seqUtils.js).
+export const ENZYME_MONO_FONT =
+  '"Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+
+export function splitEnzName(name) {
+  // Italic: everything before the first digit or uppercase letter (beyond position 0)
+  let at = name.length;
+  for (let i = 1; i < name.length; i++) {
+    const c = name[i];
+    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+      at = i;
+      break;
+    }
+  }
+  return { italic: name.slice(0, at), normal: name.slice(at) };
+}
+
+function isIIS(e) {
+  const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
+  return pairs.some((cp) => {
+    const dTopRight = Math.max(0, cp.topCutIndex - e.recEnd);
+    const dTopLeft = Math.max(0, e.recStart - cp.topCutIndex);
+    const dBotRight = Math.max(0, cp.botCutIndex - e.recEnd);
+    const dBotLeft = Math.max(0, e.recStart - cp.botCutIndex);
+    return Math.max(dTopRight, dTopLeft, dBotRight, dBotLeft) >= 2;
+  });
+}
+
 // Group the per-site enzyme list (project data `enzymes`) into per-enzyme
-// entries: { name, recSeq, cutType, cuts[] }.
+// entries: { name, recSeq, cutType, cuts[], blocked, gray, iis }.
 export function groupEnzymeSites(enzymes) {
   const byName = new Map();
   for (const e of enzymes || []) {
@@ -59,11 +88,22 @@ export function groupEnzymeSites(enzymes) {
           : e.botCutIndex > e.cutIndex
             ? '5overhang'
             : '3overhang');
-      g = { name: e.name, recSeq: e.recSeq || '', cutType, cuts: [], blocked: false };
+      g = {
+        name: e.name,
+        recSeq: e.recSeq || '',
+        cutType,
+        cuts: [],
+        blocked: false,
+        gray: false,
+        iis: false,
+      };
       byName.set(e.name, g);
     }
     if (!g.cuts.includes(e.cutIndex)) g.cuts.push(e.cutIndex);
     if (e.methylationBlocked) g.blocked = true;
+    if (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length))
+      g.gray = true;
+    if (isIIS(e)) g.iis = true;
   }
   const groups = [...byName.values()];
   for (const g of groups) g.cuts.sort((a, b) => a - b);
@@ -270,7 +310,7 @@ export function bandPosition(size, topo, range, timeFactor) {
 // with run time and is worse for small fragments; topoisomers run wider.
 export function bandSpread(size, topo, position, timeFactor) {
   const small = Math.pow(500 / Math.max(120, size), 0.25);
-  let sigma = 0.0022 + 0.0045 * Math.sqrt(Math.max(0.1, timeFactor)) * small * (0.15 + position);
+  let sigma = 0.003 + 0.0065 * Math.sqrt(Math.max(0.1, timeFactor)) * small * (0.15 + position);
   if (topo === 'supercoiled' || topo === 'nicked') sigma *= 1.5;
   return sigma;
 }

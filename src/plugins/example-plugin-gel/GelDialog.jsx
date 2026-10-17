@@ -14,10 +14,12 @@ import {
   defaultTimeFactor,
   bandSpread,
   simulateLane,
+  splitEnzName,
+  ENZYME_MONO_FONT,
 } from './gel';
 
-const MAX_ENZYMES = 4;
-const SAMPLE_LANES = 7; // uncut + up to 4 single digests + mix + empties
+const MAX_ENZYMES = 5;
+const SAMPLE_LANES = 7; // uncut + up to 5 single digests + mix, then empties
 const GEL_TOP = 78;
 const GEL_H = 560; // default gel height in viewBox units before measuring
 const LANE_W = 72;
@@ -49,7 +51,39 @@ function Section({ title, children }) {
 }
 
 const selectClass =
-  'w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring';
+  'w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-800/40';
+
+// Enzyme name styled like the editor's enzyme labels: monospace, italic
+// prefix, bold for unique cutters, type-specific colors (gray = methylation,
+// brown = blunt, teal = IIS), superscript 2 for double cutters. `plain`
+// inherits the surrounding text color (active/disabled badge states).
+function EnzymeName({ g, plain }) {
+  const s = splitEnzName(g.name);
+  const color = plain
+    ? undefined
+    : g.gray
+      ? '#9CA3AF'
+      : g.cutType === 'blunt'
+        ? '#6B3A2A'
+        : g.iis
+          ? '#0D6B6B'
+          : undefined;
+  return (
+    <span
+      style={{ fontFamily: ENZYME_MONO_FONT, fontWeight: g.cuts.length === 1 ? 700 : 350, color }}
+    >
+      {s.normal ? (
+        <>
+          <span className="italic">{s.italic}</span>
+          {s.normal}
+        </>
+      ) : (
+        g.name
+      )}
+      {g.cuts.length === 2 && <sup className="ml-px text-[0.7em]">2</sup>}
+    </span>
+  );
+}
 
 function EnzymeBadge({ g, active, disabled, onClick }) {
   return (
@@ -60,14 +94,13 @@ function EnzymeBadge({ g, active, disabled, onClick }) {
       title={`${g.recSeq} — ${g.cuts.length} cut${g.cuts.length === 1 ? '' : 's'}${g.blocked ? ' (methylation blocked)' : ''}`}
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
         active
-          ? 'border-primary bg-primary text-primary-foreground'
+          ? 'border-blue-800 bg-blue-800 text-white'
           : disabled
             ? 'cursor-not-allowed border-border/50 text-muted-foreground/40'
             : 'border-border bg-card text-foreground/80 hover:bg-accent hover:text-foreground'
       }`}
     >
-      {g.name}
-      {g.blocked && <span className="size-1.5 rounded-full bg-amber-500" />}
+      <EnzymeName g={g} plain={active || disabled} />
     </button>
   );
 }
@@ -122,7 +155,7 @@ export default function GelDialog({
 }) {
   const [groupFilter, setGroupFilter] = useState(() => readEditorEnzymeFilter(enzymeFilter));
   const [selected, setSelected] = useState([]);
-  const [openCats, setOpenCats] = useState({ single: true, double: false, other: false });
+  const [openCats, setOpenCats] = useState({ group: true, single: false, double: false });
   const [efficiency, setEfficiency] = useState(90);
   const [ladderId, setLadderId] = useState(DEFAULT_LADDER_ID);
   const [ladderText, setLadderText] = useState(
@@ -154,11 +187,12 @@ export default function GelDialog({
   const byName = useMemo(() => new Map(groups.map((g) => [g.name, g])), [groups]);
   const groupOptions = useMemo(() => enzymeGroupOptions(myEnzymes), [myEnzymes]);
   const myEnzymeNames = useMemo(() => new Set(myEnzymes), [myEnzymes]);
-  const cats = useMemo(
-    () =>
-      categorizeEnzymes(groups.filter((g) => enzymeMatchesGroup(g, groupFilter, myEnzymeNames))),
+  const filteredGroups = useMemo(
+    () => groups.filter((g) => enzymeMatchesGroup(g, groupFilter, myEnzymeNames)),
     [groups, groupFilter, myEnzymeNames],
   );
+  const cats = useMemo(() => categorizeEnzymes(filteredGroups), [filteredGroups]);
+  const groupLabel = groupOptions.find((o) => o.value === groupFilter)?.label || 'Enzymes';
 
   // Preselect enzymes passed by the opener (editor selection / context menu).
   const presetAppliedRef = useRef(false);
@@ -259,8 +293,6 @@ export default function GelDialog({
     return out;
   }, [ladder, t, range, gelH]);
 
-  const autoMinutes = gelType === 'page' ? 60 : 45;
-
   const toggleEnzyme = (name) =>
     setSelected((prev) =>
       prev.includes(name)
@@ -303,7 +335,7 @@ export default function GelDialog({
                 <div
                   className={`min-h-9 rounded-lg border p-1.5 ${
                     selected.length
-                      ? 'flex flex-wrap gap-1 border-primary/40 bg-primary/5'
+                      ? 'flex flex-wrap gap-1 border-blue-800/40 bg-blue-800/5'
                       : 'flex items-center border-dashed border-border px-2 text-xs text-muted-foreground'
                   }`}
                 >
@@ -316,9 +348,9 @@ export default function GelDialog({
                           type="button"
                           onClick={() => toggleEnzyme(name)}
                           title={g ? `${g.recSeq} — click to remove` : 'Click to remove'}
-                          className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground transition-colors hover:bg-primary/80"
+                          className="inline-flex items-center gap-1 rounded-full bg-blue-800 px-2 py-0.5 text-xs text-white transition-colors hover:bg-blue-800/80"
                         >
-                          {name}
+                          {g ? <EnzymeName g={g} plain /> : name}
                           <span aria-hidden="true">×</span>
                         </button>
                       );
@@ -328,6 +360,14 @@ export default function GelDialog({
                   )}
                 </div>
                 <div className="space-y-1.5">
+                  <EnzymeCategory
+                    title={groupLabel}
+                    open={openCats.group}
+                    onToggle={() => setOpenCats((s) => ({ ...s, group: !s.group }))}
+                    list={filteredGroups}
+                    selected={selected}
+                    onToggleEnzyme={toggleEnzyme}
+                  />
                   <EnzymeCategory
                     title="Single cutters"
                     open={openCats.single}
@@ -344,14 +384,6 @@ export default function GelDialog({
                     selected={selected}
                     onToggleEnzyme={toggleEnzyme}
                   />
-                  <EnzymeCategory
-                    title="Other enzymes"
-                    open={openCats.other}
-                    onToggle={() => setOpenCats((s) => ({ ...s, other: !s.other }))}
-                    list={cats.other}
-                    selected={selected}
-                    onToggleEnzyme={toggleEnzyme}
-                  />
                 </div>
                 <div>
                   <div className="mb-1 flex justify-between text-xs text-muted-foreground">
@@ -365,7 +397,7 @@ export default function GelDialog({
                     step={1}
                     value={efficiency}
                     onChange={(e) => setEfficiency(Number(e.target.value))}
-                    className="w-full accent-primary"
+                    className="w-full accent-blue-800"
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -389,7 +421,7 @@ export default function GelDialog({
                         setLadderId(p.id);
                         setLadderText(p.text);
                       }}
-                      className="accent-primary"
+                      style={{ accentColor: '#1e40af' }}
                     />
                     {p.label}
                   </label>
@@ -402,7 +434,7 @@ export default function GelDialog({
                   }}
                   rows={3}
                   spellCheck={false}
-                  className="mt-1 w-full resize-y rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
+                  className="mt-1 w-full resize-y rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs outline-none focus:ring-2 focus:ring-blue-800/40"
                   placeholder="100, 250, 500, *1000*, 2000"
                 />
                 {ladder.error && <InlineNotice tone="error">{ladder.error}</InlineNotice>}
@@ -446,7 +478,7 @@ export default function GelDialog({
                       step={0.1}
                       value={agaroseConc}
                       onChange={(e) => setAgaroseConc(Number(e.target.value))}
-                      className="w-full accent-primary"
+                      className="w-full accent-blue-800"
                     />
                   ) : (
                     <input
@@ -456,23 +488,20 @@ export default function GelDialog({
                       step={0.5}
                       value={pageConc}
                       onChange={(e) => setPageConc(Number(e.target.value))}
-                      className="w-full accent-primary"
+                      className="w-full accent-blue-800"
                     />
                   )}
                 </div>
                 <div>
-                  <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                    <span>Run time</span>
-                    <span className="tabular-nums">~{Math.round(autoMinutes * timeScale)} min</span>
-                  </div>
+                  <div className="mb-1 text-xs text-muted-foreground">Run time</div>
                   <input
                     type="range"
-                    min={0.3}
+                    min={0}
                     max={3}
                     step={0.05}
                     value={timeScale}
                     onChange={(e) => setTimeScale(Number(e.target.value))}
-                    className="w-full accent-primary"
+                    className="w-full accent-blue-800"
                   />
                 </div>
               </div>
