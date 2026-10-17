@@ -33,6 +33,8 @@ export default [
         ResizeObserver: 'readonly',
         ClipboardItem: 'readonly',
         Blob: 'readonly',
+        HTMLElement: 'readonly',
+        getComputedStyle: 'readonly',
       },
     },
     settings: {
@@ -40,12 +42,6 @@ export default [
     },
   },
   {
-    ignores: [
-      'dist/**',
-      'node_modules/**',
-      'target/**',
-      'src-tauri/**',
-      'backend/**',
-    ],
+    ignores: ['dist/**', 'node_modules/**', 'target/**', 'src-tauri/**', 'backend/**'],
   },
 ];

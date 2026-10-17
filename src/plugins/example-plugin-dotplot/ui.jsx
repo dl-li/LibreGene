@@ -2,7 +2,7 @@
 // any React host without shadcn/Radix. Styling relies on Tailwind theme
 // tokens (bg-card, text-muted-foreground, ...) provided by the host app;
 // see manifest.json for the host contract.
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 
 function cx(...parts) {
   return parts.filter(Boolean).join(' ');
@@ -23,11 +23,43 @@ export function Dialog({ open, onOpenChange, children }) {
   return <DialogCtx.Provider value={onOpenChange}>{children}</DialogCtx.Provider>;
 }
 
+// Contain wheel scrolling inside the dialog: inner scrollable areas scroll
+// natively, but wheel over blank/non-scrollable parts (or a scrollable
+// already at its edge) must not leak to the page behind the dialog. Needs a
+// native listener — React attaches wheel as passive, so preventDefault via
+// onWheel is ignored.
+function useWheelContainment() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      let node = e.target;
+      while (node && node !== el) {
+        if (node instanceof HTMLElement) {
+          const oy = getComputedStyle(node).overflowY;
+          if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) {
+            const atTop = node.scrollTop <= 0;
+            const atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+            if ((e.deltaY < 0 && !atTop) || (e.deltaY > 0 && !atBottom)) return;
+          }
+        }
+        node = node.parentNode;
+      }
+      e.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  return ref;
+}
+
 export function DialogContent({ className, children }) {
   const onOpenChange = useContext(DialogCtx);
   const close = () => onOpenChange?.(false);
+  const rootRef = useWheelContainment();
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50" ref={rootRef}>
       <div
         className="absolute inset-0 bg-foreground/35 backdrop-blur-[3px]"
         onClick={close}

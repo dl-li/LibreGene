@@ -7,11 +7,26 @@ import { cn } from '@/lib/utils';
 // 开发调试用：每个菜单末尾固定附带 Reload
 const RELOAD_ITEM = { icon: RotateCw, label: 'Reload', danger: true, reload: true };
 
+// Block wheel on a modal overlay so scrolling doesn't leak to the page behind
+// it. Native listener: React's onWheel is passive, preventDefault is ignored.
+function useWheelLock() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const onWheel = (e) => e.preventDefault();
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  return ref;
+}
+
 export default function ContextMenuHost() {
   const [menu, setMenu] = useState(null); // { x, y, items }
   const [pos, setPos] = useState(null);
   const [confirmReload, setConfirmReload] = useState(false);
   const menuRef = useRef(null);
+  const confirmRef = useWheelLock();
 
   const close = useCallback(() => setMenu(null), []);
 
@@ -152,7 +167,10 @@ export default function ContextMenuHost() {
         </div>
       )}
       {confirmReload && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+        <div
+          ref={confirmRef}
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35 backdrop-blur-[2px]"
+        >
           <div className="mx-4 max-w-sm rounded-xl border bg-card p-5 shadow-2xl">
             <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
               <TriangleAlert className="size-4 text-amber-500" />
