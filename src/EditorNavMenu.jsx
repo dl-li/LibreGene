@@ -234,6 +234,12 @@ export default function EditorNavMenu({
   onViewModeChange,
   showDoubleStrand = false,
   onToggleDoubleStrand,
+  alwaysExpandFeatures = false,
+  onToggleAlwaysExpandFeatures,
+  alwaysExpandPrimers = false,
+  onToggleAlwaysExpandPrimers,
+  featureLabelsBelow = false,
+  onFeatureLabelsBelowChange,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -348,6 +354,10 @@ export default function EditorNavMenu({
       pluginAvailable(p, { moleculeType, disabledPlugins }) &&
       pluginToggles[p.id],
   );
+  const hasExpandItems =
+    !!onToggleAlwaysExpandFeatures ||
+    (isDna && !!onToggleAlwaysExpandPrimers) ||
+    !!onFeatureLabelsBelowChange;
 
   // Left click on View re-applies the most recently changed View-menu option;
   // before any menu interaction (or when the layout mode itself was last
@@ -356,6 +366,12 @@ export default function EditorNavMenu({
   const viewLeftClick = (() => {
     if (lastViewOption === 'orfs' && onToggleOrfs) return onToggleOrfs;
     if (lastViewOption === 'dsRuler' && onToggleDoubleStrand) return onToggleDoubleStrand;
+    if (lastViewOption === 'expandFeatures' && onToggleAlwaysExpandFeatures)
+      return onToggleAlwaysExpandFeatures;
+    if (lastViewOption === 'expandPrimers' && onToggleAlwaysExpandPrimers)
+      return onToggleAlwaysExpandPrimers;
+    if (lastViewOption === 'featureLabelsBelow' && onFeatureLabelsBelowChange)
+      return () => onFeatureLabelsBelowChange(!featureLabelsBelow);
     const pluginToggle = lastViewOption && pluginToggles[lastViewOption];
     if (pluginToggle) return pluginToggle.onToggle;
     if (!onViewModeChange) return undefined;
@@ -478,9 +494,10 @@ export default function EditorNavMenu({
               Continuous (Horizontal)
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
-          {(onToggleOrfs || (isDna && onToggleDoubleStrand) || viewTogglePlugins.length > 0) && (
-            <DropdownMenuSeparator />
-          )}
+          {(onToggleOrfs ||
+            (isDna && onToggleDoubleStrand) ||
+            hasExpandItems ||
+            viewTogglePlugins.length > 0) && <DropdownMenuSeparator />}
           {onToggleOrfs && (
             <DropdownMenuCheckboxItem
               checked={showOrfs}
@@ -515,6 +532,44 @@ export default function EditorNavMenu({
               {p.featuresMenuItem.label}
             </DropdownMenuCheckboxItem>
           ))}
+          {hasExpandItems && (
+            <>
+              <DropdownMenuSeparator />
+              {onToggleAlwaysExpandFeatures && (
+                <DropdownMenuCheckboxItem
+                  checked={alwaysExpandFeatures}
+                  onCheckedChange={() => {
+                    setLastViewOption('expandFeatures');
+                    onToggleAlwaysExpandFeatures();
+                  }}
+                >
+                  Always Expand Features
+                </DropdownMenuCheckboxItem>
+              )}
+              {isDna && onToggleAlwaysExpandPrimers && (
+                <DropdownMenuCheckboxItem
+                  checked={alwaysExpandPrimers}
+                  onCheckedChange={() => {
+                    setLastViewOption('expandPrimers');
+                    onToggleAlwaysExpandPrimers();
+                  }}
+                >
+                  Always Expand Primers
+                </DropdownMenuCheckboxItem>
+              )}
+              {onFeatureLabelsBelowChange && (
+                <DropdownMenuCheckboxItem
+                  checked={featureLabelsBelow}
+                  onCheckedChange={(v) => {
+                    setLastViewOption('featureLabelsBelow');
+                    onFeatureLabelsBelowChange(v === true);
+                  }}
+                >
+                  Feature Labels Below
+                </DropdownMenuCheckboxItem>
+              )}
+            </>
+          )}
         </NavMenu>
 
         {/* Features: left click toggles visibility, right click opens menu */}

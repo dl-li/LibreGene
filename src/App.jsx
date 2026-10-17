@@ -683,10 +683,13 @@ export default function App() {
       pluginToggles,
       pluginSettings,
       alwaysExpandFeatures,
+      onToggleAlwaysExpandFeatures,
       alwaysExpandPrimers,
+      onToggleAlwaysExpandPrimers,
       showPrimers,
       onTogglePrimers,
       featureLabelsBelow,
+      onFeatureLabelsBelowChange,
       showEnzymes,
       onToggleEnzymes,
       enzymeFilter,
@@ -724,10 +727,13 @@ export default function App() {
       pluginToggles,
       pluginSettings,
       alwaysExpandFeatures,
+      onToggleAlwaysExpandFeatures,
       alwaysExpandPrimers,
+      onToggleAlwaysExpandPrimers,
       showPrimers,
       onTogglePrimers,
       featureLabelsBelow,
+      onFeatureLabelsBelowChange,
       showEnzymes,
       onToggleEnzymes,
       enzymeFilter,
@@ -1161,12 +1167,6 @@ export default function App() {
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
           focusSection={settingsFocus}
-          alwaysExpandFeatures={alwaysExpandFeatures}
-          onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
-          alwaysExpandPrimers={alwaysExpandPrimers}
-          onToggleAlwaysExpandPrimers={onToggleAlwaysExpandPrimers}
-          featureLabelsBelow={featureLabelsBelow}
-          onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
           pluginSettings={pluginSettings}
           methylationSystems={methylationSystems}
           setMethylationSystems={setMethylationSystems}

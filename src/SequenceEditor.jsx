@@ -137,8 +137,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
   pluginSettings = {},
   disabledPlugins = [],
   alwaysExpandFeatures = false,
+  onToggleAlwaysExpandFeatures,
   alwaysExpandPrimers = false,
+  onToggleAlwaysExpandPrimers,
   featureLabelsBelow = false,
+  onFeatureLabelsBelowChange,
   showOrfs,
   onToggleOrfs,
   showPrimers,
@@ -1797,7 +1800,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
         });
       }
     },
-    [onEditRequest, hasSelection, hasTranslationSelection, translationBaseRange, selWraps, cursorIndex, selStart, selEnd, cleanSeq],
+    [
+      onEditRequest,
+      hasSelection,
+      hasTranslationSelection,
+      translationBaseRange,
+      selWraps,
+      cursorIndex,
+      selStart,
+      selEnd,
+      cleanSeq,
+    ],
   );
 
   const pasteFromClipboard = useCallback(() => {
@@ -3021,6 +3034,12 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onViewModeChange={onViewModeChange}
           showDoubleStrand={showDoubleStrand}
           onToggleDoubleStrand={onToggleDoubleStrand}
+          alwaysExpandFeatures={alwaysExpandFeatures}
+          onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
+          alwaysExpandPrimers={alwaysExpandPrimers}
+          onToggleAlwaysExpandPrimers={onToggleAlwaysExpandPrimers}
+          featureLabelsBelow={featureLabelsBelow}
+          onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
         />
       )}
       {/* Floating prev/next navigator over the alignment tracks' notable

@@ -49,10 +49,13 @@ export default function ProjectWorkspace({
   pluginToggles,
   pluginSettings,
   alwaysExpandFeatures,
+  onToggleAlwaysExpandFeatures,
   alwaysExpandPrimers,
+  onToggleAlwaysExpandPrimers,
   showPrimers,
   onTogglePrimers,
   featureLabelsBelow,
+  onFeatureLabelsBelowChange,
   showEnzymes,
   onToggleEnzymes,
   enzymeFilter,
@@ -932,8 +935,11 @@ export default function ProjectWorkspace({
               pluginSettings={pluginSettings}
               disabledPlugins={disabledPlugins}
               alwaysExpandFeatures={alwaysExpandFeatures}
+              onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
               alwaysExpandPrimers={alwaysExpandPrimers}
+              onToggleAlwaysExpandPrimers={onToggleAlwaysExpandPrimers}
               featureLabelsBelow={featureLabelsBelow}
+              onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
               showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}
               onToggleOrfs={
                 isDna && !disabledPlugins.includes('orf') ? () => setShowOrfs((v) => !v) : undefined
