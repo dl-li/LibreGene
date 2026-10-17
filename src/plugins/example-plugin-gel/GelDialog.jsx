@@ -97,7 +97,7 @@ function EnzymeBadge({ g, active, disabled, onClick }) {
           ? 'border-blue-800 bg-blue-800 text-white'
           : disabled
             ? 'cursor-not-allowed border-border/50 text-muted-foreground/40'
-            : 'border-border bg-card text-foreground/80 hover:bg-accent hover:text-foreground'
+            : 'border-border bg-card text-foreground/80 hover:bg-blue-800/10 hover:text-foreground'
       }`}
     >
       <EnzymeName g={g} plain={active || disabled} />
@@ -107,11 +107,11 @@ function EnzymeBadge({ g, active, disabled, onClick }) {
 
 function EnzymeCategory({ title, open, onToggle, list, selected, onToggleEnzyme }) {
   return (
-    <div className="rounded-lg border border-border/50">
+    <div className="overflow-hidden rounded-lg border border-border/50">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs font-medium text-foreground/80 hover:bg-accent/60"
+        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs font-medium text-foreground/80 transition-colors hover:bg-blue-800/10 hover:text-foreground"
       >
         <span
           className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}
