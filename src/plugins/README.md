@@ -33,6 +33,7 @@ const myPlugin = {
   name: 'My Plugin',
   description: 'One line shown in the Plugins settings window',
   version: '1.0.0',
+  author: 'your-name', // optional; shown as "by <author>" in the Plugins window
 
   // Fully declarative hooks — work with zero host-side changes:
   dialogKey: 'myPlugin', // key into the pluginDialogs open-state map; null if

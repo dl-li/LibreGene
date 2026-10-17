@@ -4,7 +4,8 @@ const gelPlugin = {
   id: 'gel',
   name: 'Digest and Run Gel',
   description: 'In-silico restriction digest and gel electrophoresis simulation',
-  version: '1.0.0',
+  version: '1.1.0',
+  author: 'dl-li',
   dialogKey: 'gel',
   // Self-contained, distributable plugin (see manifest.json/README.md in this
   // directory): everything it needs lives under src/plugins/example-plugin-gel/.

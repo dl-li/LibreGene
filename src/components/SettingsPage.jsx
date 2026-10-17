@@ -67,6 +67,9 @@ export default function SettingsPage({
           {p.version && (
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">v{p.version}</span>
           )}
+          {p.author && (
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">by {p.author}</span>
+          )}
         </Label>
         {p.description && <span className="text-xs text-muted-foreground">{p.description}</span>}
       </div>

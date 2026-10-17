@@ -2,6 +2,7 @@
   "id": "dotplot",
   "name": "Dotplot",
   "version": "1.0.0",
+  "author": "dl-li",
   "description": "Dot-plot comparison of two DNA/RNA sequences",
   "entry": "index.js",
   "hooks": {
