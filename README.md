@@ -10,13 +10,10 @@
 
 <p align="center"><a href="README.zh-CN.md">中文版</a></p>
 
-> **⚠️ Early Development** — APIs and file formats are not yet stable.
-> **Tested on macOS and Windows** — Linux builds are not yet verified.
-
-A lightweight cross-platform desktop plasmid editor. SVG rendering, feature annotation, primer design & visualization, restriction digestion analysis — all free and open-source.
+A lightweight cross-platform desktop plasmid editor. Feature annotation, primer design, restriction analysis, sequence alignment, RNA folding — all free and open-source.
 
 <p align="center">
-  <img src="screenshots/feature-translation.png" alt="Feature translation in LibreGene" width="700" />
+  <img src="screenshots/UI-feature-translate-orf-gc-enzymes.png" alt="LibreGene editor: feature translation, primers, ORF, GC content and enzyme sites in one view" width="700" />
 </p>
 
 ## Features
@@ -24,50 +21,40 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 ### Feature Annotation
 
 - **Clean, minimal display** — CDS and mRNA features are translated on the fly, amino acids rendered right under the sequence
-- **Auto-detection** — paste a sequence into the _New Sequence_ dialog and common features (promoters, resistance markers, ori, tags…) are detected via the [pLannotate](https://github.com/mmcguffi/pLannotate) feature database and can be annotated with one click
-- **ORF search** — scan open reading frames on both strands, all six frames, and display them inline
-- **GC content track** — per-base sliding-window GC% rendered as a blue→white→red gradient band below the sequence, with adjustable window size
+- **Auto-detection** — paste a sequence into the _New Sequence_ dialog and common features (promoters, resistance markers, ori, tags…) are detected automatically and can be annotated with one click
+- **ORF search** — scan open reading frames on both strands, all six frames, displayed inline
+- **GC content track** — sliding-window GC% rendered as a gradient band below the sequence, with adjustable window size
 - Compound (multi-segment) features, custom colors, strand toggling, enriched GenBank I/O that preserves colors and primers
 
 <p align="center">
-  <img src="screenshots/orf-and-gc-content.png" alt="ORF search results with GC content track" width="49%" />
-  <img src="screenshots/new-project-dialog.png" alt="New project dialog with auto-detected features" width="49%" />
+  <img src="screenshots/new-project-dialog.png" alt="New Sequence dialog with auto-detected features" width="700" />
 </p>
 
 ### Primers
 
-- **Binding visualization** — each primer is aligned against the template with mismatches, annealing region and Tm (nearest-neighbor) shown at a glance; binding-site search follows [pydna](https://github.com/pydna-group/pydna)'s annealing algorithm
-- **Assisted design** — fragment amplification, overlap-extension PCR (OE-PCR) and site-directed mutagenesis, with candidate primers ranked by Tm / GC% and optional restriction-site tails
+- **Binding visualization** — mismatches, annealing region and Tm shown at a glance for every primer
+- **Assisted design** — fragment amplification, overlap-extension PCR (OE-PCR) and site-directed mutagenesis, with candidates ranked by Tm / GC% and optional restriction-site tails
 
 <p align="center">
-  <img src="screenshots/primer-dialog.png" alt="Primer binding details" width="49%" />
-  <img src="screenshots/primer-design.png" alt="Primer design dialog" width="49%" />
+  <img src="screenshots/primer-dialog.png" alt="Primer binding details" width="700" />
 </p>
 
 ### Codon Optimization
 
-- **9 species codon usage tables** — optimize any CDS/mRNA feature for the expression host of your choice ([Kazusa](https://www.kazusa.or.jp/codon/) usage data)
-- **Three strategies** — use best codon, match codon usage (keeps natural synonymous diversity), or harmonize relative codon adaptation against the source species; algorithms ported from [DNA Chisel](https://github.com/Edinburgh-Genome-Foundry/DnaChisel)
-- **Preview before applying** — translation check, CAI and GC% before/after at a glance; equal-length synonymous substitution leaves feature coordinates untouched; optionally avoid creating specified restriction sites
-
-<p align="center">
-  <img src="screenshots/codon-optimize.png" alt="Codon optimization dialog" width="700" />
-</p>
+- **9 species codon usage tables** — optimize any CDS/mRNA feature for the expression host of your choice
+- **Three strategies** — use best codon, match codon usage, or harmonize against the source species
+- **Preview before applying** — translation check, CAI and GC% before/after at a glance; optionally avoid creating specified restriction sites
 
 ### Restriction Enzymes
 
-- **Built-in 900+ enzyme database** (exported from [Biopython](https://biopython.org)'s `Bio.Restriction`) with methylation-aware filtering
+- **Built-in 900+ enzyme database** with methylation-aware filtering
 - **Clear categorization** — unique cutters, twice cutters, blunt ends and Type IIS enzymes are distinguished visually, and cut sites are marked on the feature scrollbar for quick navigation
 - **Custom enzyme sets** — define your own enzyme collections and switch between them
 - **Provider detail data** — per-enzyme buffer compatibility, incubation temperature, methylation sensitivity and inactivation info from **New England Biolabs**, **Thermo Fisher FastDigest** and **Yugong Biotech (BestEnzymes)**
 
-<p align="center">
-  <img src="screenshots/enzymes.png" alt="Restriction enzyme view" width="700" />
-</p>
-
 ### Digest and Run Gel
 
-- **In-silico digest simulation** — pick enzymes from single/double/other cutters (or your own enzyme set), set cutting efficiency, and enumerate every resulting fragment, including partial-digest products
+- **In-silico digest simulation** — pick enzymes, set cutting efficiency, and enumerate every resulting fragment, including partial-digest products
 - **Virtual gel electrophoresis** — agarose/PAGE matrix, concentration and run-time controls with built-in or custom ladders; topology-aware migration (uncut circles run as supercoiled bands) and band diffusion are modeled
 
 <p align="center">
@@ -77,17 +64,17 @@ A lightweight cross-platform desktop plasmid editor. SVG rendering, feature anno
 ### Sequence Alignment
 
 - **Multiple formats** — import Sanger reads (.ab1), FASTA or GenBank sequences and align them against the reference
-- Mismatches, insertions and deletions are highlighted in place, per-read identity is computed automatically
+- Mismatches, insertions and deletions highlighted in place, per-read identity computed automatically
 - **Sanger chromatogram display** — open a `.ab1` file to see its trace curves alongside the sequence
 
 <p align="center">
-  <img src="screenshots/alignment.png" alt="Sequence alignment view" width="700" />
+  <img src="screenshots/alignment.png" alt="Sequence alignment with Sanger chromatogram traces" width="700" />
 </p>
 
 ### RNA Secondary Structure
 
-- **MFE folding** — minimum-free-energy prediction with the Turner 2004 nearest-neighbor model, powered by [RibossFold](https://github.com/mirditalab/RibossFold) running as WebAssembly
-- **Interactive layout** — classic force-directed structure view from [forna](https://github.com/ViennaRNA/forna) (ViennaRNA), with pan/zoom and draggable nucleotides
+- **MFE folding** — minimum-free-energy secondary structure prediction, computed locally
+- **Interactive layout** — force-directed structure view with pan/zoom and draggable nucleotides; can be shown as the editor background
 
 <p align="center">
   <img src="screenshots/rna-fold.png" alt="RNA secondary structure prediction" width="700" />
@@ -116,8 +103,11 @@ Ready-to-run agent tasks live in [`examples/tasks`](examples/tasks), each with a
 
 ### And More
 
-- **SVG plasmid map** with multi-line wrapped sequence display
+- **Circular plasmid map view** alongside the sequence editor
 - **DNA / RNA / protein modes** — single-strand editors for RNA and protein sequences
+- **Wrap and continuous view modes** — multi-line wrapping or a single horizontally scrollable line
+- **BLAST search** — right-click any selection to submit it to NCBI BLAST
+- **SnapGene history** — browse snapshots embedded in .dna files
 - **Plugin system** — extensible architecture for adding custom tools
 - **Multi-project tabs** — switch between plasmids in the sidebar
 - **Full undo/redo** — sequence edits and feature changes
