@@ -20,11 +20,12 @@ import {
 
 const MAX_ENZYMES = 5;
 const SAMPLE_LANES = 7; // uncut + up to 5 single digests + mix, then empties
-const GEL_TOP = 78;
-const GEL_H = 560; // default gel height in viewBox units before measuring
+const NAME_LINE_H = 17;
+const HEADER_BASE = 46; // lane number row + padding above the first name line
 const LANE_W = 72;
 const LABEL_W = 64;
 const PAD_R = 18;
+const GEL_H = 560; // default gel height in viewBox units before measuring
 const GEL_W = LABEL_W + (SAMPLE_LANES + 1) * LANE_W + PAD_R;
 
 function readEditorEnzymeFilter(preferred) {
@@ -271,13 +272,21 @@ export default function GelDialog({
     return map;
   }, [lanes, ladder, t, range, length, circular, byName, efficiency]);
 
+  // Header height grows with the tallest lane label so wells move down
+  // instead of overlapping multi-line enzyme names.
+  const maxNameLines = lanes.reduce(
+    (m, l) => Math.max(m, l.kind === 'digest' ? Math.max(l.names.length, 1) : 0),
+    1,
+  );
+  const gelTop = HEADER_BASE + maxNameLines * NAME_LINE_H;
+
   // Fill the container: keep the viewBox width fixed, stretch the gel
   // vertically so long dialogs give a long gel instead of dead space.
   const gelH = gelBox
-    ? Math.max(240, gelBox.height / (gelBox.width / GEL_W) - GEL_TOP - 14)
+    ? Math.max(240, gelBox.height / (gelBox.width / GEL_W) - gelTop - 14)
     : GEL_H;
   const width = GEL_W;
-  const height = GEL_TOP + gelH + 14;
+  const height = gelTop + gelH + 14;
 
   const ladderLabels = useMemo(() => {
     const out = [];
@@ -285,13 +294,13 @@ export default function GelDialog({
     for (const b of ladder.bands) {
       const pos = t * mobility(b.size, range);
       if (pos > 1.0) continue;
-      const y = GEL_TOP + pos * gelH;
+      const y = gelTop + pos * gelH;
       if (y - lastY < 16) continue;
       lastY = y;
       out.push({ size: b.size, y, bright: b.bright });
     }
     return out;
-  }, [ladder, t, range, gelH]);
+  }, [ladder, t, range, gelH, gelTop]);
 
   const toggleEnzyme = (name) =>
     setSelected((prev) =>
@@ -556,8 +565,8 @@ export default function GelDialog({
                         <>
                           <text
                             x={cx}
-                            y={16}
-                            fontSize={14}
+                            y={20}
+                            fontSize={16}
                             fontWeight={600}
                             textAnchor="middle"
                             fill={isEmpty ? '#525252' : '#e5e5e5'}
@@ -568,12 +577,12 @@ export default function GelDialog({
                             <text
                               key={li}
                               x={cx}
-                              y={34 + li * 12}
-                              fontSize={11}
+                              y={42 + li * NAME_LINE_H}
+                              fontSize={13}
                               textAnchor="middle"
                               fill="#a3a3a3"
                             >
-                              {n.length > 11 ? `${n.slice(0, 10)}…` : n}
+                              {n.length > 10 ? `${n.slice(0, 9)}…` : n}
                               <title>{n}</title>
                             </text>
                           ))}
@@ -581,7 +590,7 @@ export default function GelDialog({
                       )}
                       <rect
                         x={cx - LANE_W * 0.32}
-                        y={GEL_TOP - 9}
+                        y={gelTop - 9}
                         width={LANE_W * 0.64}
                         height={9}
                         rx={4.5}
@@ -591,7 +600,7 @@ export default function GelDialog({
                       />
                       {(laneBands.get(lane.key) || []).map((b, j) => {
                         const h = Math.min(9, Math.max(2, 2 * b.spread * gelH));
-                        const y = GEL_TOP + b.pos * gelH - h / 2;
+                        const y = gelTop + b.pos * gelH - h / 2;
                         // Diffusion blur grows with migration distance:
                         // top-of-gel bands get a bare soft edge, bottom bands smear.
                         const s = b.spread * gelH;
