@@ -697,8 +697,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// each clippedFeature {name, ftype, before, after, beforeSegments?,
     /// afterSegments?} with 1-based inclusive coordinates; equal-length
     /// replacements keep every feature at its coordinates (safe for point
-    /// mutations and case normalization); U<->T normalization is reported in
-    /// `notes`.
+    /// mutations and case normalization), unless the replacement itself
+    /// carries annotations (replacementPath/replacementHash) — then features
+    /// fully covered by the replaced span are superseded by the transferred
+    /// ones and reported in removedFeatures; U<->T normalization is reported
+    /// in `notes`.
     #[tool]
     async fn edit_sequence(
         &self,

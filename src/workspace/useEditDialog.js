@@ -3,6 +3,17 @@ import { addPrimers, getProject, updateSequence } from '../tauriApi';
 import { adjustAlignmentsForEdit } from '../alignmentEdit';
 import { EMPTY_ARRAY } from './constants';
 
+// Pasted annotations supersede pre-existing features fully covered by the
+// replaced span (adjustAnnotations keeps them on equal-length replaces by
+// design — point mutations must not drop annotations), otherwise the paste
+// duplicates them: a reverse-complemented CDS next to the original.
+export function dropCoveredFeatures(features, editStart, editEnd) {
+  return features.filter((f) => {
+    const segs = f.segments && f.segments.length ? f.segments : [{ start: f.start, end: f.end }];
+    return !segs.every((s) => s.start >= editStart && s.end <= editEnd);
+  });
+}
+
 export default function useEditDialog({
   agentLockedRef,
   operationGenRef,
@@ -157,6 +168,18 @@ export default function useEditDialog({
 
       // Merge annotation features from clipboard
       const annotations = result.annotations;
+      // Only the equal-length case needs this: length-changing replaces
+      // already dropped covered features in adjustAnnotations, and checking
+      // their shifted coordinates against the old span would misfire on
+      // clipped boundary features.
+      if (
+        annotations &&
+        annotations.features &&
+        annotations.features.length > 0 &&
+        newLen === oldLen
+      ) {
+        adjustedFeatures = dropCoveredFeatures(adjustedFeatures, editStart, editEnd);
+      }
       let mergedFeatures = adjustedFeatures;
       if (annotations && annotations.features && annotations.features.length > 0) {
         const insertAnchor = mode === 'insert' ? cursorIndex : selStart;

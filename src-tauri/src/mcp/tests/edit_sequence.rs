@@ -108,6 +108,77 @@ use crate::mcp::*;
     }
 
     #[tokio::test]
+    async fn edit_sequence_annotated_equal_length_replacement_supersedes_covered_features() {
+        // Equal-length replacement whose file carries annotations: the covered
+        // "gene" (internal 50..=100) is superseded by the transferred features
+        // instead of surviving next to them.
+        let (dir, gbk) = write_annotated_insert();
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 51,
+                end: 110, // 60 bp, fully covers the feature at 50..=100
+                replacement_path: Some(gbk.to_string_lossy().into_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["newLength"], 200, "{v}");
+        assert_eq!(v["removedFeatures"][0]["name"], "gene", "{v}");
+        // No name clash after the removal: the transferred "gene" keeps its name.
+        assert_eq!(
+            v["transferredFeatures"],
+            serde_json::json!(["ins_feat", "gene"]),
+            "{v}"
+        );
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        let genes: Vec<_> = p.features.iter().filter(|f| f.name == "gene").collect();
+        assert_eq!(genes.len(), 1, "no duplicate gene feature: {:?}", p.features.iter().map(|f| &f.name).collect::<Vec<_>>());
+        assert_eq!((genes[0].start, genes[0].end), (50, 55));
+        let ins = p.features.iter().find(|f| f.name == "ins_feat").unwrap();
+        assert_eq!((ins.start, ins.end), (60, 79));
+        drop(pm);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn edit_sequence_annotated_revcomp_replacement_supersedes_covered_features() {
+        // Same as above but strand "-": the covered feature is removed and the
+        // transferred ones land flipped — the flip-a-CDS-in-place scenario.
+        let (dir, gbk) = write_annotated_insert();
+        let server = handler_with_project(edit_test_project()).await;
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 51,
+                end: 110,
+                replacement_path: Some(gbk.to_string_lossy().into_owned()),
+                strand: Some("-".to_string()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let v = out.0;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["removedFeatures"][0]["name"], "gene", "{v}");
+        let pm = server.pm.read().await;
+        let p = pm.get_project_by_id("edit_test").unwrap();
+        let names: Vec<_> = p.features.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["ins_feat", "gene"], "{names:?}");
+        // local [10..29] in a 60 bp insert mirrors to [30..49] → +50 offset;
+        // the "-" strand flips to "+"
+        let ins = p.features.iter().find(|f| f.name == "ins_feat").unwrap();
+        assert_eq!((ins.start, ins.end), (80, 99));
+        assert_eq!(ins.strand, "+");
+        drop(pm);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
     async fn edit_sequence_replacement_input_validation() {
         let server = handler_with_project(edit_test_project()).await;
 

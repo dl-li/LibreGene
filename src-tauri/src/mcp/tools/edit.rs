@@ -388,7 +388,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
             // Side effects on features, derived from the pre-edit list with
             // the same span math as the adjust below.
-            let impact = libregene_core::utils::features_edit_impact(
+            let mut impact = libregene_core::utils::features_edit_impact(
                 &p.features,
                 start,
                 end,
@@ -409,6 +409,29 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 replacement.len() as i64,
             );
             if let Some((feats, primers)) = parsed_annotations {
+                // The replacement carries its own annotations: on an
+                // equal-length edit the covered features survive
+                // adjust_features_for_edit (point mutations must not drop
+                // them), so they are removed here or the transferred copy
+                // would duplicate the original. Length-changing edits already
+                // dropped (and reported) them via adjust_features_for_edit;
+                // re-checking their shifted coordinates against the old span
+                // would misfire on clipped boundary features.
+                if !feats.is_empty() && replacement.len() as i64 == end - start + 1 {
+                    let mut i = 0;
+                    while i < p.features.len() {
+                        if libregene_core::utils::feature_fully_within(&p.features[i], start, end) {
+                            let f = p.features.remove(i);
+                            impact.removed_features.push(libregene_core::models::RemovedFeatureImpact {
+                                name: f.name,
+                                ftype: f.ftype,
+                                location: format!("{}..{}", f.start, f.end),
+                            });
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
                 // revcomp/uppercase preserve length, so replacement.len()
                 // is the local coordinate space of the parsed annotations.
                 let repl_len = replacement.len() as i64;

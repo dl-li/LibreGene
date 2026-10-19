@@ -165,6 +165,22 @@ pub fn adjust_features_for_edit(
     });
 }
 
+/// True when every segment of `f` lies inside `[edit_start, edit_end]`
+/// (0-based inclusive). A replacement that carries its own annotations
+/// supersedes such features — `adjust_features_for_edit` keeps them on
+/// equal-length edits (point mutations must not drop annotations), so the
+/// caller removes them before transferring the incoming ones, or the edit
+/// duplicates the feature (original + pasted copy).
+pub fn feature_fully_within(f: &crate::models::Feature, edit_start: i64, edit_end: i64) -> bool {
+    if f.segments.is_empty() {
+        f.start >= edit_start && f.end <= edit_end
+    } else {
+        f.segments
+            .iter()
+            .all(|s| s.start >= edit_start && s.end <= edit_end)
+    }
+}
+
 /// Side effects of an edit on feature coordinates, derived with the same span
 /// math as [`adjust_features_for_edit`]: features whose every segment fell
 /// inside the deleted or replaced span are `removed`, and features with at
@@ -488,6 +504,28 @@ mod tests {
         assert_eq!(feats.len(), 2);
         assert_eq!(feats[0].id, "before");
         assert_eq!((feats[1].start, feats[1].end), (100, 200));
+    }
+
+    #[test]
+    fn feature_fully_within_checks_every_segment() {
+        // span-less feature uses start/end
+        assert!(feature_fully_within(&feat("in", 110, 150, vec![]), 100, 199));
+        assert!(feature_fully_within(&feat("exact", 100, 199, vec![]), 100, 199));
+        assert!(!feature_fully_within(&feat("left", 50, 150, vec![]), 100, 199));
+        assert!(!feature_fully_within(&feat("right", 150, 250, vec![]), 100, 199));
+        // multi-segment: all segments inside → within; one outside → not
+        assert!(feature_fully_within(
+            &feat("allIn", 110, 180, vec![(110, 130), (160, 180)]),
+            100,
+            199
+        ));
+        assert!(!feature_fully_within(
+            &feat("oneOut", 110, 300, vec![(110, 130), (250, 300)]),
+            100,
+            199
+        ));
+        // pure insertion span (end = start - 1) covers nothing
+        assert!(!feature_fully_within(&feat("at", 100, 100, vec![]), 100, 99));
     }
 
     #[test]
