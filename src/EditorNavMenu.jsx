@@ -543,7 +543,7 @@ export default function EditorNavMenu({
                     onToggleAlwaysExpandFeatures();
                   }}
                 >
-                  Always Expand Features
+                  Expand All Features
                 </DropdownMenuCheckboxItem>
               )}
               {isDna && onToggleAlwaysExpandPrimers && (
@@ -554,7 +554,7 @@ export default function EditorNavMenu({
                     onToggleAlwaysExpandPrimers();
                   }}
                 >
-                  Always Expand Primers
+                  Expand All Primers
                 </DropdownMenuCheckboxItem>
               )}
               {onFeatureLabelsBelowChange && (
