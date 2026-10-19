@@ -267,6 +267,15 @@ pub(crate) async fn blast_submit(
     Ok(url)
 }
 
+/// Open a URL in the system browser (About dialog's repository link).
+#[tauri::command]
+pub(crate) async fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// Activate the decoration plugin's overlay titlebar, then show the window.
 /// Windows start hidden (visible: false) so native decorations never flash.
 #[cfg(target_os = "macos")]

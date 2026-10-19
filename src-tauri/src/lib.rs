@@ -165,6 +165,7 @@ pub fn run() {
             commands::projects::rekey_project,
             commands::primers::compute_tm,
             commands::misc::blast_submit,
+            commands::misc::open_url,
             commands::misc::get_mcp_config,
             commands::misc::set_mcp_config,
             commands::misc::get_mcp_token,

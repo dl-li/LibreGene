@@ -417,6 +417,11 @@ export async function blastSubmit(sequence, moleculeType) {
   return tauriInvoke('blast_submit', { sequence, moleculeType });
 }
 
+/** Open a URL in the system browser. */
+export async function openUrl(url) {
+  return tauriInvoke('open_url', { url });
+}
+
 // ---------------------------------------------------------------------------
 // MCP server settings
 // ---------------------------------------------------------------------------

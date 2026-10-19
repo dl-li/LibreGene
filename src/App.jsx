@@ -23,6 +23,7 @@ import SettingsPage from './components/SettingsPage';
 import TitleBar from './components/TitleBar';
 import ContextMenuHost from './components/ContextMenuHost';
 import AppDialogs from './components/AppDialogs';
+import AboutDialog from './dialogs/AboutDialog';
 import useSettings from './hooks/useSettings';
 import useProjects from './hooks/useProjects';
 import useTabDrag from './hooks/useTabDrag';
@@ -56,6 +57,7 @@ import {
   Bot,
   Lock,
   Clock,
+  Info,
 } from 'lucide-react';
 import { getFileIcon } from './fileIcons';
 import {
@@ -165,6 +167,7 @@ export default function App() {
     setSettingsOpen(true);
   };
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [newSeqOpen, setNewSeqOpen] = useState(false);
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
   const unsavedPendingRef = useRef(null);
@@ -1038,6 +1041,16 @@ export default function App() {
                   <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setAboutOpen(true)}
+                  tooltip="About LibreGene"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Info className="size-4" />
+                  <span>About</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -1167,6 +1180,8 @@ export default function App() {
             )}
           </div>
         </div>
+
+        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
 
         <SettingsPage
           open={settingsOpen}
