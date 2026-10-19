@@ -60,6 +60,12 @@ const ENZYME_FILTER_VALUES = new Set([
 // and must default to verifying the access token.
 const MCP_CONFIG_DEFAULTS = { enabled: true, port: 8766, requireAuth: true };
 
+// Per-molecule-type sequence case display: 'asis' keeps the stored case,
+// 'upper'/'lower' force a case at render time. Defaults match the historical
+// behavior (protein always uppercase).
+const CASE_DISPLAY_DEFAULTS = { dna: 'asis', rna: 'asis', protein: 'upper' };
+const CASE_DISPLAY_VALUES = new Set(['asis', 'upper', 'lower']);
+
 export default function useSettings() {
   const [disabledPlugins, setDisabledPlugins] = useState(() => {
     try {
@@ -245,6 +251,30 @@ export default function useSettings() {
       return MCP_CONFIG_DEFAULTS;
     }
   });
+  const [caseDisplay, setCaseDisplay] = useState(() => {
+    const out = { ...CASE_DISPLAY_DEFAULTS };
+    try {
+      const raw = JSON.parse(localStorage.getItem('caseDisplay')) || {};
+      for (const k of Object.keys(out)) {
+        if (CASE_DISPLAY_VALUES.has(raw[k])) out[k] = raw[k];
+      }
+    } catch {
+      // fall through to defaults
+    }
+    return out;
+  });
+  const onCaseDisplayChange = useCallback((moleculeType, value) => {
+    if (!(moleculeType in CASE_DISPLAY_DEFAULTS) || !CASE_DISPLAY_VALUES.has(value)) return;
+    setCaseDisplay((prev) => {
+      const next = { ...prev, [moleculeType]: value };
+      try {
+        localStorage.setItem('caseDisplay', JSON.stringify(next));
+      } catch {
+        // storage may be unavailable; selection still applies in-memory
+      }
+      return next;
+    });
+  }, []);
 
   const onToggleFeatures = useCallback(() => setShowFeatures((v) => !v), []);
   const handlePluginToggle = useCallback((id) => {
@@ -433,6 +463,8 @@ export default function useSettings() {
     mcpConfig,
     setMcpConfigState,
     handleMcpConfigChange,
+    caseDisplay,
+    onCaseDisplayChange,
     pluginToggles,
     pluginSettings,
   };

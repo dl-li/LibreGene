@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
+  Dna,
   SlidersHorizontal,
   Scissors,
   FlaskConical,
@@ -72,6 +73,18 @@ const TM_FIELDS = [
   { key: 'primerConc', label: 'Primer', unit: 'nM', mult: 1e9, step: 50, min: 0, max: 5000 },
 ];
 
+const CASE_DISPLAY_OPTIONS = [
+  { value: 'asis', label: 'As-is' },
+  { value: 'upper', label: 'Uppercase' },
+  { value: 'lower', label: 'Lowercase' },
+];
+
+const CASE_DISPLAY_TYPES = [
+  { key: 'dna', label: 'DNA', hint: 'e.g. .gbk, .dna, .fasta' },
+  { key: 'rna', label: 'RNA', hint: 'e.g. .rna' },
+  { key: 'protein', label: 'Protein', hint: 'e.g. .faa, .prot' },
+];
+
 export default function SettingsPage({
   open,
   onOpenChange,
@@ -90,12 +103,14 @@ export default function SettingsPage({
   onAlignmentAlgorithmChange,
   tmParams,
   setTmParams,
+  caseDisplay = { dna: 'asis', rna: 'asis', protein: 'upper' },
+  onCaseDisplayChange,
   plugins = [],
   disabledPlugins = [],
   onTogglePlugin,
   focusSection,
 }) {
-  const [section, setSection] = useState('tracks');
+  const [section, setSection] = useState('sequence');
   const [showBuiltinPlugins, setShowBuiltinPlugins] = useState(false);
 
   const trackFieldPlugins = plugins.filter(
@@ -105,6 +120,12 @@ export default function SettingsPage({
   const builtinPlugins = plugins.filter((p) => !p.distributable);
 
   const sections = [
+    {
+      id: 'sequence',
+      label: 'Sequence',
+      icon: Dna,
+      description: 'How sequence letters are displayed',
+    },
     trackFieldPlugins.length > 0 && {
       id: 'tracks',
       label: 'Tracks',
@@ -143,7 +164,7 @@ export default function SettingsPage({
   useEffect(() => {
     if (!open) return;
     if (focusSection === 'plugins') setSection('plugins');
-    else setSection(trackFieldPlugins.length > 0 ? 'tracks' : 'enzymes');
+    else setSection('sequence');
   }, [open]);
 
   const renderPluginRow = (p) => (
@@ -206,6 +227,38 @@ export default function SettingsPage({
             <p className="mt-0.5 text-xs text-muted-foreground">{activeSection.description}</p>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
+            {activeSection.id === 'sequence' && (
+              <div className="divide-y divide-border/60">
+                {CASE_DISPLAY_TYPES.map((t) => (
+                  <SettingRow
+                    key={t.key}
+                    label={`${t.label} case display`}
+                    hint={
+                      t.key === 'protein'
+                        ? 'Applies to the editor, map view and copied text'
+                        : `As-is keeps the case stored in the file (${t.hint})`
+                    }
+                  >
+                    <Select
+                      value={caseDisplay[t.key] || 'asis'}
+                      onValueChange={(v) => onCaseDisplayChange?.(t.key, v)}
+                    >
+                      <SelectTrigger className="h-8 w-32 px-2 py-0 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CASE_DISPLAY_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                ))}
+              </div>
+            )}
+
             {activeSection.id === 'tracks' && (
               <div className="divide-y divide-border/60">
                 {trackFieldPlugins.map((p) => {

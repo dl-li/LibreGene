@@ -203,6 +203,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onToggleAutoAddPrimers,
   myEnzymes = [],
   moleculeType = 'dna',
+  // Per-molecule-type case display preference: { dna, rna, protein } each
+  // 'asis' | 'upper' | 'lower'.
+  caseDisplay,
   // Agent-tab lock: the nav menu is replaced by a teal-outlined control pill
   // (same look as the primer-design pick bar), which also blocks nav-level
   // misoperation while the MCP agent works.
@@ -610,7 +613,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
     return base;
   }, [layoutParams, dsShift]);
 
-  const cleanSeq = moleculeType === 'protein' ? (sequence || '').toUpperCase() : sequence || '';
+  // Display-case transform (setting: Sequence → case display). Everything
+  // downstream of cleanSeq — rendering, copy, primer-template text extraction —
+  // follows it; stored data is untouched. Case-insensitive consumers (search,
+  // matching, Tm) are unaffected either way.
+  const caseMode = caseDisplay?.[moleculeType] || (moleculeType === 'protein' ? 'upper' : 'asis');
+  const cleanSeq = useMemo(() => {
+    const s = sequence || '';
+    if (caseMode === 'upper') return s.toUpperCase();
+    if (caseMode === 'lower') return s.toLowerCase();
+    return s;
+  }, [sequence, caseMode]);
 
   // Async Tm computation via backend NN model (DNA only)
   useEffect(() => {

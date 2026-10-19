@@ -43,6 +43,7 @@ export default function ProjectWorkspace({
   primerSeedLength,
   alignmentAlgorithm,
   tmParams,
+  caseDisplay,
   layoutParams,
   showFeatures,
   onToggleFeatures,
@@ -923,6 +924,7 @@ export default function ProjectWorkspace({
               onPrimerDeleteRequest={setPrimerDeleteConfirm}
               primerSeedLength={primerSeedLength}
               tmParams={tmParams}
+              caseDisplay={caseDisplay}
               onSelectionChange={handleSelectionChange}
               scrollContainerRef={mainScrollRef}
               onUndo={handleUndo}

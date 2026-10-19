@@ -115,6 +115,8 @@ export default function App() {
     mcpConfig,
     setMcpConfigState,
     handleMcpConfigChange,
+    caseDisplay,
+    onCaseDisplayChange,
     pluginToggles,
     pluginSettings,
   } = useSettings();
@@ -684,6 +686,7 @@ export default function App() {
       primerSeedLength,
       alignmentAlgorithm,
       tmParams,
+      caseDisplay,
       layoutParams,
       showFeatures,
       onToggleFeatures,
@@ -728,6 +731,7 @@ export default function App() {
       primerSeedLength,
       alignmentAlgorithm,
       tmParams,
+      caseDisplay,
       layoutParams,
       showFeatures,
       onToggleFeatures,
@@ -1200,6 +1204,8 @@ export default function App() {
           onAlignmentAlgorithmChange={onAlignmentAlgorithmChange}
           tmParams={tmParams}
           setTmParams={setTmParams}
+          caseDisplay={caseDisplay}
+          onCaseDisplayChange={onCaseDisplayChange}
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
