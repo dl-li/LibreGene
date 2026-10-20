@@ -7,10 +7,10 @@ import MonoRun from './MonoRun';
 // strand's text baseline (getSeqY(row)): the ruler's horizontal line (between
 // the strands), tick half-length (ticks cross the line, SnapGene-style),
 // bottom strand baseline, and the total height the row must reserve below.
-export const DS_RULER_Y = 7;
+export const DS_RULER_Y = 10;
 export const DS_TICK_HALF = 3;
-export const DS_BOTTOM_Y = 22;
-export const DS_BLOCK_H = 26;
+export const DS_BOTTOM_Y = 28;
+export const DS_BLOCK_H = 33;
 
 // SnapGene-style ruler between the strands: one horizontal line across the
 // row with a small tick per template column. No numbers. Insertion slots
