@@ -514,20 +514,25 @@ export function renderTooltips({
           const tGapX = baseX + relPos(cp.topCutIndex) * cw;
           const bGapX = baseX + relPos(cp.botCutIndex) * cw;
           const isLocal = i === entry.pairIndex;
+          // In-box portion, re-stroked with the tooltip background color as a
+          // casing so the connector cuts cleanly through text and ticks. The
+          // round cap's radius must stay inside the box — starting the casing
+          // half a width below the top edge keeps the cap from whiting out
+          // the border and the line segment above it.
+          const caseW = Number(sw) + 5;
           return {
             tGapX,
             bGapX,
             isLocal,
+            caseW,
             path: [
               `M ${tGapX} ${ttY - 2}`,
               `L ${tGapX} ${hY}`,
               `L ${bGapX} ${hY}`,
               `L ${bGapX} ${endY}`,
             ].join(' '),
-            // In-box portion, re-stroked with the tooltip background color as
-            // a casing so the connector cuts cleanly through text and ticks.
             casingPath: [
-              `M ${tGapX} ${ttY}`,
+              `M ${tGapX} ${ttY + caseW / 2}`,
               `L ${tGapX} ${hY}`,
               `L ${bGapX} ${hY}`,
               `L ${bGapX} ${endY}`,
@@ -590,7 +595,7 @@ export function renderTooltips({
                 d={pe.casingPath}
                 fill="none"
                 stroke="#FFFFFF"
-                strokeWidth={Number(sw) + 5}
+                strokeWidth={pe.caseW}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
