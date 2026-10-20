@@ -1,5 +1,6 @@
 import React from 'react';
 import { cw, bgColor, monoFont, complement, enzymeActiveBlue } from '../../editorConstants';
+import { DS_RULER_Y, DS_TICK_HALF } from './DsLayers';
 import { isIISEnzyme, splitEnzName } from '../seqUtils';
 
 export function renderEnzymeLines({ enzymeLayout, enzymeLinesPath, lp }) {
@@ -566,6 +567,20 @@ export function renderTooltips({
                 strokeLinecap="round"
               />
             ))}
+            {/* Double-strand view: the white box would otherwise hide the
+                row's ruler; re-draw it inside the box so the tooltip reads
+                like the editor row it covers. */}
+            {dsBottomY > 0 && (
+              <g stroke="#4b5563" strokeWidth="1.5" fill="none">
+                <line x1={leftX} x2={leftX + ttW} y1={sy + DS_RULER_Y} y2={sy + DS_RULER_Y} />
+                <path
+                  d={Array.from({ length: dispLen }, (_, i) => {
+                    const tx = baseX + i * cw + cw / 2;
+                    return `M ${tx} ${sy + DS_RULER_Y - DS_TICK_HALF} v ${DS_TICK_HALF * 2}`;
+                  }).join(' ')}
+                />
+              </g>
+            )}
             <text y={sy} fontFamily={monoFont} fontSize="14px">
               {sub.split('').map((c, i) => {
                 const bold = isRecBold(i);
