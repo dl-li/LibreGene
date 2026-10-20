@@ -1778,13 +1778,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
           items.push({
             icon: Paintbrush,
             label: 'Text Color',
-            children: isDna
+            children: dsOn
               ? [
                   { label: '(+) Strand', children: paletteItems('+') },
                   { label: '(−) Strand', children: paletteItems('-') },
                   { label: 'Both Strands', children: paletteItems('both') },
                 ]
-              : paletteItems('+'),
+              : paletteItems(isDna ? 'both' : '+'),
           });
         }
       }
@@ -1809,6 +1809,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       selectedPrimerIds,
       enrichedPrimers,
       isDna,
+      dsOn,
       copySelection,
       copyAmplimer,
       primerMenuItems,
