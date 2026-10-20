@@ -68,6 +68,8 @@ export default function ProjectWorkspace({
   onViewModeChange,
   showDoubleStrand = false,
   onToggleDoubleStrand,
+  showTextColor = true,
+  onToggleTextColor,
   // Width of the collapsed sidebar icon rail overlaying the content's left
   // edge (main window); forwarded to SequenceEditor for label clamping.
   leftViewportInset = 0,
@@ -939,8 +941,8 @@ export default function ProjectWorkspace({
               canDirectSave={canDirectSave}
               onFeatureFtypeChange={handleFeatureFtypeChange}
               onFeatureColorChange={handleFeatureColorChange}
-              textColorsTop={textColorsTop}
-              textColorsBottom={textColorsBottom}
+              textColorsTop={showTextColor ? textColorsTop : undefined}
+              textColorsBottom={showTextColor ? textColorsBottom : undefined}
               onSetTextColor={handleSetTextColor}
               onFeatureLocationChange={handleFeatureLocationChange}
               onFeatureNameChange={handleFeatureNameChange}
@@ -1064,6 +1066,8 @@ export default function ProjectWorkspace({
               onViewModeChange={onViewModeChange}
               showDoubleStrand={showDoubleStrand}
               onToggleDoubleStrand={onToggleDoubleStrand}
+              showTextColor={showTextColor}
+              onToggleTextColor={onToggleTextColor}
               editorScrollRef={editorScrollRef}
               alignNavRef={alignNavRef}
               leftViewportInset={leftViewportInset}

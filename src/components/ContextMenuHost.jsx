@@ -8,6 +8,84 @@ import { useWheelContainment } from '@/hooks/useWheelContainment';
 // 开发调试用：每个菜单末尾固定附带 Reload
 const RELOAD_ITEM = { icon: RotateCw, label: 'Reload', danger: true, reload: true };
 
+const itemClass = (item) =>
+  cn(
+    'flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4 [&_svg]:shrink-0',
+    item.bold && 'font-bold',
+    item.danger && 'text-destructive',
+  );
+
+// Submenu with arbitrary nesting. Opens on hover (state-driven, not CSS
+// group-hover) so the flyout can be measured and flipped/clamped inside the
+// viewport: opens left when the right side would overflow, shifts up when the
+// bottom would overflow.
+function SubMenuItem({ item, renderLeaf }) {
+  const [open, setOpen] = useState(false);
+  const [flyStyle, setFlyStyle] = useState(null);
+  const wrapRef = useRef(null);
+  const flyRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const wrap = wrapRef.current;
+    const fly = flyRef.current;
+    if (!wrap || !fly) return;
+    const r = wrap.getBoundingClientRect();
+    const fw = fly.offsetWidth;
+    const fh = fly.offsetHeight;
+    const margin = 4;
+    const openLeft = r.right + fw > window.innerWidth - margin && r.left - fw >= margin;
+    let top = 0; // flyout top aligns with the trigger's top
+    if (r.top + fh > window.innerHeight - margin) {
+      top = window.innerHeight - margin - fh - r.top;
+    }
+    if (r.top + top < margin) top = margin - r.top;
+    setFlyStyle({
+      left: openLeft ? 'auto' : '100%',
+      right: openLeft ? '100%' : 'auto',
+      top,
+    });
+  }, [open]);
+
+  return (
+    <div
+      ref={wrapRef}
+      className="relative"
+      onMouseEnter={() => {
+        setFlyStyle(null);
+        setOpen(true);
+      }}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button type="button" disabled={item.disabled} className={itemClass(item)}>
+        {item.icon && <item.icon />}
+        <span>{item.label}</span>
+        <ChevronRight className="ml-auto" />
+      </button>
+      {open && (
+        <div
+          ref={flyRef}
+          className="absolute z-10 min-w-36 rounded-lg border border-border/60 bg-popover p-1 shadow-lg"
+          style={{
+            ...(flyStyle || { left: '100%', top: 0 }),
+            visibility: flyStyle ? 'visible' : 'hidden',
+          }}
+        >
+          {item.children.map((child, j) =>
+            child.type === 'separator' ? (
+              <div key={j} className="-mx-1 my-1 h-px bg-border/60" />
+            ) : child.children ? (
+              <SubMenuItem key={j} item={child} renderLeaf={renderLeaf} />
+            ) : (
+              renderLeaf(child, j, 'sub-')
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ContextMenuHost() {
   const [menu, setMenu] = useState(null); // { x, y, items }
   const [pos, setPos] = useState(null);
@@ -80,15 +158,6 @@ export default function ContextMenuHost() {
   if (items.length) items.push({ type: 'separator' });
   if (menu) items.push(RELOAD_ITEM);
 
-  const itemClass = (item) =>
-    cn(
-      'flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4 [&_svg]:shrink-0',
-      item.bold && 'font-bold',
-      item.danger && 'text-destructive',
-    );
-  // Flyout opens to the left when the menu is close to the right viewport edge.
-  const flipSub = menu ? menu.x > window.innerWidth - 400 : false;
-
   const renderLeaf = (item, i, keyPrefix = '') => (
     <button
       key={`${keyPrefix}${i}`}
@@ -126,27 +195,7 @@ export default function ContextMenuHost() {
             item.type === 'separator' ? (
               <div key={i} className="-mx-1 my-1 h-px bg-border/60" />
             ) : item.children ? (
-              <div key={i} className="group relative">
-                <button type="button" disabled={item.disabled} className={itemClass(item)}>
-                  {item.icon && <item.icon />}
-                  <span>{item.label}</span>
-                  <ChevronRight className="ml-auto" />
-                </button>
-                <div
-                  className={cn(
-                    'absolute top-0 z-10 hidden min-w-36 rounded-lg border border-border/60 bg-popover p-1 shadow-lg group-hover:block',
-                    flipSub ? 'right-full' : 'left-full',
-                  )}
-                >
-                  {item.children.map((child, j) =>
-                    child.type === 'separator' ? (
-                      <div key={j} className="-mx-1 my-1 h-px bg-border/60" />
-                    ) : (
-                      renderLeaf(child, j, 'sub-')
-                    ),
-                  )}
-                </div>
-              </div>
+              <SubMenuItem key={i} item={item} renderLeaf={renderLeaf} />
             ) : (
               renderLeaf(item, i)
             ),

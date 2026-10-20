@@ -202,6 +202,15 @@ export default function useSettings() {
       return false;
     }
   });
+  // Default on, unlike the other show* toggles.
+  const [showTextColor, setShowTextColor] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('showTextColor'));
+      return v === null ? true : !!v;
+    } catch {
+      return true;
+    }
+  });
   const [methylationOverlap, setMethylationOverlap] = useState(2);
   // Hard cap on displayed cut sites per enzyme, applied to every enzyme filter
   // including "All". Guards the map against 4-cutters exploding on long sequences.
@@ -423,6 +432,20 @@ export default function useSettings() {
     [],
   );
 
+  const onToggleTextColor = useCallback(
+    () =>
+      setShowTextColor((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('showTextColor', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
+    [],
+  );
+
   return {
     disabledPlugins,
     handleTogglePlugin,
@@ -448,6 +471,8 @@ export default function useSettings() {
     onViewModeChange,
     showDoubleStrand,
     onToggleDoubleStrand,
+    showTextColor,
+    onToggleTextColor,
     methylationSystems,
     setMethylationSystems,
     methylationOverlap,

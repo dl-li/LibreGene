@@ -234,6 +234,8 @@ export default function EditorNavMenu({
   onViewModeChange,
   showDoubleStrand = false,
   onToggleDoubleStrand,
+  showTextColor = true,
+  onToggleTextColor,
   alwaysExpandFeatures = false,
   onToggleAlwaysExpandFeatures,
   alwaysExpandPrimers = false,
@@ -366,6 +368,7 @@ export default function EditorNavMenu({
   const viewLeftClick = (() => {
     if (lastViewOption === 'orfs' && onToggleOrfs) return onToggleOrfs;
     if (lastViewOption === 'dsRuler' && onToggleDoubleStrand) return onToggleDoubleStrand;
+    if (lastViewOption === 'textColor' && onToggleTextColor) return onToggleTextColor;
     if (lastViewOption === 'expandFeatures' && onToggleAlwaysExpandFeatures)
       return onToggleAlwaysExpandFeatures;
     if (lastViewOption === 'expandPrimers' && onToggleAlwaysExpandPrimers)
@@ -496,8 +499,10 @@ export default function EditorNavMenu({
           </DropdownMenuRadioGroup>
           {(onToggleOrfs ||
             (isDna && onToggleDoubleStrand) ||
+            onToggleTextColor ||
             hasExpandItems ||
             viewTogglePlugins.length > 0) && <DropdownMenuSeparator />}
+          {/* Track overlays: ORFs, GC content, … */}
           {onToggleOrfs && (
             <DropdownMenuCheckboxItem
               checked={showOrfs}
@@ -507,17 +512,6 @@ export default function EditorNavMenu({
               }}
             >
               Show ORFs
-            </DropdownMenuCheckboxItem>
-          )}
-          {isDna && onToggleDoubleStrand && (
-            <DropdownMenuCheckboxItem
-              checked={showDoubleStrand}
-              onCheckedChange={() => {
-                setLastViewOption('dsRuler');
-                onToggleDoubleStrand();
-              }}
-            >
-              Show Both Strands
             </DropdownMenuCheckboxItem>
           )}
           {viewTogglePlugins.map((p) => (
@@ -532,6 +526,30 @@ export default function EditorNavMenu({
               {p.featuresMenuItem.label}
             </DropdownMenuCheckboxItem>
           ))}
+          {/* Strand display */}
+          {((isDna && onToggleDoubleStrand) || onToggleTextColor) && <DropdownMenuSeparator />}
+          {isDna && onToggleDoubleStrand && (
+            <DropdownMenuCheckboxItem
+              checked={showDoubleStrand}
+              onCheckedChange={() => {
+                setLastViewOption('dsRuler');
+                onToggleDoubleStrand();
+              }}
+            >
+              Show Both Strands
+            </DropdownMenuCheckboxItem>
+          )}
+          {onToggleTextColor && (
+            <DropdownMenuCheckboxItem
+              checked={showTextColor}
+              onCheckedChange={() => {
+                setLastViewOption('textColor');
+                onToggleTextColor();
+              }}
+            >
+              Show Text Color
+            </DropdownMenuCheckboxItem>
+          )}
           {hasExpandItems && (
             <>
               <DropdownMenuSeparator />

@@ -239,6 +239,9 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // SnapGene-style three-line rows: top strand, ruler, complement strand.
   showDoubleStrand = false,
   onToggleDoubleStrand,
+  // View-menu toggle for per-strand text colors (rendering gate only).
+  showTextColor = true,
+  onToggleTextColor,
   // ProjectWorkspace's ref onto the editor container div (the horizontal
   // scroll host in continuous mode); merged with the internal containerRef.
   editorScrollRef,
@@ -1772,31 +1775,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
             },
           ];
           items.push({ type: 'separator' });
-          if (isDna) {
-            items.push(
-              {
-                icon: Paintbrush,
-                label: 'Text Color: (+) Strand',
-                children: paletteItems('+'),
-              },
-              {
-                icon: Paintbrush,
-                label: 'Text Color: (−) Strand',
-                children: paletteItems('-'),
-              },
-              {
-                icon: Paintbrush,
-                label: 'Text Color: Both Strands',
-                children: paletteItems('both'),
-              },
-            );
-          } else {
-            items.push({
-              icon: Paintbrush,
-              label: 'Text Color',
-              children: paletteItems('+'),
-            });
-          }
+          items.push({
+            icon: Paintbrush,
+            label: 'Text Color',
+            children: isDna
+              ? [
+                  { label: '(+) Strand', children: paletteItems('+') },
+                  { label: '(−) Strand', children: paletteItems('-') },
+                  { label: 'Both Strands', children: paletteItems('both') },
+                ]
+              : paletteItems('+'),
+          });
         }
       }
       if (backgroundOptions.length > 0 && onBackgroundChange) {
@@ -3113,6 +3102,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onViewModeChange={onViewModeChange}
           showDoubleStrand={showDoubleStrand}
           onToggleDoubleStrand={onToggleDoubleStrand}
+          showTextColor={showTextColor}
+          onToggleTextColor={onToggleTextColor}
           alwaysExpandFeatures={alwaysExpandFeatures}
           onToggleAlwaysExpandFeatures={onToggleAlwaysExpandFeatures}
           alwaysExpandPrimers={alwaysExpandPrimers}
