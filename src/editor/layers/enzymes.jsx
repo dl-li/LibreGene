@@ -590,7 +590,7 @@ export function renderTooltips({
                 d={pe.casingPath}
                 fill="none"
                 stroke="#FFFFFF"
-                strokeWidth={Number(sw) + 3}
+                strokeWidth={Number(sw) + 5}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
