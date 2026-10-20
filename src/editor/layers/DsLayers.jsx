@@ -1,5 +1,6 @@
 import React from 'react';
 import { cw, monoFont, getX, complement } from '../../editorConstants';
+import { DEFAULT_TEXT_FILL, splitByTextColor } from '../textColors';
 import MonoRun from './MonoRun';
 
 // Vertical geometry of the double-strand block, measured from the top
@@ -73,6 +74,8 @@ export const ComplementLayer = React.memo(function ComplementLayer({
   colRuns,
   colFromVis,
   visibleCols,
+  // Bottom-strand text colors (canonical 0-based inclusive runs).
+  textColors,
 }) {
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
@@ -109,18 +112,35 @@ export const ComplementLayer = React.memo(function ComplementLayer({
     const sy = getSeqY(r) + DS_BOTTOM_Y;
     let cc = 0;
     const tspans = [];
+    const hasColors = textColors && textColors.length > 0;
     for (const [visStart, runLen] of colRuns(c0, c1, r)) {
       for (let off = 0; off < runLen; off += 200) {
         const n = Math.min(200, runLen - off);
-        const text = chunk
-          .slice(cc, cc + n)
-          .split('')
-          .map(complement)
-          .join('');
+        const complementText = (s) => s.split('').map(complement).join('');
+        if (hasColors) {
+          for (const piece of splitByTextColor(rowStart + c0 + cc, n, textColors)) {
+            const text = complementText(chunk.slice(cc + piece.off, cc + piece.off + piece.len));
+            tspans.push(
+              <MonoRun
+                key={visStart + off + piece.off}
+                visStart={visStart + off + piece.off}
+                text={text}
+                fill={piece.color || DEFAULT_TEXT_FILL}
+              />,
+            );
+          }
+        } else {
+          const text = complementText(chunk.slice(cc, cc + n));
+          tspans.push(
+            <MonoRun
+              key={visStart + off}
+              visStart={visStart + off}
+              text={text}
+              fill={DEFAULT_TEXT_FILL}
+            />,
+          );
+        }
         cc += n;
-        tspans.push(
-          <MonoRun key={visStart + off} visStart={visStart + off} text={text} fill="#1f2937" />,
-        );
       }
     }
     rows.push(

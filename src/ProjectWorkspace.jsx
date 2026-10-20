@@ -102,6 +102,10 @@ export default function ProjectWorkspace({
     setAlignments,
     moleculeType,
     setMoleculeType,
+    textColorsTop,
+    setTextColorsTop,
+    textColorsBottom,
+    setTextColorsBottom,
     tracePath,
     setTracePath,
     expandedChromAlnId,
@@ -218,11 +222,15 @@ export default function ProjectWorkspace({
     sequence,
     features,
     primers,
+    textColorsTop,
+    textColorsBottom,
     setSequence,
     setFeatures,
     setEnzymes,
     setPrimers,
     setAlignments,
+    setTextColorsTop,
+    setTextColorsBottom,
   });
 
   const { editDialog, setEditDialog, handleEditConfirm } = useEditDialog({
@@ -234,11 +242,15 @@ export default function ProjectWorkspace({
     sequence,
     features,
     primers,
+    textColorsTop,
+    textColorsBottom,
     setSequence,
     setFeatures,
     setEnzymes,
     setPrimers,
     setAlignments,
+    setTextColorsTop,
+    setTextColorsBottom,
     setIsDirty,
     onProjectsSync,
     isDna,
@@ -269,6 +281,8 @@ export default function ProjectWorkspace({
         sequence: initialData.sequence,
         features: initialData.features || EMPTY_ARRAY,
         primers: initialData.primers || EMPTY_ARRAY,
+        textColorsTop: initialData.textColorsTop || EMPTY_ARRAY,
+        textColorsBottom: initialData.textColorsBottom || EMPTY_ARRAY,
         cursorIndex: null,
         selStart: null,
         selEnd: null,
@@ -297,10 +311,14 @@ export default function ProjectWorkspace({
           setMoleculeType(data.moleculeType || 'dna');
           setTopologyLive(data.topology || 'circular');
           setTracePath(data.tracePath || null);
+          setTextColorsTop(data.textColorsTop || EMPTY_ARRAY);
+          setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
           editHistoryRef.current.reset({
             sequence: data.sequence,
             features: data.features || EMPTY_ARRAY,
             primers: data.primers || EMPTY_ARRAY,
+            textColorsTop: data.textColorsTop || EMPTY_ARRAY,
+            textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
             cursorIndex: null,
             selStart: null,
             selEnd: null,
@@ -352,10 +370,14 @@ export default function ProjectWorkspace({
         setMoleculeType(data.moleculeType || 'dna');
         setTopologyLive(data.topology || 'circular');
         setTracePath(data.tracePath || null);
+        setTextColorsTop(data.textColorsTop || EMPTY_ARRAY);
+        setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
         editHistoryRef.current.reset({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
           primers: data.primers || EMPTY_ARRAY,
+          textColorsTop: data.textColorsTop || EMPTY_ARRAY,
+          textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
           cursorIndex: null,
           selStart: null,
           selEnd: null,
@@ -627,6 +649,7 @@ export default function ProjectWorkspace({
   const {
     handleFeatureFtypeChange,
     handleFeatureColorChange,
+    handleSetTextColor,
     handleFeatureNameChange,
     handlePrimerChange,
     handleToggleTopology,
@@ -657,6 +680,8 @@ export default function ProjectWorkspace({
     setPrimers,
     setEnzymes,
     setAlignments,
+    setTextColorsTop,
+    setTextColorsBottom,
     setTopologyLive,
     topologyLive,
     setExpandedChromAlnId,
@@ -914,6 +939,9 @@ export default function ProjectWorkspace({
               canDirectSave={canDirectSave}
               onFeatureFtypeChange={handleFeatureFtypeChange}
               onFeatureColorChange={handleFeatureColorChange}
+              textColorsTop={textColorsTop}
+              textColorsBottom={textColorsBottom}
+              onSetTextColor={handleSetTextColor}
               onFeatureLocationChange={handleFeatureLocationChange}
               onFeatureNameChange={handleFeatureNameChange}
               onFeatureStrandChange={handleFeatureStrandChange}

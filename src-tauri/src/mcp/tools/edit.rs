@@ -408,6 +408,22 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 end,
                 replacement.len() as i64,
             );
+            // Text color runs ride the same span math.
+            let new_seq_len = p.length - (end - start + 1) + replacement.len() as i64;
+            p.text_colors_top = libregene_core::utils::adjust_text_colors_for_edit(
+                &p.text_colors_top,
+                start,
+                end,
+                replacement.len() as i64,
+                new_seq_len,
+            );
+            p.text_colors_bottom = libregene_core::utils::adjust_text_colors_for_edit(
+                &p.text_colors_bottom,
+                start,
+                end,
+                replacement.len() as i64,
+                new_seq_len,
+            );
             if let Some((feats, primers)) = parsed_annotations {
                 // The replacement carries its own annotations: on an
                 // equal-length edit the covered features survive

@@ -1,5 +1,6 @@
 import React from 'react';
 import { cw, monoFont, getX } from '../../editorConstants';
+import { DEFAULT_TEXT_FILL, splitByTextColor } from '../textColors';
 import MonoRun from './MonoRun';
 
 // Stable background: all sequence text in dark color — doesn't depend on selection
@@ -19,6 +20,8 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
   // Continuous mode: the visible stream-cell window; the single row's text is
   // cropped to it (chunked MonoRuns) instead of emitting every base.
   visibleCols,
+  // Per-strand text colors (canonical 0-based inclusive runs); empty = default.
+  textColors,
 }) {
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
@@ -63,14 +66,35 @@ const SeqBgLayer = React.memo(function SeqBgLayer({
     // thousands of coordinates.
     let cc = 0;
     const tspans = [];
+    const hasColors = textColors && textColors.length > 0;
     for (const [visStart, runLen] of colRuns(c0, c1, r)) {
       for (let off = 0; off < runLen; off += 200) {
         const n = Math.min(200, runLen - off);
-        const text = chunk.slice(cc, cc + n);
+        if (hasColors) {
+          // Split the block at color boundaries; each piece is its own run.
+          for (const piece of splitByTextColor(rowStart + c0 + cc, n, textColors)) {
+            const text = chunk.slice(cc + piece.off, cc + piece.off + piece.len);
+            tspans.push(
+              <MonoRun
+                key={visStart + off + piece.off}
+                visStart={visStart + off + piece.off}
+                text={text}
+                fill={piece.color || DEFAULT_TEXT_FILL}
+              />,
+            );
+          }
+        } else {
+          const text = chunk.slice(cc, cc + n);
+          tspans.push(
+            <MonoRun
+              key={visStart + off}
+              visStart={visStart + off}
+              text={text}
+              fill={DEFAULT_TEXT_FILL}
+            />,
+          );
+        }
         cc += n;
-        tspans.push(
-          <MonoRun key={visStart + off} visStart={visStart + off} text={text} fill="#1f2937" />,
-        );
       }
     }
     rows.push(

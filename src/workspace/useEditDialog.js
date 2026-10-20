@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { addPrimers, getProject, updateSequence } from '../tauriApi';
 import { adjustAlignmentsForEdit } from '../alignmentEdit';
+import { adjustTextColorsForEdit } from '../editor/textColors';
 import { EMPTY_ARRAY } from './constants';
 
 // Pasted annotations supersede pre-existing features fully covered by the
@@ -23,11 +24,15 @@ export default function useEditDialog({
   sequence,
   features,
   primers,
+  textColorsTop,
+  textColorsBottom,
   setSequence,
   setFeatures,
   setEnzymes,
   setPrimers,
   setAlignments,
+  setTextColorsTop,
+  setTextColorsBottom,
   setIsDirty,
   onProjectsSync,
   isDna,
@@ -235,10 +240,26 @@ export default function useEditDialog({
             : selStart + newLen - 1;
 
       // Push new state to undo history (includes adjusted features for correct undo)
+      const adjustedTextColorsTop = adjustTextColorsForEdit(
+        textColorsTop || EMPTY_ARRAY,
+        editStart,
+        editEnd,
+        oldLen,
+        newLen,
+      );
+      const adjustedTextColorsBottom = adjustTextColorsForEdit(
+        textColorsBottom || EMPTY_ARRAY,
+        editStart,
+        editEnd,
+        oldLen,
+        newLen,
+      );
       editHistoryRef.current.push({
         sequence: newSeq,
         features: mergedFeatures,
         primers: primers || EMPTY_ARRAY,
+        textColorsTop: adjustedTextColorsTop,
+        textColorsBottom: adjustedTextColorsBottom,
         cursorIndex: postCursor,
         selStart: postSelStart,
         selEnd: postSelEnd,
@@ -260,6 +281,8 @@ export default function useEditDialog({
       // Optimistic UI update
       setSequence(newSeq);
       setFeatures(mergedFeatures);
+      setTextColorsTop(adjustedTextColorsTop);
+      setTextColorsBottom(adjustedTextColorsBottom);
       // Alignment models are anchored to template columns, so they have to be
       // carried over with the edit too — otherwise the lanes (and the
       // chromatogram riding on them) are drawn from the old model against the
@@ -269,7 +292,13 @@ export default function useEditDialog({
 
       // Send to backend for recomputation (enzymes, primer binding sites)
       try {
-        const data = await updateSequence(newSeq, mergedFeatures);
+        const data = await updateSequence(
+          newSeq,
+          mergedFeatures,
+          null,
+          adjustedTextColorsTop,
+          adjustedTextColorsBottom,
+        );
         if (operationGenRef.current !== gen) return;
         if (data && !data.error) {
           setSequence(data.sequence);
@@ -277,6 +306,8 @@ export default function useEditDialog({
           setEnzymes(data.enzymes || EMPTY_ARRAY);
           setPrimers(data.primers || EMPTY_ARRAY);
           setAlignments(data.alignments || EMPTY_ARRAY);
+          setTextColorsTop(data.textColorsTop || adjustedTextColorsTop);
+          setTextColorsBottom(data.textColorsBottom || adjustedTextColorsBottom);
           if (data.projects) onProjectsSync(data.projects);
 
           // Import primers from clipboard annotations (DNA only)
@@ -317,6 +348,8 @@ export default function useEditDialog({
               setEnzymes(refresh.enzymes || EMPTY_ARRAY);
               setPrimers(refresh.primers || EMPTY_ARRAY);
               setAlignments(refresh.alignments || EMPTY_ARRAY);
+              setTextColorsTop(refresh.textColorsTop || EMPTY_ARRAY);
+              setTextColorsBottom(refresh.textColorsBottom || EMPTY_ARRAY);
             }
           } catch {
             // recovery fetch failed; state left as-is
@@ -326,7 +359,17 @@ export default function useEditDialog({
         console.error('update_sequence exception:', e);
       }
     },
-    [sequence, editDialog, adjustAnnotations, features, primers, onProjectsSync, isDna],
+    [
+      sequence,
+      editDialog,
+      adjustAnnotations,
+      features,
+      primers,
+      textColorsTop,
+      textColorsBottom,
+      onProjectsSync,
+      isDna,
+    ],
   );
 
   return { editDialog, setEditDialog, handleEditConfirm };

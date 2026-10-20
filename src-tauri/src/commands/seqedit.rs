@@ -1,8 +1,9 @@
 use tauri::{AppHandle, State};
 
-use libregene_core::models::{Feature, Primer};
+use libregene_core::file_io::strand_colors;
+use libregene_core::models::{Feature, Primer, TextColorRange};
 
-use crate::kernels::{do_set_methylation, do_set_topology, do_update_sequence};
+use crate::kernels::{do_set_methylation, do_set_text_colors, do_set_topology, do_update_sequence};
 use crate::payload::resolve_project_id;
 use crate::state::AppState;
 
@@ -18,6 +19,8 @@ pub(crate) async fn update_sequence(
     sequence: String,
     features: Option<Vec<Feature>>,
     primers: Option<Vec<Primer>>,
+    text_colors_top: Option<Vec<TextColorRange>>,
+    text_colors_bottom: Option<Vec<TextColorRange>>,
 ) -> Result<serde_json::Value, String> {
     let project_id = match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => id,
@@ -56,6 +59,20 @@ pub(crate) async fn update_sequence(
             p.features = features;
         }
     }
+    // Text colors arrive already adjusted by the frontend (same client-side
+    // contract as features); canonicalize clamps them to the new length.
+    if text_colors_top.is_some() || text_colors_bottom.is_some() {
+        let new_len = sequence.len() as i64;
+        let mut pm = state.pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(top) = text_colors_top {
+                p.text_colors_top = strand_colors::canonicalize(&top, new_len);
+            }
+            if let Some(bottom) = text_colors_bottom {
+                p.text_colors_bottom = strand_colors::canonicalize(&bottom, new_len);
+            }
+        }
+    }
     do_update_sequence(
         &app_handle,
         &state.pm,
@@ -65,6 +82,41 @@ pub(crate) async fn update_sequence(
         project_id,
         sequence,
         primers,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands — sequence text colors
+// ---------------------------------------------------------------------------
+
+/// Color the sequence text of `[start, end]` (0-based inclusive) on one
+/// strand ("+" | "-" | "both"); an empty `color` clears that span.
+#[tauri::command]
+pub(crate) async fn set_text_colors(
+    webview_window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    strand: String,
+    start: i64,
+    end: i64,
+    color: String,
+) -> Result<serde_json::Value, String> {
+    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({"error": e})),
+    };
+    do_set_text_colors(
+        &app_handle,
+        &state.pm,
+        &state.window_projects,
+        &state.agent_tabs,
+        Some(webview_window.label()),
+        &project_id,
+        &strand,
+        start,
+        end,
+        &color,
     )
     .await
 }

@@ -71,6 +71,52 @@ pub fn canonicalize(ranges: &[TextColorRange], seq_len: i64) -> Vec<TextColorRan
     merged
 }
 
+/// Apply a color to `[start, end]` (0-based inclusive) on top of `ranges`:
+/// existing coverage of the span is carved out (splitting runs as needed),
+/// then the new run is added — or, with `color = None`, simply cleared.
+/// Returns the canonicalized result.
+pub fn apply_text_color(
+    ranges: &[TextColorRange],
+    start: i64,
+    end: i64,
+    color: Option<&str>,
+    seq_len: i64,
+) -> Vec<TextColorRange> {
+    let mut next: Vec<TextColorRange> = ranges.to_vec();
+    if let Some(c) = color {
+        next.push(TextColorRange {
+            start,
+            end,
+            color: c.to_string(),
+        });
+        return canonicalize(&next, seq_len);
+    }
+    // Clear: carve the span out of every run (canonicalize's last-write-wins
+    // only overwrites colors, it never removes coverage).
+    let mut out: Vec<TextColorRange> = Vec::with_capacity(next.len());
+    for r in next.drain(..) {
+        if r.end < start || r.start > end {
+            out.push(r);
+            continue;
+        }
+        if r.start < start {
+            out.push(TextColorRange {
+                start: r.start,
+                end: start - 1,
+                color: r.color.clone(),
+            });
+        }
+        if r.end > end {
+            out.push(TextColorRange {
+                start: end + 1,
+                end: r.end,
+                color: r.color,
+            });
+        }
+    }
+    canonicalize(&out, seq_len)
+}
+
 /// Encode canonical 0-based runs as the GBK qualifier value:
 /// `start..end:#rrggbb; ...` with 1-based inclusive coordinates.
 pub fn encode_gbk_value(ranges: &[TextColorRange]) -> String {
@@ -198,5 +244,21 @@ mod tests {
         assert_eq!(snapgene_name_to_hex("green"), Some("#00b050"));
         assert_eq!(snapgene_name_to_hex(" Orange "), Some("#ffa500"));
         assert_eq!(snapgene_name_to_hex("chartreuse"), None);
+    }
+
+    #[test]
+    fn apply_text_color_overwrites_and_clears() {
+        let base = vec![r(0, 9, "#ff0000"), r(20, 29, "#00ff00")];
+        // Overwrite the middle of the first run.
+        let out = apply_text_color(&base, 3, 5, Some("#0000ff"), 100);
+        assert_eq!(
+            out,
+            vec![r(0, 2, "#ff0000"), r(3, 5, "#0000ff"), r(6, 9, "#ff0000"), r(20, 29, "#00ff00")]
+        );
+        // Clear across both runs.
+        let out = apply_text_color(&base, 8, 22, None, 100);
+        assert_eq!(out, vec![r(0, 7, "#ff0000"), r(23, 29, "#00ff00")]);
+        // Clear everything.
+        assert!(apply_text_color(&base, 0, 99, None, 100).is_empty());
     }
 }

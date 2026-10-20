@@ -27,6 +27,11 @@ export default function useProjectData({
   const [primers, setPrimers] = useState(initialData?.primers || EMPTY_ARRAY);
   const [alignments, setAlignments] = useState(initialData?.alignments || EMPTY_ARRAY);
   const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
+  // Per-strand sequence text colors (canonical 0-based inclusive runs).
+  const [textColorsTop, setTextColorsTop] = useState(initialData?.textColorsTop || EMPTY_ARRAY);
+  const [textColorsBottom, setTextColorsBottom] = useState(
+    initialData?.textColorsBottom || EMPTY_ARRAY,
+  );
   // Source .ab1 path when the project itself was opened from a trace file.
   const [tracePath, setTracePath] = useState(initialData?.tracePath || null);
   // Alignment track whose chromatogram band is expanded (one at a time).
@@ -219,6 +224,10 @@ export default function useProjectData({
     setAlignments,
     moleculeType,
     setMoleculeType,
+    textColorsTop,
+    setTextColorsTop,
+    textColorsBottom,
+    setTextColorsBottom,
     tracePath,
     setTracePath,
     expandedChromAlnId,

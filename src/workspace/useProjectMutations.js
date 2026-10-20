@@ -11,6 +11,7 @@ import {
   addPrimers,
   deletePrimer,
   setTopology,
+  setTextColors,
   addAlignment,
   addAlignmentSeq,
   removeAlignment,
@@ -31,6 +32,8 @@ export default function useProjectMutations({
   setPrimers,
   setEnzymes,
   setAlignments,
+  setTextColorsTop,
+  setTextColorsBottom,
   setTopologyLive,
   topologyLive,
   setExpandedChromAlnId,
@@ -82,6 +85,31 @@ export default function useProjectMutations({
         }
       } catch (e) {
         console.error('update feature color error:', e);
+      }
+    },
+    [pushHistory, onProjectsSync],
+  );
+
+  // Sequence text color on [start, end] (0-based inclusive); '' clears.
+  const handleSetTextColor = useCallback(
+    async (strand, start, end, color) => {
+      if (agentLockedRef.current) return;
+      const gen = ++operationGenRef.current;
+      try {
+        const data = await setTextColors(strand, start, end, color);
+        if (operationGenRef.current !== gen) return;
+        if (data && data.textColorsTop) {
+          pushHistory({
+            textColorsTop: data.textColorsTop,
+            textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
+          });
+          setTextColorsTop(data.textColorsTop);
+          setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
+          if (data.projects) onProjectsSync(data.projects);
+          setIsDirty(true);
+        }
+      } catch (e) {
+        console.error('set text colors error:', e);
       }
     },
     [pushHistory, onProjectsSync],
@@ -455,6 +483,7 @@ export default function useProjectMutations({
   return {
     handleFeatureFtypeChange,
     handleFeatureColorChange,
+    handleSetTextColor,
     handleFeatureNameChange,
     handlePrimerChange,
     handleToggleTopology,

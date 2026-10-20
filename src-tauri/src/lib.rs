@@ -121,6 +121,7 @@ pub fn run() {
             commands::projects::save_file,
             commands::projects::write_text_file,
             commands::seqedit::update_sequence,
+            commands::seqedit::set_text_colors,
             commands::seqedit::set_roi,
             commands::seqedit::clear_roi,
             commands::seqedit::set_topology,

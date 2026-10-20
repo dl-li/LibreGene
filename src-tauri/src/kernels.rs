@@ -716,6 +716,85 @@ where
     Ok(feature_mutation_response(pm, wp, agent_tabs, project_id).await)
 }
 
+/// Color the sequence text of `[start, end]` (0-based inclusive) on one
+/// strand; an empty `color` clears the span. `strand` is "+", "-" (DNA only)
+/// or "both" (DNA only). The response carries the full canonicalized lists so
+/// the caller can replace its local state wholesale.
+pub(crate) async fn do_set_text_colors<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    strand: &str,
+    start: i64,
+    end: i64,
+    color: &str,
+) -> Result<serde_json::Value, String> {
+    {
+        let mut pm = pm.write().await;
+        let Some(p) = pm.get_project_mut_by_id(project_id) else {
+            return Ok(serde_json::json!({"error": format!("Project not found: {}", project_id)}));
+        };
+        let seq_len = p.length;
+        let s = start.max(0);
+        let e = end.min(seq_len - 1);
+        if s > e || seq_len == 0 {
+            return Ok(serde_json::json!({"error": "empty color range"}));
+        }
+        let color = if color.is_empty() {
+            None
+        } else {
+            match libregene_core::file_io::color::normalize_color(color) {
+                c if c.is_empty() => {
+                    return Ok(serde_json::json!({"error": format!("invalid color: {}", color)}));
+                }
+                c => Some(c),
+            }
+        };
+        let apply_top = strand == "+" || strand == "both";
+        let apply_bottom = (strand == "-" || strand == "both") && p.is_dna();
+        if !apply_top && !apply_bottom {
+            return Ok(serde_json::json!({"error": format!("invalid strand: {}", strand)}));
+        }
+        if apply_top {
+            p.text_colors_top = libregene_core::file_io::strand_colors::apply_text_color(
+                &p.text_colors_top,
+                s,
+                e,
+                color.as_deref(),
+                seq_len,
+            );
+        }
+        if apply_bottom {
+            p.text_colors_bottom = libregene_core::file_io::strand_colors::apply_text_color(
+                &p.text_colors_bottom,
+                s,
+                e,
+                color.as_deref(),
+                seq_len,
+            );
+        }
+        pm.mark_dirty(project_id);
+    }
+
+    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+
+    let data = {
+        let pm = pm.read().await;
+        match pm.get_project_by_id(project_id) {
+            Some(p) => serde_json::json!({
+                "textColorsTop": &p.text_colors_top,
+                "textColorsBottom": &p.text_colors_bottom,
+            }),
+            None => serde_json::json!({"error": "Project not found"}),
+        }
+    };
+    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    Ok(with_projects_list(data, &projects, active_id.as_deref()))
+}
+
 /// Cheap structural equality for the primers list (Primer has no PartialEq).
 /// The snapshot/merge write-back guard only needs to detect whether the list
 /// membership changed (add/remove/replace), not binding-site internals.

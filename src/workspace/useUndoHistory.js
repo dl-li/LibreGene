@@ -12,11 +12,15 @@ export default function useUndoHistory({
   sequence,
   features,
   primers,
+  textColorsTop,
+  textColorsBottom,
   setSequence,
   setFeatures,
   setEnzymes,
   setPrimers,
   setAlignments,
+  setTextColorsTop,
+  setTextColorsBottom,
 }) {
   // --- Sequence editing state ---
   const editHistoryRef = useRef(createEditHistory());
@@ -47,13 +51,15 @@ export default function useUndoHistory({
         sequence,
         features: features || EMPTY_ARRAY,
         primers: primers || EMPTY_ARRAY,
+        textColorsTop: textColorsTop || EMPTY_ARRAY,
+        textColorsBottom: textColorsBottom || EMPTY_ARRAY,
         cursorIndex: null,
         selStart: null,
         selEnd: null,
         ...overrides,
       });
     },
-    [sequence, features, primers],
+    [sequence, features, primers, textColorsTop, textColorsBottom],
   );
 
   // --- Undo ---
@@ -73,7 +79,13 @@ export default function useUndoHistory({
 
     // Send to backend for recomputation
     try {
-      const data = await updateSequence(snapshot.sequence, snapshot.features, snapshot.primers);
+      const data = await updateSequence(
+        snapshot.sequence,
+        snapshot.features,
+        snapshot.primers,
+        snapshot.textColorsTop,
+        snapshot.textColorsBottom,
+      );
       if (operationGenRef.current !== gen) return;
       if (data && !data.error) {
         setSequence(data.sequence);
@@ -82,6 +94,8 @@ export default function useUndoHistory({
         // Backend response carries freshly recomputed binding sites
         setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
+        setTextColorsTop(data.textColorsTop || snapshot.textColorsTop || EMPTY_ARRAY);
+        setTextColorsBottom(data.textColorsBottom || snapshot.textColorsBottom || EMPTY_ARRAY);
         if (data.projects) onProjectsSync(data.projects);
         // Accurate dirty check: undo to saved state = not dirty. A
         // never-saved `untitled-*` project has no on-disk state to undo back
@@ -124,7 +138,13 @@ export default function useUndoHistory({
     });
 
     try {
-      const data = await updateSequence(snapshot.sequence, snapshot.features, snapshot.primers);
+      const data = await updateSequence(
+        snapshot.sequence,
+        snapshot.features,
+        snapshot.primers,
+        snapshot.textColorsTop,
+        snapshot.textColorsBottom,
+      );
       if (operationGenRef.current !== gen) return;
       if (data && !data.error) {
         setSequence(data.sequence);
@@ -132,6 +152,8 @@ export default function useUndoHistory({
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
+        setTextColorsTop(data.textColorsTop || snapshot.textColorsTop || EMPTY_ARRAY);
+        setTextColorsBottom(data.textColorsBottom || snapshot.textColorsBottom || EMPTY_ARRAY);
         if (data.projects) onProjectsSync(data.projects);
         // Accurate dirty check: redo back to saved state = not dirty (a
         // never-saved `untitled-*` project stays dirty regardless)

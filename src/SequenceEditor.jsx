@@ -24,6 +24,7 @@ import {
   insertionBases,
 } from './editor/alignmentLayout';
 import { matchedSeqOf, reverseComplement, truncatedLabel } from './editor/seqUtils';
+import { TEXT_COLOR_PALETTE } from './editor/textColors';
 import { buildCDSData, isTranslatable } from './editor/translation';
 import useStreamLayout from './editor/useStreamLayout';
 import useEnrichedPrimers from './editor/useEnrichedPrimers';
@@ -84,9 +85,11 @@ import {
   CopyPlus,
   CopyMinus,
   CopyX,
+  Eraser,
   Globe,
   Image,
   LockOpen,
+  Paintbrush,
   Pencil,
   Scissors,
   Rows3,
@@ -98,6 +101,19 @@ import {
 const ALIGN_FEAT_GAP = 10;
 
 const ROW_BUF = 8; // rows above/below viewport to pre-render
+
+// Stable empty list for the optional textColors props (keeps layer memoization).
+const NO_TEXT_COLORS = [];
+
+// Context-menu swatch for a text-color palette entry.
+const textColorSwatch = (color) => {
+  const Swatch = () => (
+    <svg viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2" width="12" height="12" rx="3" fill={color} stroke="rgba(0,0,0,0.25)" />
+    </svg>
+  );
+  return Swatch;
+};
 
 const SequenceEditor = React.memo(function SequenceEditor({
   sequence,
@@ -115,6 +131,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
   canDirectSave = true,
   onFeatureFtypeChange,
   onFeatureColorChange,
+  // Per-strand sequence text colors (canonical 0-based inclusive runs).
+  textColorsTop = NO_TEXT_COLORS,
+  textColorsBottom = NO_TEXT_COLORS,
+  onSetTextColor,
   onFeatureLocationChange,
   onFeatureNameChange,
   onFeatureStrandChange,
@@ -1736,6 +1756,48 @@ const SequenceEditor = React.memo(function SequenceEditor({
             onSelect: handleBlastSelection,
           });
         }
+        // Sequence text colors (per strand; cross-origin selections unsupported).
+        if (onSetTextColor && !selWraps) {
+          const paletteItems = (strand) => [
+            ...TEXT_COLOR_PALETTE.map((c) => ({
+              icon: textColorSwatch(c.color),
+              label: c.label,
+              onSelect: () => onSetTextColor(strand, selStart, selEnd, c.color),
+            })),
+            { type: 'separator' },
+            {
+              icon: Eraser,
+              label: 'Clear Color',
+              onSelect: () => onSetTextColor(strand, selStart, selEnd, ''),
+            },
+          ];
+          items.push({ type: 'separator' });
+          if (isDna) {
+            items.push(
+              {
+                icon: Paintbrush,
+                label: 'Text Color: (+) Strand',
+                children: paletteItems('+'),
+              },
+              {
+                icon: Paintbrush,
+                label: 'Text Color: (−) Strand',
+                children: paletteItems('-'),
+              },
+              {
+                icon: Paintbrush,
+                label: 'Text Color: Both Strands',
+                children: paletteItems('both'),
+              },
+            );
+          } else {
+            items.push({
+              icon: Paintbrush,
+              label: 'Text Color',
+              children: paletteItems('+'),
+            });
+          }
+        }
       }
       if (backgroundOptions.length > 0 && onBackgroundChange) {
         if (items.length) items.push({ type: 'separator' });
@@ -1764,6 +1826,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
       blastEnabled,
       blastBusy,
       handleBlastSelection,
+      onSetTextColor,
+      selWraps,
+      selStart,
+      selEnd,
       background,
       backgroundOptions,
       onBackgroundChange,
@@ -3255,6 +3321,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
               colRuns={colRuns}
               colFromVis={colFromVis}
               visibleCols={visibleCols}
+              textColors={textColorsTop}
             />
             {dsOn && (
               <RulerLayer
@@ -3283,6 +3350,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 colRuns={colRuns}
                 colFromVis={colFromVis}
                 visibleCols={visibleCols}
+                textColors={textColorsBottom}
               />
             )}
             <SeqSelLayer

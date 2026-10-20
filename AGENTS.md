@@ -82,7 +82,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - **比对模型不变量**：段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels`/`anchor_loose_ends` 守护，`tests/align_model_test.rs`）；同一模板列最多一个插入条目；序列编辑后所有比对自动重算（`align::realign_project`），**重算必须由 strand 反推原始取向的 read**（存盘的 `Alignment.seq` 已是显示取向，直接回喂会翻转 strand、导致色谱镜像）；编辑瞬间前端先用 `src/alignmentEdit.js::adjustAlignmentsForEdit` 本地搬移模型防画面闪烁。
 - **BlastN full-length 快速路径必须返回最优解**：trace 打包「胜出状态+延伸位」、回溯按状态机走；旋转候选覆盖整条模板取样（`tests/full_length_path_test.rs` 守护）。
 - ab1 trace 不进 `ProjectData` 序列化，只记 `tracePath`（`.gbk` 中相对 .gbk 目录存储），前端经 `get_chromatogram` 懒加载；反向链 read 的峰图由 `orientChromatogram` 做 rev-comp 后显示。
-- **链级文字颜色**（`textColorsTop/Bottom`，内部 0-based inclusive，未覆盖位置=默认色）：GBK 落盘为单个载体 `misc_feature`（全序列跨度，解析时凭限定词识别、不进 features）+ `/libregene_textcolor_{top,bottom}` = 1-based `start..end:#hex` RLE 列表；写前一律 `strand_colors::canonicalize`（clamp、后写覆盖先写、排序、相邻同色合并），bottom 仅 DNA；SnapGene `.dna` block 0x14 `<StrandColors>` 解析（0-based `start..end`、命名色→hex，`file_io/strand_colors.rs`）。前端渲染与编辑 UI 未实现，序列编辑的区间平移也未接入。
+- **链级文字颜色**（`textColorsTop/Bottom`，内部 0-based inclusive，未覆盖位置=默认色）：GBK 落盘为单个载体 `misc_feature`（全序列跨度，解析时凭限定词识别、不进 features）+ `/libregene_textcolor_{top,bottom}` = 1-based `start..end:#hex` RLE 列表；写前一律 `strand_colors::canonicalize`（clamp、后写覆盖先写、排序、相邻同色合并），bottom 仅 DNA；SnapGene `.dna` block 0x14 `<StrandColors>` 解析（0-based `start..end`、命名色→hex，`file_io/strand_colors.rs`）。渲染：`SeqBgLayer`/`ComplementLayer` 按颜色段切 MonoRun（`src/editor/textColors.js::splitByTextColor`）；编辑：选区右键 Text Color 菜单 → `set_text_colors` 命令（`do_set_text_colors`，`strand_colors::apply_text_color` 支持设置/清除/both）；序列编辑平移：前端 `adjustTextColorsForEdit` + `update_sequence` 携带调整后区间（undo 快照同存），MCP `edit_sequence` 走 `utils::adjust_text_colors_for_edit`。
 
 ## MCP（嵌入式 server，`src-tauri/src/mcp/`）
 
@@ -114,4 +114,4 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - 拓扑切换（`set_topology`，仅 DNA）：未暴露 MCP 工具
 - SnapGene 历史快照（`src/plugins/builtin/snapgeneHistory/`，`get_snapgene_history`/`open_snapgene_snapshot`）：未暴露 MCP 工具
 - ab1 色谱图显示（`src/chromatogram.js` 等）：纯前端渲染
-- 链级文字颜色（`textColorsTop/Bottom`）：数据模型 + GBK/.dna 解析已落地，前端渲染/编辑 UI 未实现，MCP 工具待 UI 落地后再适配
+- 链级文字颜色（`textColorsTop/Bottom`，Tauri command `set_text_colors`）：未暴露 MCP 工具（Agent 场景意义不大，与拓扑切换同列）

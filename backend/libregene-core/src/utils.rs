@@ -165,6 +165,37 @@ pub fn adjust_features_for_edit(
     });
 }
 
+/// Shift/clip per-strand text color runs after replacing
+/// `[edit_start, edit_end]` (0-based inclusive) with `new_len` bases — same
+/// span math as [`adjust_features_for_edit`]. Runs fully inside the replaced
+/// span are dropped; the result is re-canonicalized so adjacent same-color
+/// runs merge back together. `seq_len` is the post-edit sequence length.
+pub fn adjust_text_colors_for_edit(
+    ranges: &[crate::models::TextColorRange],
+    edit_start: i64,
+    edit_end: i64,
+    new_len: i64,
+    seq_len: i64,
+) -> Vec<crate::models::TextColorRange> {
+    let old_len = edit_end - edit_start + 1;
+    if new_len == old_len {
+        return ranges.to_vec();
+    }
+    let adjusted: Vec<_> = ranges
+        .iter()
+        .filter_map(|r| {
+            adjust_span(r.start, r.end, edit_start, edit_end, new_len).map(|(s, e)| {
+                crate::models::TextColorRange {
+                    start: s,
+                    end: e,
+                    color: r.color.clone(),
+                }
+            })
+        })
+        .collect();
+    crate::file_io::strand_colors::canonicalize(&adjusted, seq_len)
+}
+
 /// True when every segment of `f` lies inside `[edit_start, edit_end]`
 /// (0-based inclusive). A replacement that carries its own annotations
 /// supersedes such features — `adjust_features_for_edit` keeps them on
@@ -354,6 +385,51 @@ pub fn unique_name(desired: &str, taken: &std::collections::HashSet<String>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::TextColorRange;
+
+    fn tc(start: i64, end: i64, color: &str) -> TextColorRange {
+        TextColorRange {
+            start,
+            end,
+            color: color.to_string(),
+        }
+    }
+
+    #[test]
+    fn adjust_text_colors_shift_clip_drop() {
+        let ranges = vec![tc(0, 9, "#ff0000"), tc(20, 29, "#00ff00")];
+        // Equal-length replace: untouched.
+        assert_eq!(
+            adjust_text_colors_for_edit(&ranges, 5, 7, 3, 100),
+            ranges
+        );
+        // Delete 4..13 (10 bases): first run clips to 0..3, second shifts left.
+        assert_eq!(
+            adjust_text_colors_for_edit(&ranges, 4, 13, 0, 90),
+            vec![tc(0, 3, "#ff0000"), tc(10, 19, "#00ff00")]
+        );
+        // Delete covering a whole run: it drops.
+        assert_eq!(
+            adjust_text_colors_for_edit(&ranges, 18, 32, 0, 85),
+            vec![tc(0, 9, "#ff0000")]
+        );
+        // Insert 5 bases inside a run: the run stretches over the new bases.
+        assert_eq!(
+            adjust_text_colors_for_edit(&ranges, 5, 4, 5, 105),
+            vec![tc(0, 14, "#ff0000"), tc(25, 34, "#00ff00")]
+        );
+        // Insert at a run's boundary: the run shifts, new bases uncolored.
+        assert_eq!(
+            adjust_text_colors_for_edit(&ranges, 20, 19, 3, 103),
+            vec![tc(0, 9, "#ff0000"), tc(23, 32, "#00ff00")]
+        );
+        // Clipped neighbors with the same color merge back.
+        let ranges = vec![tc(0, 9, "#ff0000"), tc(10, 19, "#ff0000")];
+        assert_eq!(
+            adjust_text_colors_for_edit(&ranges, 5, 14, 0, 90),
+            vec![tc(0, 9, "#ff0000")]
+        );
+    }
 
     #[test]
     fn test_reverse_complement() {

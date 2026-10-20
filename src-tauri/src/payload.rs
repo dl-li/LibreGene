@@ -241,6 +241,8 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
         "methylation_overlap": project.methylation_overlap,
         "roi": &project.roi,
         "tracePath": &project.trace_path,
+        "textColorsTop": &project.text_colors_top,
+        "textColorsBottom": &project.text_colors_bottom,
         "enzymeCount": project.enzymes.len(),
         "enzymeFilter": filter,
         "enzymes": &enzymes,

@@ -149,7 +149,7 @@ export async function writeTextFile(path, contents) {
 // Sequence
 // ---------------------------------------------------------------------------
 
-export async function updateSequence(sequence, features, primers) {
+export async function updateSequence(sequence, features, primers, textColorsTop, textColorsBottom) {
   assertEditable();
   return tauriInvoke('update_sequence', {
     sequence,
@@ -157,7 +157,18 @@ export async function updateSequence(sequence, features, primers) {
     // Optional full replacement of the project's primers (undo/redo restores
     // the snapshot's primers); the backend recomputes binding sites.
     primers: primers || null,
+    // Text color runs already adjusted for the edit (same client-side
+    // contract as features); omitted keys keep the backend state.
+    textColorsTop: textColorsTop || null,
+    textColorsBottom: textColorsBottom || null,
   });
+}
+
+// Color the sequence text of [start, end] (0-based inclusive) on one strand
+// ('+' | '-' | 'both'); an empty color clears the span.
+export async function setTextColors(strand, start, end, color) {
+  assertEditable();
+  return tauriInvoke('set_text_colors', { strand, start, end, color });
 }
 
 // ---------------------------------------------------------------------------
