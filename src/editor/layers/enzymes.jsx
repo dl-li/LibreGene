@@ -524,6 +524,14 @@ export function renderTooltips({
               `L ${bGapX} ${hY}`,
               `L ${bGapX} ${endY}`,
             ].join(' '),
+            // In-box portion, re-stroked with the tooltip background color as
+            // a casing so the connector cuts cleanly through text and ticks.
+            casingPath: [
+              `M ${tGapX} ${ttY}`,
+              `L ${tGapX} ${hY}`,
+              `L ${bGapX} ${hY}`,
+              `L ${bGapX} ${endY}`,
+            ].join(' '),
           };
         });
 
@@ -576,6 +584,17 @@ export function renderTooltips({
                 />
               </g>
             )}
+            {polyEntries.map((pe, i) => (
+              <path
+                key={`case-${i}`}
+                d={pe.casingPath}
+                fill="none"
+                stroke="#FFFFFF"
+                strokeWidth={Number(sw) + 3}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            ))}
             {polyEntries.map((pe, i) => (
               <path
                 key={`poly-${i}`}
