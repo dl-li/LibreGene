@@ -506,10 +506,9 @@ export function renderTooltips({
         const leftX = baseX - pad;
         const ttW = dispLen * cw + pad * 2;
 
-        // Double-strand view: run the horizontal segment below the ruler and
-        // extend the drop past the complement row's baseline, so the connector
-        // neither overlaps the ruler nor dangles above the bottom strand.
-        const hY = dsBottomY > 0 ? sy + DS_RULER_Y + 5 : sy + 3;
+        // Double-strand view: run the horizontal segment on the ruler line
+        // itself and extend the drop past the complement row's baseline.
+        const hY = dsBottomY > 0 ? sy + DS_RULER_Y : sy + 3;
         const endY = dsBottomY > 0 ? sy + dsBottomY + 4 : sy + 19;
         const polyEntries = cutPairs.map((cp, i) => {
           const tGapX = baseX + relPos(cp.topCutIndex) * cw;
@@ -561,20 +560,11 @@ export function renderTooltips({
               strokeWidth={sw}
               strokeLinejoin="round"
             />
-            {polyEntries.map((pe, i) => (
-              <path
-                key={`poly-${i}`}
-                d={pe.path}
-                fill="none"
-                stroke={ttColor}
-                strokeWidth={sw}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
             {/* Double-strand view: the white box would otherwise hide the
                 row's ruler; re-draw it inside the box so the tooltip reads
-                like the editor row it covers. */}
+                like the editor row it covers. Drawn before the connector
+                polylines so their horizontal run (on the ruler line) paints
+                over it. */}
             {dsBottomY > 0 && (
               <g stroke="#4b5563" strokeWidth="1.5" fill="none">
                 <line x1={leftX} x2={leftX + ttW} y1={sy + DS_RULER_Y} y2={sy + DS_RULER_Y} />
@@ -586,6 +576,17 @@ export function renderTooltips({
                 />
               </g>
             )}
+            {polyEntries.map((pe, i) => (
+              <path
+                key={`poly-${i}`}
+                d={pe.path}
+                fill="none"
+                stroke={ttColor}
+                strokeWidth={sw}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            ))}
             <text y={sy} fontFamily={monoFont} fontSize="14px">
               {sub.split('').map((c, i) => {
                 const bold = isRecBold(i);
