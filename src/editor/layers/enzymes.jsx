@@ -506,6 +506,11 @@ export function renderTooltips({
         const leftX = baseX - pad;
         const ttW = dispLen * cw + pad * 2;
 
+        // Double-strand view: run the horizontal segment below the ruler and
+        // extend the drop past the complement row's baseline, so the connector
+        // neither overlaps the ruler nor dangles above the bottom strand.
+        const hY = dsBottomY > 0 ? sy + DS_RULER_Y + 5 : sy + 3;
+        const endY = dsBottomY > 0 ? sy + dsBottomY + 4 : sy + 19;
         const polyEntries = cutPairs.map((cp, i) => {
           const tGapX = baseX + relPos(cp.topCutIndex) * cw;
           const bGapX = baseX + relPos(cp.botCutIndex) * cw;
@@ -516,9 +521,9 @@ export function renderTooltips({
             isLocal,
             path: [
               `M ${tGapX} ${ttY - 2}`,
-              `L ${tGapX} ${sy + 3}`,
-              `L ${bGapX} ${sy + 3}`,
-              `L ${bGapX} ${sy + 19}`,
+              `L ${tGapX} ${hY}`,
+              `L ${bGapX} ${hY}`,
+              `L ${bGapX} ${endY}`,
             ].join(' '),
           };
         });
