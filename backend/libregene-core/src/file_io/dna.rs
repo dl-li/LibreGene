@@ -17,6 +17,7 @@
 //! - 5: Primers (XML)
 //! - 8: Additional sequence properties (XML)
 //! - 10: Features (XML)
+//! - 0x14: per-strand sequence text colors (`<StrandColors>` XML)
 
 use std::fs;
 use std::io::{self};
@@ -129,6 +130,30 @@ struct SnapGeneProperties {
     topology: Option<String>,
 }
 
+// Block 0x14: per-strand sequence text colors. Ranges are 0-based inclusive
+// (unlike the 1-based Feature segments) and colors are named.
+#[derive(Debug, Deserialize)]
+struct SnapGeneStrandColors {
+    #[serde(rename = "TopStrand", default)]
+    top: Option<SnapGeneColorRanges>,
+    #[serde(rename = "BottomStrand", default)]
+    bottom: Option<SnapGeneColorRanges>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SnapGeneColorRanges {
+    #[serde(rename = "ColorRange", default)]
+    ranges: Vec<SnapGeneColorRange>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SnapGeneColorRange {
+    #[serde(rename = "@range")]
+    range: String,
+    #[serde(rename = "@colors", default)]
+    colors: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // TLV reader helpers
 // ---------------------------------------------------------------------------
@@ -216,6 +241,7 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
     };
     let mut features_xml = String::new();
     let mut primers_xml = String::new();
+    let mut strand_colors_xml = String::new();
 
     while offset < data.len() {
         if offset + 5 > data.len() {
@@ -259,6 +285,10 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
                 // Features XML
                 features_xml = String::from_utf8_lossy(payload).to_string();
             }
+            0x14 => {
+                // StrandColors XML (per-strand sequence text colors)
+                strand_colors_xml = String::from_utf8_lossy(payload).to_string();
+            }
             _ => {
                 // skip unknown block types
             }
@@ -271,6 +301,8 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
     let primers = parse_dna_primers(&primers_xml, &sequence);
 
     let length = sequence.len() as i64;
+    let (text_colors_top, text_colors_bottom) =
+        strand_colors_from_xml(&strand_colors_xml, length, molecule_type == "dna");
 
     Ok(ProjectData {
         sequence,
@@ -279,8 +311,65 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
         molecule_type: molecule_type.to_string(),
         features,
         primers,
+        text_colors_top,
+        text_colors_bottom,
         ..Default::default()
     })
+}
+
+/// Convert the block 0x14 `<StrandColors>` XML into per-strand text color
+/// runs. SnapGene ranges are already 0-based inclusive, so they map onto the
+/// internal model without conversion. Named colors map to hex; unknown names
+/// are dropped. The bottom strand is DNA-only.
+fn strand_colors_from_xml(
+    xml: &str,
+    seq_len: i64,
+    is_dna: bool,
+) -> (Vec<crate::models::TextColorRange>, Vec<crate::models::TextColorRange>) {
+    use crate::file_io::strand_colors::{canonicalize, snapgene_name_to_hex};
+    use crate::models::TextColorRange;
+
+    let convert = |ranges: &Option<SnapGeneColorRanges>| -> Vec<TextColorRange> {
+        let mut out = Vec::new();
+        if let Some(ranges) = ranges {
+            for cr in &ranges.ranges {
+                // SnapGene ranges are "start..end", 0-based inclusive.
+                let Some((s, e)) = cr.range.split_once("..") else {
+                    continue;
+                };
+                let (Ok(s), Ok(e)) = (s.trim().parse::<i64>(), e.trim().parse::<i64>()) else {
+                    continue;
+                };
+                // @colors is plural in the schema; take the first name.
+                let Some(names) = cr.colors.as_deref() else {
+                    continue;
+                };
+                let Some(hex) = names
+                    .split(',')
+                    .next()
+                    .and_then(snapgene_name_to_hex)
+                else {
+                    continue;
+                };
+                out.push(TextColorRange {
+                    start: s,
+                    end: e,
+                    color: hex.to_string(),
+                });
+            }
+        }
+        canonicalize(&out, seq_len)
+    };
+
+    if xml.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let Ok(sc) = quick_xml::de::from_str::<SnapGeneStrandColors>(xml) else {
+        return (Vec::new(), Vec::new());
+    };
+    let top = convert(&sc.top);
+    let bottom = if is_dna { convert(&sc.bottom) } else { Vec::new() };
+    (top, bottom)
 }
 
 /// Parse a SnapGene `.dna` file (kept for callers of the old entry point).
@@ -430,6 +519,34 @@ mod tests {
         let project = parse_snapgene(&test_data("BlueScribe-mEGFP.dna")).unwrap();
         assert_eq!(project.molecule_type, "dna");
         assert!(project.length > 3000);
+    }
+
+    #[test]
+    fn parse_dna_strand_colors() {
+        use crate::models::TextColorRange;
+        let project = parse_snapgene(&test_data("BlueScribe-mEGFP.dna")).unwrap();
+        // mEGFP colored green on both strands (0-based 449..1168),
+        // AmpR blue on the top strand, ori orange on the bottom strand.
+        assert!(project.text_colors_top.contains(&TextColorRange {
+            start: 449,
+            end: 1168,
+            color: "#00b050".to_string(),
+        }));
+        assert!(project.text_colors_top.contains(&TextColorRange {
+            start: 2381,
+            end: 3241,
+            color: "#0070c0".to_string(),
+        }));
+        assert!(project.text_colors_bottom.contains(&TextColorRange {
+            start: 449,
+            end: 1168,
+            color: "#00b050".to_string(),
+        }));
+        assert!(project.text_colors_bottom.contains(&TextColorRange {
+            start: 1622,
+            end: 2210,
+            color: "#ffa500".to_string(),
+        }));
     }
 
     /// Crafted-file hardening: ranges below 1 must never reach the stored

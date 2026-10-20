@@ -16,6 +16,16 @@ pub struct Segment {
     pub color: Option<String>,
 }
 
+/// One run of colored sequence text on one strand, 0-based inclusive.
+/// Positions not covered by any range render in the default color.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TextColorRange {
+    pub start: i64,
+    pub end: i64,
+    pub color: String,
+}
+
 // ---------------------------------------------------------------------------
 // Primer types
 // ---------------------------------------------------------------------------
@@ -443,6 +453,12 @@ pub struct ProjectData {
     /// lives and dies with the in-memory project.
     #[serde(skip)]
     pub snapgene_history: Option<SnapGeneHistoryData>,
+    /// Per-strand sequence text colors, 0-based inclusive. `bottom` is
+    /// meaningful only for DNA; both default to empty (all default color).
+    #[serde(default)]
+    pub text_colors_top: Vec<TextColorRange>,
+    #[serde(default)]
+    pub text_colors_bottom: Vec<TextColorRange>,
 }
 
 // ---------------------------------------------------------------------------

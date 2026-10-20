@@ -14,6 +14,8 @@ fn synthetic_project() -> ProjectData {
         keywords: String::new(),
         lab_host: String::new(),
         snapgene_history: None,
+        text_colors_top: Vec::new(),
+        text_colors_bottom: Vec::new(),
         sequence: "ACGT".repeat(15),
         length: 60,
         trace_path: None,

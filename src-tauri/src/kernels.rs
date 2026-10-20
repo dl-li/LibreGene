@@ -423,6 +423,8 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
             roi: p.roi,
             trace_path: p.trace_path.clone(),
             snapgene_history: p.snapgene_history.clone(),
+            text_colors_top: p.text_colors_top.clone(),
+            text_colors_bottom: p.text_colors_bottom.clone(),
         })
     };
 

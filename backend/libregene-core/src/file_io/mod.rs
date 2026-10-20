@@ -5,6 +5,7 @@ pub mod fasta;
 pub mod gbk;
 pub mod gpt;
 pub mod snapgene_history;
+pub mod strand_colors;
 
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};

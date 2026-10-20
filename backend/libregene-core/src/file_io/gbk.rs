@@ -21,7 +21,8 @@ use gb_io::seq::{After, Before, Feature as GbFeature, Location, Seq, Topology};
 use gb_io::writer::SeqWriter;
 
 use crate::file_io::color::{adjust_color_readability, default_color, normalize_color};
-use crate::models::{Feature, Primer, ProjectData, Segment};
+use crate::file_io::strand_colors;
+use crate::models::{Feature, Primer, ProjectData, Segment, TextColorRange};
 
 // ---------------------------------------------------------------------------
 // Methylation annotation in KEYWORDS ("methylation: Dam,Dcm,EcoKI" / "none")
@@ -225,6 +226,8 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
     // (name, read sequence, optional source .ab1 path for the chromatogram)
     let mut alignment_reads: Vec<(String, String, Option<String>)> = Vec::new();
     let mut lab_host = String::new();
+    let mut text_colors_top: Vec<TextColorRange> = Vec::new();
+    let mut text_colors_bottom: Vec<TextColorRange> = Vec::new();
 
     for f in &seq.features {
         let kind = f.kind.as_ref();
@@ -239,6 +242,19 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         // Alignments are persisted as misc_features carrying libregene_align_seq;
         // they are NOT features and are re-aligned below.
         if kind == "misc_feature" {
+            // Per-strand text colors travel on a dedicated carrier
+            // misc_feature; it is NOT a feature (see file_io::strand_colors).
+            let top = f.qualifier_values("libregene_textcolor_top").next();
+            let bottom = f.qualifier_values("libregene_textcolor_bottom").next();
+            if top.is_some() || bottom.is_some() {
+                if let Some(v) = top {
+                    text_colors_top.extend(strand_colors::decode_gbk_value(v));
+                }
+                if let Some(v) = bottom {
+                    text_colors_bottom.extend(strand_colors::decode_gbk_value(v));
+                }
+                continue;
+            }
             if let Some(aseq) = f.qualifier_values("libregene_align_seq").next() {
                 let name = f
                     .qualifier_values("label")
@@ -441,6 +457,8 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         primers,
         alignments,
         methylation_systems,
+        text_colors_top: strand_colors::canonicalize(&text_colors_top, length),
+        text_colors_bottom: strand_colors::canonicalize(&text_colors_bottom, length),
         ..Default::default()
     })
 }
@@ -610,6 +628,9 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     // Serialize alignments as misc_features with libregene_align_* qualifiers
     serialize_alignments_gbk(project, &mut record, path);
 
+    // Serialize per-strand text colors on a dedicated carrier misc_feature
+    serialize_text_colors_gbk(project, &mut record);
+
     let file = File::create(path)?;
     let mut writer = SeqWriter::new(file);
     writer.write(&record)
@@ -643,6 +664,48 @@ fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq, gbk_path: &
             qualifiers,
         });
     }
+}
+
+/// Serialize per-strand text colors as one `misc_feature` spanning the whole
+/// sequence, carrying `libregene_textcolor_top` / `_bottom` qualifiers
+/// (see `file_io::strand_colors`). The bottom strand is DNA-only. Nothing is
+/// written when both strands are entirely default-colored.
+fn serialize_text_colors_gbk(project: &ProjectData, record: &mut Seq) {
+    let seq_len = project.sequence.len() as i64;
+    if seq_len == 0 {
+        return;
+    }
+    let top = strand_colors::canonicalize(&project.text_colors_top, seq_len);
+    let bottom = if project.is_dna() {
+        strand_colors::canonicalize(&project.text_colors_bottom, seq_len)
+    } else {
+        Vec::new()
+    };
+    if top.is_empty() && bottom.is_empty() {
+        return;
+    }
+    let loc = Location::Range((0, Before(false)), (seq_len, After(false)));
+    let mut qualifiers = vec![(
+        Cow::Borrowed("label"),
+        Some("libregene_text_colors".to_string()),
+    )];
+    if !top.is_empty() {
+        qualifiers.push((
+            Cow::Borrowed("libregene_textcolor_top"),
+            Some(strand_colors::encode_gbk_value(&top)),
+        ));
+    }
+    if !bottom.is_empty() {
+        qualifiers.push((
+            Cow::Borrowed("libregene_textcolor_bottom"),
+            Some(strand_colors::encode_gbk_value(&bottom)),
+        ));
+    }
+    record.features.push(GbFeature {
+        kind: Cow::Borrowed("misc_feature"),
+        location: loc,
+        qualifiers,
+    });
 }
 
 /// Serialize primers in SnapGene format.
@@ -1444,5 +1507,91 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(!text.contains("methylation"), "{}", text);
         assert!(parsed.methylation_systems.is_empty());
+    }
+
+    #[test]
+    fn test_text_colors_roundtrip() {
+        let mut project = tiny_project("circular");
+        project.text_colors_top = vec![
+            TextColorRange { start: 0, end: 3, color: "#00b050".to_string() },
+            TextColorRange { start: 4, end: 7, color: "#0070c0".to_string() },
+        ];
+        project.text_colors_bottom = vec![
+            TextColorRange { start: 2, end: 9, color: "#ffa500".to_string() },
+        ];
+
+        let path = std::env::temp_dir().join(format!("lg_tc_rt_{}.gbk", std::process::id()));
+        write_gbk(&project, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parsed = parse_gbk(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(text.contains("/libregene_textcolor_top="), "{}", text);
+        assert!(text.contains("/libregene_textcolor_bottom="), "{}", text);
+        assert_eq!(parsed.text_colors_top, project.text_colors_top);
+        assert_eq!(parsed.text_colors_bottom, project.text_colors_bottom);
+        // The carrier must not leak into the features list.
+        assert!(parsed.features.iter().all(|f| !f
+            .qualifiers
+            .iter()
+            .any(|(k, _)| k.starts_with("libregene_textcolor"))));
+    }
+
+    #[test]
+    fn test_text_colors_canonicalized_on_write() {
+        // Overlapping, unsorted, out-of-range input serializes in canonical
+        // form: last write wins, sorted, merged, clamped.
+        let mut project = tiny_project("linear");
+        project.text_colors_top = vec![
+            TextColorRange { start: 0, end: 100, color: "#ff0000".to_string() },
+            TextColorRange { start: 2, end: 5, color: "#00ff00".to_string() },
+        ];
+
+        let path = std::env::temp_dir().join(format!("lg_tc_canon_{}.gbk", std::process::id()));
+        write_gbk(&project, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parsed = parse_gbk(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(text.contains("/libregene_textcolor_top="), "{}", text);
+        assert_eq!(parsed.text_colors_top, vec![
+            TextColorRange { start: 0, end: 1, color: "#ff0000".to_string() },
+            TextColorRange { start: 2, end: 5, color: "#00ff00".to_string() },
+            TextColorRange { start: 6, end: 11, color: "#ff0000".to_string() },
+        ]);
+        // No bottom colors → no bottom qualifier.
+        assert!(!text.contains("/libregene_textcolor_bottom"), "{}", text);
+    }
+
+    #[test]
+    fn test_text_colors_omitted_when_empty() {
+        let project = tiny_project("circular");
+        let path = std::env::temp_dir().join(format!("lg_tc_empty_{}.gbk", std::process::id()));
+        write_gbk(&project, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(!text.contains("/libregene_textcolor"), "{}", text);
+    }
+
+    #[test]
+    fn test_text_colors_bottom_strand_is_dna_only() {
+        let mut project = tiny_project("linear");
+        project.molecule_type = "rna".to_string();
+        project.text_colors_top = vec![
+            TextColorRange { start: 0, end: 3, color: "#00b050".to_string() },
+        ];
+        project.text_colors_bottom = vec![
+            TextColorRange { start: 0, end: 3, color: "#ffa500".to_string() },
+        ];
+
+        let path = std::env::temp_dir().join(format!("lg_tc_rna_{}.gbk", std::process::id()));
+        write_gbk(&project, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parsed = parse_gbk(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(text.contains("/libregene_textcolor_top"), "{}", text);
+        assert!(!text.contains("/libregene_textcolor_bottom"), "{}", text);
+        assert_eq!(parsed.text_colors_top.len(), 1);
     }
 }
