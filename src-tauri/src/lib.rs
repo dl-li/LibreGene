@@ -172,7 +172,7 @@ pub fn run() {
             commands::misc::get_mcp_token,
             commands::misc::regenerate_mcp_token,
             commands::misc::activate_custom_titlebar,
-            commands::misc::reassert_traffic_lights,
+            commands::misc::show_window,
             commands::misc::restore_native_titlebar,
             commands::misc::force_quit,
         ])

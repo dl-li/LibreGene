@@ -276,37 +276,31 @@ pub(crate) async fn open_url(app: tauri::AppHandle, url: String) -> Result<(), S
         .map_err(|e| e.to_string())
 }
 
-/// Activate the decoration plugin's overlay titlebar, then show the window.
-/// Windows start hidden (visible: false) so native decorations never flash.
-#[cfg(target_os = "macos")]
-const TL_INSET: (f32, f32) = (14.0, 22.0);
-
+/// Activate the decoration plugin's overlay titlebar (Windows/Linux), then
+/// show the window. Windows start hidden (visible: false) so native
+/// decorations never flash.
+///
+/// macOS must NOT activate the plugin: its inset semantics (y = extra
+/// container height, buttons centered) differ from tao's
+/// trafficLightPosition (y = button top offset), and its taller titlebar
+/// container fights AppKit's own layout on display/focus changes, making
+/// the traffic lights jump. On macOS the frontend calls `show_window`
+/// instead, leaving tao's trafficLightPosition in charge.
 #[tauri::command]
 pub(crate) fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
     use tauri_plugin_decoration::WebviewWindowExt;
     window
         .create_overlay_titlebar()
         .map_err(|e| e.to_string())?;
-    // Store the tuned inset in the plugin registry (the value it replays on
-    // resize/focus; same semantics as tao's trafficLightPosition: x = left
-    // edge, y = extra container height).
-    #[cfg(target_os = "macos")]
-    window
-        .set_traffic_lights_inset(TL_INSET.0, TL_INSET.1)
-        .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// Re-assert the tuned traffic-light inset after native open/save panels.
+/// Show a window that keeps its native (tao-managed) titlebar — the macOS
+/// counterpart of `activate_custom_titlebar`.
 #[tauri::command]
-pub(crate) fn reassert_traffic_lights(window: tauri::WebviewWindow) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri_plugin_decoration::WebviewWindowExt;
-        let _ = window.set_traffic_lights_inset(TL_INSET.0, TL_INSET.1);
-    }
-    let _ = window;
+pub(crate) fn show_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
     Ok(())
 }
 

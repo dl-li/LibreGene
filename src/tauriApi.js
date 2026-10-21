@@ -23,13 +23,6 @@ function assertEditable() {
   if (agentEditLocked) throw new Error(AGENT_LOCK_MSG);
 }
 
-// Native operations (window title change, open/save panels) reset AppKit's
-// traffic-light layout on macOS without emitting a window event the
-// decoration plugin listens to; re-assert the tuned inset afterwards.
-const reassertTrafficLights = () => {
-  if (isTauri) tauriInvoke('reassert_traffic_lights').catch(() => {});
-};
-
 let invoke;
 let listen;
 let emit;
@@ -48,7 +41,6 @@ export async function setWindowTitle(title) {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().setTitle(title);
-    reassertTrafficLights();
   } catch {
     /* ignore */
   }
@@ -596,7 +588,6 @@ export async function openFileDialog(defaultPath) {
   };
   if (defaultPath) opts.defaultPath = defaultPath;
   const result = await tauriOpen(opts);
-  reassertTrafficLights();
   if (!result) return null;
   return Array.isArray(result) ? result : [result];
 }
@@ -631,7 +622,6 @@ export async function openAlignmentFileDialog() {
     ],
     multiple: true,
   });
-  reassertTrafficLights();
   if (!result) return null;
   return Array.isArray(result) ? result : [result];
 }
@@ -644,7 +634,6 @@ export async function saveFileDialog(defaultName = 'project.gbk', ext = 'gbk') {
     defaultPath: defaultName,
     filters: [{ name: label, extensions: [ext] }],
   });
-  reassertTrafficLights();
   return result;
 }
 
@@ -655,7 +644,6 @@ export async function saveTextDialog(defaultName = 'export.txt') {
     defaultPath: defaultName,
     filters: [{ name: 'Text', extensions: ['txt'] }],
   });
-  reassertTrafficLights();
   return result;
 }
 

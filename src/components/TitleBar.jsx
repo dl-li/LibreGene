@@ -8,6 +8,13 @@ import { isTauri } from '@/tauriApi';
 // activation error (or a remount re-invoke) must not hide it.
 const isLinux = typeof navigator !== 'undefined' && /Linux/i.test(navigator.platform);
 
+// macOS never activates the decoration plugin (it refuses dev-URL content
+// anyway, and when it does activate in release builds its inset semantics
+// fight tao's trafficLightPosition and AppKit relayouts — the lights drift
+// or jump). tao's native trafficLightPosition already places the lights
+// correctly; the window just needs to be shown.
+const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+
 export default function TitleBar({ title, dirty = false, onFallback }) {
   // When the custom decoration can't activate on Linux, the native titlebar
   // stays; hide our own bar so the two don't stack.
@@ -15,6 +22,10 @@ export default function TitleBar({ title, dirty = false, onFallback }) {
 
   useEffect(() => {
     if (!isTauri) return undefined;
+    if (isMac) {
+      invoke('show_window').catch(() => {});
+      return undefined;
+    }
     const fallback = () => {
       invoke('restore_native_titlebar').catch(() => {});
       if (isLinux) {
