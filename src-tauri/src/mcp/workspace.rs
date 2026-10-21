@@ -387,17 +387,13 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
                         name1, name2
                     )));
                 }
-                // Respect the requested direction: enzyme1 → enzyme2; on a
-                // linear template c1 > c2 is the reverse-complement arc.
-                let (pieces, flip) = if c1 < c2 {
-                    (vec![(c1, c2 - 1)], false)
-                } else {
-                    (vec![(c2, c1 - 1)], true)
-                };
+                // Always the (+)-strand span between the two cuts, regardless
+                // of the order the enzymes were given in.
+                let (lo, hi) = (c1.min(c2), c1.max(c2));
                 Ok(vec![FragmentSpec {
-                    pieces,
-                    flip,
-                    desc: format!("{}→{} fragment of {}", name1, name2, label),
+                    pieces: vec![(lo, hi - 1)],
+                    flip: false,
+                    desc: format!("{}+{} fragment of {}", name1, name2, label),
                 }])
             }
         }

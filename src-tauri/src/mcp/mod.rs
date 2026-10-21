@@ -471,10 +471,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   circular sequences.
     /// - `enzymes` (DNA projects only): one enzyme name that cuts EXACTLY twice
     ///   (linear → the middle fragment; circular → BOTH fragments), or two names
-    ///   that each cut EXACTLY once → the fragment running from the first
-    ///   enzyme's cut to the second's (on linear templates a first cut past the
-    ///   second yields the reverse complement, honoring that direction). Unknown
-    ///   names and wrong site counts fail with ok:false and diagnostics.
+    ///   that each cut EXACTLY once → the fragment between the two cuts. Every
+    ///   enzyme-selected fragment is ALWAYS the (+)-strand sequence between the
+    ///   cut points — never reverse-complemented, no matter which enzyme is
+    ///   named first (a cut at N severs the DNA between 1-based bases N and N+1,
+    ///   so the fragment starts right after the upstream cut and ends at the
+    ///   downstream cut). On circular templates the two cuts bound two (+)-strand
+    ///   arcs and the name order picks one: first enzyme's cut → second's.
+    ///   Unknown names and wrong site counts fail with ok:false and diagnostics.
     ///
     /// `name` overrides the default fragment name (single-fragment calls only).
     /// Workspace items are temporary: they live in memory and are removed when
@@ -528,7 +532,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Read bases or resolve a coordinate — INSPECTION only: to move a sequence
-    /// between tools, export it to a file with save_file's `region` instead.
+    /// between tools, export it to a file with save_file's `region` or stage it
+    /// with add_to_workspace and pass its `hash` — never retype bases.
     ///
     /// WINDOW MODE — `start` + `end` (1-based inclusive; start > end wraps the
     /// origin on circular sequences; at most 10000 bp). Returns {ok, message,
@@ -651,9 +656,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// complemented for a minus-strand DNA feature), overlapping annotations
     /// carried along.
     /// - `cut1` + `cut2`: the fragment between two cuts; a cut at N severs the DNA
-    /// between the 1-based bases N and N+1. Take the positions from
-    /// find_restriction_sites (`topCutIndex`) or test_primers' `amplicon`
-    /// instead of deriving them by hand.
+    /// between the 1-based bases N and N+1. The export is ALWAYS the (+)-strand
+    /// sequence between the cuts — on circular templates the arc runs from cut1
+    /// to cut2 along the (+) strand (swap them for the other arc). Take the
+    /// positions from find_restriction_sites (`topCutIndex`) or test_primers'
+    /// `amplicon` instead of deriving them by hand.
     /// Exports are always linear, include every overlapping feature (clipped) and
     /// primer, do NOT mark the project clean, and return {ok, message, projectId,
     /// unit, path, length, bytesWritten, primerCount, primers?, text,

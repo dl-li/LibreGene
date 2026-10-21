@@ -133,7 +133,7 @@ async fn add_to_workspace_single_enzyme_double_cut() {
 }
 
 #[tokio::test]
-async fn add_to_workspace_two_enzymes_respects_direction() {
+async fn add_to_workspace_two_enzymes_always_plus_strand() {
     let project = ecori_bamhi_project("linear");
     let seq = project.sequence.clone();
     let server = handler_with_project(project).await;
@@ -143,7 +143,8 @@ async fn add_to_workspace_two_enzymes_respects_direction() {
     req.enzymes = Some(vec!["EcoRI".to_string(), "BamHI".to_string()]);
     let v = server.add_to_workspace(Parameters(req)).await.unwrap().0;
     assert_eq!(v["ok"], true, "{v}");
-    // BamHI → EcoRI: same span, reverse-complemented (direction honored).
+    // BamHI → EcoRI: the SAME (+)-strand span — name order never flips a
+    // linear enzyme fragment.
     let mut req = add_req("enz_eb_linear");
     req.enzymes = Some(vec!["BamHI".to_string(), "EcoRI".to_string()]);
     let v2 = server.add_to_workspace(Parameters(req)).await.unwrap().0;
@@ -151,8 +152,7 @@ async fn add_to_workspace_two_enzymes_respects_direction() {
 
     let ws = server.workspace.read().await;
     assert_eq!(ws[0].sequence, seq[41..=100].to_ascii_uppercase());
-    let expected_rev = libregene_core::utils::reverse_complement(&seq[41..=100]);
-    assert_eq!(ws[1].sequence, expected_rev);
+    assert_eq!(ws[1].sequence, seq[41..=100].to_ascii_uppercase());
 }
 
 #[tokio::test]

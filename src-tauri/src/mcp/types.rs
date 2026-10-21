@@ -145,7 +145,8 @@ pub(crate) struct ConvertItem {
     /// `inputPath` (optional; otherwise the whole file sequence is used).
     pub(crate) feature_id: Option<String>,
     /// Standalone mode: raw sequence text (whitespace/digits ignored). Short
-    /// hand-authored sequences only; otherwise use `inputPath`.
+    /// hand-authored sequences only; otherwise use `inputPath` or a workspace
+    /// `hash`.
     pub(crate) sequence: Option<String>,
     /// Standalone mode (PREFERRED): local sequence file (.gbk/.gb/.genbank/
     /// .dna/.rna/.fasta/.fa/.ab1 — nucleotide; .gpt/.prot — protein).
@@ -271,8 +272,10 @@ pub(crate) struct AddToWorkspaceRequest {
     /// Selector: region end, 1-based inclusive. Requires `start`.
     pub(crate) end: Option<i64>,
     /// Selector (DNA projects only): 1 enzyme name that cuts exactly twice, or
-    /// 2 enzyme names that each cut exactly once (the fragment runs from the
-    /// first enzyme's cut to the second's).
+    /// 2 enzyme names that each cut exactly once. The fragment is ALWAYS the
+    /// (+)-strand sequence between the two cut points — never reverse-
+    /// complemented, regardless of name order; on circular templates the order
+    /// picks the arc (first enzyme's cut → second's).
     pub(crate) enzymes: Option<Vec<String>>,
     /// Optional custom name for the fragment (only when exactly one fragment
     /// is produced).
@@ -287,7 +290,7 @@ pub(crate) struct AddAlignmentRequest {
     /// Name for the new alignment.
     pub(crate) name: String,
     /// Read sequence as plain text — accepts a short hand-authored sequence
-    /// only; prefer `path`. (Legacy alias: `bases`.)
+    /// only; prefer `path` or a workspace `hash`. (Legacy alias: `bases`.)
     #[serde(alias = "bases")]
     pub(crate) seq: Option<String>,
     /// PREFERRED input: read the sequence from a file (.gbk/.gb/.genbank,
@@ -442,7 +445,9 @@ pub(crate) struct RegionSpec {
     /// 1-based bases N and N+1 (N = len is after the last base on linear
     /// sequences, between the last and the first base on circular ones).
     pub(crate) cut1: Option<i64>,
-    /// Cut mode: second cut position (same convention).
+    /// Cut mode: second cut position (same convention). The exported fragment
+    /// is always the (+)-strand sequence between the two cuts; on circular
+    /// templates the arc runs from cut1 to cut2 (swap for the other arc).
     pub(crate) cut2: Option<i64>,
 }
 
