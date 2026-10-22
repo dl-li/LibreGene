@@ -433,9 +433,9 @@ export default function useSettings() {
   );
 
   const onToggleTextColor = useCallback(
-    () =>
+    (force) =>
       setShowTextColor((v) => {
-        const next = !v;
+        const next = typeof force === 'boolean' ? force : !v;
         try {
           localStorage.setItem('showTextColor', JSON.stringify(next));
         } catch {

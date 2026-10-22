@@ -701,6 +701,15 @@ export default function ProjectWorkspace({
     hiddenAlignIds,
   });
 
+  const handleTextColorChange = useCallback(
+    async (...args) => {
+      const changed = await handleSetTextColor(...args);
+      if (changed) onToggleTextColor?.(true);
+      return changed;
+    },
+    [handleSetTextColor, onToggleTextColor],
+  );
+
   // Auto-add primers from opened files to My Primers.
   useEffect(() => {
     if (!autoAddPrimers || !primers.length) return;
@@ -943,7 +952,7 @@ export default function ProjectWorkspace({
               onFeatureColorChange={handleFeatureColorChange}
               textColorsTop={showTextColor ? textColorsTop : undefined}
               textColorsBottom={showTextColor ? textColorsBottom : undefined}
-              onSetTextColor={handleSetTextColor}
+              onSetTextColor={handleTextColorChange}
               onFeatureLocationChange={handleFeatureLocationChange}
               onFeatureNameChange={handleFeatureNameChange}
               onFeatureStrandChange={handleFeatureStrandChange}

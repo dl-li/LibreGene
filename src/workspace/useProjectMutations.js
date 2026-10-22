@@ -93,23 +93,24 @@ export default function useProjectMutations({
   // Sequence text color on [start, end] (0-based inclusive); '' clears.
   const handleSetTextColor = useCallback(
     async (strand, start, end, color) => {
-      if (agentLockedRef.current) return;
+      if (agentLockedRef.current) return false;
       const gen = ++operationGenRef.current;
       try {
         const data = await setTextColors(strand, start, end, color);
-        if (operationGenRef.current !== gen) return;
-        if (data && data.textColorsTop) {
-          pushHistory({
-            textColorsTop: data.textColorsTop,
-            textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
-          });
-          setTextColorsTop(data.textColorsTop);
-          setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
+        if (operationGenRef.current !== gen) return false;
+        if (!data || !data.textColorsTop) return false;
+        pushHistory({
+          textColorsTop: data.textColorsTop,
+          textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
+        });
+        setTextColorsTop(data.textColorsTop);
+        setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
+        if (data.projects) onProjectsSync(data.projects);
+        setIsDirty(true);
+        return true;
       } catch (e) {
         console.error('set text colors error:', e);
+        return false;
       }
     },
     [pushHistory, onProjectsSync],

@@ -1706,6 +1706,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
     submitBlast(sliceRange(cleanSeq, selStart, selEnd));
   }, [hasSelection, cleanSeq, selStart, selEnd, submitBlast]);
 
+  const handleTextColorChange = useCallback(
+    async (strand, color) => {
+      const changed = await onSetTextColor(strand, selStart, selEnd, color);
+      if (!changed) return;
+      setSelStart(null);
+      setSelEnd(null);
+      setCursorIndex(null);
+      setSelectionMode('none');
+      setIsEnzymeSelection(false);
+      setSelectedEnzymeIds([]);
+      lastEnzymeSelRef.current = null;
+      clearCursorTimer();
+    },
+    [onSetTextColor, selStart, selEnd, clearCursorTimer],
+  );
+
   // Generic right-click on the editor canvas: menu reflects the current selection.
   // Feature / primer elements attach their own menus and stopPropagation.
   const handleContextMenu = useCallback(
@@ -1765,13 +1781,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
             ...TEXT_COLOR_PALETTE.map((c) => ({
               icon: textColorSwatch(c.color),
               label: c.label,
-              onSelect: () => onSetTextColor(strand, selStart, selEnd, c.color),
+              onSelect: () => handleTextColorChange(strand, c.color),
             })),
             { type: 'separator' },
             {
               icon: Eraser,
               label: 'Clear Color',
-              onSelect: () => onSetTextColor(strand, selStart, selEnd, ''),
+              onSelect: () => handleTextColorChange(strand, ''),
             },
           ];
           items.push({ type: 'separator' });
@@ -1817,6 +1833,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       blastBusy,
       handleBlastSelection,
       onSetTextColor,
+      handleTextColorChange,
       selWraps,
       selStart,
       selEnd,

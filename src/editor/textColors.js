@@ -3,17 +3,16 @@
 // non-overlapping, no adjacent same-color runs — enforced by the backend's
 // strand_colors::canonicalize and by the writers below).
 
-// Preset palette for the selection context menu; hex values match the
-// SnapGene named-color mapping in backend strand_colors.rs.
+// Preset palette for the selection context menu.
 export const TEXT_COLOR_PALETTE = [
-  { label: 'Green', color: '#00b050' },
-  { label: 'Blue', color: '#0070c0' },
-  { label: 'Orange', color: '#ffa500' },
-  { label: 'Red', color: '#ff0000' },
-  { label: 'Purple', color: '#7030a0' },
-  { label: 'Cyan', color: '#00b0f0' },
-  { label: 'Yellow', color: '#e6e600' },
-  { label: 'Gray', color: '#808080' },
+  { label: 'Green', color: '#008038' },
+  { label: 'Blue', color: '#005a9e' },
+  { label: 'Orange', color: '#b45f00' },
+  { label: 'Red', color: '#c00000' },
+  { label: 'Purple', color: '#5b217f' },
+  { label: 'Cyan', color: '#00748a' },
+  { label: 'Yellow', color: '#7a7000' },
+  { label: 'Gray', color: '#606060' },
 ];
 
 export const DEFAULT_TEXT_FILL = '#1f2937';
