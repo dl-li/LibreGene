@@ -641,12 +641,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.open_project_impl(request).await
     }
 
-    /// Write a project to disk — the reverse of open_project.
+    /// Write a project to disk — the reverse of open_project. Supported output
+    /// formats: .gbk/.gb/.genbank (DNA/RNA) or .gpt (protein) ONLY — the
+    /// extension picks the writer and must match the molecule type; FASTA or
+    /// bare-text output is not offered here (use convert_sequence's
+    /// `outputPath` for that instead).
     ///
     /// Whole project (no `region`): sequence + features go through the normal
-    /// serializer (.gbk/.gb/.genbank for DNA/RNA, .gpt for protein) and the project
-    /// is marked clean. Returns {ok, message, projectId, unit, path, length,
-    /// bytesWritten, text, sequenceHash, revCompHash}.
+    /// serializer and the project is marked clean. Returns {ok, message,
+    /// projectId, unit, path, length, bytesWritten, text, sequenceHash,
+    /// revCompHash}.
     ///
     /// `region`: export one subsequence — the recommended way to create a new file
     /// from a known region of an open project (never retype a sequence into another
