@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { setDefaultFileAssociations } from '@/tauriApi';
 import { applySettingsImport, exportUserSettings, readSettingsImport } from '@/settingsTransfer';
 import {
+  AlertTriangle,
   Dna,
   SlidersHorizontal,
   Scissors,
@@ -119,6 +120,7 @@ export default function SettingsPage({
   onCaseDisplayChange,
   highContrastTextColors = false,
   onToggleHighContrastTextColors,
+  showTextColor = true,
   plugins = [],
   disabledPlugins = [],
   onTogglePlugin,
@@ -365,7 +367,17 @@ export default function SettingsPage({
                 ))}
                 <SettingRow
                   label="High contrast text colors"
-                  hint="Display palette-based text colors vividly and use matching presets"
+                  hint={
+                    <>
+                      Display palette-based text colors vividly and use matching presets
+                      {!showTextColor && (
+                        <span className="mt-1 flex items-center gap-1 text-amber-600 dark:text-amber-500">
+                          <AlertTriangle className="size-3.5 shrink-0" />
+                          “Show Text Color” is currently off
+                        </span>
+                      )}
+                    </>
+                  }
                 >
                   <Checkbox
                     checked={highContrastTextColors}

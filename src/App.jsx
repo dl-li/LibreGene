@@ -1218,6 +1218,7 @@ export default function App() {
           onCaseDisplayChange={onCaseDisplayChange}
           highContrastTextColors={highContrastTextColors}
           onToggleHighContrastTextColors={onToggleHighContrastTextColors}
+          showTextColor={showTextColor}
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
