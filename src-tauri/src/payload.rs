@@ -74,6 +74,27 @@ pub(crate) async fn lock_agent_tab_for_project<R: Runtime>(
     }
 }
 
+/// Tell agent-locked windows where an MCP mutation landed so they can scroll
+/// to and select the changed region. Emitted after broadcast_project; the
+/// lock gate lives in the frontend. Coordinates are 0-based inclusive.
+pub(crate) fn emit_mutation_focus<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    project_id: &str,
+    start: i64,
+    end: i64,
+    kind: &str,
+) {
+    let _ = app_handle.emit(
+        "agent-mutation-focus",
+        serde_json::json!({
+            "projectId": project_id,
+            "start": start,
+            "end": end,
+            "kind": kind,
+        }),
+    );
+}
+
 /// Filter out projects that are open in project windows, and adjust the activeId
 /// if it points to an excluded project.
 pub(crate) fn filter_main_window_projects(

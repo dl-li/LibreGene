@@ -204,7 +204,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             return Ok(Json(v));
         }
-        let (sites, region, unit) = {
+        let (sites, region, unit, focus) = {
             let pm = self.pm.read().await;
             match pm.get_project_by_id(&id) {
                 Some(p) => {
@@ -227,26 +227,25 @@ impl<R: Runtime> LibreGeneMcp<R> {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    let region = p
+                    let focus = p
                         .primers
                         .iter()
                         .find(|pr| pr.id == primer_id)
                         .and_then(|pr| pr.binding_sites.first())
-                        .map(|s| {
-                            (
-                                (s.template_start - 10).max(0),
-                                (s.template_end - 1 + 10).min(p.length - 1),
-                            )
-                        });
+                        .map(|s| (s.template_start, s.template_end - 1));
+                    let region = focus.map(|(s, e)| ((s - 10).max(0), (e + 10).min(p.length - 1)));
                     let unit = unit_for(&p.molecule_type);
                     match region {
-                        Some(r) => (sites, Some(r), unit),
-                        None => (sites, None, unit),
+                        Some(r) => (sites, Some(r), unit, focus),
+                        None => (sites, None, unit, focus),
                     }
                 }
-                None => (Vec::new(), None, "bp"),
+                None => (Vec::new(), None, "bp", None),
             }
         };
+        if let Some((s, e)) = focus {
+            crate::payload::emit_mutation_focus(&self.app_handle, &id, s, e, "primer");
+        }
         let region_view = match region {
             Some(r) => self.digest_region(&id, Some(r), true, false).await,
             None => self.digest_region(&id, None, true, false).await,

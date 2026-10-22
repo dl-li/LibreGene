@@ -446,6 +446,23 @@ impl<R: Runtime> LibreGeneMcp<R> {
             if let Some(err) = Self::payload_error(&payload) {
                 return Err(err);
             }
+            {
+                let pm = self.pm.read().await;
+                if let Some(f) = pm
+                    .get_project_by_id(&id)
+                    .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
+                {
+                    let (s, e) = if f.segments.is_empty() {
+                        (f.start, f.end)
+                    } else {
+                        (
+                            f.segments.iter().map(|sg| sg.start).min().unwrap_or(f.start),
+                            f.segments.iter().map(|sg| sg.end).max().unwrap_or(f.end),
+                        )
+                    };
+                    crate::payload::emit_mutation_focus(&self.app_handle, &id, s, e, "sequence");
+                }
+            }
             if let Some(rv) = self.digest_feature_region(&id, &feature_id).await {
                 v["text"] = serde_json::json!(rv);
             }

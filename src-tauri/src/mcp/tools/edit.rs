@@ -507,6 +507,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let repl_len = replacement.len() as i64;
+        {
+            let start0 = start;
+            let end0 = if repl_len > 0 {
+                (start0 + repl_len - 1).min(new_len - 1)
+            } else {
+                start0.min(new_len - 1)
+            };
+            crate::payload::emit_mutation_focus(
+                &self.app_handle,
+                &id,
+                start0.max(0),
+                end0.max(0),
+                "sequence",
+            );
+        }
         let unit = unit_for(&project.molecule_type);
         let new_win = (
             (start - 30).max(0),
@@ -685,15 +700,26 @@ impl<R: Runtime> LibreGeneMcp<R> {
             if let Some(err) = Self::payload_error(&payload) {
                 return Ok(fail(err));
             }
-            let (message, unit) = {
+            let (message, unit, span) = {
                 let pm = self.pm.read().await;
                 let unit = pm
                     .get_project_by_id(&id)
                     .map(|p| unit_for(&p.molecule_type))
                     .unwrap_or("bp");
-                let message = pm
+                let feature = pm
                     .get_project_by_id(&id)
-                    .and_then(|p| p.features.iter().find(|f| f.id == feature_id))
+                    .and_then(|p| p.features.iter().find(|f| f.id == feature_id));
+                let span = feature.map(|f| {
+                    if f.segments.is_empty() {
+                        (f.start, f.end)
+                    } else {
+                        (
+                            f.segments.iter().map(|s| s.start).min().unwrap_or(f.start),
+                            f.segments.iter().map(|s| s.end).max().unwrap_or(f.end),
+                        )
+                    }
+                });
+                let message = feature
                     .map(|f| {
                         format!(
                             "Updated feature {}: {} {} at {} (1-based inclusive), strand {}",
@@ -705,8 +731,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         )
                     })
                     .unwrap_or_else(|| format!("Updated feature {}", feature_id));
-                (message, unit)
+                (message, unit, span)
             };
+            if let Some((s, e)) = span {
+                crate::payload::emit_mutation_focus(&self.app_handle, &id, s, e, "feature");
+            }
             let region = self.digest_feature_region(&id, &feature_id).await;
             let mut v = ok_envelope(&id, message, region);
             v["unit"] = serde_json::json!(unit);
@@ -764,6 +793,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
 
         let stored = stored_location(&feature);
+        let focus_span = if feature.segments.is_empty() {
+            (feature.start, feature.end)
+        } else {
+            (
+                feature.segments.iter().map(|s| s.start).min().unwrap_or(feature.start),
+                feature.segments.iter().map(|s| s.end).max().unwrap_or(feature.end),
+            )
+        };
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
@@ -778,6 +815,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(fail(err));
         }
+        crate::payload::emit_mutation_focus(&self.app_handle, &id, focus_span.0, focus_span.1, "feature");
         let region = self.digest_feature_region(&id, &feature_id).await;
         let mut v = ok_envelope(
             &id,

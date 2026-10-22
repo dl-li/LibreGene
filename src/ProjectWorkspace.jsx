@@ -9,6 +9,7 @@ import {
   rekeyProject,
   getChromatogram,
   listenProjectUpdates,
+  listenAgentMutationFocus,
   isTauri,
 } from './tauriApi';
 import { orientChromatogram } from './chromatogram';
@@ -394,6 +395,36 @@ export default function ProjectWorkspace({
       cancelled = true;
       if (listener) listener.close();
     };
+  }, []);
+
+  // MCP mutations emit agent-mutation-focus after the data broadcast; when this
+  // project is agent-locked, jump to and select the changed region.
+  useEffect(() => {
+    const listener = listenAgentMutationFocus((msg) => {
+      if (msg.projectId !== projectIdRef.current) return;
+      if (!agentLockedRef.current) return;
+      if (typeof msg.start !== 'number' || typeof msg.end !== 'number') return;
+      // Deferred so the broadcast's new sequence renders before we clamp/scroll.
+      requestAnimationFrame(() => {
+        const len = (sequenceRef.current || '').length;
+        if (!len) return;
+        const selStart = Math.max(0, Math.min(msg.start, len - 1));
+        const selEnd = Math.max(selStart, Math.min(msg.end, len - 1));
+        setRestoreState({
+          version: ++undoVersionRef.current,
+          cursorIndex: selEnd + 1,
+          selStart,
+          selEnd,
+          selectionMode: 'text',
+          selectedPrimerIds: [],
+          isEnzymeSelection: false,
+          selectedEnzymeIds: [],
+          translationSel: null,
+          scrollToIndex: selStart,
+        });
+      });
+    });
+    return () => listener.close();
   }, []);
 
   // Report dirty state up to App (sidebar dots + title bar)

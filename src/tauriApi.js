@@ -374,6 +374,20 @@ export function listenAgentTabLock(callback) {
   };
 }
 
+/** Listen for agent-mutation focus requests (app-wide, payload {projectId, start, end, kind}, 0-based inclusive). */
+export function listenAgentMutationFocus(callback) {
+  let closed = false;
+  const ready = tauriListen('agent-mutation-focus', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}
+
 export async function rekeyProject(oldId, newId) {
   return tauriInvoke('rekey_project', { oldId, newId });
 }

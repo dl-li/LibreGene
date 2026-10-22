@@ -575,6 +575,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         let min_s = orfs.iter().map(|f| f.start).min().unwrap_or(0);
         let max_e = orfs.iter().map(|f| f.end).max().unwrap_or(0);
+        let first_span = orfs.first().map(|f| (f.start, f.end));
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
@@ -592,6 +593,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 insert_seq_hashes(&mut v, h);
             }
             return Ok(Json(v));
+        }
+        if let Some((s, e)) = first_span {
+            crate::payload::emit_mutation_focus(&self.app_handle, &id, s, e, "feature");
         }
         let region = self.digest_region(&id, Some((min_s, max_e)), true, false).await;
         let mut v = ok_envelope(&id, format!("Added {} ORF(s) as CDS features", count), region);
