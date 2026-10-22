@@ -70,6 +70,7 @@ export default function ProjectWorkspace({
   onToggleDoubleStrand,
   showTextColor = true,
   onToggleTextColor,
+  highContrastTextColors = false,
   // Width of the collapsed sidebar icon rail overlaying the content's left
   // edge (main window); forwarded to SequenceEditor for label clamping.
   leftViewportInset = 0,
@@ -1077,6 +1078,7 @@ export default function ProjectWorkspace({
               onToggleDoubleStrand={onToggleDoubleStrand}
               showTextColor={showTextColor}
               onToggleTextColor={onToggleTextColor}
+              highContrastTextColors={highContrastTextColors}
               editorScrollRef={editorScrollRef}
               alignNavRef={alignNavRef}
               leftViewportInset={leftViewportInset}

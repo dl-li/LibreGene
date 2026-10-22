@@ -105,6 +105,8 @@ export default function SettingsPage({
   setTmParams,
   caseDisplay = { dna: 'asis', rna: 'asis', protein: 'upper' },
   onCaseDisplayChange,
+  highContrastTextColors = false,
+  onToggleHighContrastTextColors,
   plugins = [],
   disabledPlugins = [],
   onTogglePlugin,
@@ -256,6 +258,15 @@ export default function SettingsPage({
                     </Select>
                   </SettingRow>
                 ))}
+                <SettingRow
+                  label="High contrast text colors"
+                  hint="Use vivid presets that stand out from the default black text"
+                >
+                  <Checkbox
+                    checked={highContrastTextColors}
+                    onCheckedChange={onToggleHighContrastTextColors}
+                  />
+                </SettingRow>
               </div>
             )}
 

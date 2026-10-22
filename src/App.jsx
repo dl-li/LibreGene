@@ -102,6 +102,8 @@ export default function App() {
     onToggleDoubleStrand,
     showTextColor,
     onToggleTextColor,
+    highContrastTextColors,
+    onToggleHighContrastTextColors,
     methylationSystems,
     setMethylationSystems,
     methylationOverlap,
@@ -715,6 +717,7 @@ export default function App() {
       onToggleDoubleStrand,
       showTextColor,
       onToggleTextColor,
+      highContrastTextColors,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
@@ -762,6 +765,7 @@ export default function App() {
       onToggleDoubleStrand,
       showTextColor,
       onToggleTextColor,
+      highContrastTextColors,
       disabledPlugins,
       onDirtyChange,
       registerHandle,
@@ -1212,6 +1216,8 @@ export default function App() {
           setTmParams={setTmParams}
           caseDisplay={caseDisplay}
           onCaseDisplayChange={onCaseDisplayChange}
+          highContrastTextColors={highContrastTextColors}
+          onToggleHighContrastTextColors={onToggleHighContrastTextColors}
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}

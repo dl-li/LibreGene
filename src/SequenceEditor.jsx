@@ -24,7 +24,7 @@ import {
   insertionBases,
 } from './editor/alignmentLayout';
 import { matchedSeqOf, reverseComplement, truncatedLabel } from './editor/seqUtils';
-import { TEXT_COLOR_PALETTE } from './editor/textColors';
+import { HIGH_CONTRAST_TEXT_COLOR_PALETTE, TEXT_COLOR_PALETTE } from './editor/textColors';
 import { buildCDSData, isTranslatable } from './editor/translation';
 import useStreamLayout from './editor/useStreamLayout';
 import useEnrichedPrimers from './editor/useEnrichedPrimers';
@@ -242,6 +242,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // View-menu toggle for per-strand text colors (rendering gate only).
   showTextColor = true,
   onToggleTextColor,
+  highContrastTextColors = false,
   // ProjectWorkspace's ref onto the editor container div (the horizontal
   // scroll host in continuous mode); merged with the internal containerRef.
   editorScrollRef,
@@ -1777,8 +1778,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
         }
         // Sequence text colors (per strand; cross-origin selections unsupported).
         if (onSetTextColor && !selWraps) {
+          const palette = highContrastTextColors
+            ? HIGH_CONTRAST_TEXT_COLOR_PALETTE
+            : TEXT_COLOR_PALETTE;
           const paletteItems = (strand) => [
-            ...TEXT_COLOR_PALETTE.map((c) => ({
+            ...palette.map((c) => ({
               icon: textColorSwatch(c.color),
               label: c.label,
               onSelect: () => handleTextColorChange(strand, c.color),
@@ -1834,6 +1838,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       handleBlastSelection,
       onSetTextColor,
       handleTextColorChange,
+      highContrastTextColors,
       selWraps,
       selStart,
       selEnd,

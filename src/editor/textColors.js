@@ -15,6 +15,17 @@ export const TEXT_COLOR_PALETTE = [
   { label: 'Gray', color: '#707070' },
 ];
 
+export const HIGH_CONTRAST_TEXT_COLOR_PALETTE = [
+  { label: 'Green', color: '#00b050' },
+  { label: 'Blue', color: '#0070c0' },
+  { label: 'Orange', color: '#ffa500' },
+  { label: 'Red', color: '#ff0000' },
+  { label: 'Purple', color: '#7030a0' },
+  { label: 'Cyan', color: '#00b0f0' },
+  { label: 'Yellow', color: '#e6e600' },
+  { label: 'Gray', color: '#808080' },
+];
+
 export const DEFAULT_TEXT_FILL = '#1f2937';
 
 /**
