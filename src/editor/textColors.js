@@ -5,14 +5,14 @@
 
 // Preset palette for the selection context menu.
 export const TEXT_COLOR_PALETTE = [
-  { label: 'Green', color: '#008038' },
-  { label: 'Blue', color: '#005a9e' },
-  { label: 'Orange', color: '#b45f00' },
-  { label: 'Red', color: '#c00000' },
-  { label: 'Purple', color: '#5b217f' },
-  { label: 'Cyan', color: '#00748a' },
-  { label: 'Yellow', color: '#7a7000' },
-  { label: 'Gray', color: '#606060' },
+  { label: 'Green', color: '#009844' },
+  { label: 'Blue', color: '#0065af' },
+  { label: 'Orange', color: '#da8200' },
+  { label: 'Red', color: '#e00000' },
+  { label: 'Purple', color: '#662990' },
+  { label: 'Cyan', color: '#0092bd' },
+  { label: 'Yellow', color: '#b0ab00' },
+  { label: 'Gray', color: '#707070' },
 ];
 
 export const DEFAULT_TEXT_FILL = '#1f2937';
