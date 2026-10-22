@@ -3,7 +3,7 @@
 // non-overlapping, no adjacent same-color runs — enforced by the backend's
 // strand_colors::canonicalize and by the writers below).
 
-// Preset palette for the selection context menu.
+// Preset palettes for the selection context menu and display-time color mapping.
 export const TEXT_COLOR_PALETTE = [
   { label: 'Green', color: '#009844' },
   { label: 'Blue', color: '#0065af' },
@@ -25,6 +25,32 @@ export const HIGH_CONTRAST_TEXT_COLOR_PALETTE = [
   { label: 'Yellow', color: '#e6e600' },
   { label: 'Gray', color: '#808080' },
 ];
+
+const TO_HIGH_CONTRAST = new Map(
+  TEXT_COLOR_PALETTE.map((entry, index) => [
+    entry.color,
+    HIGH_CONTRAST_TEXT_COLOR_PALETTE[index].color,
+  ]),
+);
+const TO_BALANCED = new Map(
+  HIGH_CONTRAST_TEXT_COLOR_PALETTE.map((entry, index) => [
+    entry.color,
+    TEXT_COLOR_PALETTE[index].color,
+  ]),
+);
+
+export function mapTextColorPalette(ranges, highContrast) {
+  if (!ranges?.length) return ranges;
+  const colors = highContrast ? TO_HIGH_CONTRAST : TO_BALANCED;
+  let changed = false;
+  const next = ranges.map((range) => {
+    const color = colors.get(range.color?.toLowerCase());
+    if (!color || color === range.color) return range;
+    changed = true;
+    return { ...range, color };
+  });
+  return changed ? next : ranges;
+}
 
 export const DEFAULT_TEXT_FILL = '#1f2937';
 

@@ -260,7 +260,7 @@ export default function SettingsPage({
                 ))}
                 <SettingRow
                   label="High contrast text colors"
-                  hint="Use vivid presets that stand out from the default black text"
+                  hint="Display palette-based text colors vividly and use matching presets"
                 >
                   <Checkbox
                     checked={highContrastTextColors}

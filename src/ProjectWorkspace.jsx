@@ -14,6 +14,7 @@ import {
 import { orientChromatogram } from './chromatogram';
 import FeatureScrollbar from './components/FeatureScrollbar';
 import { BASE_HILITE_BG } from './editor/alignmentLayout';
+import { mapTextColorPalette } from './editor/textColors';
 import MapView from './MapView';
 import {
   loadProviderData,
@@ -587,6 +588,15 @@ export default function ProjectWorkspace({
     );
   }, [setFilteredEnzymes, enzymeProvider, providerIndex]);
 
+  const displayTextColorsTop = useMemo(
+    () => mapTextColorPalette(textColorsTop, highContrastTextColors),
+    [textColorsTop, highContrastTextColors],
+  );
+  const displayTextColorsBottom = useMemo(
+    () => mapTextColorPalette(textColorsBottom, highContrastTextColors),
+    [textColorsBottom, highContrastTextColors],
+  );
+
   const handleSelectionChange = useCallback(
     (sel) => {
       lastSelectionRef.current = sel;
@@ -951,8 +961,8 @@ export default function ProjectWorkspace({
               canDirectSave={canDirectSave}
               onFeatureFtypeChange={handleFeatureFtypeChange}
               onFeatureColorChange={handleFeatureColorChange}
-              textColorsTop={showTextColor ? textColorsTop : undefined}
-              textColorsBottom={showTextColor ? textColorsBottom : undefined}
+              textColorsTop={showTextColor ? displayTextColorsTop : undefined}
+              textColorsBottom={showTextColor ? displayTextColorsBottom : undefined}
               onSetTextColor={handleTextColorChange}
               onFeatureLocationChange={handleFeatureLocationChange}
               onFeatureNameChange={handleFeatureNameChange}

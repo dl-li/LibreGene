@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { adjustTextColorsForEdit, splitByTextColor } from '../editor/textColors';
+import {
+  adjustTextColorsForEdit,
+  mapTextColorPalette,
+  splitByTextColor,
+} from '../editor/textColors';
 
 const tc = (start, end, color) => ({ start, end, color });
 
@@ -71,5 +75,22 @@ describe('splitByTextColor', () => {
 
   it('colors the whole chunk', () => {
     expect(splitByTextColor(10, 10, ranges)).toEqual([{ off: 0, len: 10, color: '#ff0000' }]);
+  });
+});
+
+describe('mapTextColorPalette', () => {
+  it('maps existing palette colors in both directions', () => {
+    const balanced = [tc(0, 9, '#e00000'), tc(10, 19, '#0092bd')];
+    const vivid = mapTextColorPalette(balanced, true);
+    expect(vivid).toEqual([tc(0, 9, '#ff0000'), tc(10, 19, '#00b0f0')]);
+    expect(mapTextColorPalette(vivid, false)).toEqual(balanced);
+  });
+
+  it('preserves custom colors and empty input', () => {
+    const custom = [tc(0, 9, '#123456')];
+    expect(mapTextColorPalette(custom, true)).toBe(custom);
+    expect(mapTextColorPalette(custom, false)).toBe(custom);
+    expect(mapTextColorPalette([], true)).toEqual([]);
+    expect(mapTextColorPalette(undefined, true)).toBeUndefined();
   });
 });
