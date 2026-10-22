@@ -33,6 +33,11 @@ axum = "0.8"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
+# Per-user default-app registration (HKCU Software\Classes) for
+# set_default_file_associations; no admin rights required.
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"
+
 # Keep the alignment/enzyme engine fast in dev builds.
 [profile.dev.package.libregene-core]
 opt-level = 2

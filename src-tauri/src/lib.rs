@@ -120,6 +120,8 @@ pub fn run() {
             commands::projects::create_project,
             commands::projects::save_file,
             commands::projects::write_text_file,
+            commands::projects::read_text_file,
+            commands::default_app::set_default_file_associations,
             commands::seqedit::update_sequence,
             commands::seqedit::set_text_colors,
             commands::seqedit::set_roi,

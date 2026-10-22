@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-genbank">
+    <comment>GenBank file</comment>
+    <glob pattern="*.gbk"/>
+    <glob pattern="*.gb"/>
+    <glob pattern="*.genbank"/>
+    <glob pattern="*.gbf"/>
+    <glob pattern="*.gbff"/>
+  </mime-type>
+  <mime-type type="application/x-genpept">
+    <comment>GenPept/protein file</comment>
+    <glob pattern="*.gpt"/>
+    <glob pattern="*.gp"/>
+    <glob pattern="*.gpe"/>
+    <glob pattern="*.gpff"/>
+    <glob pattern="*.prot"/>
+  </mime-type>
+  <mime-type type="application/x-snapgene">
+    <comment>SnapGene file</comment>
+    <glob pattern="*.dna"/>
+    <glob pattern="*.rna"/>
+  </mime-type>
+  <mime-type type="text/x-fasta">
+    <comment>FASTA file</comment>
+    <glob pattern="*.fasta"/>
+    <glob pattern="*.fa"/>
+    <glob pattern="*.fna"/>
+    <glob pattern="*.fas"/>
+    <glob pattern="*.ffn"/>
+    <glob pattern="*.fsa"/>
+    <glob pattern="*.faa"/>
+    <glob pattern="*.frn"/>
+  </mime-type>
+  <mime-type type="application/x-ab1">
+    <comment>ABI trace file</comment>
+    <glob pattern="*.ab1"/>
+  </mime-type>
+  <mime-type type="text/x-seq">
+    <comment>Plain sequence file</comment>
+    <glob pattern="*.seq"/>
+  </mime-type>
+</mime-info>

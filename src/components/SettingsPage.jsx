@@ -11,6 +11,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { setDefaultFileAssociations } from '@/tauriApi';
+import { applySettingsImport, exportUserSettings, readSettingsImport } from '@/settingsTransfer';
 import {
   Dna,
   SlidersHorizontal,
@@ -20,7 +23,16 @@ import {
   Puzzle,
   ChevronDown,
   ChevronRight,
+  Cog,
 } from 'lucide-react';
+
+async function notify(message, options = {}) {
+  const dialog = await import('@tauri-apps/plugin-dialog');
+  return dialog.message(String(message), {
+    title: options.title || 'Settings',
+    kind: options.kind,
+  });
+}
 
 const NUM_INPUT = 'w-20 h-8 px-2 py-0 text-sm text-right font-mono';
 
@@ -112,8 +124,56 @@ export default function SettingsPage({
   onTogglePlugin,
   focusSection,
 }) {
-  const [section, setSection] = useState('sequence');
+  const [section, setSection] = useState('general');
   const [showBuiltinPlugins, setShowBuiltinPlugins] = useState(false);
+  const [busy, setBusy] = useState('');
+
+  const handleSetDefaultApp = async () => {
+    setBusy('default');
+    try {
+      const res = await setDefaultFileAssociations();
+      await notify(res?.message || 'Done', {
+        title: 'Default app',
+        kind: res?.ok ? 'info' : 'warning',
+      });
+    } catch (e) {
+      await notify(e, { title: 'Default app', kind: 'error' });
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleExportSettings = async () => {
+    setBusy('export');
+    try {
+      const path = await exportUserSettings();
+      if (path) {
+        await notify(`Settings and data exported to:\n${path}`, { title: 'Export complete' });
+      }
+    } catch (e) {
+      await notify(e, { title: 'Export failed', kind: 'error' });
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleImportSettings = async () => {
+    setBusy('import');
+    try {
+      const entries = await readSettingsImport();
+      if (!entries) return;
+      const dialog = await import('@tauri-apps/plugin-dialog');
+      const yes = await dialog.ask(
+        'This overwrites your current settings and data (My Primers, enzyme groups, all preferences) and reloads the app. Continue?',
+        { title: 'Import settings & data', kind: 'warning' },
+      );
+      if (yes) applySettingsImport(entries);
+    } catch (e) {
+      await notify(e, { title: 'Import failed', kind: 'error' });
+    } finally {
+      setBusy('');
+    }
+  };
 
   const trackFieldPlugins = plugins.filter(
     (p) => p.settingsField && !disabledPlugins.includes(p.id),
@@ -122,6 +182,12 @@ export default function SettingsPage({
   const builtinPlugins = plugins.filter((p) => !p.distributable);
 
   const sections = [
+    {
+      id: 'general',
+      label: 'General',
+      icon: Cog,
+      description: 'File associations and settings backup',
+    },
     {
       id: 'sequence',
       label: 'Sequence',
@@ -166,7 +232,7 @@ export default function SettingsPage({
   useEffect(() => {
     if (!open) return;
     if (focusSection === 'plugins') setSection('plugins');
-    else setSection('sequence');
+    else setSection('general');
   }, [open]);
 
   const renderPluginRow = (p) => (
@@ -229,6 +295,45 @@ export default function SettingsPage({
             <p className="mt-0.5 text-xs text-muted-foreground">{activeSection.description}</p>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
+            {activeSection.id === 'general' && (
+              <div className="divide-y divide-border/60">
+                <SettingRow
+                  label="Default app for sequence files"
+                  hint="Register LibreGene as the default app for .gbk, .dna, .fasta, .ab1 and all other supported formats"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={handleSetDefaultApp}
+                  >
+                    {busy === 'default' ? 'Setting…' : 'Set as default'}
+                  </Button>
+                </SettingRow>
+                <SettingRow
+                  label="Settings & data"
+                  hint="All preferences, My Primers, My Enzymes and other stored data, as a single JSON file"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={handleImportSettings}
+                  >
+                    {busy === 'import' ? 'Importing…' : 'Import…'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={handleExportSettings}
+                  >
+                    {busy === 'export' ? 'Exporting…' : 'Export…'}
+                  </Button>
+                </SettingRow>
+              </div>
+            )}
+
             {activeSection.id === 'sequence' && (
               <div className="divide-y divide-border/60">
                 {CASE_DISPLAY_TYPES.map((t) => (

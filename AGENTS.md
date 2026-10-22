@@ -115,3 +115,4 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - SnapGene 历史快照（`src/plugins/builtin/snapgeneHistory/`，`get_snapgene_history`/`open_snapgene_snapshot`）：未暴露 MCP 工具
 - ab1 色谱图显示（`src/chromatogram.js` 等）：纯前端渲染
 - 链级文字颜色（`textColorsTop/Bottom`，Tauri command `set_text_colors`）：未暴露 MCP 工具（Agent 场景意义不大，与拓扑切换同列）
+- 设为默认应用（`set_default_file_associations`）、用户配置/数据导入导出（`read_text_file` + `src/settingsTransfer.js`）：OS 集成与纯前端配置迁移

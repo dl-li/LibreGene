@@ -161,6 +161,27 @@ pub(crate) async fn write_text_file(path: String, contents: String) -> Result<se
     Ok(serde_json::json!({"status": "ok"}))
 }
 
+/// Read a small UTF-8 text file (used for settings import). Mirrors
+/// write_text_file's extension policy and size cap.
+#[tauri::command]
+pub(crate) async fn read_text_file(path: String) -> Result<serde_json::Value, String> {
+    validate_user_path(&path, TEXT_EXPORT_EXTS)?;
+    const MAX_TEXT_IMPORT_BYTES: u64 = 1024 * 1024;
+    let contents = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        if size > MAX_TEXT_IMPORT_BYTES {
+            return Err(format!(
+                "File too large ({} bytes > {}); this command is for small text files",
+                size, MAX_TEXT_IMPORT_BYTES
+            ));
+        }
+        std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(serde_json::json!({"contents": contents}))
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — multi-project management
 // ---------------------------------------------------------------------------

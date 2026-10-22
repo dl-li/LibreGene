@@ -137,6 +137,18 @@ export async function writeTextFile(path, contents) {
   return tauriInvoke('write_text_file', { path, contents });
 }
 
+export async function readTextFile(path) {
+  return tauriInvoke('read_text_file', { path });
+}
+
+/**
+ * Register LibreGene as the OS default app for every supported sequence-file
+ * extension. Returns `{ ok, message, groups }` (per-format-group results).
+ */
+export async function setDefaultFileAssociations() {
+  return tauriInvoke('set_default_file_associations');
+}
+
 // ---------------------------------------------------------------------------
 // Sequence
 // ---------------------------------------------------------------------------
@@ -659,6 +671,29 @@ export async function saveTextDialog(defaultName = 'export.txt') {
     filters: [{ name: 'Text', extensions: ['txt'] }],
   });
   return result;
+}
+
+export async function saveSettingsDialog(defaultName = 'libregene-settings.json') {
+  if (!isTauri) return null;
+  const result = await tauriSave({
+    title: 'Export settings & data',
+    defaultPath: defaultName,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  return result;
+}
+
+export async function openSettingsDialog() {
+  if (!isTauri) return null;
+  const result = await tauriOpen({
+    title: 'Import settings & data',
+    filters: [
+      { name: 'JSON', extensions: ['json'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+    multiple: false,
+  });
+  return Array.isArray(result) ? result[0] : result;
 }
 
 // ---------------------------------------------------------------------------

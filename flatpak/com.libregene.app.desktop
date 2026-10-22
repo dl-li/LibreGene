@@ -6,3 +6,4 @@ Exec=LibreGene
 Icon=com.libregene.app
 Categories=Science;Education;
 Terminal=false
+MimeType=application/x-genbank;application/x-genpept;application/x-snapgene;text/x-fasta;application/x-ab1;text/x-seq;
