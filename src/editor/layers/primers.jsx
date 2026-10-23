@@ -45,7 +45,7 @@ export function renderPrimers({
   isDraggingRef,
 }) {
   if (!visiblePrimers.length) return null;
-  return visiblePrimers.map((p) => {
+  return visiblePrimers.map((p, pIdx) => {
     const isFwd = p.isFwd;
     const isHovered = hoveredPrimer === p.id;
     const misLen = p.mismatchStr?.length || 0;
@@ -191,6 +191,11 @@ export function renderPrimers({
             ? `M ${arrowBaseX} ${arrowTipY} L ${isFwd ? arrowBaseX - pp.arrowHeadLen : arrowBaseX + pp.arrowHeadLen} ${arrowTipY + expD * pp.arrowHeadHeight}`
             : '';
 
+          // The gradient id must be URL-safe: primer ids can contain spaces
+          // ("M13 Fwd_…"), which break url(#…) references (WebKit paints
+          // those black).
+          const gradId = `primer-grad-${pIdx}-${seg.row}-${seg.colStart}`;
+
           const visMis = hasMis && drawMisLen > 0 ? p.mismatchStr.slice(misLen - drawMisLen) : '';
           // Always-expand: the label rides at the (raised) selected position so
           // it clears the permanently expanded band.
@@ -207,29 +212,55 @@ export function renderPrimers({
               opacity={isDimDuringDrag ? 0.2 : undefined}
               style={isDimDuringDrag ? { pointerEvents: 'none' } : undefined}
             >
-              <path
-                d={hoverPath}
-                fill={isSelectedPrimer ? pColor : bgColor}
-                style={{ transition: springAnim }}
-              />
-              {!isSelectedPrimer && (
-                <path
-                  d={hoverPath}
-                  fill={pColor}
-                  fillOpacity={0.1}
-                  style={{ transition: springAnim }}
-                />
-              )}
-              {/* Always-expand: hover cue is a thin outline around the already
-                  expanded band instead of the expansion itself. */}
-              {alwaysExpandPrimers && isHovered && !isSelectedPrimer && (
-                <path
-                  d={hoverPath}
-                  fill="none"
-                  stroke={pColor}
-                  strokeWidth={1.5}
-                  style={{ pointerEvents: 'none' }}
-                />
+              {/* Always-expand: gradient band and flat hover band are both
+                  always mounted and cross-fade via opacity — toggling the
+                  url(#…) fill itself flashes black in WebKit. */}
+              {alwaysExpandPrimers && !isSelectedPrimer ? (
+                <>
+                  <linearGradient
+                    id={gradId}
+                    gradientUnits="userSpaceOnUse"
+                    x1="0"
+                    y1={isFwd ? lineMaxY : lineMinY}
+                    x2="0"
+                    y2={isFwd ? bandTop : bandBottom}
+                  >
+                    <stop offset="0%" stopColor={pColor} stopOpacity={0.1} />
+                    <stop offset="100%" stopColor={pColor} stopOpacity={0} />
+                  </linearGradient>
+                  <path
+                    d={hoverPath}
+                    fill={`url(#${gradId})`}
+                    style={{ opacity: isHovered ? 0 : 1, transition: springAnim }}
+                  />
+                  <path
+                    d={hoverPath}
+                    fill={bgColor}
+                    style={{ opacity: isHovered ? 1 : 0, transition: springAnim }}
+                  />
+                  <path
+                    d={hoverPath}
+                    fill={pColor}
+                    fillOpacity={0.1}
+                    style={{ opacity: isHovered ? 1 : 0, transition: springAnim }}
+                  />
+                </>
+              ) : (
+                <>
+                  <path
+                    d={hoverPath}
+                    fill={isSelectedPrimer ? pColor : bgColor}
+                    style={{ transition: springAnim }}
+                  />
+                  {!isSelectedPrimer && (
+                    <path
+                      d={hoverPath}
+                      fill={pColor}
+                      fillOpacity={0.1}
+                      style={{ transition: springAnim }}
+                    />
+                  )}
+                </>
               )}
 
               <text
