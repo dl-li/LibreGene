@@ -360,6 +360,8 @@ export default function EditorNavMenu({
     !!onToggleAlwaysExpandFeatures ||
     (isDna && !!onToggleAlwaysExpandPrimers) ||
     !!onFeatureLabelsBelowChange;
+  const hasTrackItems = !!onToggleOrfs || viewTogglePlugins.length > 0;
+  const hasStrandItems = (isDna && !!onToggleDoubleStrand) || !!onToggleTextColor;
 
   // Left click on View re-applies the most recently changed View-menu option;
   // before any menu interaction (or when the layout mode itself was last
@@ -497,11 +499,7 @@ export default function EditorNavMenu({
               Continuous (Horizontal)
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
-          {(onToggleOrfs ||
-            (isDna && onToggleDoubleStrand) ||
-            onToggleTextColor ||
-            hasExpandItems ||
-            viewTogglePlugins.length > 0) && <DropdownMenuSeparator />}
+          {(hasTrackItems || hasStrandItems || hasExpandItems) && <DropdownMenuSeparator />}
           {/* Track overlays: ORFs, GC content, … */}
           {onToggleOrfs && (
             <DropdownMenuCheckboxItem
@@ -527,7 +525,7 @@ export default function EditorNavMenu({
             </DropdownMenuCheckboxItem>
           ))}
           {/* Strand display */}
-          {((isDna && onToggleDoubleStrand) || onToggleTextColor) && <DropdownMenuSeparator />}
+          {hasTrackItems && hasStrandItems && <DropdownMenuSeparator />}
           {isDna && onToggleDoubleStrand && (
             <DropdownMenuCheckboxItem
               checked={showDoubleStrand}
@@ -552,7 +550,7 @@ export default function EditorNavMenu({
           )}
           {hasExpandItems && (
             <>
-              <DropdownMenuSeparator />
+              {(hasTrackItems || hasStrandItems) && <DropdownMenuSeparator />}
               {onToggleAlwaysExpandFeatures && (
                 <DropdownMenuCheckboxItem
                   checked={alwaysExpandFeatures}
