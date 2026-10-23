@@ -631,6 +631,30 @@ export default function EditorNavMenu({
             Show Features
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
+          {onToggleAlwaysExpandFeatures && (
+            <DropdownMenuCheckboxItem
+              checked={alwaysExpandFeatures}
+              onCheckedChange={() => {
+                setLastViewOption('expandFeatures');
+                onToggleAlwaysExpandFeatures();
+              }}
+            >
+              Expand All Features
+            </DropdownMenuCheckboxItem>
+          )}
+          {onFeatureLabelsBelowChange && (
+            <DropdownMenuCheckboxItem
+              checked={viewMode === 'continuous' ? true : featureLabelsBelow}
+              disabled={viewMode === 'continuous'}
+              onCheckedChange={(v) => {
+                setLastViewOption('featureLabelsBelow');
+                onFeatureLabelsBelowChange(v === true);
+              }}
+            >
+              Feature Labels Below
+            </DropdownMenuCheckboxItem>
+          )}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onCreateFeature}>
             <Plus /> Create Feature
             <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
@@ -651,6 +675,17 @@ export default function EditorNavMenu({
             <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
               Show Primers
             </DropdownMenuCheckboxItem>
+            {onToggleAlwaysExpandPrimers && (
+              <DropdownMenuCheckboxItem
+                checked={alwaysExpandPrimers}
+                onCheckedChange={() => {
+                  setLastViewOption('expandPrimers');
+                  onToggleAlwaysExpandPrimers();
+                }}
+              >
+                Expand All Primers
+              </DropdownMenuCheckboxItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onCreatePrimer}>
               <Plus /> Create Primer
