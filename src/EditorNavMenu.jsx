@@ -575,7 +575,8 @@ export default function EditorNavMenu({
               )}
               {onFeatureLabelsBelowChange && (
                 <DropdownMenuCheckboxItem
-                  checked={featureLabelsBelow}
+                  checked={viewMode === 'continuous' ? true : featureLabelsBelow}
+                  disabled={viewMode === 'continuous'}
                   onCheckedChange={(v) => {
                     setLastViewOption('featureLabelsBelow');
                     onFeatureLabelsBelowChange(v === true);
