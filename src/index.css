@@ -123,7 +123,7 @@ input[type='radio']:not(:disabled) {
   cursor: pointer;
 }
 
-/* 隐藏原生滚动条（编辑器区域用自定义 FeatureScrollbar） */
+/* 隐藏原生滚动条（编辑器区域用自定义 FeatureScrollbar / ContinuousOverview） */
 .hide-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;

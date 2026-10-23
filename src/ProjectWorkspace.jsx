@@ -14,6 +14,7 @@ import {
 } from './tauriApi';
 import { orientChromatogram } from './chromatogram';
 import FeatureScrollbar from './components/FeatureScrollbar';
+import ContinuousOverview from './components/ContinuousOverview';
 import { BASE_HILITE_BG } from './editor/alignmentLayout';
 import { mapTextColorPalette } from './editor/textColors';
 import MapView from './MapView';
@@ -1136,13 +1137,16 @@ export default function ProjectWorkspace({
             />
           )}
           {!hidden && viewMode === 'continuous' && (
-            <div ref={topScrollWrapRef} className="absolute top-0 left-0 right-0">
-              <FeatureScrollbar
-                orientation="horizontal"
+            <div
+              ref={topScrollWrapRef}
+              className="pointer-events-none absolute top-0 left-0 right-0"
+            >
+              <ContinuousOverview
                 scrollContainerRef={editorScrollRef}
                 features={displayFeatures}
                 sequenceLength={sequence.length}
                 highlightPositions={enzymeHoverCuts}
+                leftInset={leftViewportInset}
               />
               {isDna && visibleAlignments.length > 0 && (
                 <div
@@ -1151,7 +1155,7 @@ export default function ProjectWorkspace({
                     '--align-hilite': BASE_HILITE_BG,
                     '--align-hilite-soft': `${BASE_HILITE_BG}99`,
                   }}
-                  className="nav-bar-enter absolute left-1/2 top-full z-40 mt-1.5 flex flex-row items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
+                  className="nav-bar-enter pointer-events-auto absolute left-1/2 top-full z-40 mt-1.5 flex flex-row items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
                 >
                   <button
                     type="button"

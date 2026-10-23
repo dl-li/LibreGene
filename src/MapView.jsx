@@ -35,7 +35,7 @@ const ARC_EPS = 1e-4;
 const pol = (cx, cy, r, th) => [cx + r * Math.sin(th), cy - r * Math.cos(th)];
 
 // arrowhead base flares this many px beyond the band on each side
-const HEAD_FLARE = 4;
+export const HEAD_FLARE = 4;
 
 function arcArrowPath(cx, cy, rOut, rIn, th0, th1, strand) {
   const rMid = (rOut + rIn) / 2;
@@ -135,7 +135,7 @@ function normSegments(f, len) {
 // Unwrap origin-crossing segments onto a monotone coordinate line (values may
 // exceed len-1), preserving join order, then merge touching pieces into runs.
 // A feature crossing the origin becomes one continuous run.
-function unwrapRuns(f, len) {
+export function unwrapRuns(f, len) {
   const runs = [];
   let off = 0;
   let prevStart = -Infinity;
@@ -159,7 +159,7 @@ function unwrapRuns(f, len) {
 const featTotalLen = (f, len) => normSegments(f, len).reduce((a, s) => a + s.end - s.start + 1, 0);
 
 // suppress the arrowhead when the tip end is covered by a longer feature
-function tipBuried(f, features, len) {
+export function tipBuried(f, features, len) {
   // Tip in join order: for '-' the first segment's start, for '+' the last
   // segment's end (origin-wrapping features keep their biological direction).
   const raw = featureSegments(f);
