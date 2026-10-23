@@ -1,4 +1,4 @@
-import { useGcLane, renderGcTrack } from './track';
+import { useGcLane, renderGcTrack, gcContentColor } from './track';
 
 const gcContentPlugin = {
   id: 'gcContent',
@@ -13,6 +13,12 @@ const gcContentPlugin = {
   sidebarItems: [],
   featuresMenuItem: {
     label: 'Show GC Content',
+    // Gradient endpoints, sampled from the same color function as the track.
+    legend: [
+      { color: gcContentColor(0), label: '0% GC' },
+      { color: gcContentColor(0.5), label: '50% GC' },
+      { color: gcContentColor(1), label: '100% GC' },
+    ],
   },
   settingsField: {
     label: 'Window size',

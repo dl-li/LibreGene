@@ -100,6 +100,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 - ROI、视图/布局设置（layoutParams、show* 开关含 showDoubleStrand（双链+标尺）、alwaysExpand* 展开开关、酶切过滤器、特征标签位置、highContrastTextColors）：UI 视图状态
 - GC 含量轨道（`src/plugins/builtin/gcContent/`）：纯渲染
+- 蛋白理化性质轨道（`src/plugins/builtin/proteinProperties/`，疏水/电荷/极性/体积/二级结构倾向 5 条）：纯渲染
 - My Primers / My Enzymes 库：存 localStorage，后端不可见
 - 酶 Provider 数据与筛选（`enzyme_providers.json`、`get_enzyme_providers`）：仅展示用，不进 recompute
 - 质粒图视图 / 编辑器背景水印、选区 badge 分子量：纯渲染

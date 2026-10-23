@@ -47,12 +47,15 @@ const myPlugin = {
   // Molecule-type gating (optional):
   dnaOnly: false, // DNA projects only
   rnaOnly: false, // RNA projects only
+  proteinOnly: false, // protein projects only
   notForProtein: false, // hidden for protein projects
 
   // View-menu visibility toggle (optional). State is persisted per plugin id
   // in localStorage (key `pluginToggle:<id>`); defaultChecked defaults to
-  // false. Also gates the track hook's `enabled` flag.
-  featuresMenuItem: { label, defaultChecked },
+  // false. Also gates the track hook's `enabled` flag. With `legend`
+  // ([{ color, label }], e.g. builtin/proteinProperties) the item becomes a
+  // submenu: the trigger stays the toggle, hover reveals the legend.
+  featuresMenuItem: { label, defaultChecked, legend },
 
   // Numeric field in Settings (optional). Persisted like the toggle (key
   // `pluginSetting:<id>`); defaultValue falls back to min. Values are rounded

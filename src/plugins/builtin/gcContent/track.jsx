@@ -81,6 +81,7 @@ export function renderGcTrack(ctx, lane) {
     colVis,
     colRuns,
     visibleCols,
+    trackYOffset = 0,
   } = ctx;
   const vs = Math.max(0, visibleRows.start - rowBuf);
   const ve = Math.min(numRows - 1, visibleRows.end + rowBuf);
@@ -89,7 +90,7 @@ export function renderGcTrack(ctx, lane) {
     const count = rowCounts[r];
     if (count <= 0) continue;
     const rowStart = rowStarts[r];
-    const y = getSeqY(r) + lp.featBaseOffset - 6;
+    const y = getSeqY(r) + lp.featBaseOffset - 6 + trackYOffset;
     const rowVisW = colVis(count - 1, r) + 1;
     // Bucket columns into fixed-width visual blocks; narrow rows stay a
     // single block exactly as before.

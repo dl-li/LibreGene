@@ -31,6 +31,7 @@ import {
   Grid2x2,
   Rows3,
   History,
+  Check,
   Map as MapIcon,
   Waypoints,
   Circle,
@@ -512,18 +513,48 @@ export default function EditorNavMenu({
               Show ORFs
             </DropdownMenuCheckboxItem>
           )}
-          {viewTogglePlugins.map((p) => (
-            <DropdownMenuCheckboxItem
-              key={p.id}
-              checked={!!pluginToggles[p.id].checked}
-              onCheckedChange={() => {
-                setLastViewOption(p.id);
-                pluginToggles[p.id].onToggle();
-              }}
-            >
-              {p.featuresMenuItem.label}
-            </DropdownMenuCheckboxItem>
-          ))}
+          {viewTogglePlugins.map((p) => {
+            const checked = !!pluginToggles[p.id].checked;
+            const toggle = () => {
+              setLastViewOption(p.id);
+              pluginToggles[p.id].onToggle();
+            };
+            const legend = p.featuresMenuItem.legend;
+            // Plugins with a color legend (e.g. the protein property tracks)
+            // get a submenu: the trigger itself stays the toggle, hovering it
+            // reveals the non-interactive legend rows.
+            if (!legend?.length) {
+              return (
+                <DropdownMenuCheckboxItem key={p.id} checked={checked} onCheckedChange={toggle}>
+                  {p.featuresMenuItem.label}
+                </DropdownMenuCheckboxItem>
+              );
+            }
+            return (
+              <DropdownMenuSub key={p.id}>
+                <DropdownMenuSubTrigger inset className="relative [&>svg]:hidden" onClick={toggle}>
+                  <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                    {checked && <Check className="h-4 w-4" />}
+                  </span>
+                  {p.featuresMenuItem.label}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {legend.map((entry) => (
+                    <div
+                      key={entry.label}
+                      className="flex select-none items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      <span
+                        className="h-3 w-3 rounded-sm border border-black/20"
+                        style={{ backgroundColor: entry.color }}
+                      />
+                      {entry.label}
+                    </div>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            );
+          })}
           {/* Strand display */}
           {hasTrackItems && hasStrandItems && <DropdownMenuSeparator />}
           {isDna && onToggleDoubleStrand && (
