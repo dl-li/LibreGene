@@ -610,8 +610,13 @@ const SequenceEditor = React.memo(function SequenceEditor({
       base.revMatchY += dsShift;
       base.revBelowBase += dsShift;
     }
+    // Expand-all keeps every band open with its label at the raised
+    // (selected) position; the collapsed-mode pitch lets a raised label
+    // (worst case: 5' tail, reverse strand) ride into the next track's open
+    // band, so widen it to fit band + raised label + clearance.
+    if (alwaysExpandPrimers) base.trackGap = Math.max(base.trackGap, 48);
     return base;
-  }, [layoutParams, dsShift]);
+  }, [layoutParams, dsShift, alwaysExpandPrimers]);
 
   const lp = useMemo(() => {
     const base = {
