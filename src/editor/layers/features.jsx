@@ -15,6 +15,7 @@ export function renderFeatures({
   visibleFeatures,
   hoveredFeature,
   alwaysExpandFeatures,
+  thickFeatureLines = false,
   sp,
   abutColors,
   rowStarts,
@@ -55,6 +56,11 @@ export function renderFeatures({
   startTranslationSelection,
 }) {
   if (!visibleFeatures.length) return null;
+  // Non-ORF feature line widths; the View-menu "Thick Feature Lines" toggle
+  // scales the colored line (and its halo/hit strip) by 1.5.
+  const featLineW = thickFeatureLines ? 7.5 : 5;
+  const featHaloW = thickFeatureLines ? 10.5 : 7;
+  const featHitW = thickFeatureLines ? 10.5 : 10;
   return visibleFeatures.map((f) => {
     const isHovered = hoveredFeature === f.id;
     const isExpanded = alwaysExpandFeatures || isHovered;
@@ -286,7 +292,7 @@ export function renderFeatures({
                         y1={y}
                         y2={y}
                         stroke={isExpanded ? 'transparent' : bgColor}
-                        strokeWidth="7"
+                        strokeWidth={featHaloW}
                       />
                       <line
                         x1={getX(runs[ri - 1][0] + runs[ri - 1][1])}
@@ -294,7 +300,7 @@ export function renderFeatures({
                         y1={y}
                         y2={y}
                         stroke={v.color}
-                        strokeWidth="5"
+                        strokeWidth={featLineW}
                         opacity={0.25}
                       />
                     </>
@@ -325,7 +331,7 @@ export function renderFeatures({
                         y1={y}
                         y2={y}
                         stroke={isExpanded ? 'transparent' : bgColor}
-                        strokeWidth="7"
+                        strokeWidth={featHaloW}
                       />
                     ))}
                     {colParts.map(([a, b]) => (
@@ -336,11 +342,18 @@ export function renderFeatures({
                         y1={y}
                         y2={y}
                         stroke={v.color}
-                        strokeWidth="5"
+                        strokeWidth={featLineW}
                         opacity={isGap ? 0.25 : 1}
                       />
                     ))}
-                    <line x1={x} x2={x + w} y1={y} y2={y} stroke="transparent" strokeWidth="10" />
+                    <line
+                      x1={x}
+                      x2={x + w}
+                      y1={y}
+                      y2={y}
+                      stroke="transparent"
+                      strokeWidth={featHitW}
+                    />
                   </>
                 )}
               </g>

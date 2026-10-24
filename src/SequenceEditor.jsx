@@ -162,6 +162,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onToggleAlwaysExpandPrimers,
   featureLabelsBelow = false,
   onFeatureLabelsBelowChange,
+  thickFeatureLines = false,
+  onToggleThickFeatureLines,
   showOrfs,
   onToggleOrfs,
   showPrimers,
@@ -2590,6 +2592,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         visibleFeatures,
         hoveredFeature,
         alwaysExpandFeatures,
+        thickFeatureLines,
         sp,
         abutColors,
         rowStarts,
@@ -2649,6 +2652,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       startTranslationSelection,
       alignLaneInfo,
       alwaysExpandFeatures,
+      thickFeatureLines,
       hoveredCodon,
       openFeatureMenu,
       abutColors,
@@ -3138,6 +3142,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToggleAlwaysExpandPrimers={onToggleAlwaysExpandPrimers}
           featureLabelsBelow={featureLabelsBelow}
           onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
+          thickFeatureLines={thickFeatureLines}
+          onToggleThickFeatureLines={onToggleThickFeatureLines}
         />
       )}
       {/* Floating prev/next navigator over the alignment tracks' notable

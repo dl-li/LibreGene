@@ -243,6 +243,8 @@ export default function EditorNavMenu({
   onToggleAlwaysExpandPrimers,
   featureLabelsBelow = false,
   onFeatureLabelsBelowChange,
+  thickFeatureLines = false,
+  onToggleThickFeatureLines,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -360,7 +362,8 @@ export default function EditorNavMenu({
   const hasExpandItems =
     !!onToggleAlwaysExpandFeatures ||
     (isDna && !!onToggleAlwaysExpandPrimers) ||
-    !!onFeatureLabelsBelowChange;
+    !!onFeatureLabelsBelowChange ||
+    !!onToggleThickFeatureLines;
   const hasTrackItems = !!onToggleOrfs || viewTogglePlugins.length > 0;
   const hasStrandItems = (isDna && !!onToggleDoubleStrand) || !!onToggleTextColor;
 
@@ -378,6 +381,8 @@ export default function EditorNavMenu({
       return onToggleAlwaysExpandPrimers;
     if (lastViewOption === 'featureLabelsBelow' && onFeatureLabelsBelowChange)
       return () => onFeatureLabelsBelowChange(!featureLabelsBelow);
+    if (lastViewOption === 'thickFeatureLines' && onToggleThickFeatureLines)
+      return onToggleThickFeatureLines;
     const pluginToggle = lastViewOption && pluginToggles[lastViewOption];
     if (pluginToggle) return pluginToggle.onToggle;
     if (!onViewModeChange) return undefined;
@@ -614,6 +619,17 @@ export default function EditorNavMenu({
                   }}
                 >
                   Feature Labels Below
+                </DropdownMenuCheckboxItem>
+              )}
+              {onToggleThickFeatureLines && (
+                <DropdownMenuCheckboxItem
+                  checked={thickFeatureLines}
+                  onCheckedChange={() => {
+                    setLastViewOption('thickFeatureLines');
+                    onToggleThickFeatureLines();
+                  }}
+                >
+                  Thick Feature Lines
                 </DropdownMenuCheckboxItem>
               )}
             </>

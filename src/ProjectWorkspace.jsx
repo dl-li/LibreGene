@@ -61,6 +61,8 @@ export default function ProjectWorkspace({
   onTogglePrimers,
   featureLabelsBelow,
   onFeatureLabelsBelowChange,
+  thickFeatureLines = false,
+  onToggleThickFeatureLines,
   showEnzymes,
   onToggleEnzymes,
   enzymeFilter,
@@ -1039,6 +1041,8 @@ export default function ProjectWorkspace({
               onToggleAlwaysExpandPrimers={onToggleAlwaysExpandPrimers}
               featureLabelsBelow={featureLabelsBelow}
               onFeatureLabelsBelowChange={onFeatureLabelsBelowChange}
+              thickFeatureLines={thickFeatureLines}
+              onToggleThickFeatureLines={onToggleThickFeatureLines}
               showOrfs={isDna && !disabledPlugins.includes('orf') ? showOrfs : undefined}
               onToggleOrfs={
                 isDna && !disabledPlugins.includes('orf') ? () => setShowOrfs((v) => !v) : undefined

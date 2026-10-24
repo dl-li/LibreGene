@@ -169,6 +169,13 @@ export default function useSettings() {
       return false;
     }
   });
+  const [thickFeatureLines, setThickFeatureLines] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('thickFeatureLines')) || false;
+    } catch {
+      return false;
+    }
+  });
   const [showEnzymes, setShowEnzymes] = useState(true);
   const [enzymeFilter, setEnzymeFilter] = useState(() => {
     try {
@@ -377,6 +384,19 @@ export default function useSettings() {
       }),
     [],
   );
+  const onToggleThickFeatureLines = useCallback(
+    () =>
+      setThickFeatureLines((v) => {
+        const next = !v;
+        try {
+          localStorage.setItem('thickFeatureLines', JSON.stringify(next));
+        } catch {
+          // storage may be unavailable; toggle still applies in-memory
+        }
+        return next;
+      }),
+    [],
+  );
   const onToggleAutoAddPrimers = useCallback(
     () =>
       setAutoAddPrimers((v) => {
@@ -478,6 +498,8 @@ export default function useSettings() {
     onTogglePrimers,
     featureLabelsBelow,
     onFeatureLabelsBelowChange,
+    thickFeatureLines,
+    onToggleThickFeatureLines,
     showEnzymes,
     onToggleEnzymes,
     enzymeFilter,
