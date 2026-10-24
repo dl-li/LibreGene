@@ -109,20 +109,20 @@ export default function useEditorViewport({
     };
   }, [continuous, containerRef]);
 
-  // Convert vertical-dominant wheel gestures only when neither the outer
-  // vertical scroller nor the native horizontal direction can use them.
+  // Wheel → horizontal first: vertical-dominant wheel deltas scroll the row
+  // sideways; the event is released (to native vertical scrolling) only at
+  // the horizontal edges. Trackpad horizontal gestures and Shift+wheel stay
+  // native.
   useEffect(() => {
     const el = containerRef.current;
     if (!continuous || !el) return undefined;
     const onWheel = (e) => {
-      const scroller = scrollContainerRef?.current;
       const delta = continuousWheelDelta({
         deltaX: e.deltaX,
         deltaY: e.deltaY,
         shiftKey: e.shiftKey,
         scrollLeft: el.scrollLeft,
         maxScrollLeft: Math.max(0, el.scrollWidth - el.clientWidth),
-        canScrollVertically: !!scroller && scroller.scrollHeight > scroller.clientHeight,
       });
       if (delta === null) return;
       e.preventDefault();
@@ -130,7 +130,7 @@ export default function useEditorViewport({
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [continuous, containerRef, scrollContainerRef]);
+  }, [continuous, containerRef]);
 
   // Recalculate layout when parent padding changes (e.g. sidebar pin)
   useEffect(() => {

@@ -6,13 +6,12 @@ const wheel = (overrides = {}) => ({
   deltaY: 40,
   scrollLeft: 100,
   maxScrollLeft: 500,
-  canScrollVertically: false,
   ...overrides,
 });
 
 describe('continuous wheel routing', () => {
-  it('leaves vertical wheel native while vertical content can scroll', () => {
-    expect(continuousWheelDelta(wheel({ canScrollVertically: true }))).toBeNull();
+  it('maps vertical-dominant wheel to horizontal regardless of outer vertical scrollability', () => {
+    expect(continuousWheelDelta(wheel())).toBe(40);
   });
 
   it('releases wheel at both horizontal endpoints', () => {

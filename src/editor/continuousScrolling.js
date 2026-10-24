@@ -6,9 +6,8 @@ export function continuousWheelDelta({
   shiftKey = false,
   scrollLeft,
   maxScrollLeft,
-  canScrollVertically,
 }) {
-  if (shiftKey || canScrollVertically || Math.abs(deltaY) <= Math.abs(deltaX) * DIAGONAL_DEADZONE) {
+  if (shiftKey || Math.abs(deltaY) <= Math.abs(deltaX) * DIAGONAL_DEADZONE) {
     return null;
   }
   const delta = deltaY + deltaX;
