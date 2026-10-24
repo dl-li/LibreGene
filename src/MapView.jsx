@@ -1,6 +1,11 @@
 import { useMemo, useRef, useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { bgColor, featLabelW, featureSelRange, measureWidth, rangeLen } from './editorConstants';
+import {
+  advanceCircularDrag,
+  circularDragSelection,
+  createCircularDrag,
+} from './circularSelection';
 
 // Keep both ends of a long name, replace the middle with an ellipsis so the
 // text never exceeds maxWidth.
@@ -291,25 +296,23 @@ export function CircularMap({
     const [dx, dy] = toLocal(e);
     const dist = Math.hypot(dx, dy);
     if (dist < R - 30 || dist > R + 30) return;
-    dragRef.current = { anchor: toPos(e), moved: false };
+    dragRef.current = createCircularDrag(toPos(e));
     svgRef.current.setPointerCapture(e.pointerId);
   };
   const handlePointerMove = (e) => {
     const d = dragRef.current;
     if (!d) return;
-    const pos = toPos(e);
-    if (pos !== d.anchor) d.moved = true;
-    if (d.moved) {
-      const a = d.anchor;
-      setDragSel(a <= pos ? { start: a, end: pos } : { start: pos, end: a });
-    }
+    const next = advanceCircularDrag(d, toPos(e), length);
+    dragRef.current = next;
+    setDragSel(circularDragSelection(next, length));
   };
   const handlePointerUp = () => {
     const d = dragRef.current;
     dragRef.current = null;
     if (!d) return;
-    if (d.moved && dragSel) {
-      onSelect(dragSel.start, dragSel.end);
+    const finalSelection = circularDragSelection(d, length);
+    if (finalSelection) {
+      onSelect(finalSelection.start, finalSelection.end);
       suppressClickRef.current = true;
     }
     setDragSel(null);
