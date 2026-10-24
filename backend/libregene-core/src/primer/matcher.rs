@@ -122,8 +122,12 @@ pub fn find_annealing_positions(
                     break;
                 }
                 let mut tbase = template[tpos].to_ascii_uppercase();
-                if tbase == b'N' { break; }
-                if tbase == b'U' { tbase = b'T'; }
+                if tbase == b'N' {
+                    break;
+                }
+                if tbase == b'U' {
+                    tbase = b'T';
+                }
 
                 if bases_compatible(pbase, tbase, true) {
                     ext += 1;
@@ -135,10 +139,16 @@ pub fn find_annealing_positions(
             // Fwd primer: 5' end extends LEFT (lower template coords).
             for (i, &pbase) in five_prime_part.iter().rev().enumerate() {
                 let tpos = anchor_start as isize - 1 - i as isize;
-                if tpos < 0 { break; }
+                if tpos < 0 {
+                    break;
+                }
                 let mut tbase = template[tpos as usize].to_ascii_uppercase();
-                if tbase == b'N' { break; }
-                if tbase == b'U' { tbase = b'T'; }
+                if tbase == b'N' {
+                    break;
+                }
+                if tbase == b'U' {
+                    tbase = b'T';
+                }
 
                 if bases_compatible(pbase, tbase, false) {
                     ext += 1;
@@ -167,7 +177,9 @@ pub fn find_annealing_positions(
                 anchor_end - 1 - k
             };
             let mut tbase = template[tpos].to_ascii_uppercase();
-            if tbase == b'U' { tbase = b'T'; }
+            if tbase == b'U' {
+                tbase = b'T';
+            }
             if !bases_compatible(pbase, tbase, use_complement)
                 || iupac::iupac_expand(pbase).len() > 1
                 || iupac::iupac_expand(tbase).len() > 1
@@ -177,10 +189,14 @@ pub fn find_annealing_positions(
             }
         }
 
-        results.push(AnnealingSite { template_start, footprint_len, has_3_prime_mismatch });
+        results.push(AnnealingSite {
+            template_start,
+            footprint_len,
+            has_3_prime_mismatch,
+        });
     }
 
-    results.sort_by(|a, b| b.footprint_len.cmp(&a.footprint_len));
+    results.sort_by_key(|site| std::cmp::Reverse(site.footprint_len));
     results.dedup_by(|a, b| a.template_start == b.template_start);
     results
 }
@@ -320,7 +336,12 @@ mod tests {
         let template = b"GCTTGCAA";
         let primer = b"CCTTGCAA";
         let sites = find_annealing_circular(primer, template, 6, false);
-        assert_eq!(sites.len(), 1, "lap duplicates must be deduped, got {:?}", sites);
+        assert_eq!(
+            sites.len(),
+            1,
+            "lap duplicates must be deduped, got {:?}",
+            sites
+        );
         assert_eq!(sites[0].template_start, 1);
     }
 

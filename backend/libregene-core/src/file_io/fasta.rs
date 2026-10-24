@@ -42,12 +42,8 @@ pub fn parse_fasta_all_with_molecule_type(
         let line = line?;
         let trimmed = line.trim();
 
-        if trimmed.starts_with('>') {
-            let name = trimmed[1..]
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+        if let Some(header) = trimmed.strip_prefix('>') {
+            let name = header.split_whitespace().next().unwrap_or("").to_string();
             records.push(ProjectData {
                 name,
                 topology: "linear".to_string(),
@@ -76,8 +72,11 @@ mod tests {
     use super::*;
 
     fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("libregene_fasta_test_{}_{}", std::process::id(), name));
+        let path = std::env::temp_dir().join(format!(
+            "libregene_fasta_test_{}_{}",
+            std::process::id(),
+            name
+        ));
         std::fs::write(&path, content).unwrap();
         path
     }
@@ -99,10 +98,7 @@ mod tests {
 
     #[test]
     fn multi_record() {
-        let path = write_temp(
-            "multi.fa",
-            ">a\nACGT\n\n>b desc here\nttgg\ncc\n>\nGG\n",
-        );
+        let path = write_temp("multi.fa", ">a\nACGT\n\n>b desc here\nttgg\ncc\n>\nGG\n");
         let records = parse_fasta_all_with_molecule_type(&path, "dna").unwrap();
         assert_eq!(records.len(), 3);
         assert_eq!(records[0].name, "a");

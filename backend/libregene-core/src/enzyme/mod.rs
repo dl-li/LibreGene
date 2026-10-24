@@ -24,8 +24,8 @@ pub mod matching;
 pub mod methylation;
 pub mod search;
 
-use rayon::prelude::*;
 use crate::models::{CutPair, Enzyme, ProjectData, Segment};
+use rayon::prelude::*;
 
 /// A recognition site hit found on the template.
 #[derive(Debug, Clone)]
@@ -70,9 +70,7 @@ pub fn recompute(project: &mut ProjectData) {
         .enzymes
         .par_iter()
         .filter(|record| !record.hidden)
-        .flat_map(|record| {
-            process_enzyme(record, seq, seq_str, is_circular, seq_len, &ext_seq)
-        })
+        .flat_map(|record| process_enzyme(record, seq, seq_str, is_circular, seq_len, &ext_seq))
         .collect();
 
     // Apply methylation filtering (always, to also mark dependent enzymes like DpnI).
@@ -141,8 +139,7 @@ fn process_enzyme(
         .map(|(enz_idx, hit)| {
             let rec_start = hit.rec_start as i64;
             let rec_end = rec_start + rec_len - 1;
-            let matched_seq: String = if is_circular
-                && hit.rec_start + rec_len as usize > seq.len()
+            let matched_seq: String = if is_circular && hit.rec_start + rec_len as usize > seq.len()
             {
                 // Recognition site spans the origin: manually concatenate wrapped sequence.
                 let mut s = String::with_capacity(rec_len as usize);
@@ -191,9 +188,8 @@ fn process_enzyme(
 
             // Display window: recognition + all cut positions.
             // Normalize rec coordinates for circular display.
-            let (norm_rec_start, norm_rec_end) = normalize_rec(
-                rec_start, rec_end, &pairs, is_circular, seq_len,
-            );
+            let (norm_rec_start, norm_rec_end) =
+                normalize_rec(rec_start, rec_end, &pairs, is_circular, seq_len);
 
             let mut disp_start = norm_rec_start;
             let mut disp_end = norm_rec_end;
@@ -291,7 +287,6 @@ fn process_enzyme(
                 methyl_required_sources: Vec::new(),
                 cut_type,
                 cut_twice,
-                ..Default::default()
             }
         })
         .collect()
@@ -416,9 +411,10 @@ fn find_recognition_sites(
             let fwd_pat = format!("(?i){}", search::iupac_to_regex(&record.site));
             let rc_site = search::iupac_complement(&record.site);
             let rc_pat = format!("(?i){}", search::iupac_to_regex(&rc_site));
-            if let (Ok(fwd_re), Ok(rc_re)) =
-                (regex::bytes::Regex::new(&fwd_pat), regex::bytes::Regex::new(&rc_pat))
-            {
+            if let (Ok(fwd_re), Ok(rc_re)) = (
+                regex::bytes::Regex::new(&fwd_pat),
+                regex::bytes::Regex::new(&rc_pat),
+            ) {
                 map.insert(record.site.clone(), (fwd_re, rc_re));
             }
         }
@@ -446,7 +442,10 @@ fn find_recognition_sites(
         while let Some(m) = fwd_re.find_at(ext, pos) {
             let start = m.start();
             if start < seq.len() {
-                hits.push(SiteHit { rec_start: start, is_bottom: false });
+                hits.push(SiteHit {
+                    rec_start: start,
+                    is_bottom: false,
+                });
             }
             pos = start + 1;
         }
@@ -454,19 +453,28 @@ fn find_recognition_sites(
         while let Some(m) = rc_re.find_at(ext, pos) {
             let start = m.start();
             if start < seq.len() {
-                hits.push(SiteHit { rec_start: start, is_bottom: true });
+                hits.push(SiteHit {
+                    rec_start: start,
+                    is_bottom: true,
+                });
             }
             pos = start + 1;
         }
     } else {
         let mut pos = 0;
         while let Some(m) = fwd_re.find_at(seq, pos) {
-            hits.push(SiteHit { rec_start: m.start(), is_bottom: false });
+            hits.push(SiteHit {
+                rec_start: m.start(),
+                is_bottom: false,
+            });
             pos = m.start() + 1;
         }
         let mut pos = 0;
         while let Some(m) = rc_re.find_at(seq, pos) {
-            hits.push(SiteHit { rec_start: m.start(), is_bottom: true });
+            hits.push(SiteHit {
+                rec_start: m.start(),
+                is_bottom: true,
+            });
             pos = m.start() + 1;
         }
     }
@@ -515,7 +523,10 @@ mod tests {
             .filter(|r| r.hidden)
             .map(|r| r.name.as_str())
             .collect();
-        assert!(!hidden.is_empty(), "test assumes at least one hidden enzyme");
+        assert!(
+            !hidden.is_empty(),
+            "test assumes at least one hidden enzyme"
+        );
 
         let mut project = ProjectData {
             sequence: "CC".repeat(100),
@@ -525,13 +536,17 @@ mod tests {
         project.length = project.sequence.len() as i64;
         recompute(&mut project);
         assert!(
-            project.enzymes.iter().all(|e| !hidden.contains(&e.name.as_str())),
+            project
+                .enzymes
+                .iter()
+                .all(|e| !hidden.contains(&e.name.as_str())),
             "hidden enzymes must not appear in recompute results"
         );
     }
 
     #[test]
-    fn recompute_skips_non_dna_projects() {        let mut project = ProjectData {
+    fn recompute_skips_non_dna_projects() {
+        let mut project = ProjectData {
             sequence: "GAATTC".repeat(3), // three EcoRI recognition sites
             topology: "circular".to_string(),
             molecule_type: "protein".to_string(),
@@ -746,12 +761,29 @@ mod tests {
 
         recompute(&mut project);
 
-        let dpni_entries: Vec<_> = project.enzymes.iter().filter(|e| e.name == "DpnI").collect();
-        assert!(!dpni_entries.is_empty(), "Should find DpnI sites in GATC-containing sequence");
+        let dpni_entries: Vec<_> = project
+            .enzymes
+            .iter()
+            .filter(|e| e.name == "DpnI")
+            .collect();
+        assert!(
+            !dpni_entries.is_empty(),
+            "Should find DpnI sites in GATC-containing sequence"
+        );
         for e in &dpni_entries {
-            assert!(e.methylation_required, "DpnI should require Dam when Dam is inactive (rec_start={})", e.rec_start);
-            assert!(e.methyl_required_sources.contains(&"Dam".to_string()), "Should have Dam as required source");
-            assert!(!e.methylation_blocked, "DpnI should not be methylation-blocked");
+            assert!(
+                e.methylation_required,
+                "DpnI should require Dam when Dam is inactive (rec_start={})",
+                e.rec_start
+            );
+            assert!(
+                e.methyl_required_sources.contains(&"Dam".to_string()),
+                "Should have Dam as required source"
+            );
+            assert!(
+                !e.methylation_blocked,
+                "DpnI should not be methylation-blocked"
+            );
         }
     }
 
@@ -767,10 +799,17 @@ mod tests {
 
         recompute(&mut project);
 
-        let dpni_entries: Vec<_> = project.enzymes.iter().filter(|e| e.name == "DpnI").collect();
+        let dpni_entries: Vec<_> = project
+            .enzymes
+            .iter()
+            .filter(|e| e.name == "DpnI")
+            .collect();
         assert!(!dpni_entries.is_empty());
         for e in &dpni_entries {
-            assert!(!e.methylation_required, "DpnI should NOT require Dam when Dam is active");
+            assert!(
+                !e.methylation_required,
+                "DpnI should NOT require Dam when Dam is active"
+            );
             assert!(e.methyl_required_sources.is_empty());
         }
     }
@@ -791,10 +830,20 @@ mod tests {
 
         recompute(&mut project);
 
-        let mspji_entries: Vec<_> = project.enzymes.iter().filter(|e| e.name == "MspJI").collect();
-        assert!(!mspji_entries.is_empty(), "Should find MspJI sites in CNNR-containing sequence");
+        let mspji_entries: Vec<_> = project
+            .enzymes
+            .iter()
+            .filter(|e| e.name == "MspJI")
+            .collect();
+        assert!(
+            !mspji_entries.is_empty(),
+            "Should find MspJI sites in CNNR-containing sequence"
+        );
         for e in &mspji_entries {
-            assert!(e.methylation_required, "MspJI requires undetectable 5mC/5hmC — must always be marked required");
+            assert!(
+                e.methylation_required,
+                "MspJI requires undetectable 5mC/5hmC — must always be marked required"
+            );
             assert_eq!(e.methyl_required_sources, vec!["Methylation".to_string()]);
         }
     }

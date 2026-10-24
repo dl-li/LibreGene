@@ -82,7 +82,10 @@ struct CappedVec {
 
 impl CappedVec {
     fn with_cap(cap: usize) -> Self {
-        Self { cap, buf: Vec::new() }
+        Self {
+            cap,
+            buf: Vec::new(),
+        }
     }
     fn into_inner(self) -> Vec<u8> {
         self.buf
@@ -206,7 +209,8 @@ fn decode_compressed_dna(data: &[u8]) -> Option<String> {
         uncompressed_length
     };
 
-    let read_section = |payload: &[u8], pay_off: &mut usize, marker: u8, count: usize| -> Option<String> {
+    let read_section =
+        |payload: &[u8], pay_off: &mut usize, marker: u8, count: usize| -> Option<String> {
         match marker {
             0x01 => {
                 let nb = count.div_ceil(4);
@@ -338,7 +342,7 @@ fn parse_tree(xml: &str) -> Option<HistoryNode> {
 }
 
 /// Attach a finished node to its parent (or record it as the tree root).
-fn close_node(stack: &mut Vec<HistoryNode>, node: HistoryNode, root: &mut Option<HistoryNode>) {
+fn close_node(stack: &mut [HistoryNode], node: HistoryNode, root: &mut Option<HistoryNode>) {
     match stack.last_mut() {
         Some(parent) => parent.children.push(node),
         None => *root = Some(node),
@@ -350,7 +354,10 @@ fn node_from_event(e: &quick_xml::events::BytesStart) -> Option<HistoryNode> {
     for attr in e.attributes() {
         let attr = attr.ok()?;
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-        let value = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok()?.to_string();
+        let value = attr
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+            .ok()?
+            .to_string();
         match key.as_str() {
             "ID" => node.id = value.parse().unwrap_or(0),
             "name" => node.name = value,
@@ -368,7 +375,10 @@ fn summary_from_event(e: &quick_xml::events::BytesStart) -> Option<HistoryInputS
     for attr in e.attributes() {
         let attr = attr.ok()?;
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-        let value = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok()?.to_string();
+        let value = attr
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+            .ok()?
+            .to_string();
         match key.as_str() {
             "manipulation" => summary.manipulation = value,
             "val1" => summary.val1 = value.parse().unwrap_or(0),
@@ -409,7 +419,9 @@ fn walk_nested_tlv(nested: &[u8]) -> Vec<(u8, &[u8])> {
             break;
         };
         let start = offset + 5;
-        let Some(end) = start.checked_add(length) else { break };
+        let Some(end) = start.checked_add(length) else {
+            break;
+        };
         if end > nested.len() {
             break;
         }
@@ -452,7 +464,11 @@ fn parse_manipulation_xml(xml: &str) -> Option<Vec<HistoryAction>> {
                     e.attributes()
                         .flatten()
                         .find(|a| String::from_utf8_lossy(a.key.as_ref()) == name)
-                        .and_then(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|v| v.to_string()))
+                        .and_then(|a| {
+                            a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .ok()
+                                .map(|v| v.to_string())
+                        })
                 };
                 match get("type").as_deref() {
                     Some("INSERT") => {
@@ -466,7 +482,9 @@ fn parse_manipulation_xml(xml: &str) -> Option<Vec<HistoryAction>> {
                                         .flatten()
                                         .find(|a| String::from_utf8_lossy(a.key.as_ref()) == name)
                                         .and_then(|a| {
-                                            a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|v| v.to_string())
+                                            a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                                .ok()
+                                                .map(|v| v.to_string())
                                         })
                                 };
                                 if rget("type").as_deref() == Some("EXTERNAL") {
@@ -548,7 +566,9 @@ fn apply_undo_actions(sequence: &str, actions: &[HistoryAction], nested: &[u8]) 
                 let residues: Vec<char> = match residues {
                     ResiduesSource::Literal(text) => text.chars().collect(),
                     ResiduesSource::External { id, length } => {
-                        extract_external_residues(nested, *id, *length)?.chars().collect()
+                        extract_external_residues(nested, *id, *length)?
+                            .chars()
+                            .collect()
                     }
                 };
                 let position = (*position).min(chars.len());
@@ -595,7 +615,9 @@ fn decode_snapshot_annotation_xml(nested: &[u8]) -> (String, String) {
                 }
             }
             NESTED_DOC_BUNDLE => {
-                let Some(docs) = xz_decompress(data) else { continue };
+                let Some(docs) = xz_decompress(data) else {
+                    continue;
+                };
                 for (doc_type, doc) in walk_nested_tlv(&docs) {
                     let text = String::from_utf8(doc.to_vec()).unwrap_or_default();
                     if text.trim().is_empty() {
@@ -685,7 +707,9 @@ fn collect_parts(data: &[u8]) -> Option<RawParts> {
             break;
         };
         let start = offset + 5;
-        let Some(end) = start.checked_add(block_len) else { break };
+        let Some(end) = start.checked_add(block_len) else {
+            break;
+        };
         if end > data.len() {
             break;
         }
@@ -753,7 +777,7 @@ fn resolve_sequences(parts: &RawParts) -> BTreeMap<u32, String> {
     resolved
 }
 
-fn find_node<'a>(node: &'a HistoryNode, id: u32) -> Option<&'a HistoryNode> {
+fn find_node(node: &HistoryNode, id: u32) -> Option<&HistoryNode> {
     let mut stack = vec![node];
     while let Some(current) = stack.pop() {
         if current.id == id {
@@ -818,10 +842,7 @@ pub fn parse_snapgene_history(data: &[u8]) -> Option<SnapGeneHistoryData> {
 /// new root (its state = [`SnapGeneHistoryData::root_sequence`]), and the
 /// snapshots of its descendants come along so the opened project's own
 /// history dialog — and nested snapshot opening — stays complete.
-pub fn history_subtree(
-    history: &SnapGeneHistoryData,
-    node_id: u32,
-) -> Option<SnapGeneHistoryData> {
+pub fn history_subtree(history: &SnapGeneHistoryData, node_id: u32) -> Option<SnapGeneHistoryData> {
     let node = find_node(&history.root, node_id)?;
     let mut ids: Vec<u32> = Vec::new();
     collect_descendant_ids(node, &mut ids);
@@ -874,7 +895,11 @@ pub fn snapshot_project_from_history(
     let sequence = if node_id == history.root.id {
         history.root_sequence.clone()
     } else {
-        history.sequences.get(&node_id).filter(|s| !s.is_empty()).cloned()?
+        history
+            .sequences
+            .get(&node_id)
+            .filter(|s| !s.is_empty())
+            .cloned()?
     };
     if sequence.is_empty() {
         return None;
@@ -987,7 +1012,10 @@ mod tests {
     #[test]
     fn xz_decompress_rejects_expansion_beyond_cap() {
         let mut xz = Vec::new();
-        lzma_rs::xz_compress(&mut std::io::Cursor::new(&b"ACGT".repeat(1024)[..]), &mut xz)
+        lzma_rs::xz_compress(
+            &mut std::io::Cursor::new(&b"ACGT".repeat(1024)[..]),
+            &mut xz,
+        )
             .unwrap();
         assert_eq!(
             xz_decompress_with_cap(&xz, 1024 * 4).unwrap(),
@@ -1006,10 +1034,7 @@ mod tests {
         // Root first, current on-disk state, always openable
         assert!(history.entries[0].has_snapshot);
         // Snapshot 0 declares ul = 2746 (compressed DNA payload in the file)
-        let seq0 = history
-            .sequences
-            .get(&0)
-            .expect("node 0 snapshot resolves");
+        let seq0 = history.sequences.get(&0).expect("node 0 snapshot resolves");
         assert_eq!(seq0.len(), 2746);
         // Resolved sequences are pure DNA bases
         for (id, seq) in &history.sequences {
@@ -1033,7 +1058,14 @@ mod tests {
             .unwrap();
         let project = snapgene_snapshot_project(&data, target.id).unwrap();
         assert_eq!(project.sequence.len() as i64, project.length);
-        assert_eq!(project.topology, if target.circular { "circular" } else { "linear" });
+        assert_eq!(
+            project.topology,
+            if target.circular {
+                "circular"
+            } else {
+                "linear"
+            }
+        );
     }
 
     #[test]
@@ -1042,8 +1074,12 @@ mod tests {
         let history = parse_snapgene_history(&data).unwrap();
         let root_id = history.entries[0].id;
         let project = snapgene_snapshot_project(&data, root_id).unwrap();
-        let parsed = crate::file_io::dna::parse_snapgene(&test_data("BlueScribe-mEGFP.dna")).unwrap();
-        assert_eq!(project.sequence.to_uppercase(), parsed.sequence.to_uppercase());
+        let parsed =
+            crate::file_io::dna::parse_snapgene(&test_data("BlueScribe-mEGFP.dna")).unwrap();
+        assert_eq!(
+            project.sequence.to_uppercase(),
+            parsed.sequence.to_uppercase()
+        );
     }
 
     #[test]
@@ -1084,7 +1120,14 @@ mod tests {
             children,
         };
         SnapGeneHistoryData {
-            root: node(9, "current", vec![node(1, "a", vec![node(0, "b", vec![])]) , node(2, "c", vec![])]),
+            root: node(
+                9,
+                "current",
+                vec![
+                    node(1, "a", vec![node(0, "b", vec![])]),
+                    node(2, "c", vec![]),
+                ],
+            ),
             entries: Vec::new(),
             sequences: BTreeMap::from([
                 (0, "AAA".to_string()),

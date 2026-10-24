@@ -57,7 +57,9 @@ fn parse_methylation_keyword(keywords: &str) -> (String, Option<Vec<String>>) {
         if p.is_empty() {
             continue;
         }
-        if p.len() >= METHYLATION_KW.len() && p[..METHYLATION_KW.len()].eq_ignore_ascii_case(METHYLATION_KW) {
+        if p.len() >= METHYLATION_KW.len()
+            && p[..METHYLATION_KW.len()].eq_ignore_ascii_case(METHYLATION_KW)
+        {
             let value = p[METHYLATION_KW.len()..].trim();
             if value.is_empty() || value.eq_ignore_ascii_case("none") {
                 systems = Some(Vec::new());
@@ -84,7 +86,11 @@ fn keywords_with_methylation(keywords: &str, systems: &[String]) -> String {
     let value = if systems.is_empty() {
         "none".to_string()
     } else {
-        systems.iter().map(|s| display_system(s)).collect::<Vec<_>>().join(",")
+        systems
+            .iter()
+            .map(|s| display_system(s))
+            .collect::<Vec<_>>()
+            .join(",")
     };
     let token = format!("methylation: {}", value);
     if base.is_empty() {
@@ -191,7 +197,12 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     let sequence: String = std::str::from_utf8(&seq.seq)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("sequence is not valid UTF-8: {e}")))?
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("sequence is not valid UTF-8: {e}"),
+            )
+        })?
         .to_string();
 
     let name = seq.name.clone().unwrap_or_default();
@@ -342,9 +353,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         // Extract coordinates; a SnapGene "This feature has N segments" note
         // takes precedence over the location for segment info.
         let (loc_segments, loc_start, loc_end) = extract_location_bounds(&f.location);
-        let seg_note = note_values
-            .iter()
-            .find_map(|n| parse_segments_note(n));
+        let seg_note = note_values.iter().find_map(|n| parse_segments_note(n));
         let (segments, start, end) = match &seg_note {
             Some((segs, _)) if !segs.is_empty() => {
                 let s = segs.iter().map(|g| g.start).min().unwrap_or(loc_start);
@@ -383,19 +392,25 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
         // Collect remaining qualifiers (filter out ones we store separately or add synthetically)
         let skip_keys: std::collections::HashSet<&str> = [
-            "label", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
-            "libregene_color", "direction", "libregene_primer_id", "libregene_primer_seq",
+            "label",
+            "translation",
+            "ApEinfo_fwdcolor",
+            "ApEinfo_revcolor",
+            "libregene_color",
+            "direction",
+            "libregene_primer_id",
+            "libregene_primer_seq",
             "libregene_primer_type",
-        ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
         // Keep "note" in qualifiers — the notes field is a ";"-joined copy that can't
         // round-trip note values whose content contains "; ".  The dialog uses qualifiers
         // when available and falls back to the notes field for backward compat.
         let qualifiers: Vec<(String, String)> = f
             .qualifiers
             .iter()
-            .filter(|(k, v)| {
-                !skip_keys.contains(k.as_ref()) && v.is_some()
-            })
+            .filter(|(k, v)| !skip_keys.contains(k.as_ref()) && v.is_some())
             .map(|(k, v)| (k.to_string(), v.as_deref().unwrap_or("").to_string()))
             .collect();
 
@@ -434,9 +449,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
     // Re-run the alignment so segments/identity match the current sequence.
     let mut alignments = Vec::new();
     for (name, read, trace_path) in &alignment_reads {
-        if let Some(mut aln) =
-            crate::align::align_read(&sequence, read, topology == "circular")
-        {
+        if let Some(mut aln) = crate::align::align_read(&sequence, read, topology == "circular") {
             aln.name = name.clone();
             aln.id = crate::align::next_alignment_id(&alignments);
             aln.trace_path = trace_path.clone();
@@ -492,11 +505,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     record.seq = project.sequence.as_bytes().to_vec();
     record.len = Some(project.sequence.len());
     let now = chrono::Local::now();
-    record.date = Some(gb_io::seq::Date::from_ymd(
-        now.year(),
-        now.month(),
-        now.day(),
-    ).unwrap());
+    record.date = Some(gb_io::seq::Date::from_ymd(now.year(), now.month(), now.day()).unwrap());
     record.definition = Some(if project.definition.is_empty() {
         ".".to_string()
     } else {
@@ -559,9 +568,10 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
         let mut qualifiers: Vec<(Cow<'static, str>, Option<String>)> = Vec::new();
 
         // Original qualifiers first (gene, product, codon_start, bound_moiety…)
-        let skip_keys: std::collections::HashSet<&str> = [
-            "label", "note", "translation", "direction",
-        ].into_iter().collect();
+        let skip_keys: std::collections::HashSet<&str> =
+            ["label", "note", "translation", "direction"]
+                .into_iter()
+                .collect();
         for (k, v) in &f.qualifiers {
             if skip_keys.contains(k.as_str())
                 || k.starts_with("ApEinfo_")
@@ -587,7 +597,12 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
         if f.segments.len() > 1 {
             let mut seg_note = format!("This feature has {} segments:", f.segments.len());
             for (i, seg) in f.segments.iter().enumerate() {
-                seg_note.push_str(&format!("\n  {}: {} .. {}", i + 1, seg.start + 1, seg.end + 1));
+                seg_note.push_str(&format!(
+                    "\n  {}: {} .. {}",
+                    i + 1,
+                    seg.start + 1,
+                    seg.end + 1
+                ));
                 if let Some(c) = &seg.color {
                     seg_note.push_str(&format!(" / {}", c));
                 }
@@ -605,10 +620,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 
         // Translation for CDS
         if !f.translation.is_empty() {
-            qualifiers.push((
-                Cow::Borrowed("translation"),
-                Some(f.translation.clone()),
-            ));
+            qualifiers.push((Cow::Borrowed("translation"), Some(f.translation.clone())));
         }
 
         record.features.push(GbFeature {
@@ -649,7 +661,10 @@ fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq, gbk_path: &
 
         let mut qualifiers = vec![
             (Cow::Borrowed("label"), Some(a.name.clone())),
-            (Cow::Borrowed("libregene_align_strand"), Some(a.strand.clone())),
+            (
+                Cow::Borrowed("libregene_align_strand"),
+                Some(a.strand.clone()),
+            ),
             (Cow::Borrowed("libregene_align_seq"), Some(a.seq.clone())),
         ];
         if let Some(path) = &a.trace_path {
@@ -810,11 +825,19 @@ fn extract_location_bounds(loc: &Location) -> (Vec<Segment>, i64, i64) {
         }
         Location::Range((s, _), (e, _)) => {
             let seg_end = e - 1;
-            let seg = Segment { start: *s, end: seg_end, color: None };
+            let seg = Segment {
+                start: *s,
+                end: seg_end,
+                color: None,
+            };
             (vec![seg], *s, seg_end)
         }
         Location::Between(s, _) => {
-            let seg = Segment { start: *s, end: *s, color: None };
+            let seg = Segment {
+                start: *s,
+                end: *s,
+                color: None,
+            };
             (vec![seg], *s, *s)
         }
         _ => (vec![], 0, 0),
@@ -838,7 +861,12 @@ fn strand_from_gb_location(loc: &Location) -> String {
 fn model_range_to_gb_location(f: &Feature, len: i64) -> Location {
     let range = |s: i64, e: i64| Location::Range((s, Before(false)), (e + 1, After(false)));
     let loc = if f.segments.len() > 1 {
-        Location::Join(f.segments.iter().map(|seg| range(seg.start, seg.end)).collect())
+        Location::Join(
+            f.segments
+                .iter()
+                .map(|seg| range(seg.start, seg.end))
+                .collect(),
+        )
     } else if f.start > f.end {
         Location::Join(vec![range(f.start, len - 1), range(0, f.end)])
     } else {
@@ -872,7 +900,10 @@ pub fn parse_location_string_0based(s: &str) -> Option<(Vec<Segment>, i64, i64, 
     parse_location_string_impl(s, false)
 }
 
-fn parse_location_string_impl(s: &str, one_based: bool) -> Option<(Vec<Segment>, i64, i64, String)> {
+fn parse_location_string_impl(
+    s: &str,
+    one_based: bool,
+) -> Option<(Vec<Segment>, i64, i64, String)> {
     let s = s.trim();
     let (inner, strand) = if let Some(rest) = s.strip_prefix("complement(") {
         rest.strip_suffix(')').map(|r| (r, "-"))
@@ -885,9 +916,15 @@ fn parse_location_string_impl(s: &str, one_based: bool) -> Option<(Vec<Segment>,
     let inner = inner.trim();
 
     let parts: Vec<&str> = if let Some(rest) = inner.strip_prefix("join(") {
-        rest.strip_suffix(')')?.split(',').map(|p| p.trim()).collect()
+        rest.strip_suffix(')')?
+            .split(',')
+            .map(|p| p.trim())
+            .collect()
     } else if let Some(rest) = inner.strip_prefix("order(") {
-        rest.strip_suffix(')')?.split(',').map(|p| p.trim()).collect()
+        rest.strip_suffix(')')?
+            .split(',')
+            .map(|p| p.trim())
+            .collect()
     } else {
         vec![inner]
     };
@@ -943,18 +980,17 @@ fn parse_location_string_impl(s: &str, one_based: bool) -> Option<(Vec<Segment>,
 /// the qualifier-building logic.
 ///
 /// Returns `(match_start, match_end, qualifier_pairs)`.
-pub(crate) fn build_primer_qualifier_pairs(
-    p: &Primer,
-) -> (i64, i64, Vec<(String, String)>) {
+pub(crate) fn build_primer_qualifier_pairs(p: &Primer) -> (i64, i64, Vec<(String, String)>) {
     let best = p.binding_sites.first();
     let match_start = best.map(|b| b.template_start).unwrap_or(0);
     let match_end = best.map(|b| b.template_end).unwrap_or(0);
 
-    let mut qualifiers: Vec<(String, String)> = Vec::new();
-    qualifiers.push(("label".to_string(), p.name.clone()));
-    qualifiers.push(("libregene_primer_id".to_string(), p.id.clone()));
-    qualifiers.push(("libregene_primer_type".to_string(), p.r#type.clone()));
-    qualifiers.push(("libregene_primer_seq".to_string(), p.primer_seq.clone()));
+    let mut qualifiers: Vec<(String, String)> = vec![
+        ("label".to_string(), p.name.clone()),
+        ("libregene_primer_id".to_string(), p.id.clone()),
+        ("libregene_primer_type".to_string(), p.r#type.clone()),
+        ("libregene_primer_seq".to_string(), p.primer_seq.clone()),
+    ];
 
     if !p.binding_sites.is_empty() {
         let parts: Vec<String> = p
@@ -967,8 +1003,6 @@ pub(crate) fn build_primer_qualifier_pairs(
 
     (match_start, match_end, qualifiers)
 }
-
-
 
 /// Fallback `.gbk` primer serializer.
 #[allow(dead_code)]
@@ -1019,7 +1053,10 @@ fn is_snapgene_direction_note(note: &str) -> bool {
 /// Parse color from SnapGene note format: `color: #XXXXXX` or `color: 黑色`
 fn parse_snapgene_color_from_notes(notes: &[&str]) -> String {
     for note in notes {
-        if let Some(rest) = note.strip_prefix("color:").or_else(|| note.strip_prefix("color：")) {
+        if let Some(rest) = note
+            .strip_prefix("color:")
+            .or_else(|| note.strip_prefix("color："))
+        {
             let color_part = rest.split(';').next().unwrap_or("").trim();
             // Handle Chinese color names
             if let Some(hex) = chinese_color_to_hex(color_part) {
@@ -1057,7 +1094,10 @@ fn parse_snapgene_primer_note(note: &str) -> Option<(String, String)> {
 
     for part in note.split(';') {
         let part = part.trim();
-        if let Some(val) = part.strip_prefix("color:").or_else(|| part.strip_prefix("color：")) {
+        if let Some(val) = part
+            .strip_prefix("color:")
+            .or_else(|| part.strip_prefix("color："))
+        {
             let c = val.trim();
             if let Some(hex) = chinese_color_to_hex(c) {
                 color = hex.to_string();
@@ -1378,7 +1418,9 @@ mod tests {
         let mut x = 42u64;
         let sequence: String = (0..300)
             .map(|_| {
-                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 b"ACGT"[(x >> 33) as usize & 3] as char
             })
             .collect();
@@ -1395,7 +1437,10 @@ mod tests {
         aln.name = "read1".to_string();
         project.alignments.push(aln);
 
-        let path = std::env::temp_dir().join(format!("libregene_aln_roundtrip_{}.gbk", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "libregene_aln_roundtrip_{}.gbk",
+            std::process::id()
+        ));
         write_gbk(&project, &path).unwrap();
         let parsed = parse_gbk(&path).unwrap();
         let _ = std::fs::remove_file(&path);
@@ -1409,10 +1454,10 @@ mod tests {
         assert_eq!(a.segments[0].start, 100);
         assert_eq!(a.segments[0].end, 179);
         // Alignment misc_features must not leak into the features list.
-        assert!(parsed.features.iter().all(|f| !f
-            .qualifiers
+        assert!(parsed
+            .features
             .iter()
-            .any(|(k, _)| k == "libregene_align_seq")));
+            .all(|f| !f.qualifiers.iter().any(|(k, _)| k == "libregene_align_seq")));
     }
 
     fn tiny_project(topology: &str) -> ProjectData {
@@ -1429,7 +1474,14 @@ mod tests {
     fn test_parse_methylation_keyword() {
         let (rest, sys) = parse_methylation_keyword("methylation: Dam,Dcm,EcoKI");
         assert_eq!(rest, "");
-        assert_eq!(sys, Some(vec!["dam".to_string(), "dcm".to_string(), "ecoki".to_string()]));
+        assert_eq!(
+            sys,
+            Some(vec![
+                "dam".to_string(),
+                "dcm".to_string(),
+                "ecoki".to_string()
+            ])
+        );
 
         let (rest, sys) = parse_methylation_keyword("cloning vector; Methylation: dam; other");
         assert_eq!(rest, "cloning vector; other");
@@ -1449,15 +1501,26 @@ mod tests {
         let mut project = tiny_project("circular");
         project.methylation_systems = vec!["dam".to_string(), "dcm".to_string()];
 
-        let path = std::env::temp_dir().join(format!("libregene_methyl_rt_{}.gbk", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("libregene_methyl_rt_{}.gbk", std::process::id()));
         write_gbk(&project, &path).unwrap();
         let parsed = parse_gbk(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_file(&path);
 
-        assert!(text.contains("KEYWORDS    methylation: Dam,Dcm"), "{}", text);
-        assert_eq!(parsed.methylation_systems, vec!["dam".to_string(), "dcm".to_string()]);
-        assert_eq!(parsed.keywords, "", "annotation must be stripped from keywords");
+        assert!(
+            text.contains("KEYWORDS    methylation: Dam,Dcm"),
+            "{}",
+            text
+        );
+        assert_eq!(
+            parsed.methylation_systems,
+            vec!["dam".to_string(), "dcm".to_string()]
+        );
+        assert_eq!(
+            parsed.keywords, "",
+            "annotation must be stripped from keywords"
+        );
     }
 
     #[test]
@@ -1466,7 +1529,10 @@ mod tests {
         // tool) defaults to all three systems for circular DNA. Build a valid
         // file with write_gbk, then strip the annotation like a foreign tool.
         let project = tiny_project("circular");
-        let path = std::env::temp_dir().join(format!("libregene_methyl_default_{}.gbk", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "libregene_methyl_default_{}.gbk",
+            std::process::id()
+        ));
         write_gbk(&project, &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let stripped = text.replacen("methylation: none", ".", 1);
@@ -1480,7 +1546,10 @@ mod tests {
         );
 
         // ...and saving that project then annotates the file explicitly.
-        let out = std::env::temp_dir().join(format!("libregene_methyl_default_out_{}.gbk", std::process::id()));
+        let out = std::env::temp_dir().join(format!(
+            "libregene_methyl_default_out_{}.gbk",
+            std::process::id()
+        ));
         write_gbk(&parsed, &out).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         let _ = std::fs::remove_file(&out);
@@ -1491,13 +1560,17 @@ mod tests {
     fn test_methylation_none_and_linear_not_annotated() {
         // Explicitly no methylation → persisted as "methylation: none".
         let project = tiny_project("circular");
-        let path = std::env::temp_dir().join(format!("libregene_methyl_none_{}.gbk", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("libregene_methyl_none_{}.gbk", std::process::id()));
         write_gbk(&project, &path).unwrap();
         let parsed = parse_gbk(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert!(text.contains("methylation: none"), "{}", text);
-        assert!(parsed.methylation_systems.is_empty(), "'none' must stay empty, not default to three");
+        assert!(
+            parsed.methylation_systems.is_empty(),
+            "'none' must stay empty, not default to three"
+        );
 
         // Linear DNA is not annotated and does not default.
         let project = tiny_project("linear");
@@ -1513,12 +1586,22 @@ mod tests {
     fn test_text_colors_roundtrip() {
         let mut project = tiny_project("circular");
         project.text_colors_top = vec![
-            TextColorRange { start: 0, end: 3, color: "#00b050".to_string() },
-            TextColorRange { start: 4, end: 7, color: "#0070c0".to_string() },
+            TextColorRange {
+                start: 0,
+                end: 3,
+                color: "#00b050".to_string(),
+            },
+            TextColorRange {
+                start: 4,
+                end: 7,
+                color: "#0070c0".to_string(),
+            },
         ];
-        project.text_colors_bottom = vec![
-            TextColorRange { start: 2, end: 9, color: "#ffa500".to_string() },
-        ];
+        project.text_colors_bottom = vec![TextColorRange {
+            start: 2,
+            end: 9,
+            color: "#ffa500".to_string(),
+        }];
 
         let path = std::env::temp_dir().join(format!("lg_tc_rt_{}.gbk", std::process::id()));
         write_gbk(&project, &path).unwrap();
@@ -1543,8 +1626,16 @@ mod tests {
         // form: last write wins, sorted, merged, clamped.
         let mut project = tiny_project("linear");
         project.text_colors_top = vec![
-            TextColorRange { start: 0, end: 100, color: "#ff0000".to_string() },
-            TextColorRange { start: 2, end: 5, color: "#00ff00".to_string() },
+            TextColorRange {
+                start: 0,
+                end: 100,
+                color: "#ff0000".to_string(),
+            },
+            TextColorRange {
+                start: 2,
+                end: 5,
+                color: "#00ff00".to_string(),
+            },
         ];
 
         let path = std::env::temp_dir().join(format!("lg_tc_canon_{}.gbk", std::process::id()));
@@ -1554,11 +1645,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert!(text.contains("/libregene_textcolor_top="), "{}", text);
-        assert_eq!(parsed.text_colors_top, vec![
-            TextColorRange { start: 0, end: 1, color: "#ff0000".to_string() },
-            TextColorRange { start: 2, end: 5, color: "#00ff00".to_string() },
-            TextColorRange { start: 6, end: 11, color: "#ff0000".to_string() },
-        ]);
+        assert_eq!(
+            parsed.text_colors_top,
+            vec![
+                TextColorRange {
+                    start: 0,
+                    end: 1,
+                    color: "#ff0000".to_string()
+                },
+                TextColorRange {
+                    start: 2,
+                    end: 5,
+                    color: "#00ff00".to_string()
+                },
+                TextColorRange {
+                    start: 6,
+                    end: 11,
+                    color: "#ff0000".to_string()
+                },
+            ]
+        );
         // No bottom colors → no bottom qualifier.
         assert!(!text.contains("/libregene_textcolor_bottom"), "{}", text);
     }
@@ -1577,12 +1683,16 @@ mod tests {
     fn test_text_colors_bottom_strand_is_dna_only() {
         let mut project = tiny_project("linear");
         project.molecule_type = "rna".to_string();
-        project.text_colors_top = vec![
-            TextColorRange { start: 0, end: 3, color: "#00b050".to_string() },
-        ];
-        project.text_colors_bottom = vec![
-            TextColorRange { start: 0, end: 3, color: "#ffa500".to_string() },
-        ];
+        project.text_colors_top = vec![TextColorRange {
+            start: 0,
+            end: 3,
+            color: "#00b050".to_string(),
+        }];
+        project.text_colors_bottom = vec![TextColorRange {
+            start: 0,
+            end: 3,
+            color: "#ffa500".to_string(),
+        }];
 
         let path = std::env::temp_dir().join(format!("lg_tc_rna_{}.gbk", std::process::id()));
         write_gbk(&project, &path).unwrap();

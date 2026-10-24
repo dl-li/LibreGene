@@ -185,10 +185,10 @@ fn build_amplify_groups_with(
     name: &str,
     target_tm: f64,
     topology: &str,
-    fwd_tail: String,
-    rev_tail: String,
+    tails: (String, String),
     tm_of: impl Fn(&str) -> f64,
 ) -> Vec<PrimerGroup> {
+    let (fwd_tail, rev_tail) = tails;
     let circular = topology == "circular";
     let fwd_anneal = |l: usize| slice_wrap(seq, seg.start, l, circular);
     let rev_anneal = |l: usize| rev_comp(&slice_wrap(seq, seg.end - l as i64 + 1, l, circular));
@@ -248,23 +248,22 @@ pub fn build_amplify_groups_tailed(
         name,
         target_tm,
         topology,
-        fwd_tail.to_ascii_uppercase(),
-        rev_tail.to_ascii_uppercase(),
+        (fwd_tail.to_ascii_uppercase(), rev_tail.to_ascii_uppercase()),
         |s| compute_tm_with_params(s, params),
     )
 }
 
 fn build_oepcr_groups_with(
     seq: &str,
-    seg1: &Segment,
-    seg2: &Segment,
-    name1: &str,
-    name2: &str,
+    segs: (&Segment, &Segment),
+    names: (&str, &str),
     target_tm: f64,
     overlap_len: usize,
     topology: &str,
     tm_of: impl Fn(&str) -> f64,
 ) -> Vec<PrimerGroup> {
+    let (seg1, seg2) = segs;
+    let (name1, name2) = names;
     let circular = topology == "circular";
     let seg1_fwd_anneal = |l: usize| slice_wrap(seq, seg1.start, l, circular);
     let seg1_rev_anneal =
@@ -318,6 +317,7 @@ fn build_oepcr_groups_with(
 
 /// Overlap-extension PCR primers for two adjacent segments; each inner primer
 /// carries the overlap of the other segment as a 5' tail.
+#[allow(clippy::too_many_arguments)]
 pub fn build_oepcr_groups(
     seq: &str,
     seg1: &Segment,
@@ -331,10 +331,8 @@ pub fn build_oepcr_groups(
 ) -> Vec<PrimerGroup> {
     build_oepcr_groups_with(
         seq,
-        seg1,
-        seg2,
-        name1,
-        name2,
+        (seg1, seg2),
+        (name1, name2),
         target_tm,
         overlap_len,
         topology,
@@ -345,13 +343,13 @@ pub fn build_oepcr_groups(
 fn build_mutagenesis_groups_with(
     seq: &str,
     seg: &Segment,
-    site_name: &str,
-    mut_seq: &str,
+    mutation: (&str, &str),
     target_tm: f64,
     arm_len: usize,
     topology: &str,
     tm_of: impl Fn(&str) -> f64,
 ) -> Vec<PrimerGroup> {
+    let (site_name, mut_seq) = mutation;
     let mut_clean: String = mut_seq
         .to_ascii_uppercase()
         .chars()
@@ -389,6 +387,7 @@ fn build_mutagenesis_groups_with(
 
 /// Site-directed mutagenesis primers replacing `seg` with `mut_seq`; the
 /// mutation is carried as a 5' tail between homology arms and the anneal core.
+#[allow(clippy::too_many_arguments)]
 pub fn build_mutagenesis_groups(
     seq: &str,
     seg: &Segment,
@@ -399,9 +398,15 @@ pub fn build_mutagenesis_groups(
     topology: &str,
     params: &TmParams,
 ) -> Vec<PrimerGroup> {
-    build_mutagenesis_groups_with(seq, seg, site_name, mut_seq, target_tm, arm_len, topology, |s| {
-        compute_tm_with_params(s, params)
-    })
+    build_mutagenesis_groups_with(
+        seq,
+        seg,
+        (site_name, mut_seq),
+        target_tm,
+        arm_len,
+        topology,
+        |s| compute_tm_with_params(s, params),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -465,15 +470,36 @@ pub fn unify_candidate_tm(
 /// Overlap length (in template positions) between a half-open binding site
 /// `[site.template_start, site.template_end)` and any of the closed segments
 /// `[seg.start, seg.end]`.
-fn site_segment_overlap(site: &PrimerBindingSite, segs: &[Segment], tlen: i64, circular: bool) -> usize {
+fn site_segment_overlap(
+    site: &PrimerBindingSite,
+    segs: &[Segment],
+    tlen: i64,
+    circular: bool,
+) -> usize {
     segs.iter()
-        .map(|seg| range_overlap_len(site.template_start, site.template_end, seg.start, seg.end, tlen, circular))
+        .map(|seg| {
+            range_overlap_len(
+                site.template_start,
+                site.template_end,
+                seg.start,
+                seg.end,
+                tlen,
+                circular,
+            )
+        })
         .sum()
 }
 
 /// Overlap between a half-open range A and a closed range B on a possibly
 /// circular template. Empty when `a_start == a_end`.
-fn range_overlap_len(a_start: i64, a_end: i64, b_start: i64, b_end: i64, tlen: i64, circular: bool) -> usize {
+fn range_overlap_len(
+    a_start: i64,
+    a_end: i64,
+    b_start: i64,
+    b_end: i64,
+    tlen: i64,
+    circular: bool,
+) -> usize {
     if a_start == a_end || b_start > b_end && !circular {
         return 0;
     }
@@ -681,8 +707,7 @@ pub fn analyze_mutagenesis(
             } else {
                 f.segments.iter().map(|s| (s.start, s.end)).collect()
             };
-            (seg.start..=seg.end)
-                .all(|p| spans.iter().any(|&(s, e)| p >= s && p <= e))
+            (seg.start..=seg.end).all(|p| spans.iter().any(|&(s, e)| p >= s && p <= e))
         })
         .find_map(|f| {
             // Build the coding sequence in coding order: plus strand takes
@@ -694,7 +719,7 @@ pub fn analyze_mutagenesis(
                 f.segments.iter().map(|s| (s.start, s.end)).collect()
             };
             if f.strand == "-" {
-                spans.sort_by(|a, b| b.0.cmp(&a.0));
+                spans.sort_by_key(|span| std::cmp::Reverse(span.0));
             } else {
                 spans.sort_by_key(|s| s.0);
             }
@@ -704,7 +729,9 @@ pub fn analyze_mutagenesis(
             for (s, e) in &spans {
                 if minus {
                     for p in (*s..=*e).rev() {
-                        coding.push(crate::utils::complement_char(seq.as_bytes()[p as usize] as char) as u8);
+                        coding.push(crate::utils::complement_char(
+                            seq.as_bytes()[p as usize] as char,
+                        ) as u8);
                         pos_of.push(p);
                     }
                 } else {
@@ -877,8 +904,7 @@ mod tests {
             "Amp",
             30.0,
             "linear",
-            String::new(),
-            String::new(),
+            (String::new(), String::new()),
             |s| s.len() as f64,
         );
         check_groups(&groups, AMP_EXPECTED);
@@ -896,10 +922,15 @@ mod tests {
             end: 50,
             color: None,
         };
-        let groups =
-            build_oepcr_groups_with(SEQ, &seg1, &seg2, "Seg1", "Seg2", 30.0, 8, "linear", |s| {
-                s.len() as f64
-            });
+        let groups = build_oepcr_groups_with(
+            SEQ,
+            (&seg1, &seg2),
+            ("Seg1", "Seg2"),
+            30.0,
+            8,
+            "linear",
+            |s| s.len() as f64,
+        );
         // First group repeats the Amp-Fwd candidates; inner primers carry the
         // overlap tails; the Seg1-Rev core clamps at the linear origin so all
         // variants collapse to one 25-nt core (coreLen saturates at 40).
@@ -971,7 +1002,9 @@ mod tests {
             color: None,
         };
         let groups =
-            build_mutagenesis_groups_with(SEQ, &seg, "Site", "GGG", 30.0, 10, "circular", |s| s.len() as f64);
+            build_mutagenesis_groups_with(SEQ, &seg, ("Site", "GGG"), 30.0, 10, "circular", |s| {
+                s.len() as f64
+            });
         let expected: &[(&str, &str, usize, &[(&str, usize, usize, f64, f64)])] = &[
             (
                 "Site-Fwd",
@@ -1154,8 +1187,16 @@ mod tests {
             end: 23,
             color: None,
         };
-        let groups =
-            build_mutagenesis_groups(seq, &seg, "M", "g-g!T", 45.0, 9, "circular", &TmParams::default());
+        let groups = build_mutagenesis_groups(
+            seq,
+            &seg,
+            "M",
+            "g-g!T",
+            45.0,
+            9,
+            "circular",
+            &TmParams::default(),
+        );
         assert_eq!(groups.len(), 2);
         // Up arm = seq[9..18], down arm = seq[24..33], mut = "GGT".
         assert_eq!(groups[0].candidates[0].tail_len, 12);
@@ -1183,12 +1224,23 @@ mod tests {
             end: 9,
             color: None,
         };
-        let groups =
-            build_mutagenesis_groups(seq, &seg, "M", "TTT", 45.0, 9, "linear", &TmParams::default());
+        let groups = build_mutagenesis_groups(
+            seq,
+            &seg,
+            "M",
+            "TTT",
+            45.0,
+            9,
+            "linear",
+            &TmParams::default(),
+        );
         assert_eq!(groups.len(), 2);
         // Up arm = seq[0..4] (4 bp, clamped), so fwd tail = upArm+mut is 7 bp.
         assert_eq!(groups[0].candidates[0].tail_len, 7);
-        assert_eq!(groups[0].candidates[0].seq[..7], format!("{}TTT", &seq[0..4]));
+        assert_eq!(
+            groups[0].candidates[0].seq[..7],
+            format!("{}TTT", &seq[0..4])
+        );
         // Down arm = seq[10..19]; rev tail = revComp(mut + downArm).
         assert_eq!(groups[1].candidates[0].tail_len, 12);
         assert_eq!(
@@ -1226,7 +1278,10 @@ mod tests {
                 // Tm reflects the anneal core only.
                 assert_eq!(
                     c.tm,
-                    round1(compute_tm_with_params(&c.seq[c.tail_len..], &TmParams::default()))
+                    round1(compute_tm_with_params(
+                        &c.seq[c.tail_len..],
+                        &TmParams::default()
+                    ))
                 );
             }
         }
@@ -1344,7 +1399,17 @@ mod tests {
         assert!(err.contains("max 3"));
         assert!(err.contains("GTACG"));
         // Out of bounds.
-        assert!(analyze_mutagenesis(&seq, &Segment { start: 0, end: 500, color: None }, "AAA", &[]).is_err());
+        assert!(analyze_mutagenesis(
+            &seq,
+            &Segment {
+                start: 0,
+                end: 500,
+                color: None
+            },
+            "AAA",
+            &[]
+        )
+        .is_err());
         // No CDS → cds is None.
         let ok = analyze_mutagenesis(&seq, &seg, "GTT", &[]).unwrap();
         assert!(ok.cds.is_none());
@@ -1570,8 +1635,7 @@ mod tests {
             "Sat",
             60.0,
             "linear",
-            String::new(),
-            String::new(),
+            (String::new(), String::new()),
             |s| s.len() as f64,
         );
         let lens: Vec<usize> = groups[0].candidates.iter().map(|c| c.anneal_len).collect();

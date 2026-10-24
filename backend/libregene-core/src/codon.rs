@@ -99,8 +99,7 @@ pub fn list_species() -> Vec<&'static str> {
 /// Look up a built-in table by species key (e.g. `"e_coli"`).
 pub fn get_table(species: &str) -> Option<&'static CodonUsageTable> {
     let ts = tables();
-    ts.get(species)
-        .or_else(|| ts.get(&species.to_lowercase()))
+    ts.get(species).or_else(|| ts.get(&species.to_lowercase()))
 }
 
 /// Build a table from caller-supplied rows (Kazusa-format parse results),
@@ -291,7 +290,10 @@ pub fn compute_cai(codons: &[String], table: &CodonUsageTable) -> f64 {
         return 1.0;
     }
     let n = codons.len() as f64;
-    let sum: f64 = codons.iter().map(|c| w_single(c, table).max(1e-12).ln()).sum();
+    let sum: f64 = codons
+        .iter()
+        .map(|c| w_single(c, table).max(1e-12).ln())
+        .sum();
     (sum / n).exp()
 }
 
@@ -443,9 +445,10 @@ pub fn optimize_from_aa(
 
     let mut draft: Vec<String> = Vec::with_capacity(cleaned.len());
     for c in cleaned.chars() {
-        draft.push(best_codon_for_aa(c, table).ok_or_else(|| {
-            format!("amino acid '{}' has no codon in the species table", c)
-        })?);
+        draft.push(
+            best_codon_for_aa(c, table)
+                .ok_or_else(|| format!("amino acid '{}' has no codon in the species table", c))?,
+        );
     }
     let draft = match opts.method {
         OptimizeMethod::UseBestCodon => draft,
@@ -470,8 +473,29 @@ pub fn optimize_from_aa(
 }
 
 fn is_aa_char(c: char) -> bool {
-    matches!(c, 'A' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'K' | 'L' | 'M' | 'N' | 'P'
-        | 'Q' | 'R' | 'S' | 'T' | 'V' | 'W' | 'Y' | '*')
+    matches!(
+        c,
+        'A' | 'C'
+            | 'D'
+            | 'E'
+            | 'F'
+            | 'G'
+            | 'H'
+            | 'I'
+            | 'K'
+            | 'L'
+            | 'M'
+            | 'N'
+            | 'P'
+            | 'Q'
+            | 'R'
+            | 'S'
+            | 'T'
+            | 'V'
+            | 'W'
+            | 'Y'
+            | '*'
+    )
 }
 
 fn join(codons: &[String]) -> Vec<u8> {
@@ -528,7 +552,11 @@ fn rca(codon: &str, table: &CodonUsageTable) -> f64 {
 
 /// For each codon, pick the synonymous codon whose RCA in the target table
 /// is closest to the original codon's RCA in its own table.
-fn harmonize_rca(original: &[String], orig_table: &CodonUsageTable, table: &CodonUsageTable) -> Vec<String> {
+fn harmonize_rca(
+    original: &[String],
+    orig_table: &CodonUsageTable,
+    table: &CodonUsageTable,
+) -> Vec<String> {
     original
         .iter()
         .map(|c| {
@@ -591,7 +619,8 @@ fn match_usage(codons: &[String], table: &CodonUsageTable) -> Vec<String> {
             let mut best_i = 0;
             for j in 1..codons_aa.len() {
                 if codons_aa[j].1 > codons_aa[best_i].1
-                    || (codons_aa[j].1 == codons_aa[best_i].1 && codons_aa[j].0 < codons_aa[best_i].0)
+                    || (codons_aa[j].1 == codons_aa[best_i].1
+                        && codons_aa[j].0 < codons_aa[best_i].0)
                 {
                     best_i = j;
                 }
@@ -653,7 +682,8 @@ fn match_usage(codons: &[String], table: &CodonUsageTable) -> Vec<String> {
                         None => true,
                         Some((bimp, bi, bc, _)) => {
                             imp > *bimp + 1e-12
-                                || ((imp - bimp).abs() <= 1e-12 && (i < *bi || (i == *bi && cand < *bc)))
+                                || ((imp - bimp).abs() <= 1e-12
+                                    && (i < *bi || (i == *bi && cand < *bc)))
                         }
                     };
                     if better {
@@ -731,9 +761,7 @@ fn mark_homopolymer(
         }
         let len = i - run_start;
         if len > hp {
-            for j in run_start..i {
-                marked[j] = true;
-            }
+            marked[run_start..i].fill(true);
             if let Some(v) = violations.as_deref_mut() {
                 v.push(Violation {
                     start: offset + run_start,
@@ -760,9 +788,7 @@ fn mark_kmers(
     for s in 0..=seg.len() - k {
         let kmer = std::str::from_utf8(&seg[s..s + k]).unwrap();
         if mult(kmer, offset + s) >= 2 {
-            for j in s..s + k {
-                marked[j] = true;
-            }
+            marked[s..s + k].fill(true);
             if let Some(v) = violations.as_deref_mut() {
                 v.push(Violation {
                     start: offset + s,
@@ -791,9 +817,7 @@ fn mark_enzyme(
         }
         for s in 0..=seg.len() - plen {
             if iupac_matches(&seg[s..s + plen], pat) {
-                for j in s..s + plen {
-                    marked[j] = true;
-                }
+                marked[s..s + plen].fill(true);
                 if let Some(v) = violations.as_deref_mut() {
                     v.push(Violation {
                         start: offset + s,
@@ -808,9 +832,7 @@ fn mark_enzyme(
             if iupac_matches(&rc[s..s + plen], pat) {
                 let a = seg.len() - plen - s;
                 let b = seg.len() - 1 - s;
-                for j in a..=b {
-                    marked[j] = true;
-                }
+                marked[a..=b].fill(true);
                 if let Some(v) = violations.as_deref_mut() {
                     v.push(Violation {
                         start: offset + a,
@@ -843,9 +865,7 @@ fn mark_gc(
             .count();
         let frac = g as f64 / win as f64;
         if frac < min || frac > max {
-            for j in s..s + win {
-                marked[j] = true;
-            }
+            marked[s..s + win].fill(true);
             if let Some(v) = violations.as_deref_mut() {
                 v.push(Violation {
                     start: offset + s,
@@ -865,9 +885,28 @@ fn mark_all(
     marked: &mut [bool],
     mut violations: Option<&mut Vec<Violation>>,
 ) {
-    mark_homopolymer(seg, offset, params.max_homopolymer, marked, violations.as_deref_mut());
-    mark_kmers(seg, offset, params.k, mult, marked, violations.as_deref_mut());
-    mark_enzyme(seg, offset, &params.sites, marked, violations.as_deref_mut());
+    mark_homopolymer(
+        seg,
+        offset,
+        params.max_homopolymer,
+        marked,
+        violations.as_deref_mut(),
+    );
+    mark_kmers(
+        seg,
+        offset,
+        params.k,
+        mult,
+        marked,
+        violations.as_deref_mut(),
+    );
+    mark_enzyme(
+        seg,
+        offset,
+        &params.sites,
+        marked,
+        violations.as_deref_mut(),
+    );
     mark_gc(seg, offset, params.gc_window, marked, violations);
 }
 
@@ -953,7 +992,8 @@ fn eval_candidate(
     let mult_after = |kmer: &str, s: usize| {
         let base = counts.get(kmer).copied().unwrap_or(0);
         if k > 0 && s < 3 * p + 3 && s + k > 3 * p {
-            base + cand_occ.get(kmer).copied().unwrap_or(0) - orig_occ.get(kmer).copied().unwrap_or(0)
+            base + cand_occ.get(kmer).copied().unwrap_or(0)
+                - orig_occ.get(kmer).copied().unwrap_or(0)
         } else {
             base
         }
@@ -1289,7 +1329,11 @@ mod tests {
         let out = match_usage(&original, &t);
         let n_gaa = out.iter().filter(|c| *c == "GAA").count();
         let n_gag = out.iter().filter(|c| *c == "GAG").count();
-        assert_eq!((n_gaa, n_gag), (4, 2), "2:1 table → 4:2 split of 6, got {out:?}");
+        assert_eq!(
+            (n_gaa, n_gag),
+            (4, 2),
+            "2:1 table → 4:2 split of 6, got {out:?}"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1302,7 +1346,11 @@ mod tests {
         let original = codons("GAGGAGGAG");
         let res = optimize_codons(&original, t, &OptimizeOptions::default());
         assert_eq!(res.new_codons.len(), original.len());
-        assert_eq!(translate(&res.new_codons), translate(&original), "translation must be preserved");
+        assert_eq!(
+            translate(&res.new_codons),
+            translate(&original),
+            "translation must be preserved"
+        );
         assert_eq!(res.new_codons, vec!["GAA", "GAA", "GAA"]);
         assert!(res.cai_after > res.cai_before + 1e-9);
         assert!(res.unresolved.is_empty());
@@ -1320,11 +1368,14 @@ mod tests {
         let res = optimize_codons(&original, t, &opts);
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
-        let d_best = l1_distance(&{
+        let d_best = l1_distance(
+            &{
             let mut o = OptimizeOptions::default();
             o.method = OptimizeMethod::UseBestCodon;
             optimize_codons(&original, t, &o).new_codons
-        }, t);
+            },
+            t,
+        );
         let d_match = l1_distance(&res.new_codons, t);
         let d_orig = l1_distance(&original, t);
         assert!(d_match < d_best, "match {d_match} vs best {d_best}");
@@ -1337,10 +1388,14 @@ mod tests {
         let t = get_table("e_coli").unwrap();
         let original = codons("GAGGAGGAGGAAGAA");
         // no original table → degrades to match usage; still valid + translation kept
-        let res = optimize_codons(&original, t, &OptimizeOptions {
+        let res = optimize_codons(
+            &original,
+            t,
+            &OptimizeOptions {
             method: OptimizeMethod::HarmonizeRca,
             ..OptimizeOptions::default()
-        });
+            },
+        );
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
     }
@@ -1350,11 +1405,15 @@ mod tests {
         let t = get_table("e_coli").unwrap();
         let ot = get_table("h_sapiens").unwrap();
         let original = codons("CTGGTGAGCAAGAAA"); // L V S K K
-        let res = optimize_codons(&original, t, &OptimizeOptions {
+        let res = optimize_codons(
+            &original,
+            t,
+            &OptimizeOptions {
             method: OptimizeMethod::HarmonizeRca,
             original_table: Some(ot.clone()),
             ..OptimizeOptions::default()
-        });
+            },
+        );
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
         // per codon: the chosen codon's target-table RCA must be no farther
@@ -1364,7 +1423,10 @@ mod tests {
             let rca_orig = rca(old, &ot);
             let d_chosen = (rca(new, t) - rca_orig).abs();
             let d_original = (rca(old, t) - rca_orig).abs();
-            assert!(d_chosen <= d_original + 1e-9, "position {i}: {old} -> {new}");
+            assert!(
+                d_chosen <= d_original + 1e-9,
+                "position {i}: {old} -> {new}"
+            );
         }
     }
 
@@ -1393,10 +1455,14 @@ mod tests {
             }
             original.push(best.expect("aa in genetic code").0);
         }
-        let res = optimize_codons(&original, t, &OptimizeOptions {
+        let res = optimize_codons(
+            &original,
+            t,
+            &OptimizeOptions {
             method: OptimizeMethod::MatchCodonUsage,
             ..OptimizeOptions::default()
-        });
+            },
+        );
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
         assert!(
@@ -1423,20 +1489,33 @@ mod tests {
         for (c, a) in res.new_codons.iter().zip(aa.chars()) {
             assert_eq!(*c, best_codon_for_aa(a, t).unwrap(), "aa {a}");
         }
-        assert_eq!(translate(&res.new_codons), aa, "translation must match input");
+        assert_eq!(
+            translate(&res.new_codons),
+            aa,
+            "translation must match input"
+        );
         // all best codons → CAI 1.0
         assert!((res.cai_after - 1.0).abs() < 1e-9);
-        assert!(res.unresolved.is_empty(), "unresolved: {:?}", res.unresolved);
+        assert!(
+            res.unresolved.is_empty(),
+            "unresolved: {:?}",
+            res.unresolved
+        );
     }
 
     #[test]
     fn reverse_translate_match_usage_spreads_per_table() {
         let t = get_table("s_cerevisiae").unwrap();
         let aa = "MKKKKKKKKKKKKKKKKKKKK";
-        let res = optimize_from_aa(aa, t, &OptimizeOptions {
+        let res = optimize_from_aa(
+            aa,
+            t,
+            &OptimizeOptions {
             method: OptimizeMethod::MatchCodonUsage,
             ..OptimizeOptions::default()
-        }).unwrap();
+            },
+        )
+        .unwrap();
         assert_eq!(res.new_codons.len(), aa.len());
         assert_eq!(translate(&res.new_codons), aa);
         // match_usage spreads K across AAG/AAA; a pure best-codon draft would
@@ -1506,7 +1585,11 @@ mod tests {
         let res = optimize_codons(&original, t, &OptimizeOptions::default());
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
-        assert!(res.unresolved.is_empty(), "unresolved: {:?}", res.unresolved);
+        assert!(
+            res.unresolved.is_empty(),
+            "unresolved: {:?}",
+            res.unresolved
+        );
         assert!(!res.repairs.is_empty());
         let dna = String::from_utf8(join(&res.new_codons)).unwrap();
         let mut run = 1;
@@ -1537,13 +1620,20 @@ mod tests {
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
         let dna = String::from_utf8(join(&res.new_codons)).unwrap();
-        assert!(res.unresolved.is_empty(), "unresolved: {:?}", res.unresolved);
+        assert!(
+            res.unresolved.is_empty(),
+            "unresolved: {:?}",
+            res.unresolved
+        );
         let k = 12;
         let mut seen: HashMap<&str, usize> = HashMap::new();
         for s in 0..=dna.len() - k {
             *seen.entry(&dna[s..s + k]).or_insert(0) += 1;
         }
-        assert!(seen.values().all(|&c| c == 1), "repeated {k}-mers: {seen:?}");
+        assert!(
+            seen.values().all(|&c| c == 1),
+            "repeated {k}-mers: {seen:?}"
+        );
     }
 
     #[test]
@@ -1552,15 +1642,23 @@ mod tests {
         // E F: best codons GAA TTT (F's best is TTT), so the draft is already
         // site-free; verify the option is accepted and stays site-free.
         let original = codons("GAATTC");
-        let res = optimize_codons(&original, t, &OptimizeOptions {
+        let res = optimize_codons(
+            &original,
+            t,
+            &OptimizeOptions {
             avoid_enzyme_sites: vec!["GAATTC".to_string()],
             ..OptimizeOptions::default()
-        });
+            },
+        );
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
         let dna = String::from_utf8(join(&res.new_codons)).unwrap();
         assert!(!dna.contains("GAATTC"), "site still present: {dna}");
-        assert!(res.unresolved.is_empty(), "unresolved: {:?}", res.unresolved);
+        assert!(
+            res.unresolved.is_empty(),
+            "unresolved: {:?}",
+            res.unresolved
+        );
     }
 
     #[test]
@@ -1569,16 +1667,24 @@ mod tests {
         // K T: best codons AAA ACC = "AAAACC", which the repair must break
         // when it is listed as a forbidden site (both strands).
         let original = codons("AAAACC");
-        let res = optimize_codons(&original, t, &OptimizeOptions {
+        let res = optimize_codons(
+            &original,
+            t,
+            &OptimizeOptions {
             avoid_enzyme_sites: vec!["AAAACC".to_string()],
             ..OptimizeOptions::default()
-        });
+            },
+        );
         assert_eq!(res.new_codons.len(), original.len());
         assert_eq!(translate(&res.new_codons), translate(&original));
         let dna = String::from_utf8(join(&res.new_codons)).unwrap();
         assert!(!dna.contains("AAAACC"), "site still present: {dna}");
         assert!(!dna.contains("GGTTTT"), "site on reverse strand: {dna}");
-        assert!(res.unresolved.is_empty(), "unresolved: {:?}", res.unresolved);
+        assert!(
+            res.unresolved.is_empty(),
+            "unresolved: {:?}",
+            res.unresolved
+        );
         assert!(!res.repairs.is_empty(), "repair must fire");
     }
 
@@ -1592,7 +1698,10 @@ mod tests {
         let cd = extract_codons("ATGGTGAGCAAATAA", &f, "linear").unwrap();
         assert_eq!(cd.codons, codons("ATGGTGAGCAAA"));
         assert_eq!(cd.aa, "MVSK");
-        assert_eq!(cd.segments_on_template, vec![(0, 2), (3, 5), (6, 8), (9, 11)]);
+        assert_eq!(
+            cd.segments_on_template,
+            vec![(0, 2), (3, 5), (6, 8), (9, 11)]
+        );
     }
 
     #[test]
@@ -1602,7 +1711,10 @@ mod tests {
         assert_eq!(cd.codons, codons("TTTAAATTTCAT"));
         assert_eq!(cd.aa, "FKFH");
         // each codon's template span is ascending (write-back direction)
-        assert_eq!(cd.segments_on_template, vec![(9, 11), (6, 8), (3, 5), (0, 2)]);
+        assert_eq!(
+            cd.segments_on_template,
+            vec![(9, 11), (6, 8), (3, 5), (0, 2)]
+        );
     }
 
     #[test]
@@ -1624,7 +1736,11 @@ mod tests {
         assert_eq!(cd.aa, "PT");
         // codon 1 crosses the origin → split into two linear entries
         assert_eq!(cd.segments_on_template, vec![(10, 11), (0, 0), (1, 3)]);
-        let total: usize = cd.segments_on_template.iter().map(|&(a, b)| b - a + 1).sum();
+        let total: usize = cd
+            .segments_on_template
+            .iter()
+            .map(|&(a, b)| b - a + 1)
+            .sum();
         assert_eq!(total, cd.codons.len() * 3);
     }
 
@@ -1645,8 +1761,16 @@ mod tests {
         // Simulate what the Tauri layer will do: write new codons back through
         // segments_on_template and verify the translation stays correct.
         for (seq, f, want_codons) in [
-            ("ATGGTGAGCAAATAA", feat("p", 0, 11, "+", vec![]), "GAAACCGTTAAA"),
-            ("ATGAAATTTAAA", feat("m", 0, 11, "-", vec![]), "TTTAAATTTCAT"),
+            (
+                "ATGGTGAGCAAATAA",
+                feat("p", 0, 11, "+", vec![]),
+                "GAAACCGTTAAA",
+            ),
+            (
+                "ATGAAATTTAAA",
+                feat("m", 0, 11, "-", vec![]),
+                "TTTAAATTTCAT",
+            ),
         ] {
             let cd = extract_codons(seq, &f, "linear").unwrap();
             let new_codons = codons(want_codons);
@@ -1669,7 +1793,10 @@ mod tests {
                 off += b - a + 1;
             }
             let new_seq = String::from_utf8(tmpl).unwrap();
-            assert_eq!(extract_codons(&new_seq, &f, "linear").unwrap().codons, new_codons);
+            assert_eq!(
+                extract_codons(&new_seq, &f, "linear").unwrap().codons,
+                new_codons
+            );
         }
     }
     #[test]
@@ -1699,17 +1826,32 @@ mod tests {
         assert_eq!(cd.codons.len(), 1369);
 
         for (method, species, label) in [
-            (OptimizeMethod::UseBestCodon, "e_coli", "use_best_codon+e_coli"),
-            (OptimizeMethod::MatchCodonUsage, "s_cerevisiae", "match_codon_usage+s_cerevisiae"),
+            (
+                OptimizeMethod::UseBestCodon,
+                "e_coli",
+                "use_best_codon+e_coli",
+            ),
+            (
+                OptimizeMethod::MatchCodonUsage,
+                "s_cerevisiae",
+                "match_codon_usage+s_cerevisiae",
+            ),
         ] {
             let t = get_table(species).unwrap();
-            let res = optimize_codons(&cd.codons, t, &OptimizeOptions {
+            let res = optimize_codons(
+                &cd.codons,
+                t,
+                &OptimizeOptions {
                 method,
                 ..OptimizeOptions::default()
-            });
+                },
+            );
             eprintln!(
                 "{label}: cai {:.4} -> {:.4}, gc {:.3} -> {:.3}, repairs {}, unresolved {}",
-                res.cai_before, res.cai_after, res.gc_before, res.gc_after,
+                res.cai_before,
+                res.cai_after,
+                res.gc_before,
+                res.gc_after,
                 res.repairs.len(),
                 res.unresolved.len()
             );
@@ -1729,6 +1871,11 @@ mod tests {
         // use_best_codon must raise CAI substantially
         let t = get_table("e_coli").unwrap();
         let res = optimize_codons(&cd.codons, t, &OptimizeOptions::default());
-        assert!(res.cai_after > res.cai_before + 0.3, "cai {:.3} -> {:.3}", res.cai_before, res.cai_after);
+        assert!(
+            res.cai_after > res.cai_before + 0.3,
+            "cai {:.3} -> {:.3}",
+            res.cai_before,
+            res.cai_after
+        );
     }
 }

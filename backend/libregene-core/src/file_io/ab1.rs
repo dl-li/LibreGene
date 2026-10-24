@@ -139,13 +139,10 @@ pub fn extract_chromatogram(buf: &[u8]) -> io::Result<Chromatogram> {
             continue;
         };
         match &entry[0..4] {
-            b"PLOC" => {
-                if tag.tag_number == 1 && peaks.is_none() {
+            b"PLOC" if tag.tag_number == 1 && peaks.is_none() => {
                     peaks = Some(read_short_array(buf, &tag));
                 }
-            }
-            b"FWO_" => {
-                if tag.tag_number == 1 && tag.data_size >= 4 {
+            b"FWO_" if tag.tag_number == 1 && tag.data_size >= 4 => {
                     let off = if tag.data_size <= 4 {
                         e + 20
                     } else {
@@ -155,7 +152,6 @@ pub fn extract_chromatogram(buf: &[u8]) -> io::Result<Chromatogram> {
                         fwo = [b[0], b[1], b[2], b[3]];
                     }
                 }
-            }
             b"DATA" => {
                 let slot = match tag.tag_number {
                     9 => Some(&mut processed[0]),
@@ -442,4 +438,3 @@ mod tests {
         assert!(extract_chromatogram(&buf).is_err());
     }
 }
-

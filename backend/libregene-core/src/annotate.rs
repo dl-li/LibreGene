@@ -108,11 +108,11 @@ fn parse_fasta(s: &str) -> Vec<(String, Vec<u8>)> {
     let mut id = String::new();
     let mut seq = Vec::new();
     for line in s.lines() {
-        if line.starts_with('>') {
+        if let Some(header) = line.strip_prefix('>') {
             if !id.is_empty() {
                 out.push((std::mem::take(&mut id), std::mem::take(&mut seq)));
             }
-            id = line[1..].split_whitespace().next().unwrap_or("").to_string();
+            id = header.split_whitespace().next().unwrap_or("").to_string();
         } else {
             seq.extend(line.bytes().map(|b| b.to_ascii_uppercase()));
         }
@@ -545,7 +545,8 @@ fn cluster_prot_runs(mut seeds: Vec<(u16, u32, u16)>) -> Vec<ProtRun> {
         let fi = seeds[i].0;
         let delta = seeds[i].2 as i64 - seeds[i].1 as i64;
         let mut j = i + 1;
-        while j < seeds.len() && seeds[j].0 == fi && seeds[j].2 as i64 - seeds[j].1 as i64 == delta {
+        while j < seeds.len() && seeds[j].0 == fi && seeds[j].2 as i64 - seeds[j].1 as i64 == delta
+        {
             j += 1;
         }
         let mut start = i;
@@ -786,11 +787,7 @@ fn segments_for(start: i64, end: i64, qlen: usize, color: &str) -> (i64, i64, Ve
     if start <= end {
         (start, end, vec![seg(start, end)])
     } else {
-        (
-            start,
-            end,
-            vec![seg(start, qlen as i64 - 1), seg(0, end)],
-        )
+        (start, end, vec![seg(start, qlen as i64 - 1), seg(0, end)])
     }
 }
 
@@ -1069,7 +1066,10 @@ mod tests {
             );
         }
         // Smoke guard only (debug build on shared CI runners is slow); not a benchmark.
-        assert!(cached.as_secs_f64() < 10.0, "annotation too slow: {cached:?}");
+        assert!(
+            cached.as_secs_f64() < 10.0,
+            "annotation too slow: {cached:?}"
+        );
 
         let amp = feats
             .iter()
@@ -1086,16 +1086,15 @@ mod tests {
         assert!((ori.start - 866).abs() <= 15, "ori start {}", ori.start);
         assert!((ori.end - 1454).abs() <= 15, "ori end {}", ori.end);
 
-        let lacz = feats.iter().find(|f| f.name == "lacZα").expect("lacZα feature");
+        let lacz = feats
+            .iter()
+            .find(|f| f.name == "lacZα")
+            .expect("lacZα feature");
         // the 174 bp db feature matches a 166 bp window of the 324 bp lacZα
         // fragment at [241, 406] (inside the gbk span 145..468); 95.4%
         // coverage at 97.6% identity counts as complete.
         assert!(!lacz.fragment, "lacZα at 95.4% coverage should be complete");
-        assert!(
-            (lacz.start - 241).abs() <= 10,
-            "lacZα start {}",
-            lacz.start
-        );
+        assert!((lacz.start - 241).abs() <= 10, "lacZα start {}", lacz.start);
 
         let mcs = feats.iter().find(|f| f.name == "MCS").expect("MCS");
         assert!((mcs.start - 395).abs() <= 10, "MCS start {}", mcs.start);
@@ -1137,11 +1136,18 @@ mod tests {
         assert_eq!(f.fwd.len(), 20);
         let filler = "CGCATGTACGCATGACGTACGTAGCTAGCTAGCATCGATGCTAGCATGCA";
         let start = filler.len();
-        let seq = format!("{}{}{}", filler, String::from_utf8(f.fwd.clone()).unwrap(), filler);
+        let seq = format!(
+            "{}{}{}",
+            filler,
+            String::from_utf8(f.fwd.clone()).unwrap(),
+            filler
+        );
         let feats = annotate_sequence(&seq, false);
         let hit = feats
             .iter()
-            .find(|x| x.start == start as i64 && x.end == start as i64 + 19 && x.ftype == "protein_bind")
+            .find(|x| {
+                x.start == start as i64 && x.end == start as i64 + 19 && x.ftype == "protein_bind"
+            })
             .expect("20 bp protein_bind hit");
         assert_eq!(hit.strand, "+");
         assert!(!hit.fragment);
@@ -1181,7 +1187,12 @@ mod tests {
         let f = db_feature("MCS_(8)");
         let filler = "GATCGATCGATCGTAGCTAGCATCGATCGATCGATGC";
         let start = filler.len();
-        let seq = format!("{}{}{}", filler, String::from_utf8(f.rc.clone()).unwrap(), filler);
+        let seq = format!(
+            "{}{}{}",
+            filler,
+            String::from_utf8(f.rc.clone()).unwrap(),
+            filler
+        );
         let feats = annotate_sequence(&seq, false);
         let hit = feats
             .iter()

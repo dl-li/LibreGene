@@ -138,11 +138,7 @@ fn seeds_to_candidates(
     merged
 }
 
-fn sliding_window_candidates(
-    tlen: usize,
-    plen: usize,
-    is_circular: bool,
-) -> Vec<(usize, usize)> {
+fn sliding_window_candidates(tlen: usize, plen: usize, is_circular: bool) -> Vec<(usize, usize)> {
     let step = plen.max(1);
     let padding = plen / 2;
     let mut candidates = Vec::new();
@@ -237,7 +233,11 @@ fn bases_pair(a: u8, b: u8, mode: OverlapMode) -> bool {
 /// Score of a diagonal step, and whether it classifies as a match (≥ 50%).
 fn step_score(a: u8, b: u8, mode: OverlapMode) -> (i32, bool) {
     let pairs = bases_pair(a, b, mode);
-    let w = if pairs { overlap_weight(a, b, mode) } else { 0.0 };
+    let w = if pairs {
+        overlap_weight(a, b, mode)
+    } else {
+        0.0
+    };
     if w > 0.0 {
         ((MATCH_SCORE as f64 * w) as i32, w >= 0.5)
     } else {
@@ -271,24 +271,18 @@ fn run_align(
     let mut gt = vec![vec![neg_inf; m + 1]; n + 1]; // gap in template (Ins)
 
     // Template left end is always free.
-    for j in 0..=m {
-        dp[0][j] = 0;
-    }
-    for i in 1..=n {
-        dp[i][0] = if free_left_query_col { 0 } else { neg_inf };
+    dp[0].fill(0);
+    for row in dp.iter_mut().skip(1) {
+        row[0] = if free_left_query_col { 0 } else { neg_inf };
     }
 
     for i in 1..=n {
         for j in 1..=m {
-            gp[i][j] = (dp[i][j - 1] + GAP_OPEN)
-                .max(gp[i][j - 1] + GAP_EXTEND);
-            gt[i][j] = (dp[i - 1][j] + GAP_OPEN)
-                .max(gt[i - 1][j] + GAP_EXTEND);
+            gp[i][j] = (dp[i][j - 1] + GAP_OPEN).max(gp[i][j - 1] + GAP_EXTEND);
+            gt[i][j] = (dp[i - 1][j] + GAP_OPEN).max(gt[i - 1][j] + GAP_EXTEND);
 
             let (s, _) = step_score(query[i - 1], template_region[j - 1], mode);
-            dp[i][j] = (dp[i - 1][j - 1] + s)
-                .max(gp[i][j])
-                .max(gt[i][j]);
+            dp[i][j] = (dp[i - 1][j - 1] + s).max(gp[i][j]).max(gt[i][j]);
         }
     }
 
@@ -298,34 +292,34 @@ fn run_align(
     let mut best_score = dp[n][m];
     match scan {
         EndScan::LastRowAndCol => {
-            for j in 0..=m {
-                if dp[n][j] > best_score {
-                    best_score = dp[n][j];
+            for (j, &score) in dp[n].iter().enumerate() {
+                if score > best_score {
+                    best_score = score;
                     best_i = n;
                     best_j = j;
                 }
             }
-            for i in 0..=n {
-                if dp[i][m] > best_score {
-                    best_score = dp[i][m];
+            for (i, row) in dp.iter().enumerate() {
+                if row[m] > best_score {
+                    best_score = row[m];
                     best_i = i;
                     best_j = m;
                 }
             }
         }
         EndScan::LastRow => {
-            for j in 0..=m {
-                if dp[n][j] > best_score {
-                    best_score = dp[n][j];
+            for (j, &score) in dp[n].iter().enumerate() {
+                if score > best_score {
+                    best_score = score;
                     best_j = j;
                 }
             }
         }
         EndScan::Any => {
-            for i in 1..=n {
-                for j in 1..=m {
-                    if dp[i][j] > best_score {
-                        best_score = dp[i][j];
+            for (i, row) in dp.iter().enumerate().skip(1) {
+                for (j, &score) in row.iter().enumerate().skip(1) {
+                    if score > best_score {
+                        best_score = score;
                         best_i = i;
                         best_j = j;
                     }
@@ -348,8 +342,12 @@ fn run_align(
 
     // Winning state of dp[i][j], same priority as the fill (diag > gp > gt).
     // Gap states unreachable from this cell never win.
-    let winner = |dp: &Vec<Vec<i32>>, gp: &Vec<Vec<i32>>, gt: &Vec<Vec<i32>>,
-                  i: usize, j: usize| -> Option<St> {
+    let winner = |dp: &Vec<Vec<i32>>,
+                  gp: &Vec<Vec<i32>>,
+                  gt: &Vec<Vec<i32>>,
+                  i: usize,
+                  j: usize|
+     -> Option<St> {
         if i == 0 || j == 0 {
             return None;
         }
@@ -430,11 +428,7 @@ fn run_align(
     let has_3prime_issue = last_3prime
         .map(|pos| n.saturating_sub(pos) <= 5)
         .unwrap_or(false);
-    let last_3prime_aligned_pos = if has_3prime_issue {
-        last_3prime
-    } else {
-        None
-    };
+    let last_3prime_aligned_pos = if has_3prime_issue { last_3prime } else { None };
 
     Some(AlignmentResult {
         ops,
@@ -462,10 +456,7 @@ pub fn align(primer: &[u8], template_region: &[u8]) -> Option<AlignmentResult> {
 ///
 /// Uses direct sequence matching (A matches A). Appropriate for fwd primers
 /// where the primer sequence matches the template top strand directly.
-pub fn align_3prime_constrained(
-    primer: &[u8],
-    template_region: &[u8],
-) -> Option<AlignmentResult> {
+pub fn align_3prime_constrained(primer: &[u8], template_region: &[u8]) -> Option<AlignmentResult> {
     run_align(
         primer,
         template_region,
@@ -567,7 +558,10 @@ mod tests {
         let tmpl = b"NNATGCATGCNN";
         let result = align(primer, tmpl).unwrap();
         assert!(result.score > 0);
-        assert!(result.ops.iter().all(|p| p.op == Op::Match || p.op == Op::Ins || p.op == Op::Del));
+        assert!(result
+            .ops
+            .iter()
+            .all(|p| p.op == Op::Match || p.op == Op::Ins || p.op == Op::Del));
         let matches = result.ops.iter().filter(|p| p.op == Op::Match).count();
         assert_eq!(matches, 8);
     }
@@ -579,8 +573,10 @@ mod tests {
         let primer = b"ATGCATGC";
         let tmpl = b"NNATGCTTGCAA"; // one mismatch at primer pos 4 (A vs T)
         let result = align(primer, tmpl).unwrap();
-        assert!(result.ops.iter().any(|p| p.op == Op::Mismatch),
-            "expected at least one mismatch but alignment avoided it entirely");
+        assert!(
+            result.ops.iter().any(|p| p.op == Op::Mismatch),
+            "expected at least one mismatch but alignment avoided it entirely"
+        );
     }
 
     #[test]
@@ -600,7 +596,10 @@ mod tests {
             let result = align_3prime_constrained(primer, &tpl)
                 .unwrap_or_else(|| panic!("SNP at {pos} must align"));
             assert!(
-                result.ops.iter().all(|p| p.op == Op::Match || p.op == Op::Mismatch),
+                result
+                    .ops
+                    .iter()
+                    .all(|p| p.op == Op::Match || p.op == Op::Mismatch),
                 "SNP at {pos} produced a gap op: {:?}",
                 result.ops.iter().map(|p| p.op).collect::<Vec<_>>()
             );
@@ -646,7 +645,11 @@ mod tests {
         }
         assert_eq!(
             runs,
-            vec![(Op::Match, 14), (Op::Del, 12), (Op::Match, primer.len() - 14)],
+            vec![
+                (Op::Match, 14),
+                (Op::Del, 12),
+                (Op::Match, primer.len() - 14)
+            ],
             "one contiguous 12bp gap run expected"
         );
     }
@@ -674,7 +677,10 @@ mod tests {
         let result = align_first_base_constrained_rev(query, template)
             .expect("tail overhang must not fail the alignment");
         assert_eq!(result.primer_start, 0, "first base constrained");
-        assert!(result.primer_end < query.len(), "non-matching tail excluded");
+        assert!(
+            result.primer_end < query.len(),
+            "non-matching tail excluded"
+        );
         let matches = result.ops.iter().filter(|p| p.op == Op::Match).count();
         assert_eq!(matches, 25);
     }

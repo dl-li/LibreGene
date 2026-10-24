@@ -63,7 +63,10 @@ pub fn parse_gpt(path: &Path) -> io::Result<ProjectData> {
 
         match section {
             Section::Header => {
-                if let Some(rest) = line.strip_prefix("LOCUS").or_else(|| line.strip_prefix("locus")) {
+                if let Some(rest) = line
+                    .strip_prefix("LOCUS")
+                    .or_else(|| line.strip_prefix("locus"))
+                {
                     // LOCUS       mCherry         237 aa            linear   UNA 06-AUG-2026
                     let mut toks = rest.split_whitespace();
                     name = toks.next().unwrap_or("").to_string();
@@ -188,8 +191,7 @@ fn is_qualifier_continuation(line: &str) -> bool {
 /// Build a [`Feature`] from a `.gpt` feature line using the same qualifier
 /// conventions as the `.gbk` parser (label → name, color note → color, …).
 fn build_feature(kind: &str, location: &str, qualifiers: &[(String, String)]) -> Option<Feature> {
-    let (segments, start, end, strand) =
-        crate::file_io::gbk::parse_location_string(location)?;
+    let (segments, start, end, strand) = crate::file_io::gbk::parse_location_string(location)?;
 
     let label = qualifiers
         .iter()
@@ -219,9 +221,8 @@ fn build_feature(kind: &str, location: &str, qualifiers: &[(String, String)]) ->
         .collect::<Vec<_>>()
         .join("; ");
 
-    let skip_keys: std::collections::HashSet<&str> = [
-        "label", "note", "translation",
-    ].into_iter().collect();
+    let skip_keys: std::collections::HashSet<&str> =
+        ["label", "note", "translation"].into_iter().collect();
     let quals: Vec<(String, String)> = qualifiers
         .iter()
         .filter(|(k, _)| !skip_keys.contains(k.as_str()))
@@ -281,7 +282,9 @@ pub fn write_gpt(project: &ProjectData, path: &Path) -> io::Result<()> {
 
     out.push_str(&format!(
         "LOCUS       {}         {} aa            linear   UNA {}\n",
-        name, project.sequence.len(), date
+        name,
+        project.sequence.len(),
+        date
     ));
     out.push_str(&format!("DEFINITION  {}\n", dot_or(&project.definition)));
     out.push_str("ACCESSION   .\n");
@@ -294,7 +297,7 @@ pub fn write_gpt(project: &ProjectData, path: &Path) -> io::Result<()> {
 
     let len = project.sequence.len() as i64;
     out.push_str(&format!("     source          {}..{}\n", 1, len));
-    out.push_str(&"                     /organism=\"unspecified\"\n".to_string());
+    out.push_str("                     /organism=\"unspecified\"\n");
 
     for f in &project.features {
         serialize_feature_gpt(f, &mut out);
@@ -314,7 +317,11 @@ pub fn write_gpt(project: &ProjectData, path: &Path) -> io::Result<()> {
 }
 
 fn dot_or(s: &str) -> &str {
-    if s.is_empty() { "." } else { s }
+    if s.is_empty() {
+        "."
+    } else {
+        s
+    }
 }
 
 fn serialize_feature_gpt(f: &Feature, out: &mut String) {
@@ -345,9 +352,8 @@ fn serialize_feature_gpt(f: &Feature, out: &mut String) {
     };
     out.push_str(&format!("                     /note=\"{}\"\n", color_note));
 
-    let skip_keys: std::collections::HashSet<&str> = [
-        "label", "note", "translation",
-    ].into_iter().collect();
+    let skip_keys: std::collections::HashSet<&str> =
+        ["label", "note", "translation"].into_iter().collect();
     for (k, v) in &f.qualifiers {
         if skip_keys.contains(k.as_str())
             || k.starts_with("ApEinfo_")
@@ -382,9 +388,16 @@ mod tests {
         assert_eq!(project.topology, "linear");
         assert_eq!(project.length, 237);
         assert!(project.sequence.ends_with('*'));
-        assert!(project.sequence.chars().all(|c| c.is_ascii_alphabetic() || c == '*'));
+        assert!(project
+            .sequence
+            .chars()
+            .all(|c| c.is_ascii_alphabetic() || c == '*'));
 
-        let feat = project.features.iter().find(|f| f.name == "mCherry").expect("mCherry feature");
+        let feat = project
+            .features
+            .iter()
+            .find(|f| f.name == "mCherry")
+            .expect("mCherry feature");
         assert_eq!(feat.ftype, "Region");
         assert_eq!(feat.color, "#ff0000");
         assert_eq!((feat.start, feat.end), (0, 236));
@@ -405,7 +418,10 @@ mod tests {
             .iter()
             .find(|f| f.ftype == "Protein")
             .expect("Protein feature");
-        assert_eq!(protein.name, "Protein", "no /label → name falls back to kind");
+        assert_eq!(
+            protein.name, "Protein",
+            "no /label → name falls back to kind"
+        );
         assert_eq!((protein.start, protein.end), (0, 236));
 
         let mat = project
@@ -435,8 +451,15 @@ mod tests {
     fn gpt_roundtrip() {
         let original = parse_gpt(&test_data_dir().join("mCherry.gpt")).unwrap();
         // Source-feature qualifiers must not leak into real features.
-        let orig_feat = original.features.iter().find(|f| f.name == "mCherry").unwrap();
-        assert!(orig_feat.qualifiers.iter().all(|(k, _)| k != "organism"), "no leaked organism qualifier");
+        let orig_feat = original
+            .features
+            .iter()
+            .find(|f| f.name == "mCherry")
+            .unwrap();
+        assert!(
+            orig_feat.qualifiers.iter().all(|(k, _)| k != "organism"),
+            "no leaked organism qualifier"
+        );
 
         let tmp = std::env::temp_dir().join(format!("libregene_gpt_rt_{}.gpt", std::process::id()));
         write_gpt(&original, &tmp).unwrap();
@@ -446,9 +469,16 @@ mod tests {
         assert_eq!(reloaded.molecule_type, "protein");
         assert_eq!(reloaded.sequence, original.sequence);
         assert_eq!(reloaded.features.len(), original.features.len());
-        let feat = reloaded.features.iter().find(|f| f.name == "mCherry").unwrap();
+        let feat = reloaded
+            .features
+            .iter()
+            .find(|f| f.name == "mCherry")
+            .unwrap();
         assert_eq!(feat.color, "#ff0000");
-        assert!(feat.qualifiers.iter().all(|(k, _)| k != "organism"), "no leaked organism after roundtrip");
+        assert!(
+            feat.qualifiers.iter().all(|(k, _)| k != "organism"),
+            "no leaked organism after roundtrip"
+        );
     }
 
     #[test]
@@ -456,8 +486,10 @@ mod tests {
         // The .gpt feature model must match what the .gbk path produces so a
         // protein project can round-trip through either writer.
         let project = parse_gpt(&test_data_dir().join("mCherry.gpt")).unwrap();
-        let tmp_gbk = std::env::temp_dir().join(format!("libregene_prot_as_gbk_{}.gbk", std::process::id()));
-        let tmp_gpt = std::env::temp_dir().join(format!("libregene_prot_as_gpt_{}.gpt", std::process::id()));
+        let tmp_gbk =
+            std::env::temp_dir().join(format!("libregene_prot_as_gbk_{}.gbk", std::process::id()));
+        let tmp_gpt =
+            std::env::temp_dir().join(format!("libregene_prot_as_gpt_{}.gpt", std::process::id()));
         write_gbk(&project, &tmp_gbk).unwrap();
         write_gpt(&project, &tmp_gpt).unwrap();
         let _ = std::fs::remove_file(&tmp_gbk);

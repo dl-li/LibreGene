@@ -29,6 +29,7 @@ use super::thermodynamics::TmParams;
 ///
 /// `template_len` is the full template length: position numbers wrap modulo
 /// it when `circular`, and it bounds the ellipsis detection at fragment ends.
+#[allow(clippy::too_many_arguments)]
 pub fn format_alignment_text(
     primer_seq: &[u8],
     template_region: &[u8],
@@ -73,8 +74,9 @@ pub fn format_alignment_text(
     let mut match_block = String::new();
     let mut primer_block = String::new();
     for pair in &result.ops {
-        let tb =
-            pair.template_pos.map(|p| template_region[p].to_ascii_uppercase() as char);
+        let tb = pair
+            .template_pos
+            .map(|p| template_region[p].to_ascii_uppercase() as char);
         let pb = pair.primer_pos.map(|p| primer_upper[p] as char);
 
         match pair.op {
@@ -106,11 +108,19 @@ pub fn format_alignment_text(
     // flank, the 5' tail plus its arrow prefix.
     let arrow_left_str = if is_rev { "3' < " } else { "5' > " };
     let arrow_right_str = if is_rev { "< 5'" } else { "> 3'" };
-    let lead = lf.max(left_tail.len() + arrow_left_str.len()).max(arrow_left_str.len());
+    let lead = lf
+        .max(left_tail.len() + arrow_left_str.len())
+        .max(arrow_left_str.len());
     let trail = rf.max(right_tail.len());
 
     // ----- Line 1: position markers at the aligned region boundaries -----
-    let wrap_pos = |p: usize| if circular { (p - 1) % template_len + 1 } else { p };
+    let wrap_pos = |p: usize| {
+        if circular {
+            (p - 1) % template_len + 1
+        } else {
+            p
+        }
+    };
     let tstart = wrap_pos(window_offset + result.template_start + 1);
     let tend = wrap_pos(window_offset + result.template_end);
     let marker = if is_rev { '↓' } else { '↑' };
@@ -129,7 +139,11 @@ pub fn format_alignment_text(
     for (i, &c) in s2.iter().enumerate() {
         line1_chars[s2_start + i] = c;
     }
-    let line1: String = line1_chars.iter().collect::<String>().trim_end().to_string();
+    let line1: String = line1_chars
+        .iter()
+        .collect::<String>()
+        .trim_end()
+        .to_string();
 
     // ----- Line 2: template sequence with 10 bp flanks -----
     let mut line2 = String::new();
@@ -177,11 +191,7 @@ pub fn format_alignment_text(
     line4.push_str(arrow_right_str);
 
     // ----- Line 5: primer name centred over the aligned region -----
-    let line5 = format!(
-        "{}{}",
-        " ".repeat(lead),
-        centre(primer_name, block_len)
-    )
+    let line5 = format!("{}{}", " ".repeat(lead), centre(primer_name, block_len))
     .trim_end()
     .to_string();
 
@@ -220,10 +230,7 @@ fn centre(text: &str, width: usize) -> String {
 /// Compute melting temperature from the aligned primer bases in an
 /// [`AlignmentResult`].  Extracts every primer base that participates
 /// (matches, mismatches, and insertions) and runs nearest-neighbour Tm.
-pub fn compute_tm_from_alignment(
-    primer_seq: &[u8],
-    result: &AlignmentResult,
-) -> f64 {
+pub fn compute_tm_from_alignment(primer_seq: &[u8], result: &AlignmentResult) -> f64 {
     compute_tm_from_alignment_with_params(primer_seq, result, &TmParams::default())
 }
 
@@ -255,7 +262,17 @@ mod tests {
         let primer = b"AGTTGTGTTCAAGCATATTTGCTGAGCGA";
         let template = b"NNNNNAGTTGTGTTCAAGCATATTTGCTGAGCGANNNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false, template.len(), false);
+        let text = format_alignment_text(
+            primer,
+            template,
+            &result,
+            "Template",
+            "Primer",
+            0,
+            false,
+            template.len(),
+            false,
+        );
 
         assert!(text.contains("AGTTGTGTTCAAGCATATTTGCTGAGCGA"));
         assert!(text.contains("|||||||||||||||||||||||||||"));
@@ -272,10 +289,23 @@ mod tests {
         let primer = b"ATGCATGCAAAA";
         let template = b"NNNNATGCATTCAAAANNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Template", "Primer", 0, false, template.len(), false);
+        let text = format_alignment_text(
+            primer,
+            template,
+            &result,
+            "Template",
+            "Primer",
+            0,
+            false,
+            template.len(),
+            false,
+        );
 
         assert!(text.contains("ATGCAT"));
-        assert!(text.lines().nth(2).unwrap().contains(" "), "expected a space in match line for mismatch");
+        assert!(
+            text.lines().nth(2).unwrap().contains(" "),
+            "expected a space in match line for mismatch"
+        );
         println!("\n=== With mismatch ===\n{}", text);
     }
 
@@ -284,7 +314,17 @@ mod tests {
         let primer = b"ATGCATGC";
         let template = b"NNNNNNNNATGCATGCNNNNNNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 8, false, 8 + template.len(), false);
+        let text = format_alignment_text(
+            primer,
+            template,
+            &result,
+            "Tpl",
+            "Fwd",
+            8,
+            false,
+            8 + template.len(),
+            false,
+        );
 
         assert!(text.contains("↑17"), "start marker:\n{}", text);
         assert!(text.contains("Fwd"));
@@ -296,19 +336,36 @@ mod tests {
         let primer = b"ATGCATGC";
         let template = b"NNNNNNNNATGCATGCNNNNNNNN";
         let result = align(primer, template).unwrap();
-        let text = format_alignment_text(primer, template, &result, "Tpl", "Rev", 8, true, 8 + template.len(), false);
+        let text = format_alignment_text(
+            primer,
+            template,
+            &result,
+            "Tpl",
+            "Rev",
+            8,
+            true,
+            8 + template.len(),
+            false,
+        );
 
         // Line 4 (index 3) is the primer arrow line.
         let primer_line = text.lines().nth(3).unwrap();
-        assert!(primer_line.contains("3' <"), "expected 3' < in rev primer line");
-        assert!(primer_line.contains("< 5'"), "expected < 5' in rev primer line");
+        assert!(
+            primer_line.contains("3' <"),
+            "expected 3' < in rev primer line"
+        );
+        assert!(
+            primer_line.contains("< 5'"),
+            "expected < 5' in rev primer line"
+        );
         let arrow_pos = primer_line.find("3'").unwrap();
         let end_arrow_pos = primer_line.rfind("5'").unwrap();
         let first_base = primer_line.find('A').unwrap();
-        assert!(arrow_pos < first_base,
-            "3' should be before the sequence");
-        assert!(end_arrow_pos > primer_line.rfind('C').unwrap_or(0),
-            "5' should be after the sequence");
+        assert!(arrow_pos < first_base, "3' should be before the sequence");
+        assert!(
+            end_arrow_pos > primer_line.rfind('C').unwrap_or(0),
+            "5' should be after the sequence"
+        );
         // Line 5 (index 4) is the primer name.
         let name_line = text.lines().nth(4).unwrap();
         assert!(name_line.contains("Rev"), "expected Rev on the name line");
@@ -322,12 +379,20 @@ mod tests {
         // with template flank bases opposite it (up to the 10 bp flank).
         let query = b"CCTCGTTAGTGTCCACTCGTTTTTTGAGCTCGCC";
         let template = b"NNNNGGAGCAATCACAGGTGAGCAAAAAAGCCACCATGGNNNN";
-        let result = crate::primer::alignment::align_first_base_constrained_rev(query, template)
-            .unwrap();
+        let result =
+            crate::primer::alignment::align_first_base_constrained_rev(query, template).unwrap();
 
         for circular in [true, false] {
             let text = format_alignment_text(
-                query, template, &result, "Tpl", "Rev", 0, true, template.len(), circular,
+                query,
+                template,
+                &result,
+                "Tpl",
+                "Rev",
+                0,
+                true,
+                template.len(),
+                circular,
             );
             let primer_line = text.lines().nth(3).unwrap();
             assert!(
@@ -351,8 +416,17 @@ mod tests {
         let primer = b"GGGGGGATGCATGC";
         let template = b"NNNNNNATGCATGC";
         let result = crate::primer::alignment::align_3prime_constrained(primer, template).unwrap();
-        let text =
-            format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false, template.len(), true);
+        let text = format_alignment_text(
+            primer,
+            template,
+            &result,
+            "Tpl",
+            "Fwd",
+            0,
+            false,
+            template.len(),
+            true,
+        );
         let template_line = text.lines().nth(1).unwrap();
         assert!(
             template_line.contains("NNNNNNATGCATGC"),
@@ -362,7 +436,17 @@ mod tests {
 
         // Linear: flanks are still shown (they are template sequence, not
         // circular wrap-around), the tail faces the right flank.
-        let text = format_alignment_text(primer, template, &result, "Tpl", "Fwd", 0, false, template.len(), false);
+        let text = format_alignment_text(
+            primer,
+            template,
+            &result,
+            "Tpl",
+            "Fwd",
+            0,
+            false,
+            template.len(),
+            false,
+        );
         let primer_line = text.lines().nth(3).unwrap();
         assert!(
             primer_line.contains("GGGGGGATGCATGC"),
@@ -381,12 +465,21 @@ mod tests {
         let result = align(primer, template).unwrap();
         // Window starts at 3120 (0-based) of a 3125-bp circular template; raw
         // end would be 3120 + 8 = 3128 > 3125, wrapping to 3.
-        let text =
-            format_alignment_text(primer, template, &result, "Tpl", "Rev", 3120, true, 3125, true);
+        let text = format_alignment_text(
+            primer, template, &result, "Tpl", "Rev", 3120, true, 3125, true,
+        );
         let marker_line = text.lines().next().unwrap();
         assert!(marker_line.contains("↓3121"), "start marker:\n{}", text);
-        assert!(marker_line.contains("↓3"), "end marker must wrap to 3:\n{}", text);
-        assert!(!text.contains("3128"), "unwrapped position leaked:\n{}", text);
+        assert!(
+            marker_line.contains("↓3"),
+            "end marker must wrap to 3:\n{}",
+            text
+        );
+        assert!(
+            !text.contains("3128"),
+            "unwrapped position leaked:\n{}",
+            text
+        );
         println!("\n=== Circular wrap ===\n{}", text);
     }
 
@@ -398,26 +491,62 @@ mod tests {
         let template = b"ATGCATGCNNNNNNNNNNNNNNNN";
         let result = align(primer, template).unwrap();
         let text = format_alignment_text(
-            primer, template, &result, "Tpl", "Fwd", 0, false, template.len(), false,
+            primer,
+            template,
+            &result,
+            "Tpl",
+            "Fwd",
+            0,
+            false,
+            template.len(),
+            false,
         );
         let template_line = text.lines().nth(1).unwrap();
-        assert!(!template_line.trim_start().starts_with('·'), "no left ellipsis:\n{}", text);
-        assert!(template_line.trim_end().ends_with('·'), "right ellipsis:\n{}", text);
+        assert!(
+            !template_line.trim_start().starts_with('·'),
+            "no left ellipsis:\n{}",
+            text
+        );
+        assert!(
+            template_line.trim_end().ends_with('·'),
+            "right ellipsis:\n{}",
+            text
+        );
 
         // Same fragment fully covered by block + flanks: no ellipses at all.
         let template = b"ATGCATGCNNNN";
         let result = align(primer, template).unwrap();
         let text = format_alignment_text(
-            primer, template, &result, "Tpl", "Fwd", 0, false, template.len(), false,
+            primer,
+            template,
+            &result,
+            "Tpl",
+            "Fwd",
+            0,
+            false,
+            template.len(),
+            false,
         );
-        assert!(!text.contains('·'), "no ellipses when fully shown:\n{}", text);
+        assert!(
+            !text.contains('·'),
+            "no ellipses when fully shown:\n{}",
+            text
+        );
 
         // Circular template always continues on both sides.
         let text = format_alignment_text(
             primer, template, &result, "Tpl", "Fwd", 0, false, 3125, true,
         );
         let template_line = text.lines().nth(1).unwrap();
-        assert!(template_line.starts_with('·'), "circular left ellipsis:\n{}", text);
-        assert!(template_line.trim_end().ends_with('·'), "circular right ellipsis:\n{}", text);
+        assert!(
+            template_line.starts_with('·'),
+            "circular left ellipsis:\n{}",
+            text
+        );
+        assert!(
+            template_line.trim_end().ends_with('·'),
+            "circular right ellipsis:\n{}",
+            text
+        );
     }
 }
