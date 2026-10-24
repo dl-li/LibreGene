@@ -48,7 +48,11 @@ fn span_of_columns(columns: &[AlignColumn]) -> Option<HitSpan> {
     (span.q_start != u64::MAX && span.r_start != u64::MAX).then_some(span)
 }
 
-fn stats_from_columns(columns: &[AlignColumn], ref_len: usize, query_len: usize) -> (i32, f64, f64) {
+fn stats_from_columns(
+    columns: &[AlignColumn],
+    ref_len: usize,
+    query_len: usize,
+) -> (i32, f64, f64) {
     let mut score = 0i32;
     for col in columns {
         match col.col_type {
@@ -64,7 +68,11 @@ fn stats_from_columns(columns: &[AlignColumn], ref_len: usize, query_len: usize)
 /// Normalize engine hits into the ordered colinear chain of the dominant
 /// strand. Segments stay in original query order (hit_index 0 = leftmost
 /// segment), not best-score-first.
-pub fn normalize_blast_hits(mut hits: Vec<ColumnHit>, ref_len: usize, query_len: usize) -> Vec<ColumnHit> {
+pub fn normalize_blast_hits(
+    mut hits: Vec<ColumnHit>,
+    ref_len: usize,
+    query_len: usize,
+) -> Vec<ColumnHit> {
     hits.retain(|hit| hit.e_value < BLAST_EVALUE_FLOOR && span_of_columns(&hit.columns).is_some());
     if hits.is_empty() {
         return Vec::new();
@@ -73,8 +81,11 @@ pub fn normalize_blast_hits(mut hits: Vec<ColumnHit>, ref_len: usize, query_len:
     let forward_chain = build_chain(&hits, Strand::Plus, ref_len, query_len);
     let reverse_chain = build_chain(&hits, Strand::Minus, ref_len, query_len);
     let chain_score = |chain: &[ColumnHit]| chain.iter().map(|h| h.score).sum::<i32>();
-    let mut best_chain =
-        if chain_score(&forward_chain) >= chain_score(&reverse_chain) { forward_chain } else { reverse_chain };
+    let mut best_chain = if chain_score(&forward_chain) >= chain_score(&reverse_chain) {
+        forward_chain
+    } else {
+        reverse_chain
+    };
 
     best_chain.sort_by_key(|hit| span_of_columns(&hit.columns).map_or(0, |s| s.q_start));
     for (hit_index, hit) in best_chain.iter_mut().enumerate() {
@@ -88,9 +99,15 @@ pub fn normalize_blast_hits(mut hits: Vec<ColumnHit>, ref_len: usize, query_len:
     best_chain
 }
 
-fn build_chain(significant: &[ColumnHit], strand: Strand, ref_len: usize, query_len: usize) -> Vec<ColumnHit> {
-    let mut candidates: Vec<&ColumnHit> = significant.iter().filter(|h| h.strand == strand).collect();
-    candidates.sort_by(|a, b| b.score.cmp(&a.score));
+fn build_chain(
+    significant: &[ColumnHit],
+    strand: Strand,
+    ref_len: usize,
+    query_len: usize,
+) -> Vec<ColumnHit> {
+    let mut candidates: Vec<&ColumnHit> =
+        significant.iter().filter(|h| h.strand == strand).collect();
+    candidates.sort_by_key(|hit| std::cmp::Reverse(hit.score));
 
     let mut accepted: Vec<(ColumnHit, HitSpan)> = Vec::new();
     for candidate in candidates {
@@ -125,7 +142,7 @@ fn build_chain(significant: &[ColumnHit], strand: Strand, ref_len: usize, query_
             // never satisfies the strict colinearity check below and the
             // whole segment (a perfectly matching flank) gets dropped.
             columns.retain(|col| {
-                if col.query_position <= 0 {
+                if col.query_position == 0 {
                     return true;
                 }
                 if before_in_query {

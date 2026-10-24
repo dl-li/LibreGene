@@ -63,7 +63,7 @@ impl HSPList {
     /// Dedup: drop HSPs that overlap >50% in BOTH query and subject with a
     /// higher-scoring kept HSP. Simplified NCBI HSP linkage dedup.
     pub fn dedup(&mut self) {
-        self.hsps.sort_by(|a, b| b.score.cmp(&a.score));
+        self.hsps.sort_by_key(|hsp| std::cmp::Reverse(hsp.score));
         let mut kept: Vec<BlastHSP> = Vec::new();
         for hsp in self.hsps.drain(..) {
             let overlaps = kept.iter().any(|k| {

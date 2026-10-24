@@ -18,7 +18,19 @@ pub fn greedy_extend(
     x_drop: i32,
 ) -> Option<(i32, usize, usize, EditBlock)> {
     // megablast: gap_open=0, gap_extend=0 (no penalty)
-    gapped::gapped_extend(query, subject, q_start, s_start, reward, penalty, 0, 0, x_drop)
+    gapped::gapped_extend(
+        query,
+        subject,
+        q_start,
+        s_start,
+        gapped::GappedScoring {
+            reward,
+            penalty,
+            gap_open: 0,
+            gap_extend: 0,
+            x_drop,
+        },
+    )
 }
 
 #[cfg(test)]

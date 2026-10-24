@@ -10,7 +10,9 @@ pub struct DustMask {
 
 impl DustMask {
     pub fn none() -> Self {
-        Self { intervals: Vec::new() }
+        Self {
+            intervals: Vec::new(),
+        }
     }
 
     pub fn from_intervals(intervals: Vec<(usize, usize)>) -> Self {
@@ -57,11 +59,12 @@ pub fn mask(seq: &[u8], level: u32, window: usize) -> DustMask {
         if count == 0 {
             continue;
         }
-        let score: u32 = triplet_counts.iter().map(|&c| c * (c.saturating_sub(1)) / 2).sum();
+        let score: u32 = triplet_counts
+            .iter()
+            .map(|&c| c * (c.saturating_sub(1)) / 2)
+            .sum();
         if 10 * score > level * count {
-            for p in start..end {
-                masked[p] = true;
-            }
+            masked[start..end].fill(true);
         }
     }
     let mut intervals = Vec::new();

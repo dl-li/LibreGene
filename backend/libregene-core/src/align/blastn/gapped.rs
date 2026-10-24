@@ -11,6 +11,15 @@ use super::editblock::{EditBlock, EditOp};
 /// the full matrix when band ≥ max(m, n).
 const INITIAL_BAND: usize = 64;
 
+#[derive(Clone, Copy)]
+pub struct GappedScoring {
+    pub reward: i32,
+    pub penalty: i32,
+    pub gap_open: i32,
+    pub gap_extend: i32,
+    pub x_drop: i32,
+}
+
 /// Banded local alignment with traceback from (q_start, s_start).
 /// Returns (score, q_end, s_end, EditBlock) — the best end point plus the
 /// edit block. query/subject are the full sequences; offsets are 0-based.
@@ -19,11 +28,7 @@ pub fn gapped_extend(
     subject: &[u8],
     q_start: usize,
     s_start: usize,
-    reward: i32,
-    penalty: i32,
-    gap_open: i32,
-    gap_extend: i32,
-    x_drop: i32,
+    scoring: GappedScoring,
 ) -> Option<(i32, usize, usize, EditBlock)> {
     let m = query.len() - q_start;
     let n = subject.len() - s_start;
@@ -32,12 +37,10 @@ pub fn gapped_extend(
     }
     // First gap cell costs open + extend (NCBI affine: open includes the
     // first extension).
-    let gap_open_extend = gap_open + gap_extend;
-    let x_drop = x_drop.max(0);
+    let gap_open_extend = scoring.gap_open + scoring.gap_extend;
+    let x_drop = scoring.x_drop.max(0);
 
-    let Some(full_cells) = (m + 1).checked_mul(n + 1) else {
-        return None;
-    };
+    let full_cells = (m + 1).checked_mul(n + 1)?;
     if full_cells > 100_000_000 {
         return None;
     }
@@ -49,10 +52,10 @@ pub fn gapped_extend(
             q_start,
             subject,
             s_start,
-            reward,
-            penalty,
+            scoring.reward,
+            scoring.penalty,
             gap_open_extend,
-            gap_extend,
+            scoring.gap_extend,
             x_drop,
             band,
         );
@@ -257,7 +260,20 @@ mod tests {
     fn exact_match_single_sub() {
         let q = b"ACGTACGTACGT";
         let s = b"ACGTACGTACGT";
-        let (score, _, _, block) = gapped_extend(q, s, 0, 0, 1, -3, 5, 2, 30).unwrap();
+        let (score, _, _, block) = gapped_extend(
+            q,
+            s,
+            0,
+            0,
+            GappedScoring {
+                reward: 1,
+                penalty: -3,
+                gap_open: 5,
+                gap_extend: 2,
+                x_drop: 30,
+            },
+        )
+        .unwrap();
         assert_eq!(score, 12);
         assert_eq!(block.ops, vec![EditOp::Sub(12)]);
     }
@@ -268,7 +284,20 @@ mod tests {
         // (24 matches - 7 gap = 17) beat any pure matching sub-segment (12).
         let q = b"ACGTACGTACGTTACGTACGTACGT";
         let s = b"ACGTACGTACGTACGTACGTACGT";
-        let (_, _, _, block) = gapped_extend(q, s, 0, 0, 1, -3, 5, 2, 30).unwrap();
+        let (_, _, _, block) = gapped_extend(
+            q,
+            s,
+            0,
+            0,
+            GappedScoring {
+                reward: 1,
+                penalty: -3,
+                gap_open: 5,
+                gap_extend: 2,
+                x_drop: 30,
+            },
+        )
+        .unwrap();
         let total: usize = block
             .ops
             .iter()
@@ -292,7 +321,20 @@ mod tests {
     fn handles_single_deletion() {
         let q = b"ACGTACGTACGTACGTACGTACGT";
         let s = b"ACGTACGTACGTTACGTACGTACGT";
-        let (_, _, _, block) = gapped_extend(q, s, 0, 0, 1, -3, 5, 2, 30).unwrap();
+        let (_, _, _, block) = gapped_extend(
+            q,
+            s,
+            0,
+            0,
+            GappedScoring {
+                reward: 1,
+                penalty: -3,
+                gap_open: 5,
+                gap_extend: 2,
+                x_drop: 30,
+            },
+        )
+        .unwrap();
         let del: usize = block
             .ops
             .iter()

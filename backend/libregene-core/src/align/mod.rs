@@ -142,7 +142,11 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
         cur_ix[0] = 0;
         let mut iy = NEG_INF;
         for j in 1..=n {
-            let s = if matches_base(r[i - 1], t[j - 1]) { MATCH } else { MISMATCH };
+            let s = if matches_base(r[i - 1], t[j - 1]) {
+                MATCH
+            } else {
+                MISMATCH
+            };
             let diag = prev[j - 1] + s;
             let ix_open = prev[j] + GAP_OPEN + GAP_EXT;
             let ix_ext = prev_ix[j] + GAP_EXT;
@@ -166,8 +170,9 @@ fn smith_waterman(t: &[u8], r: &[u8]) -> Option<SwResult> {
             }
             cur[j] = v;
             cur_ix[j] = ix;
-            trace[i * width + j] =
-                dir | if ix_ext >= ix_open { 0b100 } else { 0 } | if iy_ext >= iy_open { 0b1000 } else { 0 };
+            trace[i * width + j] = dir
+                | if ix_ext >= ix_open { 0b100 } else { 0 }
+                | if iy_ext >= iy_open { 0b1000 } else { 0 };
             if v > best {
                 best = v;
                 bi = i;
@@ -275,7 +280,11 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
         cur_ix[lo - 1] = 0;
         let mut iy = NEG_INF;
         for j in lo..=hi {
-            let s = if matches_base(r[i - 1], t[j - 1]) { MATCH } else { MISMATCH };
+            let s = if matches_base(r[i - 1], t[j - 1]) {
+                MATCH
+            } else {
+                MISMATCH
+            };
             let diag_s = prev[j - 1] + s;
             let ix_open = prev[j] + GAP_OPEN + GAP_EXT;
             let ix_ext = prev_ix[j] + GAP_EXT;
@@ -299,8 +308,9 @@ fn smith_waterman_banded(t: &[u8], r: &[u8], diag: i64, band: usize) -> (Option<
             }
             cur[j] = v;
             cur_ix[j] = ix;
-            trace[i * width + (j - lo)] =
-                dir | if ix_ext >= ix_open { 0b100 } else { 0 } | if iy_ext >= iy_open { 0b1000 } else { 0 };
+            trace[i * width + (j - lo)] = dir
+                | if ix_ext >= ix_open { 0b100 } else { 0 }
+                | if iy_ext >= iy_open { 0b1000 } else { 0 };
             if v > best {
                 best = v;
                 bi = i;
@@ -627,13 +637,19 @@ fn find_flank(
     // doubled template, so shift it by whole template lengths onto the copy
     // that lies on the expected side of the primary block.
     if downstream {
-        let k = (primary.t_end + 1).saturating_sub(flank.t_start).div_ceil(tlen);
-        if flank.t_start + k * tlen <= primary.t_end || flank.t_end + k * tlen >= primary.t_start + tlen {
+        let k = (primary.t_end + 1)
+            .saturating_sub(flank.t_start)
+            .div_ceil(tlen);
+        if flank.t_start + k * tlen <= primary.t_end
+            || flank.t_end + k * tlen >= primary.t_start + tlen
+        {
             return None;
         }
     } else {
         let k = primary.t_start.saturating_sub(flank.t_end + 1) / tlen;
-        if flank.t_end + k * tlen >= primary.t_start || flank.t_start + (k + 1) * tlen <= primary.t_end {
+        if flank.t_end + k * tlen >= primary.t_start
+            || flank.t_start + (k + 1) * tlen <= primary.t_end
+        {
             return None;
         }
     }
@@ -646,7 +662,11 @@ fn find_flank(
         &oriented[piece_offset + flank.r_end + 1..primary.r_start]
     };
     Some(FlankHit {
-        junction_pos: if downstream { flank.t_start % tlen } else { primary.t_start % tlen },
+        junction_pos: if downstream {
+            flank.t_start % tlen
+        } else {
+            primary.t_start % tlen
+        },
         flank,
         downstream,
         junction: junction.to_string(),
@@ -662,7 +682,9 @@ fn merge_flank(primary: BuiltAln, hit: FlankHit) -> Alignment {
     let matched = first.matched + second.matched;
     let cols = first.cols + second.cols + hit.junction.len();
 
-    let BuiltAln { aln: mut merged, .. } = first;
+    let BuiltAln {
+        aln: mut merged, ..
+    } = first;
     let second = second.aln;
     merged.identity = matched as f64 / cols as f64;
     if !hit.junction.is_empty() {
@@ -693,13 +715,25 @@ fn confident_core(cols: &[u8], rcols: &[u8]) -> (usize, usize) {
         if let Some(w) = bads.windows(GARBAGE_CLUSTER).find(|w| is_cluster(w)) {
             right = w[0];
         }
-        if let Some(w) = bads.windows(GARBAGE_CLUSTER).rev().find(|w| is_cluster(w) && w[GARBAGE_CLUSTER - 1] < right) {
+        if let Some(w) = bads
+            .windows(GARBAGE_CLUSTER)
+            .rev()
+            .find(|w| is_cluster(w) && w[GARBAGE_CLUSTER - 1] < right)
+        {
             left = w[GARBAGE_CLUSTER - 1] + 1;
         }
         if left >= right {
             // A single cluster: keep the longer confident side.
-            let w0 = bads.windows(GARBAGE_CLUSTER).find(|w| is_cluster(w)).unwrap()[0];
-            let w1 = bads.windows(GARBAGE_CLUSTER).rev().find(|w| is_cluster(w)).unwrap()[GARBAGE_CLUSTER - 1] + 1;
+            let w0 = bads
+                .windows(GARBAGE_CLUSTER)
+                .find(|w| is_cluster(w))
+                .unwrap()[0];
+            let w1 = bads
+                .windows(GARBAGE_CLUSTER)
+                .rev()
+                .find(|w| is_cluster(w))
+                .unwrap()[GARBAGE_CLUSTER - 1]
+                + 1;
             if w0 >= cols.len() - w1 {
                 left = 0;
                 right = w0;
@@ -715,7 +749,14 @@ fn confident_core(cols: &[u8], rcols: &[u8]) -> (usize, usize) {
 /// Split-read path for a primary traceback that bridged a large absent
 /// template region: trim the block back to its confident core, then re-align
 /// the remaining read piece against the template arc the core left unused.
-fn split_at_garbage(sw: &SwResult, t2: &[u8], oriented: &str, strand: &str, read_len: usize, tlen: usize) -> Option<Alignment> {
+fn split_at_garbage(
+    sw: &SwResult,
+    t2: &[u8],
+    oriented: &str,
+    strand: &str,
+    read_len: usize,
+    tlen: usize,
+) -> Option<Alignment> {
     let lead = sw.t_aln.iter().take_while(|&&c| c == b'-').count();
     let trail = sw.t_aln.iter().rev().take_while(|&&c| c == b'-').count();
     let cols = &sw.t_aln[lead..sw.t_aln.len() - trail];
@@ -743,25 +784,92 @@ fn split_at_garbage(sw: &SwResult, t2: &[u8], oriented: &str, strand: &str, read
         r_start: r_base + r_skip,
         r_end: r_base + r_skip + r_take - 1,
     };
-    let core = build_alignment(&trimmed, oriented.to_string(), strand, read_len, tlen, MIN_IDENTITY, MIN_ALIGNED_LEN).ok()?;
+    let core = build_alignment(
+        &trimmed,
+        oriented.to_string(),
+        strand,
+        read_len,
+        tlen,
+        MIN_IDENTITY,
+        MIN_ALIGNED_LEN,
+    )
+    .ok()?;
     let read = oriented.as_bytes();
-    let hit = find_flank(t2, &read[core.r_end + 1..], core.r_end + 1, true, &core, oriented, strand, read_len, tlen)
-        .or_else(|| find_flank(t2, &read[..core.r_start], 0, false, &core, oriented, strand, read_len, tlen))?;
+    let hit = find_flank(
+        t2,
+        &read[core.r_end + 1..],
+        core.r_end + 1,
+        true,
+        &core,
+        oriented,
+        strand,
+        read_len,
+        tlen,
+    )
+    .or_else(|| {
+        find_flank(
+            t2,
+            &read[..core.r_start],
+            0,
+            false,
+            &core,
+            oriented,
+            strand,
+            read_len,
+            tlen,
+        )
+    })?;
     Some(merge_flank(core, hit))
 }
 
 /// Align one read orientation, then look for a second flank in the read
 /// bases the primary block left unaligned (split read: two template flanks
 /// with a large internal template region absent from the read).
-fn align_oriented(t2: &[u8], oriented: &str, strand: &str, read_len: usize, tlen: usize) -> Result<Alignment, AlignReject> {
+fn align_oriented(
+    t2: &[u8],
+    oriented: &str,
+    strand: &str,
+    read_len: usize,
+    tlen: usize,
+) -> Result<Alignment, AlignReject> {
     let sw = sw_dispatch(t2, oriented.as_bytes()).ok_or(AlignReject::NoSignificantAlignment)?;
     if let Some(aln) = split_at_garbage(&sw, t2, oriented, strand, read_len, tlen) {
         return Ok(aln);
     }
-    let primary = build_alignment(&sw, oriented.to_string(), strand, read_len, tlen, MIN_IDENTITY, MIN_ALIGNED_LEN)?;
+    let primary = build_alignment(
+        &sw,
+        oriented.to_string(),
+        strand,
+        read_len,
+        tlen,
+        MIN_IDENTITY,
+        MIN_ALIGNED_LEN,
+    )?;
     let r = oriented.as_bytes();
-    let hit = find_flank(t2, &r[primary.r_end + 1..], primary.r_end + 1, true, &primary, oriented, strand, read_len, tlen)
-        .or_else(|| find_flank(t2, &r[..primary.r_start], 0, false, &primary, oriented, strand, read_len, tlen));
+    let hit = find_flank(
+        t2,
+        &r[primary.r_end + 1..],
+        primary.r_end + 1,
+        true,
+        &primary,
+        oriented,
+        strand,
+        read_len,
+        tlen,
+    )
+    .or_else(|| {
+        find_flank(
+            t2,
+            &r[..primary.r_start],
+            0,
+            false,
+            &primary,
+            oriented,
+            strand,
+            read_len,
+            tlen,
+        )
+    });
     Ok(match hit {
         Some(h) => merge_flank(primary, h),
         None => primary.aln,
@@ -817,7 +925,9 @@ pub fn alignment_diff(a: &Alignment, template: &str) -> AlignmentDiff {
             deletions.push(AlignDeletion {
                 pos: start,
                 length: gap,
-                bases: (0..gap).map(|k| tbytes[(start + k) % tlen] as char).collect(),
+                bases: (0..gap)
+                    .map(|k| tbytes[(start + k) % tlen] as char)
+                    .collect(),
             });
         }
     }
@@ -853,7 +963,9 @@ fn deletion_at(tbytes: &[u8], start: usize, end: usize) -> AlignDeletion {
     AlignDeletion {
         pos: start,
         length: end - start + 1,
-        bases: (start..=end).filter_map(|p| tbytes.get(p).map(|b| *b as char)).collect(),
+        bases: (start..=end)
+            .filter_map(|p| tbytes.get(p).map(|b| *b as char))
+            .collect(),
     }
 }
 
@@ -861,14 +973,27 @@ fn deletion_at(tbytes: &[u8], start: usize, end: usize) -> AlignDeletion {
 /// reason no alignment is significant. A strong forward match (identity
 /// ≥ 0.9) is returned immediately; otherwise the reverse complement is
 /// aligned too and the better orientation wins.
-pub fn align_read_checked(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
+pub fn align_read_checked(
+    template: &str,
+    read: &str,
+    circular: bool,
+) -> Result<Alignment, AlignReject> {
     let mut aln = align_read_checked_raw(template, read, circular)?;
-    left_align_indels(&mut aln, &template.to_ascii_uppercase(), template.len());
-    anchor_loose_ends(&mut aln, template.len());
+    left_align_indels(
+        &mut aln,
+        &template.to_ascii_uppercase(),
+        template.len(),
+        circular,
+    );
+    anchor_loose_ends(&mut aln, template.len(), circular);
     Ok(aln)
 }
 
-fn align_read_checked_raw(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
+fn align_read_checked_raw(
+    template: &str,
+    read: &str,
+    circular: bool,
+) -> Result<Alignment, AlignReject> {
     let t = template.to_ascii_uppercase();
     let r = read.to_ascii_uppercase();
     let tlen = t.len();
@@ -889,9 +1014,21 @@ fn align_read_checked_raw(template: &str, read: &str, circular: bool) -> Result<
 
     match (fwd, rev) {
         (Ok(f), Ok(v)) => {
-            let fq = f.identity * f.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>() as f64;
-            let vq = v.identity * v.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>() as f64;
-            if vq > fq { Ok(v) } else { Ok(f) }
+            let fq = f.identity
+                * f.segments
+                    .iter()
+                    .map(|s| s.end - s.start + 1)
+                    .sum::<usize>() as f64;
+            let vq = v.identity
+                * v.segments
+                    .iter()
+                    .map(|s| s.end - s.start + 1)
+                    .sum::<usize>() as f64;
+            if vq > fq {
+                Ok(v)
+            } else {
+                Ok(f)
+            }
         }
         (Ok(f), Err(_)) => Ok(f),
         (Err(_), Ok(v)) => Ok(v),
@@ -905,7 +1042,11 @@ fn better_reject(a: AlignReject, b: AlignReject) -> AlignReject {
         AlignReject::TooShort { .. } => 1,
         AlignReject::NoSignificantAlignment => 0,
     };
-    if rank(&b) > rank(&a) { b } else { a }
+    if rank(&b) > rank(&a) {
+        b
+    } else {
+        a
+    }
 }
 
 /// Align `read` against `template`. A strong forward match (identity ≥ 0.9)
@@ -918,9 +1059,10 @@ pub fn align_read(template: &str, read: &str, circular: bool) -> Option<Alignmen
 /// Alignment algorithm selectable by the user. `BlastN` is the BLAST engine
 /// ported from GenePad's blast module (modelled on the NCBI blastn
 /// algorithm); `SmithWaterman` is the original local aligner.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AlignAlgorithm {
     SmithWaterman,
+    #[default]
     BlastN,
 }
 
@@ -940,12 +1082,6 @@ impl AlignAlgorithm {
             Self::SmithWaterman => "smith-waterman",
             Self::BlastN => "blast",
         }
-    }
-}
-
-impl Default for AlignAlgorithm {
-    fn default() -> Self {
-        Self::BlastN
     }
 }
 
@@ -969,7 +1105,7 @@ pub fn align_read_checked_with(
 /// out of step. Sliding each run upstream while the swap stays score-neutral
 /// (the base before the run equals the run's last base) is the standard
 /// canonicalisation: it never changes the read's base order.
-fn left_align_indels(aln: &mut Alignment, template: &str, tlen: usize) {
+fn left_align_indels(aln: &mut Alignment, template: &str, tlen: usize, circular: bool) {
     let t = template.as_bytes();
     if tlen == 0 {
         return;
@@ -980,7 +1116,11 @@ fn left_align_indels(aln: &mut Alignment, template: &str, tlen: usize) {
         if ins.bases.is_empty() {
             continue;
         }
-        let mut pos = ins.pos % tlen;
+        let mut pos = if !circular && ins.pos == tlen {
+            tlen
+        } else {
+            ins.pos % tlen
+        };
         let mut bases: Vec<u8> = ins.bases.bytes().collect();
         let mut shifts = 0usize;
         while shifts < tlen {
@@ -1031,7 +1171,7 @@ fn left_align_indels(aln: &mut Alignment, template: &str, tlen: usize) {
             }
             if vs != start {
                 let moved = out[start..end].to_vec();
-                for k in vs..start {
+                for k in (vs..start).rev() {
                     out[k + (end - start)] = out[k];
                 }
                 for (k, b) in moved.iter().enumerate() {
@@ -1064,6 +1204,13 @@ fn walked_read(aln: &Alignment) -> String {
             }
         }
     }
+    let terminal = aln.segments.last().map(|seg| seg.end + 1);
+    for (i, ins) in aln.insertions.iter().enumerate() {
+        if !used[i] && Some(ins.pos) == terminal {
+            used[i] = true;
+            out.push_str(&ins.bases);
+        }
+    }
     for (i, ins) in aln.insertions.iter().enumerate() {
         if !used[i] {
             out.push_str(&ins.bases);
@@ -1076,7 +1223,7 @@ fn walked_read(aln: &Alignment) -> String {
 /// unalignable stretches the flank search rejects). The display numbers read
 /// bases by walking the model and indexes the chromatogram peaks with that
 /// number, so a dropped *leading* stretch would shift every peak of that read.
-fn anchor_loose_ends(aln: &mut Alignment, tlen: usize) {
+fn anchor_loose_ends(aln: &mut Alignment, tlen: usize, circular: bool) {
     if tlen == 0 || aln.seq.is_empty() || aln.segments.is_empty() {
         return;
     }
@@ -1094,10 +1241,10 @@ fn anchor_loose_ends(aln: &mut Alignment, tlen: usize) {
         push_insertion(&mut aln.insertions, pos, lead);
     }
     if !trail.is_empty() {
-        let pos = (aln.segments.last().unwrap().end + 1) % tlen;
-        // pos == 0 / an already covered column: no following column to hang
-        // the tail on (circular origin, or the template end).
-        let collides = pos == 0 || aln.segments.iter().any(|s| pos >= s.start && pos <= s.end);
+        let end = aln.segments.last().unwrap().end + 1;
+        let pos = if circular { end % tlen } else { end };
+        let collides =
+            (circular && pos == 0) || aln.segments.iter().any(|s| pos >= s.start && pos <= s.end);
         if !collides {
             push_insertion(&mut aln.insertions, pos, trail);
         }
@@ -1122,12 +1269,21 @@ pub fn align_read_with(
 /// strand becomes the multi-segment [`Alignment`].
 fn blast_align_read(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
     let mut aln = blast_align_read_raw(template, read, circular)?;
-    left_align_indels(&mut aln, &template.to_ascii_uppercase(), template.len());
-    anchor_loose_ends(&mut aln, template.len());
+    left_align_indels(
+        &mut aln,
+        &template.to_ascii_uppercase(),
+        template.len(),
+        circular,
+    );
+    anchor_loose_ends(&mut aln, template.len(), circular);
     Ok(aln)
 }
 
-fn blast_align_read_raw(template: &str, read: &str, circular: bool) -> Result<Alignment, AlignReject> {
+fn blast_align_read_raw(
+    template: &str,
+    read: &str,
+    circular: bool,
+) -> Result<Alignment, AlignReject> {
     let t = template.to_ascii_uppercase();
     let r = read.to_ascii_uppercase();
     let tlen = t.len();
@@ -1151,8 +1307,14 @@ fn blast_align_read_raw(template: &str, read: &str, circular: bool) -> Result<Al
         })
         .ok_or(AlignReject::NoSignificantAlignment)?;
 
-    let minus = hits.first().is_some_and(|h| h.strand == blastn::Strand::Minus);
-    let oriented = if minus { crate::utils::reverse_complement(&r) } else { r.clone() };
+    let minus = hits
+        .first()
+        .is_some_and(|h| h.strand == blastn::Strand::Minus);
+    let oriented = if minus {
+        crate::utils::reverse_complement(&r)
+    } else {
+        r.clone()
+    };
 
     let mut segments: Vec<AlignSegment> = Vec::new();
     let mut insertions: Vec<AlignInsertion> = Vec::new();
@@ -1271,26 +1433,22 @@ fn blast_align_read_raw(template: &str, read: &str, circular: bool) -> Result<Al
             .max()
             .or(prev_q_last);
     }
-    // Trailing read bases after the last hit: anchored at the template column
-    // after the last segment. Skipped when that column wraps onto an already
-    // covered region (circular) or past the sequence end — the bases stay in
-    // `seq` but get no anchor column.
+    // A linear template has a terminal anchor at tlen; a circular template
+    // cannot anchor a tail across the origin onto an already covered column.
     if let Some(last_q) = prev_q_last {
         let tail = &oriented[(last_q as usize).min(oriented.len())..];
         if !tail.is_empty() {
             if let Some(last_seg) = segments.last() {
-                let pos = (last_seg.end + 1) % tlen;
-                // pos == 0: the last segment ends at the template end (linear)
-                // or the origin (circular) — no following column to anchor on.
-                let collides = pos == 0 || segments.iter().any(|s| pos >= s.start && pos <= s.end);
+                let end = last_seg.end + 1;
+                let pos = if circular { end % tlen } else { end };
+                let collides = (circular && pos == 0)
+                    || segments.iter().any(|s| pos >= s.start && pos <= s.end);
                 if !collides {
                     push_insertion(&mut insertions, pos, tail.to_string());
                 }
             }
         }
     }
-    // Trailing read-only bases (unaligned tail) are dropped, matching the SW
-    // path's convention.
 
     let span: usize = segments.iter().map(|s| s.end - s.start + 1).sum();
     let identity = if compared > 0 {
@@ -1310,7 +1468,11 @@ fn blast_align_read_raw(template: &str, read: &str, circular: bool) -> Result<Al
         id: String::new(),
         name: String::new(),
         length: r.len(),
-        strand: if minus { "-".to_string() } else { "+".to_string() },
+        strand: if minus {
+            "-".to_string()
+        } else {
+            "+".to_string()
+        },
         identity,
         segments,
         insertions,
@@ -1379,7 +1541,9 @@ mod tests {
         let mut x = seed;
         (0..len)
             .map(|_| {
-                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 b"ACGT"[(x >> 33) as usize & 3] as char
             })
             .collect()
@@ -1661,7 +1825,10 @@ mod tests {
 
         assert_eq!(
             diff.aligned_length,
-            aln.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>()
+            aln.segments
+                .iter()
+                .map(|s| s.end - s.start + 1)
+                .sum::<usize>()
         );
         assert_eq!(diff.mismatches.len(), 1);
         assert_eq!(diff.mismatches[0].pos, 60);
@@ -1696,12 +1863,18 @@ mod tests {
         assert_eq!(diff.deletions.len(), 1);
         assert_eq!(diff.deletions[0].pos, 78);
         assert_eq!(diff.deletions[0].length, 4);
-        assert_eq!(diff.deletions[0].bases, format!("{}{}", &t[78..80], &t[0..2]));
+        assert_eq!(
+            diff.deletions[0].bases,
+            format!("{}{}", &t[78..80], &t[0..2])
+        );
         assert!(diff.mismatches.is_empty());
         assert!(diff.insertions.is_empty());
         assert_eq!(
             diff.aligned_length,
-            aln.segments.iter().map(|s| s.end - s.start + 1).sum::<usize>()
+            aln.segments
+                .iter()
+                .map(|s| s.end - s.start + 1)
+                .sum::<usize>()
         );
     }
 
@@ -1822,7 +1995,13 @@ mod tests {
 
         assert_eq!(aln.insertions.len(), 1, "insertions {:?}", aln.insertions);
         assert_eq!(aln.insertions[0].pos, b.start);
-        assert!(aln.insertions[0].bases.contains(&insert[2..insert.len() - 2]), "bases {}", aln.insertions[0].bases);
+        assert!(
+            aln.insertions[0]
+                .bases
+                .contains(&insert[2..insert.len() - 2]),
+            "bases {}",
+            aln.insertions[0].bases
+        );
         assert!(aln.identity >= 0.95, "identity {}", aln.identity);
 
         let diff = alignment_diff(&aln, &t);
@@ -1862,6 +2041,40 @@ mod tests {
     }
 
     #[test]
+    fn test_linear_template_end_tail_is_reconstructable() {
+        let t = make_template_smx(200, 70);
+        let tail = "N".repeat(20);
+        let read = format!("{}{}", &t[100..], tail);
+        for algo in [AlignAlgorithm::BlastN, AlignAlgorithm::SmithWaterman] {
+            let aln = align_read_checked_with(&t, &read, false, algo).unwrap();
+            assert_eq!(walked_read(&aln), aln.seq, "[{}]", algo.as_str());
+            let terminal = aln.insertions.iter().find(|ins| ins.pos == t.len());
+            assert!(
+                terminal.is_some_and(|ins| ins.bases == tail),
+                "[{}] {:?}",
+                algo.as_str(),
+                aln.insertions
+            );
+        }
+    }
+
+    #[test]
+    fn test_circular_tail_does_not_collide_with_origin() {
+        let t = make_template_smx(200, 71);
+        let mut aln = Alignment {
+            segments: vec![AlignSegment {
+                start: 0,
+                end: t.len() - 1,
+                chars: t.clone(),
+            }],
+            seq: format!("{}{}", t, "N".repeat(20)),
+            ..Default::default()
+        };
+        anchor_loose_ends(&mut aln, t.len(), true);
+        assert!(aln.insertions.is_empty());
+    }
+
+    #[test]
     fn test_indels_are_left_aligned_in_repeats() {
         let mut t = make_template_smx(3_000, 91);
         // A clean homopolymer run; keep its flanks from being A so the run is
@@ -1896,6 +2109,22 @@ mod tests {
     }
 
     #[test]
+    fn test_left_align_overlapping_deletion_preserves_read() {
+        let mut aln = Alignment {
+            segments: vec![AlignSegment {
+                start: 0,
+                end: 4,
+                chars: "ABC-D".into(),
+            }],
+            seq: "ABCD".into(),
+            ..Default::default()
+        };
+        left_align_indels(&mut aln, "AAAAT", 5, false);
+        assert_eq!(aln.segments[0].chars, "-ABCD");
+        assert_eq!(walked_read(&aln), aln.seq);
+    }
+
+    #[test]
     fn test_left_align_moves_the_gap_without_changing_the_score() {
         let mut t = make_template_smx(3_000, 91);
         let run = "ACGT".repeat(6);
@@ -1911,7 +2140,7 @@ mod tests {
             }
             .unwrap();
             let mut norm = raw.clone();
-            left_align_indels(&mut norm, &t, t.len());
+            left_align_indels(&mut norm, &t, t.len(), false);
 
             let diff_raw = alignment_diff(&raw, &t);
             let diff_norm = alignment_diff(&norm, &t);
@@ -1923,7 +2152,12 @@ mod tests {
                 algo.as_str()
             );
             let ins_len = |a: &Alignment| a.insertions.iter().map(|i| i.bases.len()).sum::<usize>();
-            assert_eq!(ins_len(&raw), ins_len(&norm), "[{}] inserted bases changed", algo.as_str());
+            assert_eq!(
+                ins_len(&raw),
+                ins_len(&norm),
+                "[{}] inserted bases changed",
+                algo.as_str()
+            );
             // The walk still rebuilds the read, in order.
             assert_eq!(walked_read(&norm), norm.seq, "[{}]", algo.as_str());
             // And no insertion can slide any further upstream.
@@ -1951,7 +2185,9 @@ mod tests {
         assert_eq!(walked_read(&aln), aln.seq);
         let first = aln.segments[0].start % t.len();
         assert!(
-            aln.insertions.iter().any(|i| i.pos == first && i.bases.len() >= 7),
+            aln.insertions
+                .iter()
+                .any(|i| i.pos == first && i.bases.len() >= 7),
             "{:?}",
             aln.insertions
         );
@@ -1965,6 +2201,12 @@ mod tests {
         assert_eq!(aln.strand, "-");
         assert_eq!(aln.segments.len(), 2, "segments {:?}", aln.segments);
         assert_eq!(aln.insertions.len(), 1);
-        assert!(aln.insertions[0].bases.contains(&insert[2..insert.len() - 2]), "bases {}", aln.insertions[0].bases);
+        assert!(
+            aln.insertions[0]
+                .bases
+                .contains(&insert[2..insert.len() - 2]),
+            "bases {}",
+            aln.insertions[0].bases
+        );
     }
 }

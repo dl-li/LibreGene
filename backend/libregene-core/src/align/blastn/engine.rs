@@ -59,8 +59,10 @@ fn run_blastn_cleaned(q: &[u8], s: &[u8], opts: &BlastnOptions) -> BlastResult {
         None => return BlastResult { hits: vec![] },
     };
     // Gapped X-drop converted from bits to raw score (≈ bits/λ).
-    let x_drop_gapped = (opts.x_drop_gapped_bits / kb.lambda) as i32;
-    let gap_trigger_score = (opts.gap_trigger_bits / kb.lambda) as i32;
+    let extension_scores = ExtensionScores {
+        x_drop_gapped: (opts.x_drop_gapped_bits / kb.lambda) as i32,
+        gap_trigger_score: (opts.gap_trigger_bits / kb.lambda) as i32,
+    };
 
     let dust_fwd = if opts.dust {
         super::dust::mask(q, 20, 64)
@@ -76,15 +78,22 @@ fn run_blastn_cleaned(q: &[u8], s: &[u8], opts: &BlastnOptions) -> BlastResult {
     };
 
     let mut hsp_list = HSPList::new();
-    extend_strand(q, s, opts, &dust_fwd, Strand::Plus, x_drop_gapped, gap_trigger_score, &mut hsp_list);
+    extend_strand(
+        q,
+        s,
+        opts,
+        &dust_fwd,
+        Strand::Plus,
+        extension_scores,
+        &mut hsp_list,
+    );
     extend_strand(
         &q_rc,
         s,
         opts,
         &dust_rev,
         Strand::Minus,
-        x_drop_gapped,
-        gap_trigger_score,
+        extension_scores,
         &mut hsp_list,
     );
 
@@ -142,14 +151,19 @@ fn finalize_hsps(
     BlastResult { hits }
 }
 
+#[derive(Clone, Copy)]
+struct ExtensionScores {
+    x_drop_gapped: i32,
+    gap_trigger_score: i32,
+}
+
 fn extend_strand(
     query: &[u8],
     subject: &[u8],
     opts: &BlastnOptions,
     dust_mask: &super::dust::DustMask,
     strand: Strand,
-    x_drop_gapped: i32,
-    gap_trigger_score: i32,
+    scores: ExtensionScores,
     hsp_list: &mut HSPList,
 ) {
     let lookup = LookupTable::build(query, opts.word_size, dust_mask);
@@ -161,8 +175,8 @@ fn extend_strand(
         opts.word_size,
         strand,
         word_hits,
-        x_drop_gapped,
-        gap_trigger_score,
+        scores.x_drop_gapped,
+        scores.gap_trigger_score,
         hsp_list,
     );
 }
@@ -204,9 +218,11 @@ fn extend_strand_hits(
             wh.q_off,
             wh.s_off,
             word_size,
-            opts.reward,
-            opts.penalty,
-            opts.x_drop_ungapped,
+            ungapped::UngappedScoring {
+                reward: opts.reward,
+                penalty: opts.penalty,
+                x_drop: opts.x_drop_ungapped,
+            },
         ) {
             Some(d) => d,
             None => continue,
@@ -229,7 +245,9 @@ fn extend_strand_hits(
         };
 
         let use_gapped = ud.score >= gap_trigger_score;
-        if use_gapped && should_keep_ungapped_without_gapped(query, subject, &ud, q_win.len(), s_win.len()) {
+        if use_gapped
+            && should_keep_ungapped_without_gapped(query, subject, &ud, q_win.len(), s_win.len())
+        {
             save_ungapped_hsp(query, subject, &ud, strand, hsp_list);
             continue;
         }
@@ -243,11 +261,13 @@ fn extend_strand_hits(
                     s_win,
                     0,
                     0,
-                    opts.reward,
-                    opts.penalty,
-                    opts.gap_open,
-                    opts.gap_extend,
-                    x_drop_gapped,
+                    gapped::GappedScoring {
+                        reward: opts.reward,
+                        penalty: opts.penalty,
+                        gap_open: opts.gap_open,
+                        gap_extend: opts.gap_extend,
+                        x_drop: x_drop_gapped,
+                    },
                 )
             }
         } else {
