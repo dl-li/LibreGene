@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { cw, startX } from '../editorConstants';
+import { continuousWheelDelta, createScrollAxisScheduler } from './continuousScrolling';
+import { enzymeLabelIntersectsWindow } from './enzymeGeometry';
 
 // Horizontal virtualization buffer in stream cells (each side).
 const COL_BUF = 50;
@@ -22,7 +24,12 @@ export default function useEditorViewport({
   const [viewportH, setViewportH] = useState(900);
   const [scrollX, setScrollX] = useState(0);
   const [viewportW, setViewportW] = useState(1200);
-  const scrollTickingRef = useRef(false);
+  const verticalScheduleRef = useRef(null);
+  const horizontalScheduleRef = useRef(null);
+  if (!verticalScheduleRef.current) {
+    verticalScheduleRef.current = createScrollAxisScheduler((cb) => requestAnimationFrame(cb));
+    horizontalScheduleRef.current = createScrollAxisScheduler((cb) => requestAnimationFrame(cb));
+  }
   const liveScrollTopRef = useRef(0);
   const liveScrollLeftRef = useRef(0);
   const lastVisibleStartRef = useRef(-1);
@@ -50,25 +57,21 @@ export default function useEditorViewport({
     };
     const handleScroll = () => {
       liveScrollTopRef.current = scroller ? scroller.scrollTop : window.scrollY;
-      if (!scrollTickingRef.current) {
-        scrollTickingRef.current = true;
-        requestAnimationFrame(() => {
-          const sy = scroller ? scroller.scrollTop : window.scrollY;
-          if (scroller) setViewportH(scroller.clientHeight || 900);
-          const nr = numRowsRef.current;
-          const estRowH = avgRowPitchRef.current || 60;
-          const buf = 8;
-          const vh = scroller ? scroller.clientHeight || 900 : window.innerHeight || 900;
-          const estStart = Math.max(0, Math.floor(sy / estRowH) - buf - 1);
-          const estEnd = Math.min(nr - 1, Math.floor((sy + vh) / estRowH) + buf + 1);
-          if (estStart !== lastVisibleStartRef.current || estEnd !== lastVisibleEndRef.current) {
-            lastVisibleStartRef.current = estStart;
-            lastVisibleEndRef.current = estEnd;
-            setScrollY(sy);
-          }
-          scrollTickingRef.current = false;
-        });
-      }
+      verticalScheduleRef.current(() => {
+        const sy = scroller ? scroller.scrollTop : window.scrollY;
+        if (scroller) setViewportH(scroller.clientHeight || 900);
+        const nr = numRowsRef.current;
+        const estRowH = avgRowPitchRef.current || 60;
+        const buf = 8;
+        const vh = scroller ? scroller.clientHeight || 900 : window.innerHeight || 900;
+        const estStart = Math.max(0, Math.floor(sy / estRowH) - buf - 1);
+        const estEnd = Math.min(nr - 1, Math.floor((sy + vh) / estRowH) + buf + 1);
+        if (estStart !== lastVisibleStartRef.current || estEnd !== lastVisibleEndRef.current) {
+          lastVisibleStartRef.current = estStart;
+          lastVisibleEndRef.current = estEnd;
+          setScrollY(sy);
+        }
+      });
     };
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -86,19 +89,15 @@ export default function useEditorViewport({
     if (!continuous || !el) return undefined;
     const handleScroll = () => {
       liveScrollLeftRef.current = el.scrollLeft;
-      if (!scrollTickingRef.current) {
-        scrollTickingRef.current = true;
-        requestAnimationFrame(() => {
-          // flushSync: the clamped feature labels derive their x from scrollX,
-          // so the state must reach the DOM before this frame paints —
-          // otherwise edge-pinned labels wobble by up to one column.
-          flushSync(() => {
-            setViewportW(el.clientWidth || 1200);
-            setScrollX(el.scrollLeft);
-          });
-          scrollTickingRef.current = false;
+      horizontalScheduleRef.current(() => {
+        // flushSync: the clamped feature labels derive their x from scrollX,
+        // so the state must reach the DOM before this frame paints —
+        // otherwise edge-pinned labels wobble by up to one column.
+        flushSync(() => {
+          setViewportW(el.clientWidth || 1200);
+          setScrollX(el.scrollLeft);
         });
-      }
+      });
     };
     handleScroll();
     el.addEventListener('scroll', handleScroll, { passive: true });
@@ -110,21 +109,28 @@ export default function useEditorViewport({
     };
   }, [continuous, containerRef]);
 
-  // Wheel → horizontal: vertical-dominant wheel deltas scroll the row
-  // sideways; trackpad horizontal gestures and Shift+wheel stay native.
+  // Convert vertical-dominant wheel gestures only when neither the outer
+  // vertical scroller nor the native horizontal direction can use them.
   useEffect(() => {
     const el = containerRef.current;
     if (!continuous || !el) return undefined;
     const onWheel = (e) => {
-      if (e.shiftKey) return;
-      if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-        e.preventDefault();
-        el.scrollLeft += e.deltaY + e.deltaX;
-      }
+      const scroller = scrollContainerRef?.current;
+      const delta = continuousWheelDelta({
+        deltaX: e.deltaX,
+        deltaY: e.deltaY,
+        shiftKey: e.shiftKey,
+        scrollLeft: el.scrollLeft,
+        maxScrollLeft: Math.max(0, el.scrollWidth - el.clientWidth),
+        canScrollVertically: !!scroller && scroller.scrollHeight > scroller.clientHeight,
+      });
+      if (delta === null) return;
+      e.preventDefault();
+      el.scrollLeft += delta;
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [continuous, containerRef]);
+  }, [continuous, containerRef, scrollContainerRef]);
 
   // Recalculate layout when parent padding changes (e.g. sidebar pin)
   useEffect(() => {
@@ -419,9 +425,7 @@ export function useViewportMapping({
       const pairs = e.cutPairs || [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
       return pairs.some((cp) => {
         if (continuous) {
-          if (!visibleCols) return false;
-          const s = streamOf(cp.topCutIndex);
-          return s >= visibleCols.start && s <= visibleCols.end;
+          return enzymeLabelIntersectsWindow(cp.topCutIndex, visibleCols, streamOf);
         }
         const r = rowOf(cp.topCutIndex);
         return r >= visibleRows.start && r <= visibleRows.end;

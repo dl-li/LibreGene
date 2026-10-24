@@ -1,10 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { baseSeqY, cw, enzLabelW, getX, primerLabelW } from '../editorConstants';
 import { ensureReadableColor, shiftAbutLightness } from './colors';
-
-// Upper bound on an enzyme label's width in template columns; used to prune
-// x-occupancy during track packing. Real labels are ~20 columns at most.
-const MAX_ENZ_LABEL_COLS = 128;
+import { MAX_ENZ_LABEL_COLS } from './enzymeGeometry';
 
 // Track packing / row geometry: feature color normalization, feature+primer
 // track assignment, per-row enzyme track lifts, adaptive row spacing, the
