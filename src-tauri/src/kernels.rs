@@ -27,6 +27,7 @@ pub(crate) async fn do_open_file(
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
+    workspace: &crate::mcp::Workspace,
     path: String,
     record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
@@ -96,7 +97,7 @@ pub(crate) async fn do_open_file(
                 (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
             };
             // The load may have evicted another project; drop its bindings.
-            prune_orphan_bindings(pm, wp, agent_tabs).await;
+            prune_orphan_bindings(pm, wp, agent_tabs, workspace).await;
 
             Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
         }
@@ -148,10 +149,12 @@ fn feature_from_input(input: NewFeatureInput, id: &str) -> Option<Feature> {
 /// frontend canDirectSave check fails and the first save goes through
 /// Save As + rekey_project. Returns the same shape as `do_open_file` plus the
 /// generated project id.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_create_project(
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
+    workspace: &crate::mcp::Workspace,
     name: String,
     sequence: String,
     molecule_type: String,
@@ -169,12 +172,10 @@ pub(crate) async fn do_create_project(
     };
     // RNA/Protein are single-strand: always linear. DNA honors the toggle.
     let topo = topology.trim().to_ascii_lowercase();
-    let topology = if molecule_type != "dna" {
-        "linear".to_string()
-    } else if topo == "linear" {
-        "linear".to_string()
-    } else {
+    let topology = if molecule_type == "dna" && topo != "linear" {
         "circular".to_string()
+    } else {
+        "linear".to_string()
     };
 
     let length = seq.len() as i64;
@@ -264,7 +265,7 @@ pub(crate) async fn do_create_project(
         (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
     // The load may have evicted another project; drop its bindings.
-    prune_orphan_bindings(pm, wp, agent_tabs).await;
+    prune_orphan_bindings(pm, wp, agent_tabs, workspace).await;
 
     Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
 }
@@ -460,7 +461,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
 /// fields back under a sequence CAS (a stale recompute is dropped), mark
 /// dirty and broadcast.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn do_update_sequence<R: Runtime>(
+async fn update_sequence_inner<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
@@ -469,10 +470,19 @@ pub(crate) async fn do_update_sequence<R: Runtime>(
     project_id: String,
     sequence: String,
     primers: Option<Vec<Primer>>,
+    expected_sequence: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     {
         let mut pm = pm.write().await;
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            if let Some(expected) = expected_sequence {
+                if p.sequence != expected {
+                    return Err(
+                        "Sequence changed since codon optimization started; preview again before applying"
+                            .to_string(),
+                    );
+                }
+            }
             p.sequence = sequence;
             p.length = p.sequence.len() as i64;
             if let Some(primers) = primers {
@@ -499,6 +509,56 @@ pub(crate) async fn do_update_sequence<R: Runtime>(
     let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
 
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn do_update_sequence<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: String,
+    sequence: String,
+    primers: Option<Vec<Primer>>,
+) -> Result<serde_json::Value, String> {
+    update_sequence_inner(
+        app_handle,
+        pm,
+        wp,
+        agent_tabs,
+        source,
+        project_id,
+        sequence,
+        primers,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn do_update_sequence_if_unchanged<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: String,
+    expected_sequence: &str,
+    sequence: String,
+) -> Result<serde_json::Value, String> {
+    update_sequence_inner(
+        app_handle,
+        pm,
+        wp,
+        agent_tabs,
+        source,
+        project_id,
+        sequence,
+        None,
+        Some(expected_sequence),
+    )
+    .await
 }
 
 pub(crate) async fn do_activate_project(
@@ -549,6 +609,7 @@ pub(crate) async fn do_activate_project(
 /// project with unsaved changes — the dirty check and the removal happen in
 /// the same `pm` write critical section so a concurrent mutation cannot slip
 /// in between (TOCTOU).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_delete_project<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -686,6 +747,7 @@ pub(crate) async fn do_delete_feature<R: Runtime>(
 }
 
 /// Apply `apply` to the feature `feature_id`, mark dirty and broadcast.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_update_feature<R: Runtime, F>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -720,6 +782,7 @@ where
 /// strand; an empty `color` clears the span. `strand` is "+", "-" (DNA only)
 /// or "both" (DNA only). The response carries the full canonicalized lists so
 /// the caller can replace its local state wholesale.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_set_text_colors<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -933,6 +996,7 @@ pub(crate) async fn do_delete_primer<R: Runtime>(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_set_methylation<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -1082,9 +1146,9 @@ pub(crate) async fn commit_computed_alignment(
     project_id: &str,
     snapshot_ids: &[String],
     computed: ProjectData,
-) {
+) -> Option<String> {
     let mut pm = pm.write().await;
-    if let Some(p) = pm.get_project_mut_by_id(project_id) {
+    let committed_id = if let Some(p) = pm.get_project_mut_by_id(project_id) {
         if p.alignments.len() == snapshot_ids.len()
             && p
                 .alignments
@@ -1093,12 +1157,20 @@ pub(crate) async fn commit_computed_alignment(
                 .all(|(a, id)| &a.id == id)
         {
             p.alignments = computed.alignments;
+            p.alignments.last().map(|a| a.id.clone())
         } else if let Some(mut aln) = computed.alignments.into_iter().last() {
             aln.id = libregene_core::align::next_alignment_id(&p.alignments);
+            let id = aln.id.clone();
             p.alignments.push(aln);
+            Some(id)
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
     pm.mark_dirty(project_id);
+    committed_id
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1113,20 +1185,20 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
     seq: String,
     trace_path: Option<String>,
     algorithm: libregene_core::align::AlignAlgorithm,
-) -> Result<serde_json::Value, String> {
+) -> Result<(serde_json::Value, Option<String>), String> {
     let project_clone = {
         let pm = pm.read().await;
         pm.get_project_by_id(project_id).cloned()
     };
     let project_clone = match project_clone {
         Some(p) => p,
-        None => return Ok(serde_json::json!({"error": "Project not found"})),
+        None => return Ok((serde_json::json!({"error": "Project not found"}), None)),
     };
     if !project_clone.is_dna() {
-        return Ok(serde_json::json!({"error": format!(
+        return Ok((serde_json::json!({"error": format!(
             "Alignments are only supported for DNA projects; project '{}' is a {} project",
             project_id, project_clone.molecule_type
-        )}));
+        )}), None));
     }
     let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
 
@@ -1136,7 +1208,7 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
         .collect::<String>()
         .to_uppercase();
     if clean_seq.is_empty() {
-        return Ok(serde_json::json!({"error": "Sequence is empty"}));
+        return Ok((serde_json::json!({"error": "Sequence is empty"}), None));
     }
 
     let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
@@ -1161,15 +1233,15 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
     let computed = match computed {
         Ok(p) => p,
         Err(e) if e.starts_with("No significant alignment found") => return Err(e),
-        Err(e) => return Ok(serde_json::json!({"error": e})),
+        Err(e) => return Ok((serde_json::json!({"error": e}), None)),
     };
 
-    commit_computed_alignment(pm, project_id, &snapshot_ids, computed).await;
+    let alignment_id = commit_computed_alignment(pm, project_id, &snapshot_ids, computed).await;
 
     broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
 
     let pm = pm.read().await;
-    match pm.get_project_by_id(project_id) {
+    let payload = match pm.get_project_by_id(project_id) {
         Some(p) => {
             let params = ProjectParams {
                 enzyme_filter: Some("all".to_string()),
@@ -1177,10 +1249,11 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
                 row_end: None,
                 cpl: None,
             };
-            Ok(filter_project(p, &params))
+            filter_project(p, &params)
         }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+        None => serde_json::json!({"error": "Project not found"}),
+    };
+    Ok((payload, alignment_id))
 }
 
 pub(crate) async fn do_remove_alignment<R: Runtime>(
@@ -1354,6 +1427,7 @@ pub(crate) fn codon_optimize_options(
 /// build the equal-length replacement sequence via `segments_on_template`
 /// write-back (minus-strand pieces reverse-complemented). Read-only — callers
 /// decide whether to apply via `do_update_sequence`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn codon_optimize(
     project: &ProjectData,
     feature_id: &str,
@@ -1929,6 +2003,7 @@ mod tests {
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
         let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
         let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        let workspace: crate::mcp::Workspace = Arc::new(RwLock::new(Vec::new()));
         let seq = "A".repeat(5000);
         let nf = |name: &str, segments: Vec<Segment>| NewFeatureInput {
             name: name.to_string(),
@@ -1944,6 +2019,7 @@ mod tests {
             &pm,
             &wp,
             &agent_tabs,
+            &workspace,
             "circ".to_string(),
             seq.clone(),
             "dna".to_string(),
@@ -1967,6 +2043,7 @@ mod tests {
             &pm,
             &wp,
             &agent_tabs,
+            &workspace,
             "circ2".to_string(),
             seq.clone(),
             "dna".to_string(),
@@ -1993,6 +2070,7 @@ mod tests {
             &pm,
             &wp,
             &agent_tabs,
+            &workspace,
             "circ3".to_string(),
             seq.clone(),
             "dna".to_string(),
@@ -2008,6 +2086,7 @@ mod tests {
             &pm,
             &wp,
             &agent_tabs,
+            &workspace,
             "linear".to_string(),
             seq.clone(),
             "dna".to_string(),
@@ -2158,6 +2237,47 @@ mod tests {
             new.id != "aln-2" || !ids[..2].contains(&"aln-2"),
             "id re-allocated from the live list: {ids:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn codon_sequence_update_rejects_stale_snapshot() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: "GAGGAGGAGTAA".to_string(),
+                    length: 12,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+
+        let err = do_update_sequence_if_unchanged(
+            app.handle(),
+            &pm,
+            &wp,
+            &agent_tabs,
+            None,
+            "p1".to_string(),
+            "TTTTTTTTTTTT",
+            "GAAGAAGAATAA".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("Sequence changed"), "{err}");
+        let pm = pm.read().await;
+        let project = pm.get_project_by_id("p1").unwrap();
+        assert_eq!(project.sequence, "GAGGAGGAGTAA");
+        assert_eq!(project.length, 12);
     }
 
     #[test]

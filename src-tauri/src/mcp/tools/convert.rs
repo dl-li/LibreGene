@@ -401,6 +401,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             ));
         }
         let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let expected_sequence = project.sequence.clone();
         let f_id = feature_id.clone();
         let sp = species.to_string();
         let m = method.clone();
@@ -431,15 +432,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
             result.unresolved.len(),
         ));
         if apply {
-            let payload = crate::do_update_sequence(
+            let payload = crate::do_update_sequence_if_unchanged(
                 &self.app_handle,
                 &self.pm,
                 &self.wp,
                 &self.agent_tabs,
                 None,
                 id.clone(),
+                &expected_sequence,
                 new_sequence,
-                None,
             )
             .await
             .map_err(|e| e.to_string())?;
@@ -586,8 +587,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         // Feature-CDS codon optimization inside a DNA file: write-back
         // through the template so the full sequence (CDS replaced) survives.
-        if from == "dna" && to == "dna" && feature_id.is_some() && wants_optimization(item) {
-            let fid = feature_id.unwrap();
+        if let Some(fid) = feature_id
+            .as_deref()
+            .filter(|_| from == "dna" && to == "dna" && wants_optimization(item))
+            .map(str::to_string)
+        {
             let fid_label = fid.clone();
             let sp = species.clone().expect("require_species_for gates optimization");
             let m = method.clone();
@@ -754,6 +758,7 @@ fn require_species_for(from: &str, to: &str, item: &ConvertItem) -> Result<(), S
 
 /// Run a standalone sequence conversion (shared by `sequence` and
 /// `input_path` modes; `input` is already cleaned, in the `from` alphabet).
+#[allow(clippy::too_many_arguments)]
 fn convert_sequence_text(
     input: &str,
     from: &str,

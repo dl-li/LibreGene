@@ -3,7 +3,8 @@ use tauri::{AppHandle, Emitter, State};
 use libregene_core::models::Feature;
 
 use crate::kernels::{
-    codon_optimize, do_annotate_features, do_find_orfs, do_search_sequence, do_update_sequence,
+    codon_optimize, do_annotate_features, do_find_orfs, do_search_sequence,
+    do_update_sequence_if_unchanged,
 };
 use crate::mcp;
 use crate::payload::resolve_project_id;
@@ -121,6 +122,7 @@ pub(crate) async fn list_codon_species() -> Vec<String> {
 /// `method` is use_best_codon | match_codon_usage | harmonize_rca;
 /// harmonize_rca additionally uses `original_species` as the source table.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn preview_codon_optimization(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -164,6 +166,7 @@ pub(crate) async fn preview_codon_optimization(
 /// unchanged), then recompute enzymes/primers/translations and mark the
 /// project dirty. Returns the same summary as preview plus ok/message.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn apply_codon_optimization(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -183,6 +186,7 @@ pub(crate) async fn apply_codon_optimization(
             .ok_or_else(|| "Project not found".to_string())?
             .clone()
     };
+    let expected_sequence = project.sequence.clone();
     let f_id = feature_id.clone();
     let sp = species.clone();
     let m = method.clone();
@@ -200,15 +204,15 @@ pub(crate) async fn apply_codon_optimization(
     })
     .await
     .map_err(|e| format!("task join error: {}", e))??;
-    do_update_sequence(
+    do_update_sequence_if_unchanged(
         &app_handle,
         &state.pm,
         &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         project_id.clone(),
+        &expected_sequence,
         new_sequence,
-        None,
     )
     .await?;
     let mut v = codon_optimization_json(&result, &coding, &method, &species);

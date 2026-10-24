@@ -548,3 +548,40 @@ use crate::mcp::*;
         assert_eq!(v["mismatchCount"], 2, "total stays whole-read: {v}");
         assert!(v.get("text").is_none(), "compact suppresses text: {v}");
     }
+
+    #[tokio::test]
+    async fn concurrent_add_alignment_responses_use_their_committed_ids() {
+        let project = alignment_test_project("linear");
+        let template = project.sequence.clone();
+        let server = handler_with_project(project).await;
+        let request = |name: &str, seq: String| {
+            Parameters(AddAlignmentRequest {
+                project_id: "aln_test".to_string(),
+                name: name.to_string(),
+                seq: Some(seq),
+                path: None,
+                ..Default::default()
+            })
+        };
+        let (first, second) = tokio::join!(
+            server.add_alignment(request("first", template[20..120].to_string())),
+            server.add_alignment(request("second", template[70..180].to_string())),
+        );
+        let first = first.unwrap().0;
+        let second = second.unwrap().0;
+        for (response, expected_name) in [(&first, "first"), (&second, "second")] {
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(response["name"], expected_name, "{response}");
+            let alignment_id = response["alignmentId"].as_str().unwrap();
+            let own = response["alignments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["alignmentId"].as_str() == Some(alignment_id))
+                .unwrap();
+            assert_eq!(own["name"], expected_name, "{response}");
+            assert!(own.get("orientedSequence").is_some(), "{response}");
+            assert_eq!(response["coverage"], own["coverage"], "{response}");
+        }
+        assert_ne!(first["alignmentId"], second["alignmentId"]);
+    }

@@ -324,7 +324,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         };
 
-        let payload = match crate::do_add_alignment_seq(
+        let (payload, alignment_id) = match crate::do_add_alignment_seq(
             &self.app_handle,
             &self.pm,
             &self.wp,
@@ -362,18 +362,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
             pm.get_project_by_id(&id)
                 .map(|p| {
                     let circular = p.topology == "circular";
-                    let total = p.alignments.len();
+                    let added = alignment_id
+                        .as_deref()
+                        .and_then(|added_id| p.alignments.iter().find(|a| a.id == added_id));
                     let mut in_window = None;
                     let alignments: Vec<serde_json::Value> = p
                         .alignments
                         .iter()
-                        .enumerate()
-                        .map(|(idx, a)| {
-                            if idx + 1 == total {
-                                // The newly added alignment keeps its diff
-                                // details (focused to the window when given);
-                                // orientedSequence only in a non-compact,
-                                // unfocused response.
+                        .map(|a| {
+                            if Some(a.id.as_str()) == alignment_id.as_deref() {
                                 let mut v = alignment_json_1based(
                                     a,
                                     &p.sequence,
@@ -397,25 +394,24 @@ impl<R: Runtime> LibreGeneMcp<R> {
                             }
                         })
                         .collect();
-                    let last = p.alignments.last();
+                    let summary = alignment_id.as_deref().and_then(|added_id| {
+                        alignments
+                            .iter()
+                            .find(|v| v["alignmentId"].as_str() == Some(added_id))
+                            .cloned()
+                    });
                     let region = focus.or_else(|| {
-                        last.and_then(|a| {
+                        added.and_then(|a| {
                             a.segments.first().map(|s| (s.start as i64, s.end as i64))
                         })
                     });
-                    let coverage_note = last.and_then(|a| {
+                    let coverage_note = added.and_then(|a| {
                         let gap = uncovered_between_segments(a, p.sequence.len(), circular);
                         (gap > 0).then(|| {
                             format!("{} template bp uncovered between the read's coverage segments", gap)
                         })
                     });
-                    (
-                        alignments.last().cloned(),
-                        alignments,
-                        region,
-                        coverage_note,
-                        in_window,
-                    )
+                    (summary, alignments, region, coverage_note, in_window)
                 })
                 .unwrap_or((None, Vec::new(), None, None, None))
         };
@@ -457,8 +453,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         if let Some(note) = coverage_note {
             push_note(&mut env, note.clone());
-            if let Some(last) = env["alignments"].as_array_mut().and_then(|arr| arr.last_mut()) {
-                last["coverageNote"] = serde_json::json!(note);
+            if let Some(added) = env["alignments"].as_array_mut().and_then(|arr| {
+                arr.iter_mut().find(|v| {
+                    v["alignmentId"].as_str() == alignment_id.as_deref()
+                })
+            }) {
+                added["coverageNote"] = serde_json::json!(note);
             }
         }
         if let Some(h) = &seq_hashes {
