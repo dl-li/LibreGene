@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { dropCoveredFeatures } from '../workspace/useEditDialog';
+import { describe, it, expect, vi } from 'vitest';
+import { dropCoveredFeatures, restoreEditSnapshot } from '../workspace/useEditDialog';
 
 describe('dropCoveredFeatures (annotated paste supersedes covered features)', () => {
   const editStart = 100;
@@ -61,5 +61,34 @@ describe('dropCoveredFeatures (annotated paste supersedes covered features)', ()
     expect(dropCoveredFeatures([wrap], 150, 199)).toEqual([wrap]);
     // Replacing the whole circle covers both segments → dropped.
     expect(dropCoveredFeatures([wrap], 0, 199)).toEqual([]);
+  });
+});
+
+describe('restoreEditSnapshot', () => {
+  it('restores every optimistic UI field and the previous dirty value', () => {
+    const setters = {
+      setSequence: vi.fn(),
+      setFeatures: vi.fn(),
+      setTextColorsTop: vi.fn(),
+      setTextColorsBottom: vi.fn(),
+      setAlignments: vi.fn(),
+      setIsDirty: vi.fn(),
+    };
+    const snapshot = {
+      sequence: 'AAAA',
+      features: [{ id: 'f' }],
+      textColorsTop: [{ start: 0, end: 1 }],
+      textColorsBottom: [{ start: 2, end: 3 }],
+      alignments: [{ id: 'a' }],
+      isDirty: false,
+    };
+
+    restoreEditSnapshot(snapshot, setters);
+    expect(setters.setSequence).toHaveBeenCalledWith('AAAA');
+    expect(setters.setFeatures).toHaveBeenCalledWith(snapshot.features);
+    expect(setters.setTextColorsTop).toHaveBeenCalledWith(snapshot.textColorsTop);
+    expect(setters.setTextColorsBottom).toHaveBeenCalledWith(snapshot.textColorsBottom);
+    expect(setters.setAlignments).toHaveBeenCalledWith(snapshot.alignments);
+    expect(setters.setIsDirty).toHaveBeenCalledWith(false);
   });
 });

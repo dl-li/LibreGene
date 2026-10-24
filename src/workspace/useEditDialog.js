@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { addPrimers, getProject, updateSequence } from '../tauriApi';
+import { addPrimers, updateSequence } from '../tauriApi';
 import { adjustAlignmentsForEdit } from '../alignmentEdit';
 import { adjustTextColorsForEdit } from '../editor/textColors';
 import { EMPTY_ARRAY } from './constants';
@@ -15,6 +15,15 @@ export function dropCoveredFeatures(features, editStart, editEnd) {
   });
 }
 
+export function restoreEditSnapshot(snapshot, setters) {
+  setters.setSequence(snapshot.sequence);
+  setters.setFeatures(snapshot.features || EMPTY_ARRAY);
+  setters.setTextColorsTop(snapshot.textColorsTop || EMPTY_ARRAY);
+  setters.setTextColorsBottom(snapshot.textColorsBottom || EMPTY_ARRAY);
+  setters.setAlignments(snapshot.alignments || EMPTY_ARRAY);
+  setters.setIsDirty(snapshot.isDirty);
+}
+
 export default function useEditDialog({
   agentLockedRef,
   operationGenRef,
@@ -24,8 +33,10 @@ export default function useEditDialog({
   sequence,
   features,
   primers,
+  alignments,
   textColorsTop,
   textColorsBottom,
+  isDirty,
   setSequence,
   setFeatures,
   setEnzymes,
@@ -239,7 +250,6 @@ export default function useEditDialog({
             ? null
             : selStart + newLen - 1;
 
-      // Push new state to undo history (includes adjusted features for correct undo)
       const adjustedTextColorsTop = adjustTextColorsForEdit(
         textColorsTop || EMPTY_ARRAY,
         editStart,
@@ -254,30 +264,6 @@ export default function useEditDialog({
         oldLen,
         newLen,
       );
-      editHistoryRef.current.push({
-        sequence: newSeq,
-        features: mergedFeatures,
-        primers: primers || EMPTY_ARRAY,
-        textColorsTop: adjustedTextColorsTop,
-        textColorsBottom: adjustedTextColorsBottom,
-        cursorIndex: postCursor,
-        selStart: postSelStart,
-        selEnd: postSelEnd,
-      });
-
-      // Apply the post-edit selection in the editor.
-      setRestoreState({
-        version: ++undoVersionRef.current,
-        cursorIndex: postCursor,
-        selStart: postSelStart,
-        selEnd: postSelEnd,
-        selectionMode: postSelStart === null ? 'none' : 'text',
-        selectedPrimerIds: [],
-        isEnzymeSelection: false,
-        selectedEnzymeIds: [],
-        translationSel: null,
-      });
-
       // Optimistic UI update
       setSequence(newSeq);
       setFeatures(mergedFeatures);
@@ -290,6 +276,28 @@ export default function useEditDialog({
       setAlignments((prev) => adjustAlignmentsForEdit(prev, editStart, editEnd, oldLen, newLen));
       setIsDirty(true);
 
+      const rollback = () => {
+        if (operationGenRef.current !== gen) return;
+        restoreEditSnapshot(
+          {
+            sequence: currentSeq,
+            features,
+            textColorsTop,
+            textColorsBottom,
+            alignments,
+            isDirty,
+          },
+          {
+            setSequence,
+            setFeatures,
+            setTextColorsTop,
+            setTextColorsBottom,
+            setAlignments,
+            setIsDirty,
+          },
+        );
+      };
+
       // Send to backend for recomputation (enzymes, primer binding sites)
       try {
         const data = await updateSequence(
@@ -301,6 +309,27 @@ export default function useEditDialog({
         );
         if (operationGenRef.current !== gen) return;
         if (data && !data.error) {
+          editHistoryRef.current.push({
+            sequence: data.sequence,
+            features: data.features || mergedFeatures,
+            primers: data.primers || primers || EMPTY_ARRAY,
+            textColorsTop: data.textColorsTop || adjustedTextColorsTop,
+            textColorsBottom: data.textColorsBottom || adjustedTextColorsBottom,
+            cursorIndex: postCursor,
+            selStart: postSelStart,
+            selEnd: postSelEnd,
+          });
+          setRestoreState({
+            version: ++undoVersionRef.current,
+            cursorIndex: postCursor,
+            selStart: postSelStart,
+            selEnd: postSelEnd,
+            selectionMode: postSelStart === null ? 'none' : 'text',
+            selectedPrimerIds: [],
+            isEnzymeSelection: false,
+            selectedEnzymeIds: [],
+            translationSel: null,
+          });
           setSequence(data.sequence);
           setFeatures(data.features || mergedFeatures); // backend recomputed CDS/mRNA translations
           setEnzymes(data.enzymes || EMPTY_ARRAY);
@@ -309,6 +338,7 @@ export default function useEditDialog({
           setTextColorsTop(data.textColorsTop || adjustedTextColorsTop);
           setTextColorsBottom(data.textColorsBottom || adjustedTextColorsBottom);
           if (data.projects) onProjectsSync(data.projects);
+          setIsDirty(typeof data.dirty === 'boolean' ? data.dirty : true);
 
           // Import primers from clipboard annotations (DNA only)
           if (annotations && annotations.primers && annotations.primers.length > 0 && isDna) {
@@ -339,24 +369,11 @@ export default function useEditDialog({
           }
         } else {
           console.error('update_sequence error:', data?.error || 'unknown');
-          // Re-fetch to recover from optimistic update
-          try {
-            const refresh = await getProject('all');
-            if (refresh && !refresh.error && refresh.sequence) {
-              setSequence(refresh.sequence);
-              setFeatures(refresh.features || EMPTY_ARRAY);
-              setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-              setPrimers(refresh.primers || EMPTY_ARRAY);
-              setAlignments(refresh.alignments || EMPTY_ARRAY);
-              setTextColorsTop(refresh.textColorsTop || EMPTY_ARRAY);
-              setTextColorsBottom(refresh.textColorsBottom || EMPTY_ARRAY);
-            }
-          } catch {
-            // recovery fetch failed; state left as-is
-          }
+          rollback();
         }
       } catch (e) {
         console.error('update_sequence exception:', e);
+        rollback();
       }
     },
     [
@@ -365,8 +382,10 @@ export default function useEditDialog({
       adjustAnnotations,
       features,
       primers,
+      alignments,
       textColorsTop,
       textColorsBottom,
+      isDirty,
       onProjectsSync,
       isDna,
     ],

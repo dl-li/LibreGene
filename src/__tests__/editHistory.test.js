@@ -63,6 +63,24 @@ describe('createEditHistory (undo/redo stack)', () => {
     expect(steps).toBeLessThanOrEqual(49);
   });
 
+  it('previews undo/redo without moving the cursor until commit', () => {
+    const h = createEditHistory();
+    h.reset({ sequence: 'A' });
+    h.push({ sequence: 'AB' });
+
+    expect(h.peekUndo().sequence).toBe('A');
+    expect(h.getCursor()).toBe(1);
+    expect(h.canRedo()).toBe(false);
+    expect(h.commitUndo().sequence).toBe('A');
+    expect(h.getCursor()).toBe(0);
+
+    expect(h.peekRedo().sequence).toBe('AB');
+    expect(h.getCursor()).toBe(0);
+    expect(h.canUndo()).toBe(false);
+    expect(h.commitRedo().sequence).toBe('AB');
+    expect(h.getCursor()).toBe(1);
+  });
+
   it('returns a fresh top-level object per snapshot (shallow copy)', () => {
     const h = createEditHistory();
     const baseline = { sequence: 'AT' };

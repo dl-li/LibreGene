@@ -33,6 +33,7 @@ import WorkspaceDialogs from './workspace/WorkspaceDialogs';
 import { plugins, pluginAvailable } from './plugins';
 import { EMPTY_ARRAY } from './workspace/constants';
 import { readHiddenAlnNames } from './workspace/hiddenAlignments';
+import { createProjectSnapshot } from './workspace/projectSnapshot';
 
 export default function ProjectWorkspace({
   projectId,
@@ -173,6 +174,14 @@ export default function ProjectWorkspace({
   const [primerDeleteConfirm, setPrimerDeleteConfirm] = useState(null);
   const alignmentCacheRef = useRef({});
   const sequenceRef = useRef(sequence);
+  const currentSnapshotRef = useRef(null);
+  currentSnapshotRef.current = createProjectSnapshot({
+    sequence,
+    features,
+    primers,
+    textColorsTop,
+    textColorsBottom,
+  });
   const operationGenRef = useRef(0);
   const mainScrollRef = useRef(null);
   // The editor's inner container div (the horizontal scroll host in
@@ -215,7 +224,7 @@ export default function ProjectWorkspace({
     isDirty,
     setIsDirty,
     isDirtyRef,
-    baselineSequenceRef,
+    baselineSnapshotRef,
     pushHistory,
     handleUndo,
     handleRedo,
@@ -248,8 +257,10 @@ export default function ProjectWorkspace({
     sequence,
     features,
     primers,
+    alignments,
     textColorsTop,
     textColorsBottom,
+    isDirty,
     setSequence,
     setFeatures,
     setEnzymes,
@@ -293,7 +304,7 @@ export default function ProjectWorkspace({
         selStart: null,
         selEnd: null,
       });
-      baselineSequenceRef.current = initialData.sequence;
+      baselineSnapshotRef.current = createProjectSnapshot(initialData);
       setIsDirty(initialData.dirty === true);
       return;
     }
@@ -329,7 +340,7 @@ export default function ProjectWorkspace({
             selStart: null,
             selEnd: null,
           });
-          baselineSequenceRef.current = data.sequence;
+          baselineSnapshotRef.current = createProjectSnapshot(data);
           setIsDirty(data.dirty === true);
         }
       } catch {
@@ -388,7 +399,7 @@ export default function ProjectWorkspace({
           selStart: null,
           selEnd: null,
         });
-        baselineSequenceRef.current = data.sequence;
+        if (data.dirty === false) baselineSnapshotRef.current = createProjectSnapshot(data);
         setIsDirty(data.dirty === true);
       });
     })();
@@ -816,13 +827,13 @@ export default function ProjectWorkspace({
             onRekey(oldId, path);
           }
         }
-        baselineSequenceRef.current = sequenceRef.current || sequence;
+        baselineSnapshotRef.current = currentSnapshotRef.current;
         setIsDirty(false);
       }
     } catch (e) {
       console.error('save as error:', e);
     }
-  }, [onRekey, sequence, moleculeType, projectName]);
+  }, [onRekey, moleculeType, projectName]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -849,7 +860,7 @@ export default function ProjectWorkspace({
     try {
       const result = await saveFile(filePath);
       if (result && !result.error) {
-        baselineSequenceRef.current = sequenceRef.current || sequence;
+        baselineSnapshotRef.current = currentSnapshotRef.current;
         setIsDirty(false);
       } else {
         console.error('save error:', result?.error);
@@ -857,7 +868,7 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('save exception:', e);
     }
-  }, [handleSaveAs, sequence, moleculeType]);
+  }, [handleSaveAs, moleculeType]);
 
   // Refetch the project's data after a mutation whose command response does not
   // carry the updated sequence/features (e.g. apply_codon_optimization); record
@@ -871,6 +882,8 @@ export default function ProjectWorkspace({
           sequence: data.sequence,
           features: data.features || EMPTY_ARRAY,
           primers: data.primers || EMPTY_ARRAY,
+          textColorsTop: data.textColorsTop || EMPTY_ARRAY,
+          textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
           cursorIndex: null,
           selStart: null,
           selEnd: null,
@@ -880,7 +893,9 @@ export default function ProjectWorkspace({
         setEnzymes(data.enzymes || EMPTY_ARRAY);
         setPrimers(data.primers || EMPTY_ARRAY);
         setAlignments(data.alignments || EMPTY_ARRAY);
-        setIsDirty(true);
+        setTextColorsTop(data.textColorsTop || EMPTY_ARRAY);
+        setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
+        setIsDirty(data.dirty === true);
       }
     } catch (e) {
       console.error('project refresh error:', e);

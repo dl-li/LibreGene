@@ -44,6 +44,28 @@ export function createEditHistory() {
       notify();
     },
 
+    peekUndo() {
+      return cursor > 0 ? { ...stack[cursor - 1] } : null;
+    },
+
+    peekRedo() {
+      return cursor < stack.length - 1 ? { ...stack[cursor + 1] } : null;
+    },
+
+    commitUndo() {
+      if (cursor <= 0) return null;
+      cursor--;
+      notify();
+      return { ...stack[cursor] };
+    },
+
+    commitRedo() {
+      if (cursor >= stack.length - 1) return null;
+      cursor++;
+      notify();
+      return { ...stack[cursor] };
+    },
+
     /** 返回前一个状态的快照（拷贝），无历史时返回 null */
     undo() {
       if (cursor <= 0) return null;

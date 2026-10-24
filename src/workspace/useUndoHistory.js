@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createEditHistory } from '../editHistory';
-import { getProject, updateSequence } from '../tauriApi';
+import { updateSequence } from '../tauriApi';
 import { EMPTY_ARRAY } from './constants';
+import { createProjectSnapshot, snapshotIsDirty } from './projectSnapshot';
 
 export default function useUndoHistory({
   initialData,
@@ -38,7 +39,7 @@ export default function useUndoHistory({
   const undoVersionRef = useRef(0);
   const [isDirty, setIsDirty] = useState(initialData?.dirty === true);
   const isDirtyRef = useRef(false);
-  const baselineSequenceRef = useRef(initialData?.sequence ?? '');
+  const baselineSnapshotRef = useRef(createProjectSnapshot(initialData));
 
   // Record a post-mutation snapshot in undo history. Entries are always the
   // state AFTER a mutation (sequence edits follow the same convention), so
@@ -62,122 +63,59 @@ export default function useUndoHistory({
     [sequence, features, primers, textColorsTop, textColorsBottom],
   );
 
-  // --- Undo ---
+  const restoreHistorySnapshot = useCallback(
+    async (snapshot, gen, commit, operation) => {
+      try {
+        const data = await updateSequence(
+          snapshot.sequence,
+          snapshot.features,
+          snapshot.primers,
+          snapshot.textColorsTop,
+          snapshot.textColorsBottom,
+        );
+        if (operationGenRef.current !== gen) return;
+        if (!data || data.error) {
+          console.error(`${operation} error:`, data?.error || 'unknown');
+          return;
+        }
+        if (!commit()) return;
+        setSequence(data.sequence);
+        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
+        setEnzymes(data.enzymes || EMPTY_ARRAY);
+        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
+        setAlignments(data.alignments || EMPTY_ARRAY);
+        setTextColorsTop(data.textColorsTop || snapshot.textColorsTop || EMPTY_ARRAY);
+        setTextColorsBottom(data.textColorsBottom || snapshot.textColorsBottom || EMPTY_ARRAY);
+        setRestoreState({
+          version: ++undoVersionRef.current,
+          cursorIndex: snapshot.cursorIndex,
+          selStart: snapshot.selStart,
+          selEnd: snapshot.selEnd,
+        });
+        if (data.projects) onProjectsSync(data.projects);
+        setIsDirty(snapshotIsDirty(snapshot, baselineSnapshotRef.current, projectId, data.dirty));
+      } catch (error) {
+        console.error(`${operation} error:`, error);
+      }
+    },
+    [onProjectsSync, projectId],
+  );
+
   const handleUndo = useCallback(async () => {
     if (agentLockedRef.current) return;
-    const gen = ++operationGenRef.current;
-    const snapshot = editHistoryRef.current.undo();
+    const snapshot = editHistoryRef.current.peekUndo();
     if (!snapshot) return;
+    const gen = ++operationGenRef.current;
+    await restoreHistorySnapshot(snapshot, gen, () => editHistoryRef.current.commitUndo(), 'undo');
+  }, [restoreHistorySnapshot]);
 
-    // Restore cursor/selection in SequenceEditor (use ref for atomic version)
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: snapshot.cursorIndex,
-      selStart: snapshot.selStart,
-      selEnd: snapshot.selEnd,
-    });
-
-    // Send to backend for recomputation
-    try {
-      const data = await updateSequence(
-        snapshot.sequence,
-        snapshot.features,
-        snapshot.primers,
-        snapshot.textColorsTop,
-        snapshot.textColorsBottom,
-      );
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        setSequence(data.sequence);
-        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        // Backend response carries freshly recomputed binding sites
-        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        setTextColorsTop(data.textColorsTop || snapshot.textColorsTop || EMPTY_ARRAY);
-        setTextColorsBottom(data.textColorsBottom || snapshot.textColorsBottom || EMPTY_ARRAY);
-        if (data.projects) onProjectsSync(data.projects);
-        // Accurate dirty check: undo to saved state = not dirty. A
-        // never-saved `untitled-*` project has no on-disk state to undo back
-        // to, so it stays dirty regardless.
-        setIsDirty(
-          projectId.startsWith('untitled-') || snapshot.sequence !== baselineSequenceRef.current,
-        );
-      } else {
-        // Re-fetch to recover
-        try {
-          const refresh = await getProject('all');
-          if (refresh && !refresh.error && refresh.sequence) {
-            setSequence(refresh.sequence);
-            setFeatures(refresh.features || EMPTY_ARRAY);
-            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-            setPrimers(refresh.primers || EMPTY_ARRAY);
-            setAlignments(refresh.alignments || EMPTY_ARRAY);
-          }
-        } catch {
-          // recovery fetch failed; state left as-is
-        }
-      }
-    } catch (e) {
-      console.error('undo error:', e);
-    }
-  }, [onProjectsSync, projectId]);
-
-  // --- Redo ---
   const handleRedo = useCallback(async () => {
     if (agentLockedRef.current) return;
-    const gen = ++operationGenRef.current;
-    const snapshot = editHistoryRef.current.redo();
+    const snapshot = editHistoryRef.current.peekRedo();
     if (!snapshot) return;
-
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: snapshot.cursorIndex,
-      selStart: snapshot.selStart,
-      selEnd: snapshot.selEnd,
-    });
-
-    try {
-      const data = await updateSequence(
-        snapshot.sequence,
-        snapshot.features,
-        snapshot.primers,
-        snapshot.textColorsTop,
-        snapshot.textColorsBottom,
-      );
-      if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        setSequence(data.sequence);
-        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        setTextColorsTop(data.textColorsTop || snapshot.textColorsTop || EMPTY_ARRAY);
-        setTextColorsBottom(data.textColorsBottom || snapshot.textColorsBottom || EMPTY_ARRAY);
-        if (data.projects) onProjectsSync(data.projects);
-        // Accurate dirty check: redo back to saved state = not dirty (a
-        // never-saved `untitled-*` project stays dirty regardless)
-        setIsDirty(
-          projectId.startsWith('untitled-') || snapshot.sequence !== baselineSequenceRef.current,
-        );
-      } else {
-        try {
-          const refresh = await getProject('all');
-          if (refresh && !refresh.error && refresh.sequence) {
-            setSequence(refresh.sequence);
-            setFeatures(refresh.features || EMPTY_ARRAY);
-            setEnzymes(refresh.enzymes || EMPTY_ARRAY);
-            setPrimers(refresh.primers || EMPTY_ARRAY);
-            setAlignments(refresh.alignments || EMPTY_ARRAY);
-          }
-        } catch {
-          // recovery fetch failed; state left as-is
-        }
-      }
-    } catch (e) {
-      console.error('redo error:', e);
-    }
-  }, [onProjectsSync, projectId]);
+    const gen = ++operationGenRef.current;
+    await restoreHistorySnapshot(snapshot, gen, () => editHistoryRef.current.commitRedo(), 'redo');
+  }, [restoreHistorySnapshot]);
 
   return {
     editHistoryRef,
@@ -189,7 +127,7 @@ export default function useUndoHistory({
     isDirty,
     setIsDirty,
     isDirtyRef,
-    baselineSequenceRef,
+    baselineSnapshotRef,
     pushHistory,
     handleUndo,
     handleRedo,
