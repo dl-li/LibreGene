@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getProjects, activateProject, deleteProject } from '../tauriApi';
+import { createProjectSwitchQueue } from './projectSwitching';
 
 export default function useProjects() {
   // Multi-project state
@@ -35,6 +36,7 @@ export default function useProjects() {
   // Agent tabs live in the main window; their lock state lives in agentTabs.
   const [agentTabs, setAgentTabs] = useState({}); // { [projectId]: locked }
   const activeIdRef = useRef(null);
+  const switchTargetRef = useRef(null);
   // Per-project dirty state reported by workspaces: { [projectId]: bool }
   const [dirtyById, setDirtyById] = useState({});
   const handlesRef = useRef({}); // { [projectId]: workspace imperative handle }
@@ -81,8 +83,12 @@ export default function useProjects() {
       const data = await getProjects();
       if (data && !data.error) {
         setProjects(data.projects || []);
-        setActiveId(data.activeId || null);
+        if (switchTargetRef.current === null) {
+          activeIdRef.current = data.activeId || null;
+          setActiveId(data.activeId || null);
+        }
         mergeAgentTabs(data.projects || []);
+        return data;
       }
     } catch {
       // backend unreachable; keep current project list
@@ -123,21 +129,45 @@ export default function useProjects() {
         delete next[oldId];
         return next;
       });
-      setActiveId((prev) => (prev === oldId ? newId : prev));
+      setActiveId((prev) => {
+        const next = prev === oldId ? newId : prev;
+        activeIdRef.current = next;
+        return next;
+      });
       refreshProjects();
     },
     [refreshProjects],
   );
 
-  // Switching is lossless (workspaces stay mounted) — just update activeId
+  const switchQueueRef = useRef(null);
+  if (!switchQueueRef.current) {
+    switchQueueRef.current = createProjectSwitchQueue({
+      activate: activateProject,
+      onCommit: (id, data) => {
+        switchTargetRef.current = null;
+        activeIdRef.current = id;
+        setActiveId(id);
+        if (data?.projects) setProjects(data.projects);
+      },
+      onError: async (error, id, isCurrent) => {
+        console.error(`activate project error: ${id}`, error);
+        const data = await refreshProjects();
+        if (!isCurrent()) return;
+        switchTargetRef.current = null;
+        if (data && !data.error) {
+          activeIdRef.current = data.activeId || null;
+          setActiveId(data.activeId || null);
+        }
+      },
+    });
+  }
+
   const handleSwitchProject = useCallback((id) => {
-    if (!id || id === activeIdRef.current) return;
-    setActiveId(id);
-    activateProject(id)
-      .then((data) => {
-        if (data && data.projects) setProjects(data.projects);
-      })
-      .catch((e) => console.error('activate project error:', e));
+    if (!id || (id === activeIdRef.current && switchTargetRef.current === null)) {
+      return Promise.resolve();
+    }
+    switchTargetRef.current = id;
+    return switchQueueRef.current.switchTo(id);
   }, []);
 
   // Internal: actually perform the close (no dirty check)
