@@ -468,10 +468,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     transferred.iter().map(|f| f.name.clone()).collect();
                 p.features.extend(transferred);
                 if p.is_dna() {
+                    let mut taken_ids: std::collections::HashSet<String> =
+                        p.primers.iter().map(|pr| pr.id.clone()).collect();
                     for mut pr in primers {
                         pr.name = libregene_core::utils::unique_name(&pr.name, &taken);
                         taken.insert(pr.name.clone());
-                        pr.id = pr.name.clone();
+                        pr.id = libregene_core::utils::unique_name(&pr.id, &taken_ids);
+                        taken_ids.insert(pr.id.clone());
                         pr.binding_sites = Vec::new();
                         transferred_primer_names.push(pr.name.clone());
                         p.primers.push(pr);

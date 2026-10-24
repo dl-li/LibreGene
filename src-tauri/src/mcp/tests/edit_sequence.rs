@@ -720,3 +720,55 @@ use crate::mcp::*;
             "failed edit must not mutate"
         );
     }
+
+    #[tokio::test]
+    async fn edit_sequence_transferred_primer_id_does_not_collide_with_different_name() {
+        let mut project = edit_test_project();
+        project.primers = vec![Primer {
+            id: "incoming".to_string(),
+            name: "existing".to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "ACGTACGT".to_string(),
+            binding_sites: Vec::new(),
+        }];
+        let server = handler_with_project(project).await;
+        let sequence = synthetic_dna(60, 99);
+        let hash = libregene_core::utils::sequence_hash(&sequence);
+        server.workspace.write().await.push(WorkspaceItem {
+            id: "ws-collision".to_string(),
+            name: "collision".to_string(),
+            sequence: sequence.clone(),
+            molecule_type: "dna".to_string(),
+            features: Vec::new(),
+            primers: vec![Primer {
+                id: "source-primer-id".to_string(),
+                name: "incoming".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: sequence[30..50].to_string(),
+                binding_sites: Vec::new(),
+            }],
+            source: "collision".to_string(),
+            source_project: "source".to_string(),
+            temporary: true,
+        });
+
+        let out = server
+            .edit_sequence(Parameters(EditSequenceRequest {
+                project_id: "edit_test".to_string(),
+                start: 61,
+                end: 60,
+                replacement_hash: Some(hash),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert_eq!(out.0["ok"], true, "{}", out.0);
+        let pm = server.pm.read().await;
+        let project = pm.get_project_by_id("edit_test").unwrap();
+        let existing = project.primers.iter().find(|p| p.id == "incoming").unwrap();
+        assert_eq!(existing.name, "existing");
+        let transferred = project.primers.iter().find(|p| p.name == "incoming").unwrap();
+        assert_eq!(transferred.id, "source-primer-id");
+        assert_ne!(transferred.id, existing.id);
+        assert_eq!(project.primers.len(), 2);
+    }
