@@ -282,9 +282,7 @@ export default function GelDialog({
 
   // Fill the container: keep the viewBox width fixed, stretch the gel
   // vertically so long dialogs give a long gel instead of dead space.
-  const gelH = gelBox
-    ? Math.max(240, gelBox.height / (gelBox.width / GEL_W) - gelTop - 14)
-    : GEL_H;
+  const gelH = gelBox ? Math.max(240, gelBox.height / (gelBox.width / GEL_W) - gelTop - 14) : GEL_H;
   const width = GEL_W;
   const height = gelTop + gelH + 14;
 
