@@ -19,7 +19,7 @@
 
 use std::collections::HashSet;
 
-use crate::models::{AlignmentRenderData, PrimerBindingSite, Primer};
+use crate::models::{AlignmentRenderData, Primer, PrimerBindingSite};
 
 use super::formatter;
 use super::matcher::{self, DEFAULT_LIMIT};
@@ -57,15 +57,25 @@ pub fn compute_binding_sites(
 
     // Fwd (strand 1): primer matches top strand directly.
     results.extend(search_one_strand(
-        template, &primer_seq, primer_id, 1, false,
-        plen, is_circular, tm_threshold,
+        template,
+        &primer_seq,
+        primer_id,
+        1,
+        false,
+        is_circular,
+        tm_threshold,
     ));
 
     // Rev (strand -1): primer complements top strand.
     // Search the primer AS-IS with complement regex on the template.
     results.extend(search_one_strand(
-        template, &primer_seq, primer_id, -1, true,
-        plen, is_circular, tm_threshold,
+        template,
+        &primer_seq,
+        primer_id,
+        -1,
+        true,
+        is_circular,
+        tm_threshold,
     ));
 
     // Dedup by (start, end, strand) keeping the highest-Tm entry of each
@@ -74,8 +84,11 @@ pub fn compute_binding_sites(
         b.tm.partial_cmp(&a.tm)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| {
-                (a.template_start, a.template_end, a.strand)
-                    .cmp(&(b.template_start, b.template_end, b.strand))
+                (a.template_start, a.template_end, a.strand).cmp(&(
+                    b.template_start,
+                    b.template_end,
+                    b.strand,
+                ))
             })
     });
     let mut seen: HashSet<(i64, i64, i8)> = HashSet::new();
@@ -94,12 +107,12 @@ fn search_one_strand(
     primer_id: &str,
     strand: i8,
     use_complement: bool,
-    plen: usize,
     is_circular: bool,
     tm_threshold: f64,
 ) -> Vec<PrimerBindingSite> {
     let tpl_bytes = template.as_bytes();
     let primer_bytes = primer.as_bytes();
+    let plen = primer_bytes.len();
     let tlen = tpl_bytes.len();
     let limit = DEFAULT_LIMIT.min(plen);
 
@@ -125,7 +138,7 @@ fn search_one_strand(
         // the site look like it spans the whole circle.
         let raw_end = t_start + site.footprint_len;
         let t_end = if is_circular && raw_end > tlen {
-            raw_end - tlen
+            raw_end % tlen
         } else {
             raw_end
         };
@@ -143,7 +156,11 @@ fn search_one_strand(
         let footprint_bases: Vec<u8> = if use_complement {
             // Rev: primer reads 3'→5' on template (left→right). Display
             // shows primer bases directly (no complement), reversed.
-            primer_bytes[footprint_start..].iter().rev().copied().collect()
+            primer_bytes[footprint_start..]
+                .iter()
+                .rev()
+                .copied()
+                .collect()
         } else {
             primer_bytes[footprint_start..].to_vec()
         };
@@ -197,8 +214,10 @@ fn search_one_strand(
                         return None;
                     }
                     let (cols, mism) = formatter::display_columns(&ops, &rev_primer);
-                    let hang: String =
-                        primer_bytes[..hang_len].iter().map(|&b| b as char).collect();
+                    let hang: String = primer_bytes[..hang_len]
+                        .iter()
+                        .map(|&b| b as char)
+                        .collect();
                     Some((
                         AlignmentRenderData {
                             display_sequence: cols,
@@ -232,7 +251,10 @@ fn search_one_strand(
                     return None;
                 }
                 let (cols, mism) = formatter::display_columns(ops, primer_bytes);
-                let hang: String = primer_bytes[..hang_len].iter().map(|&b| b as char).collect();
+                let hang: String = primer_bytes[..hang_len]
+                    .iter()
+                    .map(|&b| b as char)
+                    .collect();
                 Some((
                     AlignmentRenderData {
                         display_sequence: cols,
@@ -454,23 +476,13 @@ pub fn anneal_len(
 // Batch recompute
 // ---------------------------------------------------------------------------
 
-pub fn recompute_all_primers(
-    template: &str,
-    topology: &str,
-    primers: &[Primer],
-) -> Vec<Primer> {
+pub fn recompute_all_primers(template: &str, topology: &str, primers: &[Primer]) -> Vec<Primer> {
     primers
         .iter()
         .map(|p| {
             let mut updated = p.clone();
-            updated.binding_sites = compute_binding_sites(
-                template,
-                &p.primer_seq,
-                &p.r#type,
-                &p.id,
-                topology,
-                0.0,
-            );
+            updated.binding_sites =
+                compute_binding_sites(template, &p.primer_seq, &p.r#type, &p.id, topology, 0.0);
             updated
         })
         .collect()
@@ -490,9 +502,7 @@ mod tests {
         // Rev (RC): RC of primer's 3' end on template.
         // RC("CGTACGCTAG") = "CTAGCGTACG".
         let template = "NNNNCGTACGCTAGNNNNCTAGCGTACGNNNN";
-        let sites = compute_binding_sites(
-            template, "CGTACGCTAG", "fwd", "P1", "linear", 20.0,
-        );
+        let sites = compute_binding_sites(template, "CGTACGCTAG", "fwd", "P1", "linear", 20.0);
         let has_fwd = sites.iter().any(|s| s.strand == 1);
         let has_rev = sites.iter().any(|s| s.strand == -1);
         assert!(has_fwd, "should have fwd binding site");
@@ -502,9 +512,7 @@ mod tests {
     #[test]
     fn test_compute_binding_sites_exact_match() {
         let template = "NNNNNCGTACGCTAGNNNNN";
-        let sites = compute_binding_sites(
-            template, "CGTACGCTAG", "fwd", "P1", "linear", 20.0,
-        );
+        let sites = compute_binding_sites(template, "CGTACGCTAG", "fwd", "P1", "linear", 20.0);
         assert!(sites.len() >= 1);
         let s = &sites[0];
         assert_eq!(s.strand, 1);
@@ -517,10 +525,11 @@ mod tests {
         // Rev primer "CGTACGCTAG" → RC(primer) appears on template.
         // RC("CGTACGCTAG") = "CTAGCGTACG".
         let template = "NNNNNCTAGCGTACGNNNNN";
-        let sites = compute_binding_sites(
-            template, "CGTACGCTAG", "rev", "P1", "linear", 20.0,
+        let sites = compute_binding_sites(template, "CGTACGCTAG", "rev", "P1", "linear", 20.0);
+        assert!(
+            sites.len() >= 1,
+            "expected at least 1 binding site for rev primer"
         );
-        assert!(sites.len() >= 1, "expected at least 1 binding site for rev primer");
         assert_eq!(sites[0].strand, -1);
     }
 
@@ -539,7 +548,10 @@ mod tests {
         assert!(!good_sites.is_empty(), "good primer should bind");
 
         let bad_sites = compute_binding_sites(template, bad_primer, "rev", "P1", "linear", 0.0);
-        assert!(bad_sites.is_empty(), "primer with 3' mismatch should NOT bind");
+        assert!(
+            bad_sites.is_empty(),
+            "primer with 3' mismatch should NOT bind"
+        );
     }
 
     #[test]
@@ -565,11 +577,22 @@ mod tests {
     }
 
     #[test]
+    fn test_circular_multi_lap_primer_end_is_normalized() {
+        let template = "ACGTACG";
+        let primer = template.repeat(4);
+        let sites = compute_binding_sites(template, &primer, "fwd", "P1", "circular", 0.0);
+        let s = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert!(s.match_score as usize > template.len());
+        assert_eq!(
+            s.template_end,
+            (s.template_start + i64::from(s.match_score)) % template.len() as i64
+        );
+    }
+
+    #[test]
     fn test_compute_binding_sites_below_threshold() {
         let template = "NNNNNCGTACGCTAGNNNNN";
-        let sites = compute_binding_sites(
-            template, "CGTACGCTAG", "fwd", "P1", "linear", 100.0,
-        );
+        let sites = compute_binding_sites(template, "CGTACGCTAG", "fwd", "P1", "linear", 100.0);
         assert!(sites.is_empty());
     }
 
@@ -582,9 +605,7 @@ mod tests {
     #[test]
     fn test_3_prime_mismatch_detection() {
         let template = "NNNNNCGTACGCTANNNNN";
-        let sites = compute_binding_sites(
-            template, "CGTACGCTAG", "fwd", "P1", "linear", 0.0,
-        );
+        let sites = compute_binding_sites(template, "CGTACGCTAG", "fwd", "P1", "linear", 0.0);
         if let Some(s) = sites.first() {
             let _ = s.has_3_prime_mismatch;
         }
@@ -794,7 +815,8 @@ mod tests {
     }
 
     #[test]
-    fn test_binding_sites_symmetric_under_template_rc() {        // Aligning a primer against T vs against RC(T) must yield mirrored
+    fn test_binding_sites_symmetric_under_template_rc() {
+        // Aligning a primer against T vs against RC(T) must yield mirrored
         // sites: flipped strand, mirrored coordinates, identical Tm / score /
         // tail. The same physical duplex must not report two Tm values.
         let template = "ATGCGGTACCTAGGCTAACGGTTCAGGCCATGGATCCGTAACGTTAGCCGGTAA";
