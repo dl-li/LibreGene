@@ -313,6 +313,7 @@ fn jsonrpc_id_from_body(bytes: &[u8]) -> Option<serde_json::Value> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn serve_mcp<R: Runtime>(
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,

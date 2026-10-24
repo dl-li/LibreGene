@@ -12,6 +12,7 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn update_sequence(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,

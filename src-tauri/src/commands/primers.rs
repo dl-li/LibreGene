@@ -193,6 +193,7 @@ pub(crate) async fn add_primers(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn compute_primer_alignment(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -470,6 +471,7 @@ struct BindingSiteCandidate {
 /// 0-based inclusive. Tm is computed with the same TmParams defaults as the
 /// `compute_tm` command.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn design_primer_candidates(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
