@@ -473,3 +473,50 @@ async fn workspace_fragments_are_removed_with_their_source_project() {
     clear_fragments(&server.workspace).await;
     assert_eq!(server.workspace.read().await.len(), 0);
 }
+
+#[tokio::test]
+async fn workspace_fragments_follow_project_rekey() {
+    let server = handler_with_project(edit_test_project()).await;
+    let mut req = add_req("edit_test");
+    req.start = Some(1);
+    req.end = Some(10);
+    let out = server.add_to_workspace(Parameters(req)).await.unwrap().0;
+    assert_eq!(out["ok"], true, "{out}");
+
+    assert!(server.pm.write().await.rename_id("edit_test", "renamed"));
+    rekey_fragments_of(&server.workspace, "edit_test", "renamed").await;
+    let workspace = server.workspace.read().await;
+    assert_eq!(workspace.len(), 1);
+    assert_eq!(workspace[0].source_project, "renamed");
+}
+
+#[tokio::test]
+async fn capacity_eviction_prunes_workspace_fragments_and_bindings() {
+    let server = handler_with_project(edit_test_project()).await;
+    let mut req = add_req("edit_test");
+    req.start = Some(1);
+    req.end = Some(10);
+    let out = server.add_to_workspace(Parameters(req)).await.unwrap().0;
+    assert_eq!(out["ok"], true, "{out}");
+    server
+        .wp
+        .write()
+        .await
+        .insert("project-edit_test-1".to_string(), "edit_test".to_string());
+
+    for i in 1..=24 {
+        let mut project = dna_test_project();
+        project.name = format!("p{i}");
+        server
+            .pm
+            .write()
+            .await
+            .load(&format!("p{i}"), project)
+            .unwrap();
+    }
+    assert!(server.pm.read().await.get_project_by_id("edit_test").is_none());
+    crate::prune_orphan_bindings(&server.pm, &server.wp, &server.agent_tabs, &server.workspace).await;
+    assert!(server.workspace.read().await.is_empty());
+    assert!(server.wp.read().await.is_empty());
+    assert!(server.agent_tabs.read().await.is_empty());
+}

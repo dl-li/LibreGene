@@ -55,6 +55,13 @@ pub(crate) async fn remove_fragments_of(workspace: &Workspace, project_id: &str)
         .retain(|item| item.source_project != project_id);
 }
 
+pub(crate) async fn rekey_fragments_of(workspace: &Workspace, old_id: &str, new_id: &str) {
+    let mut workspace = workspace.write().await;
+    for item in workspace.iter_mut().filter(|item| item.source_project == old_id) {
+        item.source_project = new_id.to_string();
+    }
+}
+
 /// Drop all temporary fragments — closing the main window counts as closing
 /// every file.
 pub(crate) async fn clear_fragments(workspace: &Workspace) {
@@ -342,8 +349,8 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
             }
             let (c1, c2) = (cuts[0].min(cuts[1]), cuts[0].max(cuts[1]));
             if circular {
-                let fwd = fragment_pieces(project, c1, c2).map_err(|e| fail(e))?;
-                let rev = fragment_pieces(project, c2, c1).map_err(|e| fail(e))?;
+                let fwd = fragment_pieces(project, c1, c2).map_err(&fail)?;
+                let rev = fragment_pieces(project, c2, c1).map_err(&fail)?;
                 Ok(vec![
                     FragmentSpec { pieces: fwd, flip: false, desc: format!("{} fragment 1 of {}", name, label) },
                     FragmentSpec { pieces: rev, flip: false, desc: format!("{} fragment 2 of {}", name, label) },
@@ -374,7 +381,7 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
             }
             let (c1, c2) = (cuts1[0], cuts2[0]);
             if circular {
-                let pieces = fragment_pieces(project, c1, c2).map_err(|e| fail(e))?;
+                let pieces = fragment_pieces(project, c1, c2).map_err(&fail)?;
                 Ok(vec![FragmentSpec {
                     pieces,
                     flip: false,

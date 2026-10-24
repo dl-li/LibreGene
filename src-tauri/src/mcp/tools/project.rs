@@ -78,6 +78,8 @@ fn region_bbox(pieces: &[(i64, i64)], len: i64, circular: bool) -> (i64, i64) {
     )
 }
 
+type ExportRegion = (Vec<(i64, i64)>, bool, String);
+
 /// Resolve a save_file `region` selector to the template pieces it exports:
 /// linear internal 0-based inclusive spans in EXPORT order, `flip` (each
 /// piece's sequence is reverse-complemented when exporting a minus-strand
@@ -89,7 +91,7 @@ fn region_bbox(pieces: &[(i64, i64)], len: i64, circular: bool) -> (i64, i64) {
 pub(crate) fn resolve_export_region(
     project: &ProjectData,
     req: &RegionSpec,
-) -> Result<(Vec<(i64, i64)>, bool, String), String> {
+) -> Result<ExportRegion, String> {
     let region_active = req.start.is_some() || req.end.is_some();
     let feature_active = req.feature_id.is_some();
     let cuts_active = req.cut1.is_some() || req.cut2.is_some();
@@ -437,7 +439,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return self.reuse_agent_tab_or_reject(&id).await;
         }
         // The load may have evicted another project; drop its bindings.
-        crate::prune_orphan_bindings(&self.pm, &self.wp, &self.agent_tabs).await;
+        crate::prune_orphan_bindings(&self.pm, &self.wp, &self.agent_tabs, &self.workspace).await;
         // Bind the freshly opened project as this agent's tab (locked).
         {
             let mut at = self.agent_tabs.write().await;

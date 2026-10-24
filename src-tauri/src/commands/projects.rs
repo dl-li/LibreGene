@@ -53,7 +53,15 @@ pub(crate) async fn open_file(
     path: String,
     record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
-    do_open_file(&state.pm, &state.window_projects, &state.agent_tabs, path, record_index).await
+    do_open_file(
+        &state.pm,
+        &state.window_projects,
+        &state.agent_tabs,
+        &state.workspace,
+        path,
+        record_index,
+    )
+    .await
 }
 
 /// Lightweight scan of a FASTA file's records (name + length only) so the
@@ -120,6 +128,7 @@ pub(crate) async fn create_project(
         &state.pm,
         &state.window_projects,
         &state.agent_tabs,
+        &state.workspace,
         name,
         sequence,
         molecule_type,
@@ -429,6 +438,7 @@ pub(crate) async fn rekey_project(
             at.insert(new_id.clone(), meta);
         }
     }
+    crate::mcp::rekey_fragments_of(&state.workspace, &old_id, &new_id).await;
 
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
     Ok(serde_json::json!({"status": "ok", "newId": new_id}))

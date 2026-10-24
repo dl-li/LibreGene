@@ -91,7 +91,7 @@ pub(crate) async fn add_alignment(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
-    commit_computed_alignment(&state.pm, &project_id, &snapshot_ids, computed).await;
+    let _ = commit_computed_alignment(&state.pm, &project_id, &snapshot_ids, computed).await;
 
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
 
@@ -138,6 +138,7 @@ pub(crate) async fn add_alignment_seq(
         algorithm,
     )
     .await
+    .map(|(payload, _)| payload)
 }
 
 #[tauri::command]
@@ -320,7 +321,13 @@ pub(crate) async fn open_snapgene_snapshot(
         (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
     // The load may have evicted another project; drop its bindings.
-    prune_orphan_bindings(&state.pm, &state.window_projects, &state.agent_tabs).await;
+    prune_orphan_bindings(
+        &state.pm,
+        &state.window_projects,
+        &state.agent_tabs,
+        &state.workspace,
+    )
+    .await;
 
     Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
 }

@@ -147,13 +147,14 @@ pub(crate) async fn sidebar_project_list(
     (filtered_projects, active_id)
 }
 
-/// Drop window_projects/agent_tabs entries pointing at projects no longer
-/// loaded (e.g. evicted by ProjectManager's capacity limit). Called on load
-/// paths so an eviction never leaves a dangling binding behind.
+/// Drop window_projects/agent_tabs entries and workspace fragments pointing
+/// at projects no longer loaded (e.g. evicted by ProjectManager's capacity
+/// limit). Called on load paths so an eviction never leaves dangling state.
 pub(crate) async fn prune_orphan_bindings(
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
+    workspace: &crate::mcp::Workspace,
 ) {
     let loaded: HashSet<String> = pm.read().await.all_project_ids().into_iter().collect();
     {
@@ -164,6 +165,10 @@ pub(crate) async fn prune_orphan_bindings(
         let mut at = agent_tabs.write().await;
         at.retain(|k, _| loaded.contains(k));
     }
+    workspace
+        .write()
+        .await
+        .retain(|item| loaded.contains(&item.source_project));
 }
 
 /// Inject projects list and activeId into a JSON response so the main
