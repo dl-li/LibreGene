@@ -86,20 +86,21 @@ export function renderPrimers({
     }
 
     return (
-      <g key={p.id} onContextMenu={(e) => openPrimerMenu(e, p)}>
+      <g key={p.renderKey || p.id} onContextMenu={(e) => openPrimerMenu(e, p)}>
         {segs.map((seg) => {
           const isTail = seg === tailSeg,
             isArrow = seg === arrowSeg;
           const sy = getSeqY(seg.row);
+          const renderKey = p.renderKey || p.id;
           const featOff =
-            (isFwd ? 0 : (revPrimerFeatOffsets[p.id] || {})[seg.row] || 0) +
+            (isFwd ? 0 : (revPrimerFeatOffsets[renderKey] || {})[seg.row] || 0) +
             (isFwd
               ? 0
               : alignLaneInfo.chromBelow[seg.row] +
                 (alignLaneInfo.counts[seg.row] > 0
                   ? alignLaneInfo.counts[seg.row] * lp.featTrackHeight + ALIGN_FEAT_GAP
                   : 0));
-          const trackOff = ((primerTracks[p.id] || {})[seg.row] || 0) * pp.trackGap + featOff;
+          const trackOff = ((primerTracks[renderKey] || {})[seg.row] || 0) * pp.trackGap + featOff;
           const matchY =
             (isFwd ? sy - pp.fwdMatchY : sy + pp.revMatchY) + (isFwd ? -trackOff : trackOff);
           const misY = matchY + (isFwd ? -pp.misYDelta : pp.misYDelta);

@@ -190,13 +190,16 @@ export default function useTrackPacking({
               // primers don't share a track and bleed into each other
               const vs = !isFwd && mi === 0 ? rawVs - 1 : rawVs;
               const ve = isFwd && mi === segs.length - 1 ? rawVe + 1 : rawVe;
-              if (!pTracks[p.id]) pTracks[p.id] = {};
+              if (!pTracks[p.renderKey || p.id]) pTracks[p.renderKey || p.id] = {};
               let placed = false;
               for (let i = 0; i < rowTracks.length; i++) {
                 if (!rowTracks[i].some((t) => !(ve < t.start || vs > t.end))) {
                   rowTracks[i].push({ start: vs, end: ve });
-                  if (pTracks[p.id][r] === undefined || i < pTracks[p.id][r]) {
-                    pTracks[p.id][r] = i;
+                  if (
+                    pTracks[p.renderKey || p.id][r] === undefined ||
+                    i < pTracks[p.renderKey || p.id][r]
+                  ) {
+                    pTracks[p.renderKey || p.id][r] = i;
                   }
                   placed = true;
                   break;
@@ -204,7 +207,8 @@ export default function useTrackPacking({
               }
               if (!placed) {
                 rowTracks.push([{ start: vs, end: ve }]);
-                if (pTracks[p.id][r] === undefined) pTracks[p.id][r] = rowTracks.length - 1;
+                if (pTracks[p.renderKey || p.id][r] === undefined)
+                  pTracks[p.renderKey || p.id][r] = rowTracks.length - 1;
               }
             });
           }
@@ -336,7 +340,7 @@ export default function useTrackPacking({
         if (p.matchStart === undefined) continue;
         const ml = p.mismatchStr?.length || 0;
         const psegs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
-        revFeatOff[p.id] = {};
+        revFeatOff[p.renderKey || p.id] = {};
         psegs.forEach((m, mi) => {
           // 1nt buffer on the 3' (arrow-tip) side: an abutting feature still
           // counts as overlapping, so the primer drops below its track
@@ -375,8 +379,8 @@ export default function useTrackPacking({
                 const ft = (fRowTracks[f.id] || {})[r] || 0;
                 // below-line labels hang one extra track lower, clear them too
                 const tracksToClear = ft + (featureLabelsBelow ? 2 : 1);
-                revFeatOff[p.id][r] = Math.max(
-                  revFeatOff[p.id][r] || 0,
+                revFeatOff[p.renderKey || p.id][r] = Math.max(
+                  revFeatOff[p.renderKey || p.id][r] || 0,
                   tracksToClear * lp.featTrackHeight,
                 );
               }
@@ -463,7 +467,7 @@ export default function useTrackPacking({
           sp(m.start, m.end),
         );
         const ml = p.mismatchStr?.length || 0;
-        const pt = (primerTracks[p.id] || {})[row] || 0;
+        const pt = (primerTracks[p.renderKey || p.id] || {})[row] || 0;
         const nameW = primerLabelW(p.name);
         for (const seg of segs) {
           if (seg.row !== row) continue;
@@ -589,7 +593,7 @@ export default function useTrackPacking({
 
       if (rowPrimers) {
         for (const p of rowPrimers) {
-          const t = (primerTracks[p.id] || {})[r] || 0;
+          const t = (primerTracks[p.renderKey || p.id] || {})[r] || 0;
           if (p.isFwd) {
             const hasTail = r === rowOf(p.matchStart);
             const extra = hasTail ? pp.fwdAboveExtra : pp.fwdAboveNonTailExtra;
@@ -617,7 +621,7 @@ export default function useTrackPacking({
                   pp.revMatchY + pp.misYDelta + pp.revLabelY + pp.revSelLabelLift + 7,
                 )
               : pp.revBelowBase + extra;
-            const featOff = (revPrimerFeatOffsets[p.id] || {})[r] || 0;
+            const featOff = (revPrimerFeatOffsets[p.renderKey || p.id] || {})[r] || 0;
             be = Math.max(
               be,
               bodyB +
