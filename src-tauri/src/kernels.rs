@@ -868,6 +868,29 @@ pub(crate) fn primers_equal(a: &[Primer], b: &[Primer]) -> bool {
             .all(|(x, y)| x.id == y.id && x.name == y.name && x.primer_seq == y.primer_seq)
 }
 
+pub(crate) fn primer_definitions(primers: &[Primer]) -> Vec<Primer> {
+    primers
+        .iter()
+        .map(|p| Primer {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            r#type: p.r#type.clone(),
+            primer_seq: p.primer_seq.clone(),
+            binding_sites: Vec::new(),
+        })
+        .collect()
+}
+
+pub(crate) fn merge_primer_updates(target: &mut Vec<Primer>, updates: Vec<Primer>) {
+    for primer in updates {
+        if let Some(pos) = target.iter().position(|p| p.id == primer.id) {
+            target[pos] = primer;
+        } else {
+            target.push(primer);
+        }
+    }
+}
+
 pub(crate) async fn do_add_primer<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
@@ -901,22 +924,16 @@ pub(crate) async fn do_add_primer<R: Runtime>(
         let snapshot = {
             let pm = pm.read().await;
             pm.get_project_by_id(project_id).map(|p| {
-                (p.sequence.clone(), p.topology.clone(), p.primers.clone())
+                (p.sequence.clone(), p.topology.clone(), primer_definitions(&p.primers))
             })
         };
         let Some((template, topology, existing)) = snapshot else {
             return Ok(serde_json::json!({"error": "Project not found"}));
         };
 
-        let mut merged = existing.clone();
-        if let Some(pos) = merged.iter().position(|p| p.id == primer.id) {
-            merged[pos] = primer.clone();
-        } else {
-            merged.push(primer.clone());
-        }
-
+        let to_compute = primer.clone();
         let updated = tokio::task::spawn_blocking(move || {
-            libregene_core::primer::align::recompute_all_primers(&template, &topology, &merged)
+            libregene_core::primer::align::recompute_all_primers(&template, &topology, &[to_compute])
         })
         .await
         .map_err(|e| format!("task join error: {}", e))?;
@@ -925,7 +942,7 @@ pub(crate) async fn do_add_primer<R: Runtime>(
             let mut pm = pm.write().await;
             match pm.get_project_mut_by_id(project_id) {
                 Some(p) if primers_equal(&p.primers, &existing) => {
-                    p.primers = updated;
+                    merge_primer_updates(&mut p.primers, updated);
                     pm.mark_dirty(project_id);
                     true
                 }
@@ -1996,6 +2013,73 @@ mod tests {
             "both primers must survive a concurrent add: {:?}",
             names
         );
+    }
+
+    #[tokio::test]
+    async fn add_primer_preserves_existing_binding_sites() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let existing = Primer {
+            id: "old".to_string(),
+            name: "old".to_string(),
+            r#type: "fwd".to_string(),
+            primer_seq: "GATTACA".to_string(),
+            binding_sites: vec![libregene_core::models::PrimerBindingSite {
+                primer_id: "old".to_string(),
+                strand: 1,
+                template_start: 999,
+                template_end: 1000,
+                tm: 0.0,
+                gc_content: 0.0,
+                match_score: 0,
+                has_3_prime_mismatch: false,
+                five_prime_tail: String::new(),
+                three_prime_tail: String::new(),
+                display_tail: String::new(),
+                alignment: Default::default(),
+            }],
+        };
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: "GATTACA".repeat(10),
+                    length: 70,
+                    topology: "linear".to_string(),
+                    primers: vec![existing],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        do_add_primer(
+            app.handle(),
+            &pm,
+            &wp,
+            &agent_tabs,
+            None,
+            "p1",
+            Primer {
+                id: "new".to_string(),
+                name: "new".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: "GATTACAGATTACA".to_string(),
+                binding_sites: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let pm = pm.read().await;
+        let primers = &pm.get_project_by_id("p1").unwrap().primers;
+        let old = primers.iter().find(|p| p.id == "old").unwrap();
+        assert_eq!(old.binding_sites[0].template_start, 999);
+        assert!(!primers.iter().find(|p| p.id == "new").unwrap().binding_sites.is_empty());
     }
 
     #[tokio::test]

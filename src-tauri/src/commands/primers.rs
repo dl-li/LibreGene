@@ -4,7 +4,7 @@ use libregene_core::models::{Primer, Segment};
 
 use crate::kernels::{
     do_add_primer, do_check_primers_binding, do_delete_primer, do_design_primer_candidates,
-    primers_equal,
+    merge_primer_updates, primer_definitions, primers_equal,
 };
 use crate::payload::{filter_project, resolve_project_id, ProjectParams};
 use crate::state::AppState;
@@ -125,7 +125,7 @@ pub(crate) async fn add_primers(
         let snapshot = {
             let pm = state.pm.read().await;
             pm.get_project_by_id(&project_id).map(|p| {
-                (p.sequence.clone(), p.topology.clone(), p.primers.clone())
+                (p.sequence.clone(), p.topology.clone(), primer_definitions(&p.primers))
             })
         };
         let Some((template, topology, existing)) = snapshot else {
@@ -133,6 +133,7 @@ pub(crate) async fn add_primers(
         };
 
         let mut merged = existing.clone();
+        let mut accepted = Vec::new();
         for primer in &primers {
             let seq_conflict = merged
                 .iter()
@@ -147,10 +148,11 @@ pub(crate) async fn add_primers(
             } else {
                 merged.push(primer.clone());
             }
+            accepted.push(primer.clone());
         }
 
         let updated = tokio::task::spawn_blocking(move || {
-            libregene_core::primer::align::recompute_all_primers(&template, &topology, &merged)
+            libregene_core::primer::align::recompute_all_primers(&template, &topology, &accepted)
         })
         .await
         .map_err(|e| format!("task join error: {}", e))?;
@@ -159,7 +161,7 @@ pub(crate) async fn add_primers(
             let mut pm = state.pm.write().await;
             match pm.get_project_mut_by_id(&project_id) {
                 Some(p) if primers_equal(&p.primers, &existing) => {
-                    p.primers = updated;
+                    merge_primer_updates(&mut p.primers, updated);
                     pm.mark_dirty(&project_id);
                     true
                 }

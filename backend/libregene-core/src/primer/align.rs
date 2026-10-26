@@ -19,6 +19,8 @@
 
 use std::collections::HashSet;
 
+use rayon::prelude::*;
+
 use crate::models::{AlignmentRenderData, Primer, PrimerBindingSite};
 
 use super::formatter;
@@ -478,7 +480,7 @@ pub fn anneal_len(
 
 pub fn recompute_all_primers(template: &str, topology: &str, primers: &[Primer]) -> Vec<Primer> {
     primers
-        .iter()
+        .par_iter()
         .map(|p| {
             let mut updated = p.clone();
             updated.binding_sites =
