@@ -93,4 +93,21 @@ describe('createEditHistory (undo/redo stack)', () => {
     // snapshot. Callers push freshly built objects, so this is fine in
     // practice; this test pins the actual contract.
   });
+
+  it('round-trips long sequences through patches, history eviction, and redo', () => {
+    const h = createEditHistory();
+    const states = ['ACGT'.repeat(25000)];
+    for (let i = 1; i <= 60; i++) {
+      const previous = states[i - 1];
+      const at = 100 + i * 17;
+      states.push(previous.slice(0, at) + `N${i % 10}` + previous.slice(at + 1));
+    }
+    h.reset({ sequence: states[0], features: [] });
+    for (let i = 1; i < states.length; i++) h.push({ sequence: states[i], features: [] });
+    expect(h.getLength()).toBe(50);
+    for (let i = 60; i > 11; i--) expect(h.undo().sequence).toBe(states[i - 1]);
+    expect(h.canUndo()).toBe(false);
+    for (let i = 12; i <= 60; i++) expect(h.redo().sequence).toBe(states[i]);
+    expect(h.canRedo()).toBe(false);
+  });
 });

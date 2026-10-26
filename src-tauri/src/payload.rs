@@ -277,23 +277,66 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
 
 /// Emit the current project state + filtered project list as a Tauri event.
 pub(crate) async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, source: Option<&str>) {
-    broadcast_project_arcs(
-        app_handle,
-        &state.pm,
-        &state.window_projects,
-        &state.agent_tabs,
-        source,
-    )
-    .await;
+    broadcast_project_arcs(app_handle, &state.pm, &state.window_projects, &state.agent_tabs, source).await;
 }
 
-/// Same as `broadcast_project` but takes the shared Arcs directly, so the MCP
-/// server can broadcast without a `State` handle.
+pub(crate) async fn broadcast_project_for_id(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+    project_id: &str,
+    source: Option<&str>,
+) {
+    broadcast_project_change_arcs(app_handle, &state.pm, &state.window_projects, &state.agent_tabs, project_id, source).await;
+}
+
+/// Full synchronization for project collection changes and legacy callers.
 pub(crate) async fn broadcast_project_arcs<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
     wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
+    source: Option<&str>,
+) {
+    broadcast_project_arcs_impl(app_handle, pm, wp, agent_tabs, None, source).await;
+}
+
+/// Mutation synchronization: project summaries stay complete, but only the
+/// changed project's sequence and derived data cross the IPC boundary.
+pub(crate) async fn broadcast_project_change_arcs<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    project_id: &str,
+    source: Option<&str>,
+) {
+    broadcast_project_arcs_impl(app_handle, pm, wp, agent_tabs, Some(project_id), source).await;
+}
+
+fn project_data_payload(pm: &ProjectManager, wanted: &HashSet<String>) -> serde_json::Map<String, serde_json::Value> {
+    let params = ProjectParams { enzyme_filter: Some("all".to_string()), row_start: None, row_end: None, cpl: None };
+    let mut result = serde_json::Map::new();
+    for id in pm.all_project_ids() {
+        if !wanted.contains(&id) {
+            continue;
+        }
+        if let Some(project) = pm.get_project_by_id(&id) {
+            let mut data = filter_project(project, &params);
+            if let Some(map) = data.as_object_mut() {
+                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&id)));
+            }
+            result.insert(id, data);
+        }
+    }
+    result
+}
+
+async fn broadcast_project_arcs_impl<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    wp: &Arc<RwLock<HashMap<String, String>>>,
+    agent_tabs: &AgentTabs,
+    changed_project_id: Option<&str>,
     source: Option<&str>,
 ) {
     let (filtered_projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
@@ -302,65 +345,57 @@ pub(crate) async fn broadcast_project_arcs<R: Runtime>(
         "projects": filtered_projects,
         "activeId": active_id,
         "source": source,
+        "changedProjectId": changed_project_id,
     });
 
-    // The source window skips its own broadcast (it applies the command
-    // response instead), so the full project data is only needed when another
-    // window has to re-sync. Avoid serializing the whole project (with the
-    // enzyme list) on every mutation when there's nobody else to notify.
     let has_other_windows = match source {
         Some(label) => app_handle.webview_windows().keys().any(|l| l != label),
         None => !app_handle.webview_windows().is_empty(),
     };
 
     if has_other_windows {
-        // Include project data if there's an active project in the main window
         if let Some(ref active) = active_id {
-            if let Some(project) = pm.get_project_by_id(active) {
-                let params = ProjectParams {
-                    enzyme_filter: Some("all".to_string()),
-                    row_start: None,
-                    row_end: None,
-                    cpl: None,
-                };
-                let mut filtered = filter_project(project, &params);
-                if let Some(ref mut map) = filtered.as_object_mut() {
-                    map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
+            if changed_project_id.is_none_or(|id| id == active) {
+                if let Some(project) = pm.get_project_by_id(active) {
+                    let params = ProjectParams { enzyme_filter: Some("all".to_string()), row_start: None, row_end: None, cpl: None };
+                    let mut filtered = filter_project(project, &params);
+                    if let Some(map) = filtered.as_object_mut() {
+                        map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
+                    }
+                    payload["data"] = filtered;
                 }
-                payload["data"] = filtered;
             }
         }
-        // Include project data for multi-window sync (keyed by project ID) —
-        // only the projects some window actually shows: window-bound projects
-        // plus the ones visible in the main window's sidebar.
-        let mut wanted: HashSet<String> = payload["projects"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|p| p["id"].as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        {
+        let mut wanted: HashSet<String> = if let Some(id) = changed_project_id {
+            HashSet::from([id.to_string()])
+        } else {
+            payload["projects"].as_array().map(|arr| {
+                arr.iter().filter_map(|p| p["id"].as_str().map(String::from)).collect()
+            }).unwrap_or_default()
+        };
+        if changed_project_id.is_none() {
             let wp = wp.read().await;
             wanted.extend(wp.values().cloned());
         }
-        let params = ProjectParams {
-            enzyme_filter: Some("all".to_string()),
-            row_start: None,
-            row_end: None,
-            cpl: None,
-        };
-        let mut project_data_map = serde_json::Map::new();
-        for id in pm.all_project_ids() {
-            if !wanted.contains(&id) {
-                continue;
-            }
-            if let Some(project) = pm.get_project_by_id(&id) {
-                project_data_map.insert(id, filter_project(project, &params));
-            }
-        }
-        payload["projectData"] = serde_json::Value::Object(project_data_map);
+        payload["projectData"] = serde_json::Value::Object(project_data_payload(&pm, &wanted));
     }
     let _ = app_handle.emit("project-update", payload);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libregene_core::models::ProjectData;
+
+    #[test]
+    fn scoped_payload_contains_only_the_changed_project() {
+        let mut pm = ProjectManager::new();
+        for (id, sequence) in [("a", "AAAA"), ("b", "CCCC")] {
+            pm.load(id, ProjectData { sequence: sequence.to_string(), length: 4, ..Default::default() }).unwrap();
+        }
+        let payload = project_data_payload(&pm, &HashSet::from(["a".to_string()]));
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload["a"]["sequence"], "AAAA");
+        assert!(!payload.contains_key("b"));
+    }
 }

@@ -6,7 +6,7 @@ use crate::kernels::{
     do_add_primer, do_check_primers_binding, do_delete_primer, do_design_primer_candidates,
     primers_equal,
 };
-use crate::payload::{broadcast_project, filter_project, resolve_project_id, ProjectParams};
+use crate::payload::{filter_project, resolve_project_id, ProjectParams};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -174,8 +174,7 @@ pub(crate) async fn add_primers(
         }
     }
 
-    // Broadcast event so listeners update their state
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+    crate::payload::broadcast_project_for_id(&app_handle, &state, &project_id, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -206,8 +205,12 @@ pub(crate) async fn compute_primer_alignment(
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
+    project_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await?;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => resolve_project_id(&state, webview_window.label()).await?,
+    };
 
     // Clone all needed data while holding the read lock, then drop it before spawn_blocking.
     let (template, topology, existing_primers) = {

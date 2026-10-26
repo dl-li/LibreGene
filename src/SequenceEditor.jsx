@@ -1,12 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  useId,
-} from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
 import {
   cw,
   startX,
@@ -17,16 +9,13 @@ import {
   enzymeActiveBlue,
   amplimerGreen,
 } from './editorConstants';
-import {
-  alignmentGapSegments,
-  alignmentNotableSites,
-  BASE_HILITE_BG,
-  insertionBases,
-} from './editor/alignmentLayout';
+import { alignmentGapSegments, insertionBases } from './editor/alignmentLayout';
 import { matchedSeqOf, reverseComplement, truncatedLabel } from './editor/seqUtils';
 import { HIGH_CONTRAST_TEXT_COLOR_PALETTE, TEXT_COLOR_PALETTE } from './editor/textColors';
 import { buildCDSData, isTranslatable } from './editor/translation';
 import useStreamLayout from './editor/useStreamLayout';
+import useAlignmentNavigation from './editor/useAlignmentNavigation';
+import useEditorSelection from './editor/useEditorSelection';
 import useEnrichedPrimers from './editor/useEnrichedPrimers';
 import useTrackPacking from './editor/useTrackPacking';
 import useEnzymeGeometry from './editor/useEnzymeGeometry';
@@ -55,32 +44,24 @@ import {
 } from './editor/layers/selectionLayers';
 import { trackPlugins, renderTrackLanes } from './editor/layers/trackLanes';
 import { pluginAvailable } from './plugins';
-import FeatureInfoDialog from './dialogs/FeatureInfoDialog';
-import PrimerAlignmentDialog from './dialogs/PrimerAlignmentDialog';
 import EditorNavMenu from './EditorNavMenu';
-import PrimerDesignDialog from './plugins/builtin/primerDesign/PrimerDesignDialog';
+import EditorStatusBar from './editor/EditorStatusBar';
+import AlignmentNavigator from './editor/AlignmentNavigator';
+import EditorDialogs from './editor/EditorDialogs';
 import { DESIGN_MODES } from './plugins/builtin/primerDesign';
 import { computeTm, blastSubmit, getEnzymeDatabase } from './tauriApi';
 import { getRelatedEnzymes } from './enzymeRelated';
-import EnzymeDetailDialog from './dialogs/EnzymeDetailDialog';
 import { loadProviderData, buildProviderIndex } from './enzymeProviders';
 import { buildSearchResults } from './searchUtils';
 import WarningBadge from './editor/WarningBadge';
 import MapWatermark from './editor/MapWatermark';
 import FoldWatermark from './editor/FoldWatermark';
 import SelectionLengthBadge from './editor/SelectionLengthBadge';
+import useEditorClipboard from './editor/useEditorClipboard';
 import { showContextMenu } from './contextMenu';
+import { collectAnnotations, writeAnnotatedClipboard } from './clipboardAnnotations';
 import {
-  collectAnnotations,
-  writeAnnotatedClipboard,
-  readClipboardMeta,
-  parseMetaFromPasteEvent,
-} from './clipboardAnnotations';
-import {
-  Bot,
   Check,
-  ChevronDown,
-  ChevronUp,
   Copy,
   CopyPlus,
   CopyMinus,
@@ -88,7 +69,6 @@ import {
   Eraser,
   Globe,
   Image,
-  LockOpen,
   Paintbrush,
   Pencil,
   Scissors,
@@ -144,6 +124,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onPrimerDelete,
   onPrimerDeleteRequest,
   primerSeedLength,
+  primerOverviewOpen = false,
+  projectId,
   tmParams = {},
   onSelectionChange,
   scrollContainerRef,
@@ -332,189 +314,71 @@ const SequenceEditor = React.memo(function SequenceEditor({
   } = useEditorViewport({ scrollContainerRef, containerRef, setBaseCpl, layoutKey, viewMode });
   const svgRef = useRef(null);
 
-  // --- selection state ---
-  const [cursorIndex, setCursorIndex] = useState(null);
-  const [selStart, setSelStart] = useState(null);
-  const [selEnd, setSelEnd] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [selectionTm, setSelectionTm] = useState(null);
-  const tmLastRunRef = useRef(0); // last computeTm dispatch time (drag throttle)
-  const tmTimerRef = useRef(null); // pending trailing Tm timer (kept across re-runs)
-  const tmSeqRef = useRef(null); // latest selection seq a Tm was scheduled for
-  const dragRef = useRef({ startIdx: null, active: false });
-  const isDraggingRef = useRef(false);
-  const autoScrollRef = useRef({ clientX: 0, clientY: 0 });
-  const [hoveredIndex, setHoveredIndex] = useState(null);
-  const hoveredIndexRef = useRef(null);
-  const cursorTimerRef = useRef(null);
-  // The cursor logically persists after `cursorVisible` flips off, so a later
-  // shift+click can still extend from it; only a blank-space click clears it.
-  const [cursorVisible, setCursorVisible] = useState(true);
-
-  // --- primer design pick-mode state ---
-  const [designPick, setDesignPick] = useState(null); // { mode, segments: [] }
-  const [designPickError, setDesignPickError] = useState(null);
-  const [designDialog, setDesignDialog] = useState(null); // { mode, segments }
-  const designCapturedRef = useRef(null);
-
-  // --- translation (codon) selection state ---
-  const [translationSel, setTranslationSel] = useState(null); // { featureId, startCodon, endCodon }
-  const [isTranslationDragging, setIsTranslationDragging] = useState(false);
-  const translationDragRef = useRef(null); // { featureId, startCodon }
-  const [hoveredCodon, setHoveredCodon] = useState(null); // { key, map: { [featureId]: codonIndex } }
-  const cdsFeatureDataRef = useRef({}); // mirror of cdsFeatureData for early callbacks
-  const resetCursorTimer = useCallback(() => {
-    if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
-    setCursorVisible(true);
-    cursorTimerRef.current = setTimeout(() => setCursorVisible(false), 5000);
-  }, []);
-
-  const clearCursorTimer = useCallback(() => {
-    if (cursorTimerRef.current) {
-      clearTimeout(cursorTimerRef.current);
-      cursorTimerRef.current = null;
-    }
-    setCursorVisible(true);
-  }, []);
-
-  const startTranslationSelection = useCallback(
-    (featureId, codon) => {
-      setSelectionMode('translation');
-      setTranslationSel({ featureId, startCodon: codon, endCodon: codon });
-      translationDragRef.current = { featureId, startCodon: codon };
-      setIsTranslationDragging(true);
-      setSelStart(null);
-      setSelEnd(null);
-      setCursorIndex(null);
-      clearCursorTimer();
-      setIsEnzymeSelection(false);
-      setSelectedEnzymeIds([]);
-      lastEnzymeSelRef.current = null;
-      setSelectedPrimerIds([]);
-      isPrimerDraggingRef.current = false;
-      primerDragRef.current = null;
-      if (primerDimTimerRef.current) {
-        clearTimeout(primerDimTimerRef.current);
-        primerDimTimerRef.current = null;
-      }
-      setPrimerDimActive(false);
-    },
-    [clearCursorTimer],
-  );
-
-  // Restore cursor/selection from undo/redo or project switch (external restoreState)
-  // Layout effect: apply before paint so cursor/selection land in the same
-  // frame as the edited sequence, not one paint behind it.
-  const restoreVersionRef = useRef(0);
-  const scrollToSeqIndexRef = useRef(null);
-  useLayoutEffect(() => {
-    if (!restoreState) return;
-    if (restoreState.version === restoreVersionRef.current) return;
-    restoreVersionRef.current = restoreState.version;
-    setCursorIndex(restoreState.cursorIndex ?? null);
-    setSelStart(restoreState.selStart ?? null);
-    setSelEnd(restoreState.selEnd ?? null);
-    setSelectionMode(restoreState.selectionMode ?? 'text');
-    setSelectedPrimerIds(restoreState.selectedPrimerIds ?? []);
-    setIsEnzymeSelection(restoreState.isEnzymeSelection ?? false);
-    setSelectedEnzymeIds(restoreState.selectedEnzymeIds ?? []);
-    setTranslationSel(restoreState.translationSel ?? null);
-    translationDragRef.current = null;
-    setIsTranslationDragging(false);
-    if (restoreState.cursorIndex != null) {
-      resetCursorTimer();
-    }
-    if (restoreState.scrollToIndex != null) {
-      scrollToSeqIndexRef.current?.(restoreState.scrollToIndex);
-    }
-  }, [restoreState, resetCursorTimer]);
-
-  // --- enzyme selection state ---
-  const [isEnzymeSelection, setIsEnzymeSelection] = useState(false);
-  const [isEnzymeDragging, setIsEnzymeDragging] = useState(false);
-  const [selectedEnzymeIds, setSelectedEnzymeIds] = useState([]); // persists after click (can be 1 or 2)
-  const enzymeDragRef = useRef(null);
-  const lastEnzymeSelRef = useRef(null); // { enzymeId, cutIdx, name } for shift+click
-
-  // --- primer / amplimer selection state ---
-  // selectionMode: 'none' | 'text' | 'enzyme' | 'primer' | 'amplimer'
-  const [selectionMode, setSelectionMode] = useState('none');
-  const [selectedPrimerIds, setSelectedPrimerIds] = useState([]); // 1 for single, 2 for amplimer
-  const [isPrimerDragging, setIsPrimerDragging] = useState(false);
-  const [primerDimActive, setPrimerDimActive] = useState(false); // 100ms delayed dimming
-  const primerDimTimerRef = useRef(null);
-  const primerDragRef = useRef(null); // { startPrimerId, startFwd, didDrag, hoveredPrimerId }
-  const isPrimerDraggingRef = useRef(false);
-
-  // Notify parent of selection changes (for per-project state persistence)
-  const prevSelSnapshotRef = useRef(null);
-  useEffect(() => {
-    if (!onSelectionChange) return;
-    const snap = JSON.stringify([
-      cursorIndex,
-      selStart,
-      selEnd,
-      selectionMode,
-      selectedPrimerIds,
-      isEnzymeSelection,
-      selectedEnzymeIds,
-      translationSel,
-    ]);
-    if (snap === prevSelSnapshotRef.current) return;
-    prevSelSnapshotRef.current = snap;
-    onSelectionChange({
-      cursorIndex,
-      selStart,
-      selEnd,
-      selectionMode,
-      selectedPrimerIds,
-      isEnzymeSelection,
-      selectedEnzymeIds,
-      translationSel,
-    });
-  }, [
-    onSelectionChange,
+  const {
     cursorIndex,
+    setCursorIndex,
     selStart,
+    setSelStart,
     selEnd,
-    selectionMode,
-    selectedPrimerIds,
-    isEnzymeSelection,
-    selectedEnzymeIds,
+    setSelEnd,
+    isDragging,
+    setIsDragging,
+    selectionTm,
+    setSelectionTm,
+    tmLastRunRef,
+    tmTimerRef,
+    tmSeqRef,
+    dragRef,
+    isDraggingRef,
+    autoScrollRef,
+    hoveredIndex,
+    setHoveredIndex,
+    hoveredIndexRef,
+    cursorVisible,
+    designPick,
+    setDesignPick,
+    designPickError,
+    setDesignPickError,
+    designDialog,
+    setDesignDialog,
+    designCapturedRef,
     translationSel,
-  ]);
-
-  const hasSelection =
-    selStart !== null &&
-    selEnd !== null &&
-    (selStart <= selEnd || topology === 'circular') &&
-    (selectionMode === 'text' || isEnzymeSelection);
-  // Wrap selection (start > end on a circular sequence): display/copy work,
-  // but edit operations (replace/delete/paste) stay linear-only.
-  const selWraps = hasSelection && selStart > selEnd;
-  const hasTranslationSelection = selectionMode === 'translation' && translationSel !== null;
-  const currentSelColor = designPick ? '#0f766e' : isEnzymeSelection ? enzymeActiveBlue : '#3E2723';
-
-  // Nucleotide span (min..max, including inter-segment gaps) covered by the
-  // selected codons; shared by the delete/replace/paste/case edit triggers.
-  const translationBaseRange = useCallback(() => {
-    if (!translationSel) return null;
-    const cds = cdsFeatureDataRef.current[translationSel.featureId];
-    if (!cds) return null;
-    const start = Math.min(translationSel.startCodon, translationSel.endCodon);
-    const end = Math.max(translationSel.startCodon, translationSel.endCodon);
-    let minPos = Infinity,
-      maxPos = -Infinity;
-    for (let i = start; i <= end; i++) {
-      const t = cds.trans[i];
-      if (t)
-        for (const b of t.bases) {
-          if (b < minPos) minPos = b;
-          if (b > maxPos) maxPos = b;
-        }
-    }
-    return minPos <= maxPos ? [minPos, maxPos] : null;
-  }, [translationSel]);
+    setTranslationSel,
+    isTranslationDragging,
+    setIsTranslationDragging,
+    translationDragRef,
+    hoveredCodon,
+    setHoveredCodon,
+    cdsFeatureDataRef,
+    isEnzymeSelection,
+    setIsEnzymeSelection,
+    isEnzymeDragging,
+    setIsEnzymeDragging,
+    selectedEnzymeIds,
+    setSelectedEnzymeIds,
+    enzymeDragRef,
+    lastEnzymeSelRef,
+    selectionMode,
+    setSelectionMode,
+    selectedPrimerIds,
+    setSelectedPrimerIds,
+    isPrimerDragging,
+    setIsPrimerDragging,
+    primerDimActive,
+    setPrimerDimActive,
+    primerDimTimerRef,
+    primerDragRef,
+    isPrimerDraggingRef,
+    resetCursorTimer,
+    clearCursorTimer,
+    startTranslationSelection,
+    scrollToSeqIndexRef,
+    hasSelection,
+    selWraps,
+    hasTranslationSelection,
+    currentSelColor,
+    translationBaseRange,
+  } = useEditorSelection({ restoreState, onSelectionChange, topology });
 
   const handlePrimerDesign = useCallback(
     (mode) => {
@@ -701,6 +565,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
     alignmentCacheRef,
     primerSeedLength,
     tmParams,
+    projectId,
+    prefetchAlignments: !hidden && primerOverviewOpen,
   });
 
   const handleAddCurrentPrimerToMyPrimers = useCallback(() => {
@@ -930,143 +796,24 @@ const SequenceEditor = React.memo(function SequenceEditor({
     enrichedPrimers,
   });
 
-  // Notable alignment nodes (attention-plated runs, insertion blocks, track
-  // start/end) merged across the visible tracks, for the floating prev/next
-  // navigator.
-  const alignNavSites = useMemo(() => {
-    if (!isDna || !alignmentTracks.length) return [];
-    const all = new Set();
-    for (const al of alignmentTracks) {
-      for (const s of alignmentNotableSites(al, sequence, cleanSeq.length)) all.add(s);
-    }
-    return [...all].sort((a, b) => a - b);
-  }, [isDna, alignmentTracks, sequence, cleanSeq]);
-
-  // Navigation is row-granular: several nodes in one row collapse to a single
-  // stop, so a jump always lands on a different row and visibly moves.
-  const alignNavRows = useMemo(() => {
-    if (!alignNavSites.length) return [];
-    const rows = [];
-    let lastRow = -1;
-    for (const s of alignNavSites) {
-      const r = Math.min(numRows - 1, rowOf(s));
-      if (r !== lastRow) {
-        rows.push(r);
-        lastRow = r;
-      }
-    }
-    return rows;
-  }, [alignNavSites, rowOf, numRows]);
-
-  // Last jump target: repeated presses keep advancing from it as long as the
-  // user hasn't scrolled away; otherwise re-base on the topmost visible row.
-  // alignNavAnimRef holds a timer for the duration of a smooth jump, so a
-  // press mid-animation still advances from the jump target rather than the
-  // half-scrolled viewport. scrollY/liveScrollTopRef are left to the scroll
-  // listener so the virtualized rows render along the animated path.
-  const alignNavLastRef = useRef(null);
-  const alignNavAnimRef = useRef(null);
-  useEffect(
-    () => () => {
-      if (alignNavAnimRef.current) clearTimeout(alignNavAnimRef.current);
-    },
-    [],
-  );
-  const jumpToAlignSite = useCallback(
-    (dir) => {
-      if (continuous) {
-        if (!alignNavSites.length) return;
-        const el = containerRef?.current;
-        if (!el) return;
-        const leftNow = el.scrollLeft;
-        let baseSite;
-        const last = alignNavLastRef.current;
-        if (last && (alignNavAnimRef.current != null || Math.abs(leftNow - last.left) < 2)) {
-          baseSite = last.site;
-        } else {
-          baseSite = absFromStream(Math.max(0, (leftNow + el.clientWidth / 2 - startX) / cw));
-        }
-        let target;
-        if (dir > 0) {
-          for (const s of alignNavSites)
-            if (s > baseSite) {
-              target = s;
-              break;
-            }
-        } else {
-          for (let i = alignNavSites.length - 1; i >= 0; i--) {
-            if (alignNavSites[i] < baseSite) {
-              target = alignNavSites[i];
-              break;
-            }
-          }
-        }
-        if (target == null) return;
-        const newLeft = Math.max(
-          0,
-          startX + colVis(target - rowStarts[0], 0) * cw - el.clientWidth / 2,
-        );
-        el.scrollTo({ left: newLeft, behavior: 'smooth' });
-        alignNavLastRef.current = { site: target, left: newLeft };
-        if (alignNavAnimRef.current) clearTimeout(alignNavAnimRef.current);
-        alignNavAnimRef.current = setTimeout(() => {
-          alignNavAnimRef.current = null;
-        }, 500);
-        return;
-      }
-      if (!alignNavRows.length) return;
-      const scroller = scrollContainerRef?.current;
-      const topNow = scroller ? scroller.scrollTop : window.scrollY;
-      let baseRow;
-      const last = alignNavLastRef.current;
-      if (last && (alignNavAnimRef.current != null || Math.abs(topNow - last.top) < 2)) {
-        baseRow = last.row;
-      } else {
-        const row = rowAtSvgY(topNow);
-        baseRow = row >= 0 ? row : 0;
-      }
-      let target;
-      if (dir > 0) {
-        for (const r of alignNavRows)
-          if (r > baseRow) {
-            target = r;
-            break;
-          }
-      } else {
-        for (let i = alignNavRows.length - 1; i >= 0; i--) {
-          if (alignNavRows[i] < baseRow) {
-            target = alignNavRows[i];
-            break;
-          }
-        }
-      }
-      if (target == null) return;
-      const newTop = Math.max(0, rowY[target] - (rowAbove[target] || 0) - 40);
-      if (scroller) scroller.scrollTo({ top: newTop, behavior: 'smooth' });
-      else window.scrollTo({ top: newTop, behavior: 'smooth' });
-      alignNavLastRef.current = { row: target, top: newTop };
-      if (alignNavAnimRef.current) clearTimeout(alignNavAnimRef.current);
-      alignNavAnimRef.current = setTimeout(() => {
-        alignNavAnimRef.current = null;
-      }, 500);
-    },
-    [
-      alignNavRows,
-      alignNavSites,
-      scrollContainerRef,
-      containerRef,
-      continuous,
-      rowAtSvgY,
-      rowY,
-      rowAbove,
-      absFromStream,
-      colVis,
-      rowStarts,
-    ],
-  );
-  useEffect(() => {
-    if (alignNavRef) alignNavRef.current = jumpToAlignSite;
-  }, [alignNavRef, jumpToAlignSite]);
+  const { jumpToAlignSite } = useAlignmentNavigation({
+    isDna,
+    alignmentTracks,
+    sequence,
+    cleanSeq,
+    continuous,
+    alignNavRef,
+    containerRef,
+    scrollContainerRef,
+    absFromStream,
+    colVis,
+    rowStarts,
+    numRows,
+    rowOf,
+    rowY,
+    rowAbove,
+    rowAtSvgY,
+  });
 
   const handleSvgMouseDown = useCallback(
     (e) => {
@@ -1287,81 +1034,33 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
   }, [isPrimerDragging, enrichedPrimers]);
 
-  // --- Copy selection: mode = 'sense' | 'antisense' | 'translation' ---
-  const copySelection = useCallback(
-    (mode) => {
-      if (mode === 'translation') {
-        if (!translationSel) return;
-        const cds = cdsFeatureDataRef.current[translationSel.featureId];
-        if (!cds) return;
-        const s = Math.min(translationSel.startCodon, translationSel.endCodon);
-        const e = Math.max(translationSel.startCodon, translationSel.endCodon);
-        const aa = cds.trans
-          .slice(s, e + 1)
-          .map((t) => t.aa)
-          .join('');
-        navigator.clipboard.writeText(aa).catch(() => {});
-        return;
-      }
-
-      // When translation selection is active, sense/antisense should copy the
-      // selected codon bases (without gap regions).
-      if (translationSel && (mode === 'sense' || mode === 'antisense')) {
-        const cds = cdsFeatureDataRef.current[translationSel.featureId];
-        if (cds) {
-          const start = Math.min(translationSel.startCodon, translationSel.endCodon);
-          const end = Math.max(translationSel.startCodon, translationSel.endCodon);
-          const posSet = new Set();
-          for (let i = start; i <= end; i++) {
-            const t = cds.trans[i];
-            if (t) for (const b of t.bases) posSet.add(b);
-          }
-          const positions = [...posSet].sort((a, b) => a - b);
-          const dna = positions.map((p) => cleanSeq[p]).join('');
-          const text = mode === 'antisense' ? reverseComplement(dna) : dna;
-          if (mode === 'sense' && positions.length > 0) {
-            const rangeStart = positions[0];
-            const rangeEnd = positions[positions.length - 1];
-            const meta = collectAnnotations({ features, primers }, rangeStart, rangeEnd);
-            writeAnnotatedClipboard(text, meta);
-          } else {
-            navigator.clipboard.writeText(text).catch(() => {});
-          }
-          return;
-        }
-      }
-
-      if (!hasSelection) return;
-      const sense = sliceRange(cleanSeq, selStart, selEnd);
-      let text;
-      if (mode === 'antisense') {
-        text = reverseComplement(sense);
-      } else {
-        text = sense;
-      }
-      if (mode === 'sense' && hasSelection) {
-        const meta = collectAnnotations({ features, primers }, selStart, selEnd, cleanSeq.length);
-        writeAnnotatedClipboard(text, meta);
-      } else {
-        navigator.clipboard.writeText(text).catch(() => {});
-      }
-    },
-    [
-      hasSelection,
-      cleanSeq,
-      selStart,
-      selEnd,
-      translationSel,
-      cdsFeatureDataRef,
-      features,
-      primers,
-    ],
-  );
-
-  // --- Custom context menus (right-click) ---
-  const writeClipboard = useCallback((text) => {
-    if (text) navigator.clipboard.writeText(text).catch(() => {});
-  }, []);
+  const {
+    copySelection,
+    copyAmplimer,
+    writeClipboard,
+    pasteFromClipboard,
+    toUppercase,
+    toLowercase,
+  } = useEditorClipboard({
+    cleanSeq,
+    features,
+    primers,
+    translationSel,
+    cdsFeatureDataRef,
+    hasSelection,
+    selStart,
+    selEnd,
+    hasTranslationSelection,
+    selectionMode,
+    translationBaseRange,
+    selWraps,
+    cursorIndex,
+    onEditRequest,
+    hidden,
+    selectedPrimerIds,
+    enrichedPrimers,
+    topology,
+  });
 
   // Submit a sequence to NCBI BLAST (fixed preset per molecule type:
   // megablast/core_nt for DNA, blastp/nr for protein); the official results
@@ -1687,27 +1386,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     [enzymes, loadEnzymeDb, selectEnzymeSite],
   );
 
-  const copyAmplimer = useCallback(() => {
-    if (selectedPrimerIds.length !== 2) return;
-    const fp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[0]);
-    const rp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[1]);
-    const fwdPrimer = fp && fp.isFwd ? fp : rp;
-    const revPrimer = fp && !fp.isFwd ? fp : rp;
-    if (!fwdPrimer || !revPrimer) return;
-    // Linear template: no valid amplicon when the fwd primer is not upstream
-    if (topology !== 'circular' && fwdPrimer.matchEnd >= revPrimer.matchStart) return;
-    const fSeq = fwdPrimer.primerSeq || matchedSeqOf(fwdPrimer, cleanSeq);
-    const rSeq = revPrimer.primerSeq || matchedSeqOf(revPrimer, cleanSeq);
-    let intervening;
-    if (fwdPrimer.matchEnd < revPrimer.matchStart) {
-      intervening = cleanSeq.substring(fwdPrimer.matchEnd + 1, revPrimer.matchStart);
-    } else {
-      intervening =
-        cleanSeq.substring(fwdPrimer.matchEnd + 1) + cleanSeq.substring(0, revPrimer.matchStart);
-    }
-    writeClipboard(fSeq + intervening + reverseComplement(rSeq));
-  }, [selectedPrimerIds, enrichedPrimers, cleanSeq, writeClipboard, topology]);
-
   // Submit the current text selection to NCBI BLAST.
   const handleBlastSelection = useCallback(() => {
     if (!hasSelection) return;
@@ -1858,115 +1536,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
       handleOpenGel,
     ],
   );
-
-  // --- Paste: build insert/replace request from clipboard text ---
-  const requestPaste = useCallback(
-    (clipboardText, clipboardMeta = null) => {
-      if (!clipboardText || !onEditRequest) return;
-      if (selWraps) return; // replacing across the origin is not supported
-      if (hasTranslationSelection) {
-        const range = translationBaseRange();
-        if (!range) return;
-        const [minPos, maxPos] = range;
-        onEditRequest({
-          type: 'replace',
-          cursorIndex: minPos,
-          selStart: minPos,
-          selEnd: maxPos,
-          selectedText: cleanSeq.substring(minPos, maxPos + 1),
-          clipboardText,
-          clipboardMeta,
-        });
-        return;
-      }
-      if (hasSelection) {
-        onEditRequest({
-          type: 'replace',
-          cursorIndex: selStart,
-          selStart,
-          selEnd,
-          selectedText: cleanSeq.substring(selStart, selEnd + 1),
-          clipboardText,
-          clipboardMeta,
-        });
-      } else if (cursorIndex !== null) {
-        onEditRequest({
-          type: 'insert',
-          cursorIndex,
-          clipboardText,
-          clipboardMeta,
-        });
-      }
-    },
-    [
-      onEditRequest,
-      hasSelection,
-      hasTranslationSelection,
-      translationBaseRange,
-      selWraps,
-      cursorIndex,
-      selStart,
-      selEnd,
-      cleanSeq,
-    ],
-  );
-
-  const pasteFromClipboard = useCallback(() => {
-    navigator.clipboard
-      .readText()
-      .then((t) => {
-        if (!t) return;
-        const meta = readClipboardMeta(t);
-        requestPaste(t, meta);
-      })
-      .catch(() => {});
-  }, [requestPaste]);
-
-  // --- Case conversion on the current text selection (goes through replace dialog) ---
-  const convertSelectionCase = useCallback(
-    (toUpper) => {
-      if (hasTranslationSelection) {
-        // Use the min … max base range of selected codons (includes gaps).
-        const range = translationBaseRange();
-        if (!range || !onEditRequest) return;
-        const [minPos, maxPos] = range;
-        const selectedText = cleanSeq.substring(minPos, maxPos + 1);
-        onEditRequest({
-          type: 'replace',
-          cursorIndex: minPos,
-          selStart: minPos,
-          selEnd: maxPos,
-          selectedText,
-          clipboardText: toUpper ? selectedText.toUpperCase() : selectedText.toLowerCase(),
-        });
-        return;
-      }
-      if (!hasSelection || selWraps || selectionMode !== 'text' || !onEditRequest) return;
-      const selectedText = cleanSeq.substring(selStart, selEnd + 1);
-      onEditRequest({
-        type: 'replace',
-        cursorIndex: selStart,
-        selStart,
-        selEnd,
-        selectedText,
-        clipboardText: toUpper ? selectedText.toUpperCase() : selectedText.toLowerCase(),
-      });
-    },
-    [
-      hasSelection,
-      selWraps,
-      selectionMode,
-      hasTranslationSelection,
-      translationBaseRange,
-      onEditRequest,
-      cleanSeq,
-      selStart,
-      selEnd,
-    ],
-  );
-
-  const toUppercase = useCallback(() => convertSelectionCase(true), [convertSelectionCase]);
-  const toLowercase = useCallback(() => convertSelectionCase(false), [convertSelectionCase]);
 
   useEffect(() => {
     if (hidden) return undefined;
@@ -2420,26 +1989,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
     },
     [cleanSeq, normFeatures, allEnzymes, primers, selStart, cursorIndex, applySearchHit],
   );
-
-  // --- Paste event: read clipboard and trigger insert/replace dialog ---
-  useEffect(() => {
-    if (!onEditRequest || hidden) return undefined;
-    const onPaste = (e) => {
-      // Ignore paste in input/textarea (e.g. dialog textarea, search input)
-      const tag = e.target?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
-
-      // Get clipboard text synchronously from the paste event
-      const clipboardText = e.clipboardData?.getData('text') || '';
-      if (!clipboardText) return;
-
-      const meta = parseMetaFromPasteEvent(e) || readClipboardMeta(clipboardText);
-      e.preventDefault();
-      requestPaste(clipboardText, meta);
-    };
-    window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
-  }, [onEditRequest, requestPaste, hidden]);
 
   const svgHeight = rowY[rowY.length - 1] + Math.max(40, rowBelow[numRows - 1] + 24);
   avgRowPitchRef.current = numRows > 1 ? (rowY[numRows - 1] - rowY[0]) / (numRows - 1) : 60;
@@ -3005,59 +2554,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
           selEnd={selectionMode === 'text' ? selEnd : null}
         />
       )}
-      {designPick ? (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 16,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 40,
-          }}
-        >
-          <div className="nav-bar-enter flex items-center gap-3 rounded-full border-2 border-teal-700 bg-background/80 px-4 py-2 shadow-[0_10px_40px_rgba(15,118,110,0.5)] ring-4 ring-teal-700/15 backdrop-blur-md">
-            <span className="text-sm font-semibold text-teal-800">
-              {DESIGN_MODES[designPick.mode].prompts[designPick.segments.length]}
-            </span>
-            {designPickError && <span className="text-xs text-destructive">{designPickError}</span>}
-            <button
-              type="button"
-              onClick={cancelDesignPick}
-              className="rounded-full bg-muted/60 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : agentLocked ? (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 16,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 40,
-          }}
-        >
-          <div className="nav-bar-enter flex items-center gap-3 rounded-full border-2 border-teal-700 bg-background/80 px-4 py-2 shadow-[0_10px_40px_rgba(15,118,110,0.5)] ring-4 ring-teal-700/15 backdrop-blur-md">
-            <Bot className="size-4 shrink-0 text-teal-700" />
-            <span className="text-sm font-semibold text-teal-800">Controlled by an MCP agent</span>
-            <span className="text-xs text-muted-foreground">
-              Viewing and selecting work as usual; editing is disabled
-            </span>
-            <button
-              type="button"
-              onClick={onUnlockAgent}
-              className="rounded-full bg-muted/60 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <span className="flex items-center gap-1.5">
-                <LockOpen className="size-3.5" />
-                Unlock
-              </span>
-            </button>
-          </div>
-        </div>
-      ) : (
+      <EditorStatusBar
+        designPick={designPick}
+        designPickError={designPickError}
+        cancelDesignPick={cancelDesignPick}
+        agentLocked={agentLocked}
+        onUnlockAgent={onUnlockAgent}
+      />
+      {!designPick && !agentLocked && (
         <EditorNavMenu
           onSave={onSave}
           onSaveAs={onSaveAs}
@@ -3146,44 +2650,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onToggleThickFeatureLines={onToggleThickFeatureLines}
         />
       )}
-      {/* Floating prev/next navigator over the alignment tracks' notable
-          nodes; right edge, vertically centred, clear of the feature
-          scrollbar strip and the bottom-right badge. Hover paints the
-          hovered half with the alignment attention-plate colour. In
-          continuous mode the navigator lives in ProjectWorkspace, centred
-          just below the top horizontal scrollbar. */}
-      {isDna && alignmentTracks.length > 0 && !continuous && (
-        <div
-          style={{
-            position: 'fixed',
-            right: 28,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            zIndex: 40,
-            '--align-hilite': BASE_HILITE_BG,
-            '--align-hilite-soft': `${BASE_HILITE_BG}99`,
-          }}
-          className="nav-bar-enter flex flex-col items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
-        >
-          <button
-            type="button"
-            title="Previous alignment marker"
-            onClick={() => jumpToAlignSite(-1)}
-            className="rounded-t-full px-2 pb-1.5 pt-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
-          >
-            <ChevronUp className="mx-auto size-4" strokeWidth={2.25} />
-          </button>
-          <div className="mx-auto h-px w-3.5 bg-border/70" />
-          <button
-            type="button"
-            title="Next alignment marker"
-            onClick={() => jumpToAlignSite(1)}
-            className="rounded-b-full px-2 pb-2.5 pt-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
-          >
-            <ChevronDown className="mx-auto size-4" strokeWidth={2.25} />
-          </button>
-        </div>
-      )}
+      <AlignmentNavigator
+        show={isDna && alignmentTracks.length > 0}
+        continuous={continuous}
+        onJump={jumpToAlignSite}
+      />
       <div
         ref={mergeContainerRef}
         className={continuous ? 'hide-scrollbar' : undefined}
@@ -3448,66 +2919,41 @@ const SequenceEditor = React.memo(function SequenceEditor({
             />
           </svg>
         </div>
-        <FeatureInfoDialog
-          feature={featureInfoFeature}
-          open={featureInfoFeature !== null || createFeatureLoc !== null}
-          onOpenChange={(open) => {
-            if (!open) {
-              setFeatureInfoFeature(null);
-              setCreateFeatureLoc(null);
-            }
-          }}
+        <EditorDialogs
+          featureInfoFeature={featureInfoFeature}
+          createFeatureLoc={createFeatureLoc}
+          setFeatureInfoFeature={setFeatureInfoFeature}
+          setCreateFeatureLoc={setCreateFeatureLoc}
           onFtypeChange={onFeatureFtypeChange}
           onFeatureColorChange={onFeatureColorChange}
           onFeatureLocationChange={onFeatureLocationChange}
           onFeatureNameChange={onFeatureNameChange}
           onFeatureStrandChange={onFeatureStrandChange}
-          newFeatureLoc={createFeatureLoc}
           onFeatureAdd={onFeatureAdd}
           onDeleteFeature={onFeatureDelete}
           features={features}
           moleculeType={moleculeType}
-        />
-        <EnzymeDetailDialog
-          open={enzymeDetailRecord !== null}
-          onOpenChange={(open) => {
-            if (!open) setEnzymeDetailRecord(null);
-          }}
-          record={enzymeDetailRecord}
-          dbRecords={enzymeDbRef.current}
-          providerIndex={providerIndexRef.current}
-          cutSites={enzymeDetailCutSites}
-          plasmidLength={cleanSeq.length}
-          currentProvider={enzymeProvider}
-        />
-        <PrimerAlignmentDialog
-          primer={primerAlignmentPrimer}
-          alignmentData={primerAlignmentCache[primerAlignmentPrimer?.id]}
-          open={primerAlignmentPrimer !== null || createPrimerSeq !== null}
-          onOpenChange={(open) => {
-            if (!open) {
-              setPrimerAlignmentPrimer(null);
-              setCreatePrimerSeq(null);
-            }
-          }}
+          enzymeDetailRecord={enzymeDetailRecord}
+          setEnzymeDetailRecord={setEnzymeDetailRecord}
+          enzymeDbRef={enzymeDbRef}
+          providerIndexRef={providerIndexRef}
+          enzymeDetailCutSites={enzymeDetailCutSites}
+          cleanSeq={cleanSeq}
+          enzymeProvider={enzymeProvider}
+          primerAlignmentPrimer={primerAlignmentPrimer}
+          createPrimerSeq={createPrimerSeq}
+          setPrimerAlignmentPrimer={setPrimerAlignmentPrimer}
+          setCreatePrimerSeq={setCreatePrimerSeq}
+          primerAlignmentCache={primerAlignmentCache}
           seedLength={primerSeedLength}
-          newPrimerSeq={createPrimerSeq}
           onPrimerChange={onPrimerChange}
-          onDeletePrimer={onPrimerDelete}
+          onPrimerDelete={onPrimerDelete}
           primers={primers}
           tmParams={tmParams}
-        />
-        <PrimerDesignDialog
-          open={designDialog !== null}
-          onOpenChange={(open) => {
-            if (!open) setDesignDialog(null);
-          }}
-          mode={designDialog?.mode}
-          segments={designDialog?.segments}
-          sequence={cleanSeq}
+          projectId={projectId}
+          designDialog={designDialog}
+          setDesignDialog={setDesignDialog}
           topology={topology}
-          tmParams={tmParams}
-          onPrimerChange={onPrimerChange}
         />
       </div>
     </>

@@ -12,8 +12,8 @@ use libregene_core::primer;
 use libregene_core::project::ProjectManager;
 
 use crate::payload::{
-    broadcast_project_arcs, feature_mutation_response, filter_project, prune_orphan_bindings,
-    sidebar_project_list, with_projects_list, ProjectParams,
+    broadcast_project_arcs, broadcast_project_change_arcs, feature_mutation_response, filter_project,
+    prune_orphan_bindings, sidebar_project_list, with_projects_list, ProjectParams,
 };
 use crate::state::{validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS};
 
@@ -450,7 +450,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
         }
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
     Ok(())
 }
 
@@ -702,7 +702,7 @@ pub(crate) async fn do_add_features<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     Ok(feature_mutation_response(pm, wp, agent_tabs, project_id).await)
 }
@@ -736,7 +736,7 @@ pub(crate) async fn do_delete_feature<R: Runtime>(
         feats
     };
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
     Ok(with_projects_list(
@@ -773,7 +773,7 @@ where
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     Ok(feature_mutation_response(pm, wp, agent_tabs, project_id).await)
 }
@@ -842,7 +842,7 @@ pub(crate) async fn do_set_text_colors<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let data = {
         let pm = pm.read().await;
@@ -940,7 +940,7 @@ pub(crate) async fn do_add_primer<R: Runtime>(
         }
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {
@@ -986,7 +986,7 @@ pub(crate) async fn do_delete_primer<R: Runtime>(
         primers
     };
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
     Ok(with_projects_list(
@@ -1043,7 +1043,7 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let result = {
         let pm = pm.read().await;
@@ -1238,7 +1238,7 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
 
     let alignment_id = commit_computed_alignment(pm, project_id, &snapshot_ids, computed).await;
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let pm = pm.read().await;
     let payload = match pm.get_project_by_id(project_id) {
@@ -1270,7 +1270,7 @@ pub(crate) async fn do_remove_alignment<R: Runtime>(
         pm.remove_alignment(project_id, &alignment_id);
     }
 
-    broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
+    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {

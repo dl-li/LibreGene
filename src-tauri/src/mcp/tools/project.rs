@@ -524,7 +524,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 return Ok(fail(err));
             }
             let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
-            crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
+            crate::payload::broadcast_project_change_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, &id, None).await;
             let region = self.digest_region(&id, None, true, false).await;
             let mut env = ok_envelope(&id, format!("Saved {}", path), region);
             insert_seq_hashes(&mut env, &seq_hashes);

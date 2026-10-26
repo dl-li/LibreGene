@@ -11,6 +11,8 @@ export default function useEnrichedPrimers({
   alignmentCacheRef,
   primerSeedLength,
   tmParams,
+  projectId,
+  prefetchAlignments = false,
 }) {
   const [primerAlignmentCache, setPrimerAlignmentCache] = useState({});
 
@@ -99,26 +101,33 @@ export default function useEnrichedPrimers({
     setPrimerAlignmentCache({});
   }, [primers]);
 
-  // Pre-compute primer alignment data so the dialog has zero flash/width-jump.
   useEffect(() => {
+    if (!prefetchAlignments) {
+      setPrimerAlignmentCache({});
+      return undefined;
+    }
     let cancelled = false;
     async function prefetchAll() {
       const cache = {};
       const items = primers || [];
-      // Use Promise.allSettled for parallelism, but limit concurrency.
       const concurrency = 4;
       for (let i = 0; i < items.length; i += concurrency) {
         const batch = items.slice(i, i + concurrency);
         const results = await Promise.allSettled(
           batch.map((p) =>
-            computePrimerAlignment(p.id, primerSeedLength, undefined, undefined, tmParams),
+            computePrimerAlignment(
+              p.id,
+              primerSeedLength,
+              undefined,
+              undefined,
+              tmParams,
+              projectId,
+            ),
           ),
         );
         if (cancelled) return;
         for (let j = 0; j < batch.length; j++) {
-          if (results[j].status === 'fulfilled') {
-            cache[batch[j].id] = results[j].value;
-          }
+          if (results[j].status === 'fulfilled') cache[batch[j].id] = results[j].value;
         }
       }
       if (!cancelled) setPrimerAlignmentCache(cache);
@@ -127,7 +136,7 @@ export default function useEnrichedPrimers({
     return () => {
       cancelled = true;
     };
-  }, [primers, primerSeedLength, tmParams]);
+  }, [primers, primerSeedLength, tmParams, projectId, prefetchAlignments]);
 
   return { enrichedPrimers, unmatchedPrimers, primerAlignmentCache };
 }

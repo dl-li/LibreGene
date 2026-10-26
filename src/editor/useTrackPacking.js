@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { baseSeqY, cw, enzLabelW, getX, primerLabelW } from '../editorConstants';
 import { ensureReadableColor, shiftAbutLightness } from './colors';
 import { MAX_ENZ_LABEL_COLS } from './enzymeGeometry';
+import { buildSegmentRowIndex, entitiesInRowRange, visibleRowRange } from './rowIndex';
 
 // Track packing / row geometry: feature color normalization, feature+primer
 // track assignment, per-row enzyme track lifts, adaptive row spacing, the
@@ -161,11 +162,23 @@ export default function useTrackPacking({
           const lb = matchLen(b) + (b.mismatchStr?.length || 0);
           return lb - la || a.matchStart - b.matchStart;
         });
+        const primersByRow = buildSegmentRowIndex(sorted, rowOf, (p) => {
+          const segs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
+          const ml = p.mismatchStr?.length || 0;
+          return segs.map((m, mi) => {
+            const rawVs = isFwd && mi === 0 ? m.start - ml : m.start;
+            const rawVe = !isFwd && mi === segs.length - 1 ? m.end + ml : m.end;
+            return {
+              start: !isFwd && mi === 0 ? rawVs - 1 : rawVs,
+              end: isFwd && mi === segs.length - 1 ? rawVe + 1 : rawVe,
+            };
+          });
+        });
         for (let r = 0; r < numRows; r++) {
           const rs = rowStarts[r],
             re = rowStarts[r] + rowCounts[r] - 1;
           const rowTracks = [];
-          for (const p of sorted) {
+          for (const p of primersByRow[r] || []) {
             const ml = p.mismatchStr?.length || 0;
             const segs = p.matchSegs || [{ start: p.matchStart, end: p.matchEnd }];
             segs.forEach((m, mi) => {
@@ -236,12 +249,11 @@ export default function useTrackPacking({
 
       // Per-row feature track assignment — features only reserve space where they actually overlap
       const fRowTracks = {};
+      const featureRows = buildSegmentRowIndex(resultFeatures, rowOf);
       for (let r = 0; r < numRows; r++) {
         const rs = rowStarts[r],
           re = rowStarts[r] + rowCounts[r] - 1;
-        const rowFeats = resultFeatures.filter((f) =>
-          f.segments.some((seg) => !(seg.end < rs || seg.start > re)),
-        );
+        const rowFeats = [...(featureRows[r] || [])];
         rowFeats.sort((a, b) => {
           // ORFs get lowest track priority (bottom-most)
           if (!!a.orf !== !!b.orf) return a.orf ? 1 : -1;
@@ -330,7 +342,8 @@ export default function useTrackPacking({
           // counts as overlapping, so the primer drops below its track
           const vs = mi === 0 ? m.start - 1 : m.start,
             ve = mi === psegs.length - 1 ? m.end + ml : m.end;
-          for (const f of resultFeatures) {
+          const candidateFeatures = entitiesInRowRange(featureRows, vs, ve, rowOf);
+          for (const f of candidateFeatures) {
             for (const fseg of f.segments) {
               const isFRev = f.strand === '-';
               const hangsBelow = featureLabelsBelow;
@@ -708,30 +721,12 @@ export default function useTrackPacking({
   // all of them even when the visible range didn't actually move.
   const visibleRowsRef = useRef({ start: 0, end: 0 });
   const visibleRows = useMemo(() => {
-    let start = 0,
-      end = numRows - 1;
-    if (rowY.length) {
-      const vh = viewportH || 900;
-      const top = scrollY;
-      const bot = top + vh;
-      for (let r = 0; r < rowY.length; r++) {
-        if (rowY[r] + (rowBelow[r] || 0) > top) {
-          start = Math.max(0, r);
-          break;
-        }
-      }
-      for (let r = rowY.length - 1; r >= 0; r--) {
-        if (rowY[r] - (rowAbove[r] || 0) < bot) {
-          end = Math.min(numRows - 1, r + 1);
-          break;
-        }
-      }
-    }
+    const next = visibleRowRange(rowY, rowAbove, rowBelow, scrollY, viewportH);
     const prev = visibleRowsRef.current;
-    if (prev.start === start && prev.end === end) return prev;
-    visibleRowsRef.current = { start, end };
+    if (prev.start === next.start && prev.end === next.end) return prev;
+    visibleRowsRef.current = next;
     return visibleRowsRef.current;
-  }, [rowY, rowAbove, rowBelow, scrollY, viewportH, numRows]);
+  }, [rowY, rowAbove, rowBelow, scrollY, viewportH]);
 
   // Virtualize features: only render those overlapping the visible range
   const visibleFeatures = useMemo(() => {

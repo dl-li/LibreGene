@@ -80,6 +80,7 @@ export function renderGcTrack(ctx, lane) {
     idPrefix,
     colVis,
     colRuns,
+    colFromVis,
     visibleCols,
     trackYOffset = 0,
   } = ctx;
@@ -95,16 +96,21 @@ export function renderGcTrack(ctx, lane) {
     // Bucket columns into fixed-width visual blocks; narrow rows stay a
     // single block exactly as before.
     const nBlocks = rowVisW > GC_CHUNK * 2 ? Math.ceil(rowVisW / GC_CHUNK) : 1;
-    const blocks = Array.from({ length: nBlocks }, () => []);
-    for (let i = 0; i < count; i++) {
-      blocks[Math.min(nBlocks - 1, Math.floor(colVis(i, r) / GC_CHUNK))].push(i);
-    }
-    for (let b = 0; b < nBlocks; b++) {
-      const cols = blocks[b];
-      if (!cols.length) continue;
+    const firstBlock = visibleCols ? Math.max(0, Math.floor(visibleCols.start / GC_CHUNK)) : 0;
+    const lastBlock = visibleCols
+      ? Math.min(nBlocks - 1, Math.floor(visibleCols.end / GC_CHUNK))
+      : nBlocks - 1;
+    for (let b = firstBlock; b <= lastBlock; b++) {
       const bvs = b * GC_CHUNK;
       const bve = Math.min(bvs + GC_CHUNK, rowVisW);
-      if (visibleCols && (bve < visibleCols.start || bvs > visibleCols.end)) continue;
+      const cols = [];
+      const iStart = Math.min(count, colFromVis(bvs, r));
+      const iEnd = Math.min(count - 1, colFromVis(bve, r));
+      for (let i = iStart; i <= iEnd; i++) {
+        const vis = colVis(i, r);
+        if (vis >= bvs && vis < bve) cols.push(i);
+      }
+      if (!cols.length) continue;
       const gid = `${idPrefix}-gc-${r}-${b}`;
       const x0 = getX(bvs);
       const x1 = getX(bve);
@@ -136,9 +142,11 @@ export function renderGcTrack(ctx, lane) {
       );
     }
     // Border once per row (not per block) so chunked gradients show no seams.
+    const borderC0 = visibleCols ? Math.min(count, colFromVis(visibleCols.start, r)) : 0;
+    const borderC1 = visibleCols ? Math.min(count - 1, colFromVis(visibleCols.end, r)) : count - 1;
     rows.push(
       <g key={`${r}-border`}>
-        {colRuns(0, count - 1, r).map(([visStart, len]) => (
+        {colRuns(borderC0, borderC1, r).map(([visStart, len]) => (
           <rect
             key={visStart}
             x={getX(visStart)}

@@ -10,8 +10,7 @@ use crate::kernels::{
     parse_align_algorithm,
 };
 use crate::payload::{
-    broadcast_project, filter_project, prune_orphan_bindings, resolve_project_id,
-    with_projects_list, ProjectParams,
+    filter_project, prune_orphan_bindings, resolve_project_id, with_projects_list, ProjectParams,
 };
 use crate::state::{validate_user_path, AppState, SEQ_EXTS};
 
@@ -93,7 +92,7 @@ pub(crate) async fn add_alignment(
 
     let _ = commit_computed_alignment(&state.pm, &project_id, &snapshot_ids, computed).await;
 
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
+    crate::payload::broadcast_project_for_id(&app_handle, &state, &project_id, Some(webview_window.label())).await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {

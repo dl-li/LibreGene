@@ -4,6 +4,20 @@
  * Tauri-desktop-only. Uses invoke() for IPC commands and listen() for events.
  */
 
+import type {
+  Chromatogram,
+  Feature,
+  MoleculeType,
+  Primer,
+  PrimerAlignmentResult,
+  ProjectListResponse,
+  ProjectMutationResponse,
+  ProjectUpdateEvent,
+  TextColorRange,
+  TmParams,
+  Topology,
+} from './contracts';
+
 // Detect if running inside Tauri
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -46,7 +60,7 @@ export async function setWindowTitle(title) {
   }
 }
 
-async function tauriInvoke(cmd, args) {
+async function tauriInvoke<T = any>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!invoke) {
     const mod = await import('@tauri-apps/api/core');
     invoke = mod.invoke;
@@ -82,11 +96,14 @@ async function tauriSave(options) {
 // Project
 // ---------------------------------------------------------------------------
 
-export async function getProject(filter = 'unique', cpl = 60) {
+export async function getProject(filter = 'unique', cpl = 60): Promise<ProjectMutationResponse> {
   return tauriInvoke('get_project', { enzymeFilter: filter, cpl });
 }
 
-export async function openFile(path, recordIndex) {
+export async function openFile(
+  path: string,
+  recordIndex?: number,
+): Promise<ProjectMutationResponse> {
   return tauriInvoke('open_file', { path, recordIndex: recordIndex ?? null });
 }
 
@@ -110,7 +127,7 @@ export async function peekFastaRecords(path) {
  * @param {'circular'|'linear'} args.topology
  * @param {Array<{name:string,ftype:string,color:string,strand:string,segments:Array<{start:number,end:number}>}>} [args.features]
  */
-export async function createProject(args = {}) {
+export async function createProject(args: any = {}) {
   return tauriInvoke('create_project', {
     name: args.name,
     sequence: args.sequence,
@@ -153,7 +170,13 @@ export async function setDefaultFileAssociations() {
 // Sequence
 // ---------------------------------------------------------------------------
 
-export async function updateSequence(sequence, features, primers, textColorsTop, textColorsBottom) {
+export async function updateSequence(
+  sequence: string,
+  features?: Feature[],
+  primers?: Primer[],
+  textColorsTop?: TextColorRange[],
+  textColorsBottom?: TextColorRange[],
+): Promise<ProjectMutationResponse> {
   assertEditable();
   return tauriInvoke('update_sequence', {
     sequence,
@@ -238,12 +261,13 @@ export async function checkPrimersBinding(primers) {
 }
 
 export async function computePrimerAlignment(
-  primerId,
-  seedLength,
-  customSeq,
-  customName,
-  tmParams = {},
-) {
+  primerId: string | null,
+  seedLength?: number,
+  customSeq?: string,
+  customName?: string,
+  tmParams: TmParams = {},
+  projectId?: string,
+): Promise<PrimerAlignmentResult> {
   return tauriInvoke('compute_primer_alignment', {
     primerId: primerId || null,
     seedLength,
@@ -254,6 +278,7 @@ export async function computePrimerAlignment(
     dntpConc: tmParams.dntpConc ?? null,
     trisConc: tmParams.trisConc ?? null,
     primerConc: tmParams.primerConc ?? null,
+    projectId: projectId ?? null,
   });
 }
 
@@ -332,15 +357,15 @@ export async function getEnzymeProviders() {
 // Multi-project
 // ---------------------------------------------------------------------------
 
-export async function getProjects() {
+export async function getProjects(): Promise<ProjectListResponse> {
   return tauriInvoke('get_projects');
 }
 
-export async function getProjectById(id, filter = 'all') {
+export async function getProjectById(id: string, filter = 'all'): Promise<ProjectMutationResponse> {
   return tauriInvoke('get_project_by_id', { id, enzymeFilter: filter });
 }
 
-export async function activateProject(id) {
+export async function activateProject(id: string): Promise<ProjectMutationResponse> {
   return tauriInvoke('activate_project', { id });
 }
 
@@ -427,7 +452,7 @@ export function listenQuitRequested(callback) {
 // Tm
 // ---------------------------------------------------------------------------
 
-export async function computeTm(seq, tmParams = {}) {
+export async function computeTm(seq, tmParams: TmParams = {}) {
   return tauriInvoke('compute_tm', {
     seq,
     naConc: tmParams.naConc ?? null,
@@ -504,7 +529,7 @@ export async function annotateFeatures() {
  * @param {string} [args.mutSeq] mutagenesis replacement sequence
  * @param {object} [args.tmParams] concentration overrides (naConc/mgConc/dntpConc/trisConc/primerConc)
  */
-export async function designPrimerCandidates(args = {}) {
+export async function designPrimerCandidates(args: any = {}) {
   const tmParams = args.tmParams || {};
   return tauriInvoke('design_primer_candidates', {
     mode: args.mode,
@@ -546,7 +571,7 @@ export async function listCodonSpecies() {
  * @param {string[]} [args.avoidEnzymeSites] recognition sequences to avoid
  * @param {[number,number,number]} [args.gcWindow] (windowBp, minGC, maxGC)
  */
-export async function previewCodonOptimization(args = {}) {
+export async function previewCodonOptimization(args: any = {}) {
   return tauriInvoke('preview_codon_optimization', {
     featureId: args.featureId,
     species: args.species,
@@ -559,7 +584,7 @@ export async function previewCodonOptimization(args = {}) {
 }
 
 /** Apply a codon optimization (same args as preview); returns summary + { ok, message }. */
-export async function applyCodonOptimization(args = {}) {
+export async function applyCodonOptimization(args: any = {}) {
   assertEditable();
   return tauriInvoke('apply_codon_optimization', {
     featureId: args.featureId,
@@ -578,7 +603,7 @@ export async function applyCodonOptimization(args = {}) {
 
 export async function openFileDialog(defaultPath) {
   if (!isTauri) return null;
-  const opts = {
+  const opts: any = {
     title: 'Open GenBank/DNA/RNA/Protein files',
     filters: [
       {

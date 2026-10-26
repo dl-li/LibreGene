@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import SequenceEditor from './SequenceEditor';
 import {
   getProjectById,
@@ -15,7 +14,7 @@ import {
 import { orientChromatogram } from './chromatogram';
 import FeatureScrollbar from './components/FeatureScrollbar';
 import ContinuousOverview from './components/ContinuousOverview';
-import { BASE_HILITE_BG } from './editor/alignmentLayout';
+import ContinuousAlignmentNavigator from './workspace/ContinuousAlignmentNavigator';
 import { mapTextColorPalette } from './editor/textColors';
 import MapView from './MapView';
 import {
@@ -490,13 +489,13 @@ export default function ProjectWorkspace({
   const chromRawRef = useRef(new Map());
   const [chromVersion, setChromVersion] = useState(0);
   const neededTracePaths = useMemo(() => {
+    if (hidden) return [];
     const paths = new Set();
     if (tracePath) paths.add(tracePath);
-    for (const al of alignments) {
-      if (al.tracePath) paths.add(al.tracePath);
-    }
+    const expanded = alignments.find((al) => al.id === expandedChromAlnId);
+    if (expanded?.tracePath) paths.add(expanded.tracePath);
     return [...paths];
-  }, [tracePath, alignments]);
+  }, [tracePath, alignments, expandedChromAlnId, hidden]);
   useEffect(() => {
     // StrictMode double-runs effects in dev: the in-flight marker must not
     // gate the result away, and resolved data is written unconditionally
@@ -532,20 +531,17 @@ export default function ProjectWorkspace({
     if (raw) out[al.id] = orientChromatogram(raw, al.strand);
     return out;
   }, [alignments, expandedChromAlnId, chromVersion]);
-  const alignmentTraceAvailable = useMemo(() => {
-    const s = new Set();
-    for (const al of alignments) {
-      if (al.tracePath && chromRawRef.current.get(al.tracePath)) s.add(al.id);
-    }
-    return s;
-  }, [alignments, chromVersion]);
+  const alignmentTraceAvailable = useMemo(
+    () => new Set(alignments.filter((al) => al.tracePath).map((al) => al.id)),
+    [alignments],
+  );
   const toggleAlignmentChrom = useCallback((id) => {
     setExpandedChromAlnId((cur) => (cur === id ? null : id));
   }, []);
 
   const [providerIndex, setProviderIndex] = useState(null);
   useEffect(() => {
-    if (enzymeProvider === 'all' || providerIndex) return;
+    if (hidden || enzymeProvider === 'all' || providerIndex) return;
     let cancelled = false;
     loadProviderData().then((data) => {
       if (!cancelled) setProviderIndex(buildProviderIndex(data));
@@ -553,7 +549,7 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [enzymeProvider, providerIndex]);
+  }, [enzymeProvider, providerIndex, hidden]);
 
   const setFilteredEnzymes = useMemo(() => {
     // Enzymes only exist for DNA; rna/protein render sequence + features only.
@@ -1022,6 +1018,8 @@ export default function ProjectWorkspace({
               onPrimerDelete={handleDeletePrimer}
               onPrimerDeleteRequest={setPrimerDeleteConfirm}
               primerSeedLength={primerSeedLength}
+              primerOverviewOpen={primerOverviewOpen}
+              projectId={projectId}
               tmParams={tmParams}
               caseDisplay={caseDisplay}
               onSelectionChange={handleSelectionChange}
@@ -1167,34 +1165,11 @@ export default function ProjectWorkspace({
                 highlightPositions={enzymeHoverCuts}
                 leftInset={leftViewportInset}
               />
-              {isDna && visibleAlignments.length > 0 && (
-                <div
-                  style={{
-                    transform: `translateX(calc(-50% + ${alignNavShift}px))`,
-                    '--align-hilite': BASE_HILITE_BG,
-                    '--align-hilite-soft': `${BASE_HILITE_BG}99`,
-                  }}
-                  className="nav-bar-enter pointer-events-auto absolute left-1/2 top-full z-40 mt-1.5 flex flex-row items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
-                >
-                  <button
-                    type="button"
-                    title="Previous alignment marker"
-                    onClick={() => alignNavRef.current?.(-1)}
-                    className="rounded-l-full py-2 pl-2.5 pr-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
-                  >
-                    <ChevronLeft className="mx-auto size-4" strokeWidth={2.25} />
-                  </button>
-                  <div className="my-auto h-3.5 w-px bg-border/70" />
-                  <button
-                    type="button"
-                    title="Next alignment marker"
-                    onClick={() => alignNavRef.current?.(1)}
-                    className="rounded-r-full py-2 pl-1.5 pr-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
-                  >
-                    <ChevronRight className="mx-auto size-4" strokeWidth={2.25} />
-                  </button>
-                </div>
-              )}
+              <ContinuousAlignmentNavigator
+                show={isDna && visibleAlignments.length > 0}
+                shift={alignNavShift}
+                alignNavRef={alignNavRef}
+              />
             </div>
           )}
 

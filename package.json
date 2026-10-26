@@ -9,10 +9,13 @@
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "benchmark:layout": "node scripts/benchmark-layout.mjs",
+    "benchmark:core": "cargo run --manifest-path backend/Cargo.toml -p libregene-core --example recompute_benchmark --release"
   },
   "keywords": [],
   "author": "",
@@ -48,6 +51,7 @@
     "esbuild": "^0.28.0",
     "eslint": "^9.39.0",
     "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.9.5",
     "typescript": "^7.0.2",
     "typescript-language-server": "^5.3.0",
