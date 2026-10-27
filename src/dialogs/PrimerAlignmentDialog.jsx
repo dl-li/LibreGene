@@ -155,7 +155,9 @@ function OtherBindingSite({ alt }) {
       {expanded && (
         <div className="mx-2 mb-2 overflow-auto rounded-md border border-orange-100 bg-muted/30 px-3 py-2 text-foreground">
           {alt.alignment ? (
-            <AlignmentView data={alt} primerColor="#C2410C" />
+            <div className="flex justify-center">
+              <AlignmentView data={alt} primerColor="#C2410C" />
+            </div>
           ) : (
             <div className="text-xs text-muted-foreground">
               Alignment unavailable for this site.
