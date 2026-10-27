@@ -5,10 +5,12 @@ fn main() {
     {
         attrs =
             attrs.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+        let manifest = std::env::current_dir()
+            .unwrap()
+            .join("windows-app-manifest.xml");
+        println!("cargo:rerun-if-changed={}", manifest.display());
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
-        println!(
-            "cargo:rustc-link-arg=/MANIFESTDEPENDENCY:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\""
-        );
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
     }
     tauri_build::try_build(attrs).expect("failed to run tauri_build");
 }
