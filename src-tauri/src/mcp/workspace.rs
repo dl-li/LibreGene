@@ -349,8 +349,8 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
             }
             let (c1, c2) = (cuts[0].min(cuts[1]), cuts[0].max(cuts[1]));
             if circular {
-                let fwd = fragment_pieces(project, c1, c2).map_err(&fail)?;
-                let rev = fragment_pieces(project, c2, c1).map_err(&fail)?;
+                let fwd = fragment_pieces(project, c1, c2).map_err(fail)?;
+                let rev = fragment_pieces(project, c2, c1).map_err(fail)?;
                 Ok(vec![
                     FragmentSpec { pieces: fwd, flip: false, desc: format!("{} fragment 1 of {}", name, label) },
                     FragmentSpec { pieces: rev, flip: false, desc: format!("{} fragment 2 of {}", name, label) },
@@ -381,7 +381,7 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
             }
             let (c1, c2) = (cuts1[0], cuts2[0]);
             if circular {
-                let pieces = fragment_pieces(project, c1, c2).map_err(&fail)?;
+                let pieces = fragment_pieces(project, c1, c2).map_err(fail)?;
                 Ok(vec![FragmentSpec {
                     pieces,
                     flip: false,
