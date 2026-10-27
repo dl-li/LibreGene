@@ -372,7 +372,7 @@ pub(crate) fn compute_primer_alignment_sync(
 
     let mut results = Vec::new();
 
-    for (idx, c) in candidates.iter().enumerate() {
+    for c in &candidates {
         let tp = c.tp_3prime;
         let raw_start = (tp as i64) - (expansion as i64) - (plen as i64) + seed_len as i64;
         let win_start = if is_circular {
@@ -395,48 +395,44 @@ pub(crate) fn compute_primer_alignment_sync(
             tpl_bytes[win_start..win_end].to_vec()
         };
 
-        if idx == 0 {
-            let sw_ok = if c.is_rev {
-                libregene_core::primer::alignment::align_first_base_constrained_rev(
-                    &rev_bytes, &template_region,
-                ).map(|result| {
-                    let text = libregene_core::primer::display::format_alignment_text(
-                        &orig_rev_bytes, &template_region, &result,
-                        "Template", primer_name, win_start, true,
-                        tlen, is_circular,
-                    );
-                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(&rev_bytes, &result, tm_params);
-                    results.push(serde_json::json!({
-                        "tm": (sw_tm * 10.0).round() / 10.0,
-                        "strand": -1,
-                        "start": (result.template_start + win_start) as i64,
-                        "end": (result.template_end + win_start) as i64,
-                        "alignment": text,
-                    }));
-                })
-            } else {
-                libregene_core::primer::alignment::align_3prime_constrained(
-                    primer_bytes, &template_region,
-                ).map(|result| {
-                    let text = libregene_core::primer::display::format_alignment_text(
-                        orig_bytes, &template_region, &result,
-                        "Template", primer_name, win_start, false,
-                        tlen, is_circular,
-                    );
-                    let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(primer_bytes, &result, tm_params);
-                    results.push(serde_json::json!({
-                        "tm": (sw_tm * 10.0).round() / 10.0,
-                        "strand": 1,
-                        "start": (result.template_start + win_start) as i64,
-                        "end": (result.template_end + win_start) as i64,
-                        "alignment": text,
-                    }));
-                })
-            };
-            if sw_ok.is_none() {
-                results.push(fallback_site_json(c, tp));
-            }
+        let sw_ok = if c.is_rev {
+            libregene_core::primer::alignment::align_first_base_constrained_rev(
+                &rev_bytes, &template_region,
+            ).map(|result| {
+                let text = libregene_core::primer::display::format_alignment_text(
+                    &orig_rev_bytes, &template_region, &result,
+                    "Template", primer_name, win_start, true,
+                    tlen, is_circular,
+                );
+                let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(&rev_bytes, &result, tm_params);
+                results.push(serde_json::json!({
+                    "tm": (sw_tm * 10.0).round() / 10.0,
+                    "strand": -1,
+                    "start": (result.template_start + win_start) as i64,
+                    "end": (result.template_end + win_start) as i64,
+                    "alignment": text,
+                }));
+            })
         } else {
+            libregene_core::primer::alignment::align_3prime_constrained(
+                primer_bytes, &template_region,
+            ).map(|result| {
+                let text = libregene_core::primer::display::format_alignment_text(
+                    orig_bytes, &template_region, &result,
+                    "Template", primer_name, win_start, false,
+                    tlen, is_circular,
+                );
+                let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(primer_bytes, &result, tm_params);
+                results.push(serde_json::json!({
+                    "tm": (sw_tm * 10.0).round() / 10.0,
+                    "strand": 1,
+                    "start": (result.template_start + win_start) as i64,
+                    "end": (result.template_end + win_start) as i64,
+                    "alignment": text,
+                }));
+            })
+        };
+        if sw_ok.is_none() {
             results.push(fallback_site_json(c, tp));
         }
     }

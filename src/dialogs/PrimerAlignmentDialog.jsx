@@ -8,7 +8,16 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
-import { Repeat, Trash2, AlertTriangle, RotateCcw, Copy, Check } from 'lucide-react';
+import {
+  Repeat,
+  Trash2,
+  AlertTriangle,
+  RotateCcw,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
 import { monoFont } from '../editorConstants';
 import { computePrimerAlignment } from '../tauriApi';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
@@ -56,13 +65,13 @@ function reverseComplement(seq) {
     .join('');
 }
 
-function AlignmentView({ data }) {
+export function AlignmentView({ data, primerColor: primerColorOverride }) {
   if (!data?.alignment) return null;
   const lines = data.alignment.split('\n');
   // Line 4 (index 3) has the arrow indicators → detect rev from "3' <".
   const primerArrowLine = lines[3] || '';
   const isRev = primerArrowLine.includes("3' <");
-  const primerColor = isRev ? COLORS.rev : COLORS.fwd;
+  const primerColor = primerColorOverride || (isRev ? COLORS.rev : COLORS.fwd);
 
   // Forward: primer on top, markers below the template line (↑ points up at
   // the template). Reverse: template on top, markers above it (↓ points
@@ -109,6 +118,69 @@ function AlignmentView({ data }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function OtherBindingSite({ alt }) {
+  const [expanded, setExpanded] = useState(false);
+  const dir = alt.strand === -1 ? 'R' : 'F';
+  return (
+    <div
+      className={`rounded-lg border bg-card transition-colors ${
+        expanded ? 'border-orange-300 shadow-sm' : 'border-orange-200/70 hover:border-orange-300'
+      }`}
+    >
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
+      >
+        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-orange-100 text-orange-700">
+          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        </span>
+        <span className="rounded bg-orange-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-orange-700">
+          {dir}
+        </span>
+        <span className="font-mono text-xs font-medium tabular-nums text-foreground/80">
+          {alt.start + 1}..{alt.end}
+        </span>
+        {alt.tm != null && (
+          <span className="ml-auto pr-1 text-[11px] tabular-nums text-muted-foreground">
+            Tm <span className="font-medium text-orange-700">{alt.tm}°C</span>
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="mx-2 mb-2 overflow-auto rounded-md border border-orange-100 bg-muted/30 px-3 py-2 text-foreground">
+          {alt.alignment ? (
+            <AlignmentView data={alt} primerColor="#C2410C" />
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              Alignment unavailable for this site.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function OtherBindingSites({ sites }) {
+  return (
+    <div className="max-h-[36vh] overflow-auto rounded-xl border border-orange-200/80 bg-orange-50/50 p-2">
+      <div className="flex items-center justify-between px-1 pb-1.5 text-xs">
+        <span className="font-medium text-orange-800">Other binding sites</span>
+        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-orange-700">
+          {sites.length}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {sites.map((alt, i) => (
+          <OtherBindingSite key={`${alt.strand}:${alt.start}:${alt.end}:${i}`} alt={alt} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -457,23 +529,7 @@ export default function PrimerAlignmentDialog({
           )}
         </div>
 
-        {/* Bottom banner: other binding sites */}
-        {cur && alts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-            <span className="font-medium opacity-80">Other binding sites:</span>
-            {alts.map((alt, i) => {
-              const dir = alt.strand === -1 ? 'R' : 'F';
-              return (
-                <span key={i} className="inline-flex items-center gap-1">
-                  <span className="font-semibold">{dir}</span>
-                  <span className="opacity-70 tabular-nums">
-                    {alt.start + 1}..{alt.end}
-                  </span>
-                </span>
-              );
-            })}
-          </div>
-        )}
+        {cur && alts.length > 0 && <OtherBindingSites sites={alts} />}
 
         {/* Invalid character warning */}
         {isInvalid && (

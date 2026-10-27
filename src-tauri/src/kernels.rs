@@ -1700,6 +1700,25 @@ mod tests {
 
 
     #[test]
+    fn primer_alignment_includes_all_alternative_sites() {
+        let tm = libregene_core::primer::thermodynamics::TmParams {
+            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+        };
+        let res = compute_primer_alignment_sync(
+            "ACGTACGTACGTACGT", false, "repeat-primer", "ACGTAC", Some(6), &tm,
+        )
+        .expect("alignment computation failed");
+        let alternatives = res["alternatives"].as_array().expect("alternatives missing");
+        assert!(!alternatives.is_empty());
+        for site in alternatives {
+            let alignment = site["alignment"]
+                .as_str()
+                .unwrap_or_else(|| panic!("alternative alignment missing: {site}"));
+            assert!(!alignment.trim().is_empty());
+        }
+    }
+
+    #[test]
     fn validate_path_accepts_normal_sequence_file() {
         assert_eq!(validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(), "gbk");
         assert_eq!(validate_user_path("plasmid.fa", SEQ_EXTS).unwrap(), "fa");
