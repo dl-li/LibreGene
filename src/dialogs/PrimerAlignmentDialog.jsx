@@ -232,6 +232,7 @@ export default function PrimerAlignmentDialog({
   const [preview, setPreview] = useState(null); // { data, loading, error }
   const [confirmClose, setConfirmClose] = useState(false);
   const [primerType, setPrimerType] = useState('fwd');
+  const sequenceInputRef = useRef(null);
 
   const isNewPrimer = !primer && newPrimerSeq !== undefined;
 
@@ -429,6 +430,12 @@ export default function PrimerAlignmentDialog({
       <DialogContent
         className="max-h-[80vh] flex flex-col"
         style={{ maxWidth: dialogWidth, width: dialogWidth }}
+        onOpenAutoFocus={(e) => {
+          if (isNewPrimer) {
+            e.preventDefault();
+            sequenceInputRef.current?.focus();
+          }
+        }}
         onEscapeKeyDown={(e) => {
           // First Esc dismisses only the discard-confirmation overlay.
           if (confirmClose) {
@@ -465,6 +472,7 @@ export default function PrimerAlignmentDialog({
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">5'</span>
             <input
+              ref={sequenceInputRef}
               value={editSeq}
               onChange={(e) => setEditSeq(e.target.value)}
               className={
