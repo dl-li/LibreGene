@@ -168,6 +168,20 @@ export interface ProjectUpdateEvent extends ProjectListResponse {
   changedProjectId?: string | null;
 }
 
+export interface SessionEditEntry {
+  id: number;
+  timestamp: number;
+  origin: 'user' | 'agent';
+  saved: boolean;
+  summary: string;
+  details: string[];
+}
+
+export interface SessionEditLogResponse {
+  projectId: string;
+  entries: SessionEditEntry[];
+}
+
 export interface TmParams {
   naConc?: number;
   mgConc?: number;

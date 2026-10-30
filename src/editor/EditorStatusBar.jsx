@@ -1,4 +1,4 @@
-import { Bot, LockOpen } from 'lucide-react';
+import { Bot, History, LockOpen } from 'lucide-react';
 import { DESIGN_MODES } from '../plugins/builtin/primerDesign';
 
 export default function EditorStatusBar({
@@ -7,6 +7,7 @@ export default function EditorStatusBar({
   cancelDesignPick,
   agentLocked,
   onUnlockAgent,
+  onOpenSessionEditLog,
 }) {
   if (!designPick && !agentLocked) return null;
   return (
@@ -33,6 +34,14 @@ export default function EditorStatusBar({
             <span className="text-xs text-muted-foreground">
               Viewing and selecting work as usual; editing is disabled
             </span>
+            <button
+              type="button"
+              onClick={onOpenSessionEditLog}
+              className="inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              <History className="size-3.5" />
+              Edit Log
+            </button>
             <button
               type="button"
               onClick={onUnlockAgent}

@@ -10,6 +10,7 @@ mod commands;
 mod kernels;
 mod mcp;
 mod payload;
+mod session_log;
 mod state;
 mod tray;
 
@@ -60,6 +61,7 @@ pub fn run() {
             window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
             workspace: Arc::new(RwLock::new(Vec::new())),
+            session_edit_log: Arc::new(RwLock::new(Default::default())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -121,6 +123,8 @@ pub fn run() {
             commands::projects::save_file,
             commands::projects::write_text_file,
             commands::projects::read_text_file,
+            commands::session_log::get_session_edit_log,
+            commands::session_log::rollback_session_edit,
             commands::default_app::set_default_file_associations,
             commands::seqedit::update_sequence,
             commands::seqedit::set_text_colors,

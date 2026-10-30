@@ -94,6 +94,9 @@ pub struct AppState {
     /// all, and nothing survives process exit. Same lock-order rule as
     /// `agent_tabs`: never held together with `pm` or `window_projects`.
     pub workspace: crate::mcp::Workspace,
+    /// Session-only edit history. Lock order: `pm` before this lock;
+    /// never take `pm` while holding it.
+    pub session_edit_log: crate::session_log::SessionEditLog,
     /// Paths handed to us by the OS (Open With / double-click / second
     /// instance) that the frontend hasn't consumed yet. The frontend drains
     /// this via `take_pending_opens` on mount so cold-start events that

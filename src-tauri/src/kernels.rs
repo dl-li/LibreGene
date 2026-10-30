@@ -1946,6 +1946,7 @@ mod tests {
             window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
             workspace: Arc::new(RwLock::new(Vec::new())),
+            session_edit_log: Arc::new(RwLock::new(Default::default())),
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         });

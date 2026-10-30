@@ -150,6 +150,15 @@ export async function saveFile(path) {
   return tauriInvoke('save_file', { path });
 }
 
+export async function getSessionEditLog(projectId: string) {
+  return tauriInvoke('get_session_edit_log', { projectId });
+}
+
+export async function rollbackSessionEdit(projectId: string, entryId: number) {
+  assertEditable();
+  return tauriInvoke('rollback_session_edit', { projectId, entryId });
+}
+
 export async function writeTextFile(path, contents) {
   return tauriInvoke('write_text_file', { path, contents });
 }
@@ -732,6 +741,19 @@ export function listenProjectUpdates(callback) {
   // unlisten function would be assigned to a discarded closure and the
   // backend subscription would leak.
   const ready = tauriListen('project-update', (event) => {
+    if (!closed) callback(event.payload);
+  });
+  return {
+    close: () => {
+      closed = true;
+      ready.then((fn) => fn()).catch(() => {});
+    },
+  };
+}
+
+export function listenSessionEditLog(callback) {
+  let closed = false;
+  const ready = tauriListen('session-edit-log-update', (event) => {
     if (!closed) callback(event.payload);
   });
   return {

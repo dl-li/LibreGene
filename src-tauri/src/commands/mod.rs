@@ -5,3 +5,4 @@ pub(crate) mod misc;
 pub(crate) mod primers;
 pub(crate) mod projects;
 pub(crate) mod seqedit;
+pub(crate) mod session_log;

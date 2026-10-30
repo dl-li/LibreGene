@@ -280,8 +280,8 @@ pub(crate) async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, 
     broadcast_project_arcs(app_handle, &state.pm, &state.window_projects, &state.agent_tabs, source).await;
 }
 
-pub(crate) async fn broadcast_project_for_id(
-    app_handle: &AppHandle,
+pub(crate) async fn broadcast_project_for_id<R: Runtime>(
+    app_handle: &AppHandle<R>,
     state: &State<'_, AppState>,
     project_id: &str,
     source: Option<&str>,
@@ -379,6 +379,23 @@ async fn broadcast_project_arcs_impl<R: Runtime>(
         }
         payload["projectData"] = serde_json::Value::Object(project_data_payload(&pm, &wanted));
     }
+
+    if let Some(id) = changed_project_id {
+        if let Some(project) = pm.get_project_by_id(id) {
+            crate::session_log::record_project_change(app_handle, id, project, source).await;
+        }
+    } else {
+        let projects = pm
+            .all_project_ids()
+            .into_iter()
+            .filter_map(|id| {
+                pm.get_project_by_id(&id)
+                    .map(|project| (id.clone(), (project.clone(), pm.is_dirty(&id))))
+            })
+            .collect();
+        crate::session_log::sync_projects(app_handle, &projects).await;
+    }
+
     let _ = app_handle.emit("project-update", payload);
 }
 

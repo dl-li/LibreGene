@@ -28,6 +28,8 @@ import useProjectData from './workspace/useProjectData';
 import useUndoHistory from './workspace/useUndoHistory';
 import useEditDialog from './workspace/useEditDialog';
 import useProjectMutations from './workspace/useProjectMutations';
+import useSessionEditLog from './workspace/useSessionEditLog';
+import SessionEditLogDialog from './dialogs/SessionEditLogDialog';
 import WorkspaceDialogs from './workspace/WorkspaceDialogs';
 import { plugins, pluginAvailable } from './plugins';
 import { EMPTY_ARRAY } from './workspace/constants';
@@ -173,6 +175,9 @@ export default function ProjectWorkspace({
   const [liveSelection, setLiveSelection] = useState(null);
   // Primer id pending delete confirmation (Backspace on selection / context menu)
   const [primerDeleteConfirm, setPrimerDeleteConfirm] = useState(null);
+  const [sessionLogOpen, setSessionLogOpen] = useState(false);
+  const { entries: sessionLogEntries, rollback: rollbackSessionLogEntry } =
+    useSessionEditLog(projectId);
   const alignmentCacheRef = useRef({});
   const sequenceRef = useRef(sequence);
   const currentSnapshotRef = useRef(null);
@@ -825,7 +830,14 @@ export default function ProjectWorkspace({
             onRekey(oldId, path);
           }
         }
-        baselineSnapshotRef.current = currentSnapshotRef.current;
+        const savedSnapshot = currentSnapshotRef.current;
+        baselineSnapshotRef.current = savedSnapshot;
+        editHistoryRef.current.reset({
+          ...savedSnapshot,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+        });
         setIsDirty(false);
       }
     } catch (e) {
@@ -858,7 +870,14 @@ export default function ProjectWorkspace({
     try {
       const result = await saveFile(filePath);
       if (result && !result.error) {
-        baselineSnapshotRef.current = currentSnapshotRef.current;
+        const savedSnapshot = currentSnapshotRef.current;
+        baselineSnapshotRef.current = savedSnapshot;
+        editHistoryRef.current.reset({
+          ...savedSnapshot,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+        });
         setIsDirty(false);
       } else {
         console.error('save error:', result?.error);
@@ -899,6 +918,15 @@ export default function ProjectWorkspace({
       console.error('project refresh error:', e);
     }
   }, []);
+
+  const handleSessionLogRollback = useCallback(
+    async (entryId) => {
+      const result = await rollbackSessionLogEntry(entryId);
+      if (result.projects) onProjectsSync(result.projects);
+      return result;
+    },
+    [rollbackSessionLogEntry, onProjectsSync],
+  );
 
   // Expose imperative handle for App (sidebar buttons, close-with-save flow,
   // drag-drop alignment routing)
@@ -1114,6 +1142,7 @@ export default function ProjectWorkspace({
                   ? () => setPluginDialogs((prev) => ({ ...prev, snapshots: true }))
                   : undefined
               }
+              onOpenSessionEditLog={() => setSessionLogOpen(true)}
               blastEnabled={isTauri && (isDna || isProtein) && !disabledPlugins.includes('blast')}
               onEnzymeHoverChange={setEnzymeHoverCuts}
               onOpenMyPrimers={() => setMyPrimersOpen(true)}
@@ -1245,6 +1274,13 @@ export default function ProjectWorkspace({
         handleAddAlignmentText={handleAddAlignmentText}
         handleRemoveAlignment={handleRemoveAlignment}
         refreshProject={refreshProject}
+      />
+      <SessionEditLogDialog
+        open={sessionLogOpen}
+        onOpenChange={setSessionLogOpen}
+        entries={sessionLogEntries}
+        onRollback={handleSessionLogRollback}
+        agentLocked={agentLocked}
       />
     </div>
   );

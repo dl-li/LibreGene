@@ -130,16 +130,20 @@ pub(crate) async fn set_text_colors(
 pub(crate) async fn set_roi(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
     match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => {
-            let mut pm = state.pm.write().await;
-            if let Some(p) = pm.get_project_mut_by_id(&id) {
-                p.roi = Some((start, end));
-                pm.mark_dirty(&id);
+            {
+                let mut pm = state.pm.write().await;
+                if let Some(p) = pm.get_project_mut_by_id(&id) {
+                    p.roi = Some((start, end));
+                    pm.mark_dirty(&id);
+                }
             }
+            crate::payload::broadcast_project_for_id(&app_handle, &state, &id, Some(webview_window.label())).await;
             Ok(serde_json::json!({"status": "ok"}))
         }
         Err(e) => Ok(serde_json::json!({"error": e})),
@@ -150,14 +154,18 @@ pub(crate) async fn set_roi(
 pub(crate) async fn clear_roi(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
 ) -> Result<serde_json::Value, String> {
     match resolve_project_id(&state, webview_window.label()).await {
         Ok(id) => {
-            let mut pm = state.pm.write().await;
-            if let Some(p) = pm.get_project_mut_by_id(&id) {
-                p.roi = None;
-                pm.mark_dirty(&id);
+            {
+                let mut pm = state.pm.write().await;
+                if let Some(p) = pm.get_project_mut_by_id(&id) {
+                    p.roi = None;
+                    pm.mark_dirty(&id);
+                }
             }
+            crate::payload::broadcast_project_for_id(&app_handle, &state, &id, Some(webview_window.label())).await;
             Ok(serde_json::json!({"status": "ok"}))
         }
         Err(e) => Ok(serde_json::json!({"error": e})),

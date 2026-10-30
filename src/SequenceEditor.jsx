@@ -191,6 +191,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onOpenGel,
   onOpenMapView,
   onOpenSnapshots,
+  onOpenSessionEditLog,
   onEnzymeHoverChange,
   blastEnabled = false,
   topology = 'linear',
@@ -2560,6 +2561,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         cancelDesignPick={cancelDesignPick}
         agentLocked={agentLocked}
         onUnlockAgent={onUnlockAgent}
+        onOpenSessionEditLog={onOpenSessionEditLog}
       />
       {!designPick && !agentLocked && (
         <EditorNavMenu
@@ -2613,6 +2615,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onOpenGel={handleOpenGel}
           onOpenMapView={onOpenMapView}
           onOpenSnapshots={onOpenSnapshots}
+          onOpenSessionEditLog={onOpenSessionEditLog}
           background={background}
           backgroundOptions={backgroundOptions}
           onBackgroundChange={onBackgroundChange}

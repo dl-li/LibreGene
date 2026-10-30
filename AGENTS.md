@@ -61,7 +61,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 ### 后端（Rust）
 
-- **锁顺序**：先 `pm` 再 `window_projects`；`agent_tabs` 锁不得与它们同时持有（取前先 drop 其他 guard）。
+- **锁顺序**：先 `pm` 再 `window_projects`；`session_edit_log` 可在持有 `pm` 时获取，但持日志锁时不得再取 `pm`；`agent_tabs` 锁不得与它们同时持有（取前先 drop 其他 guard）。
 - 重计算（酶/引物/比对）放 `spawn_blocking`；所有 mutation 命令调用 `broadcast_project()` 同步多窗口。
 - 环状序列 region 用 `wrap_template_region` 拼接（`% tlen` 可能为 0 导致空切片）。
 
@@ -83,6 +83,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - **BlastN full-length 快速路径必须返回最优解**：trace 打包「胜出状态+延伸位」、回溯按状态机走；旋转候选覆盖整条模板取样（`tests/full_length_path_test.rs` 守护）。
 - ab1 trace 不进 `ProjectData` 序列化，只记 `tracePath`（`.gbk` 中相对 .gbk 目录存储），前端经 `get_chromatogram` 懒加载；反向链 read 的峰图由 `orientChromatogram` 做 rev-comp 后显示。
 - **链级文字颜色**（`textColorsTop/Bottom`，内部 0-based inclusive，未覆盖位置=默认色）：GBK 落盘为单个载体 `misc_feature`（全序列跨度，解析时凭限定词识别、不进 features）+ `/libregene_textcolor_{top,bottom}` = 1-based `start..end:#hex` RLE 列表；写前一律 `strand_colors::canonicalize`（clamp、后写覆盖先写、排序、相邻同色合并），bottom 仅 DNA；SnapGene `.dna` block 0x14 `<StrandColors>` 解析（0-based `start..end`、命名色→hex，`file_io/strand_colors.rs`）。渲染：`ProjectWorkspace` 先按 `highContrastTextColors` 经 `mapTextColorPalette` 双向映射两套预设色（仅显示，不改存储色值；自定义色不变），`SeqBgLayer`/`ComplementLayer` 再按颜色段切 MonoRun（`src/editor/textColors.js::splitByTextColor`）；编辑：选区右键 Text Color 菜单 → `set_text_colors` 命令（`do_set_text_colors`，`strand_colors::apply_text_color` 支持设置/清除/both）；序列编辑平移：前端 `adjustTextColorsForEdit` + `update_sequence` 携带调整后区间（undo 快照同存），MCP `edit_sequence` 走 `utils::adjust_text_colors_for_edit`。
+- **Session Edit Log**（`src-tauri/src/session_log.rs`）：按项目只在内存记录本次打开期间的全部修改，在 changed-project broadcast 统一生成人类可读摘要；用户窗口 source 标 `user`，MCP 的无窗口 source 标 `agent`。保存成功保留旧条目并标 `saved`，形成不可越过的回退边界；Save As rekey 保留日志，关闭/退出才丢弃，绝不写入序列文件，与 SnapGene `.dna` History 无关。`rollback_session_edit` 仅接受未保存条目，恢复其之前的完整 `ProjectData` 并截断该条及后续未保存日志；日志坐标摘要为 1-based inclusive。
 
 ## MCP（嵌入式 server，`src-tauri/src/mcp/`）
 

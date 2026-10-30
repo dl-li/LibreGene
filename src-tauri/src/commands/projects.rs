@@ -142,10 +142,17 @@ pub(crate) async fn create_project(
 pub(crate) async fn save_file(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     path: String,
 ) -> Result<serde_json::Value, String> {
     match resolve_project_id(&state, webview_window.label()).await {
-        Ok(id) => do_save_file(&state.pm, id, path).await,
+        Ok(id) => {
+            let result = do_save_file(&state.pm, id.clone(), path).await?;
+            if result.get("error").is_none() {
+                crate::session_log::mark_project_saved(&app_handle, &state.pm, &id).await;
+            }
+            Ok(result)
+        }
         Err(e) => Ok(serde_json::json!({"error": e})),
     }
 }
@@ -439,6 +446,7 @@ pub(crate) async fn rekey_project(
         }
     }
     crate::mcp::rekey_fragments_of(&state.workspace, &old_id, &new_id).await;
+    crate::session_log::rekey_project(&app_handle, &old_id, &new_id).await;
 
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
     Ok(serde_json::json!({"status": "ok", "newId": new_id}))

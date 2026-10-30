@@ -231,6 +231,7 @@ export default function EditorNavMenu({
   onToggleTopology,
   moleculeType = 'dna',
   onOpenSnapshots,
+  onOpenSessionEditLog,
   viewMode = 'wrap',
   onViewModeChange,
   showDoubleStrand = false,
@@ -474,6 +475,10 @@ export default function EditorNavMenu({
               </DropdownMenuItem>
             </>
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onOpenSessionEditLog}>
+            <History /> Session Edit Log…
+          </DropdownMenuItem>
           {/* SnapGene history snapshots (project from a .dna file) */}
           {onOpenSnapshots && (
             <>
