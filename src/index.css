@@ -268,3 +268,9 @@ input[type='radio']:not(:disabled) {
   --sidebar-border: hsl(240 3.7% 15.9%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
+
+.platform-linux .nav-bar-enter {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background-color: var(--background) !important;
+}
