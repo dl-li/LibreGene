@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { dropCoveredFeatures, restoreEditSnapshot } from '../workspace/useEditDialog';
+import {
+  buildPrimerImports,
+  dropCoveredFeatures,
+  restoreEditSnapshot,
+} from '../workspace/useEditDialog';
 
 describe('dropCoveredFeatures (annotated paste supersedes covered features)', () => {
   const editStart = 100;
@@ -90,5 +94,26 @@ describe('restoreEditSnapshot', () => {
     expect(setters.setTextColorsBottom).toHaveBeenCalledWith(snapshot.textColorsBottom);
     expect(setters.setAlignments).toHaveBeenCalledWith(snapshot.alignments);
     expect(setters.setIsDirty).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('buildPrimerImports', () => {
+  it('creates complete unique primer inputs and preserves name deduplication', () => {
+    const annotations = [
+      { name: 'Forward', type: 'fwd', primerSeq: 'AACCGG' },
+      { name: 'Forward', type: 'rev', primerSeq: 'TTGGCC' },
+    ];
+    const existing = [{ name: 'Forward' }, { name: 'Forward (2)' }];
+
+    const imports = buildPrimerImports(annotations, existing);
+
+    expect(imports).toMatchObject([
+      { name: 'Forward (3)', type: 'fwd', primerSeq: 'AACCGG' },
+      { name: 'Forward (4)', type: 'rev', primerSeq: 'TTGGCC' },
+    ]);
+    expect(imports.every((primer) => typeof primer.id === 'string' && primer.id.length > 0)).toBe(
+      true,
+    );
+    expect(new Set(imports.map((primer) => primer.id)).size).toBe(2);
   });
 });

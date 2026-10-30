@@ -15,6 +15,25 @@ export function dropCoveredFeatures(features, editStart, editEnd) {
   });
 }
 
+export function buildPrimerImports(primerAnnotations, existingEntries) {
+  const allNames = new Set(existingEntries.map((entry) => entry.name));
+  return primerAnnotations.map((ap, i) => {
+    let name = ap.name;
+    if (allNames.has(name)) {
+      let n = 2;
+      while (allNames.has(`${name} (${n})`)) n++;
+      name = `${name} (${n})`;
+    }
+    allNames.add(name);
+    return {
+      id: `primer_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      type: ap.type,
+      primerSeq: ap.primerSeq,
+    };
+  });
+}
+
 export function restoreEditSnapshot(snapshot, setters) {
   setters.setSequence(snapshot.sequence);
   setters.setFeatures(snapshot.features || EMPTY_ARRAY);
@@ -342,20 +361,10 @@ export default function useEditDialog({
 
           // Import primers from clipboard annotations (DNA only)
           if (annotations && annotations.primers && annotations.primers.length > 0 && isDna) {
-            const allNames = new Set([
-              ...(data.primers || []).map((p) => p.name),
-              ...(data.features || mergedFeatures).map((f) => f.name),
+            const primerImports = buildPrimerImports(annotations.primers, [
+              ...(data.primers || []),
+              ...(data.features || mergedFeatures),
             ]);
-            const primerImports = annotations.primers.map((ap) => {
-              let name = ap.name;
-              if (allNames.has(name)) {
-                let n = 2;
-                while (allNames.has(`${name} (${n})`)) n++;
-                name = `${name} (${n})`;
-              }
-              allNames.add(name);
-              return { name, type: ap.type, primerSeq: ap.primerSeq };
-            });
             try {
               const pData = await addPrimers(primerImports);
               if (operationGenRef.current !== gen) return;
