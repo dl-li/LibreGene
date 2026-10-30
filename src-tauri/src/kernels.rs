@@ -1057,7 +1057,6 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
         if let Some(p) = pm.get_project_mut_by_id(project_id) {
             p.enzymes = computed.enzymes;
         }
-        pm.mark_dirty(project_id);
     }
 
     broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;

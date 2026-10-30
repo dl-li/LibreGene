@@ -78,6 +78,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
   - **前端 UI 渲染与输入：1-based inclusive**，内部保持 0-based，只在边界转换（helper 在 `src/editorConstants.js`）
   - **GenBank 落盘/解析：1-based**（`gbk.rs::parse_location_string`；App 内用 `parse_location_string_0based`）；gb-io Range 是 0-based end-exclusive
 - **分子类型 gate**：digest 渲染、酶/引物 recompute、translate 都按 `molecule_type` 分支，非 DNA 跳过（`ProjectData::is_dna()`，空串视为 DNA）；auto-annotation 例外（DNA 双通路，protein 按 aa 匹配，RNA 不支持）。
+- **甲基化设置是用户级运行设置**：`ProjectData` 中的 `methylation_*` 仅作当前酶切计算输入，不写 GenBank、不标 dirty、不进 Session Edit Log；保存时剥离旧 `methylation:` KEYWORDS，Agent 锁定项目也允许同步。
 - **跨原点特征**：segments 按 join 顺序存储，后段 `start` < 前段 `start` 即跨原点；`selStart > selEnd` 表示跨原点选区（渲染/复制支持，replace/delete/paste 不支持）。
 - **比对模型不变量**：段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels`/`anchor_loose_ends` 守护，`tests/align_model_test.rs`）；同一模板列最多一个插入条目；序列编辑后所有比对自动重算（`align::realign_project`），**重算必须由 strand 反推原始取向的 read**（存盘的 `Alignment.seq` 已是显示取向，直接回喂会翻转 strand、导致色谱镜像）；编辑瞬间前端先用 `src/alignmentEdit.js::adjustAlignmentsForEdit` 本地搬移模型防画面闪烁。
 - **BlastN full-length 快速路径必须返回最优解**：trace 打包「胜出状态+延伸位」、回溯按状态机走；旋转候选覆盖整条模板取样（`tests/full_length_path_test.rs` 守护）。

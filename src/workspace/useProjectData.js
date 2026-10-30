@@ -154,7 +154,6 @@ export default function useProjectData({
   useEffect(() => {
     // Methylation/Dam/Dcm only applies to DNA; skip for rna/protein projects.
     if (hidden || !isDna) return;
-    if (agentLocked) return;
     if (syncedMethKeyRef.current === methKey) return;
     if (backendStatus !== 'online' || !sequence) return;
     let cancelled = false;
@@ -175,16 +174,7 @@ export default function useProjectData({
     return () => {
       cancelled = true;
     };
-  }, [
-    methKey,
-    hidden,
-    backendStatus,
-    sequence,
-    methylationSystems,
-    methylationOverlap,
-    isDna,
-    agentLocked,
-  ]);
+  }, [methKey, hidden, backendStatus, sequence, methylationSystems, methylationOverlap, isDna]);
 
   const [showOrfs, setShowOrfs] = useState(false);
   const orfEnabled = isDna && !disabledPlugins.includes('orf') && showOrfs;

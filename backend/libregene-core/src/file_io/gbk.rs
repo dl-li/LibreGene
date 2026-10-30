@@ -25,82 +25,6 @@ use crate::file_io::strand_colors;
 use crate::models::{Feature, Primer, ProjectData, Segment, TextColorRange};
 
 // ---------------------------------------------------------------------------
-// Methylation annotation in KEYWORDS ("methylation: Dam,Dcm,EcoKI" / "none")
-// ---------------------------------------------------------------------------
-
-const METHYLATION_KW: &str = "methylation:";
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        None => String::new(),
-    }
-}
-
-/// Conventional display form of a methylation system name.
-fn display_system(s: &str) -> String {
-    match s.to_lowercase().as_str() {
-        "ecoki" => "EcoKI".to_string(),
-        other => capitalize(other),
-    }
-}
-
-/// Split KEYWORDS into (remaining keywords, methylation systems). The
-/// annotation is a `;`-separated `methylation: A,B,C` segment; a `none`/empty
-/// value means explicitly no methylation. Returns None when absent.
-fn parse_methylation_keyword(keywords: &str) -> (String, Option<Vec<String>>) {
-    let mut systems = None;
-    let mut kept: Vec<&str> = Vec::new();
-    for part in keywords.split(';') {
-        let p = part.trim().trim_end_matches('.').trim();
-        if p.is_empty() {
-            continue;
-        }
-        if p.len() >= METHYLATION_KW.len()
-            && p[..METHYLATION_KW.len()].eq_ignore_ascii_case(METHYLATION_KW)
-        {
-            let value = p[METHYLATION_KW.len()..].trim();
-            if value.is_empty() || value.eq_ignore_ascii_case("none") {
-                systems = Some(Vec::new());
-            } else {
-                systems = Some(
-                    value
-                        .split(',')
-                        .map(|s| s.trim().to_lowercase())
-                        .filter(|s| !s.is_empty())
-                        .collect(),
-                );
-            }
-        } else {
-            kept.push(p);
-        }
-    }
-    (kept.join("; "), systems)
-}
-
-/// KEYWORDS with the methylation annotation merged in (any previous
-/// annotation replaced). Empty systems are written as `methylation: none`.
-fn keywords_with_methylation(keywords: &str, systems: &[String]) -> String {
-    let (base, _) = parse_methylation_keyword(keywords);
-    let value = if systems.is_empty() {
-        "none".to_string()
-    } else {
-        systems
-            .iter()
-            .map(|s| display_system(s))
-            .collect::<Vec<_>>()
-            .join(",")
-    };
-    let token = format!("methylation: {}", value);
-    if base.is_empty() {
-        token
-    } else {
-        format!("{}; {}", base, token)
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Shared helper: build a Primer from individual qualifier values
 // ---------------------------------------------------------------------------
 
@@ -431,21 +355,6 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let length = sequence.len() as i64;
 
-    // Methylation is annotated in KEYWORDS ("methylation: Dam,Dcm,EcoKI" or
-    // "methylation: none"); a circular DNA plasmid without any annotation
-    // defaults to all three known systems.
-    let (keywords, methyl) = parse_methylation_keyword(&keywords);
-    let methylation_systems = match methyl {
-        Some(s) => s,
-        None if topology == "circular" && molecule_type == "dna" => {
-            crate::enzyme::methylation::ALL_SYSTEMS
-                .iter()
-                .map(|s| s.to_string())
-                .collect()
-        }
-        None => Vec::new(),
-    };
-
     // Re-run the alignment so segments/identity match the current sequence.
     let mut alignments = Vec::new();
     for (name, read, trace_path) in &alignment_reads {
@@ -469,7 +378,6 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         features,
         primers,
         alignments,
-        methylation_systems,
         text_colors_top: strand_colors::canonicalize(&text_colors_top, length),
         text_colors_bottom: strand_colors::canonicalize(&text_colors_bottom, length),
         ..Default::default()
@@ -479,6 +387,17 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 // ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
+
+fn keywords_without_methylation(keywords: &str) -> String {
+    keywords
+        .split(';')
+        .map(str::trim)
+        .filter(|part| {
+            !part.is_empty() && !part.to_ascii_lowercase().starts_with("methylation:")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
 
 /// Write a [`ProjectData`] as a SnapGene-flavoured GenBank file.
 pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
@@ -513,13 +432,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     });
     record.accession = Some(".".to_string());
     record.version = Some(".".to_string());
-    let keywords = if project.topology == "circular" && project.molecule_type == "dna" {
-        // Persist the plasmid's methylation systems in KEYWORDS so they
-        // survive a save/load round-trip.
-        keywords_with_methylation(&project.keywords, &project.methylation_systems)
-    } else {
-        project.keywords.clone()
-    };
+    let keywords = keywords_without_methylation(&project.keywords);
     record.keywords = Some(if keywords.is_empty() {
         ".".to_string()
     } else {
@@ -1471,114 +1384,22 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_methylation_keyword() {
-        let (rest, sys) = parse_methylation_keyword("methylation: Dam,Dcm,EcoKI");
-        assert_eq!(rest, "");
-        assert_eq!(
-            sys,
-            Some(vec![
-                "dam".to_string(),
-                "dcm".to_string(),
-                "ecoki".to_string()
-            ])
-        );
-
-        let (rest, sys) = parse_methylation_keyword("cloning vector; Methylation: dam; other");
-        assert_eq!(rest, "cloning vector; other");
-        assert_eq!(sys, Some(vec!["dam".to_string()]));
-
-        let (rest, sys) = parse_methylation_keyword("methylation: none");
-        assert_eq!(rest, "");
-        assert_eq!(sys, Some(Vec::new()));
-
-        let (rest, sys) = parse_methylation_keyword("cloning vector");
-        assert_eq!(rest, "cloning vector");
-        assert_eq!(sys, None);
-    }
-
-    #[test]
-    fn test_methylation_written_to_keywords_and_roundtrip() {
+    fn methylation_settings_are_not_persisted() {
         let mut project = tiny_project("circular");
+        project.keywords = "cloning vector; methylation: Dam,Dcm".to_string();
         project.methylation_systems = vec!["dam".to_string(), "dcm".to_string()];
-
-        let path =
-            std::env::temp_dir().join(format!("libregene_methyl_rt_{}.gbk", std::process::id()));
-        write_gbk(&project, &path).unwrap();
-        let parsed = parse_gbk(&path).unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
-
-        assert!(
-            text.contains("KEYWORDS    methylation: Dam,Dcm"),
-            "{}",
-            text
-        );
-        assert_eq!(
-            parsed.methylation_systems,
-            vec!["dam".to_string(), "dcm".to_string()]
-        );
-        assert_eq!(
-            parsed.keywords, "",
-            "annotation must be stripped from keywords"
-        );
-    }
-
-    #[test]
-    fn test_methylation_defaults_to_all_three_when_unannotated() {
-        // A GBK without any methylation annotation (e.g. written by another
-        // tool) defaults to all three systems for circular DNA. Build a valid
-        // file with write_gbk, then strip the annotation like a foreign tool.
-        let project = tiny_project("circular");
         let path = std::env::temp_dir().join(format!(
-            "libregene_methyl_default_{}.gbk",
+            "libregene_methyl_user_settings_{}.gbk",
             std::process::id()
         ));
         write_gbk(&project, &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        let stripped = text.replacen("methylation: none", ".", 1);
-        std::fs::write(&path, stripped).unwrap();
-
         let parsed = parse_gbk(&path).unwrap();
         let _ = std::fs::remove_file(&path);
-        assert_eq!(
-            parsed.methylation_systems,
-            vec!["dam".to_string(), "dcm".to_string(), "ecoki".to_string()]
-        );
 
-        // ...and saving that project then annotates the file explicitly.
-        let out = std::env::temp_dir().join(format!(
-            "libregene_methyl_default_out_{}.gbk",
-            std::process::id()
-        ));
-        write_gbk(&parsed, &out).unwrap();
-        let text = std::fs::read_to_string(&out).unwrap();
-        let _ = std::fs::remove_file(&out);
-        assert!(text.contains("methylation: Dam,Dcm,EcoKI"), "{}", text);
-    }
-
-    #[test]
-    fn test_methylation_none_and_linear_not_annotated() {
-        // Explicitly no methylation → persisted as "methylation: none".
-        let project = tiny_project("circular");
-        let path =
-            std::env::temp_dir().join(format!("libregene_methyl_none_{}.gbk", std::process::id()));
-        write_gbk(&project, &path).unwrap();
-        let parsed = parse_gbk(&path).unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
-        assert!(text.contains("methylation: none"), "{}", text);
-        assert!(
-            parsed.methylation_systems.is_empty(),
-            "'none' must stay empty, not default to three"
-        );
-
-        // Linear DNA is not annotated and does not default.
-        let project = tiny_project("linear");
-        write_gbk(&project, &path).unwrap();
-        let parsed = parse_gbk(&path).unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
-        assert!(!text.contains("methylation"), "{}", text);
+        assert!(!text.to_ascii_lowercase().contains("methylation"), "{text}");
+        assert!(text.contains("cloning vector"), "{text}");
+        assert_eq!(parsed.keywords, "cloning vector");
         assert!(parsed.methylation_systems.is_empty());
     }
 

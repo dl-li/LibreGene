@@ -133,6 +133,21 @@ mod tests {
         let state = app.state::<AppState>();
         crate::session_log::register_project(app.handle(), &pm, "p").await;
 
+        crate::do_set_methylation(
+            app.handle(),
+            &pm,
+            &state.window_projects,
+            &state.agent_tabs,
+            Some("main"),
+            "p",
+            vec!["dam".to_string()],
+            Some(4),
+        )
+        .await
+        .unwrap();
+        assert!(!pm.read().await.is_dirty("p"));
+        assert!(state.session_edit_log.read().await.entries("p").is_empty());
+
         {
             let mut manager = pm.write().await;
             let project = manager.get_project_mut_by_id("p").unwrap();

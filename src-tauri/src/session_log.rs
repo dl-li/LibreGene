@@ -75,8 +75,6 @@ fn project_content(project: &ProjectData) -> serde_json::Value {
         "features": project.features.iter().map(feature_content).collect::<Vec<_>>(),
         "primers": project.primers.iter().map(primer_content).collect::<Vec<_>>(),
         "alignments": project.alignments,
-        "methylationSystems": project.methylation_systems,
-        "methylationOverlap": project.methylation_overlap,
         "roi": project.roi,
         "tracePath": project.trace_path,
         "textColorsTop": project.text_colors_top,
@@ -304,11 +302,6 @@ fn describe_change(before: &ProjectData, after: &ProjectData) -> Vec<String> {
             Some((start, end)) => format!("Set region of interest to {}–{}", start + 1, end + 1),
             None => "Cleared region of interest".to_string(),
         });
-    }
-    if before.methylation_systems != after.methylation_systems
-        || before.methylation_overlap != after.methylation_overlap
-    {
-        details.push("Changed methylation settings".to_string());
     }
     if before.name != after.name
         || before.definition != after.definition
@@ -666,12 +659,14 @@ mod tests {
     }
 
     #[test]
-    fn derived_recomputation_alone_does_not_create_an_entry() {
+    fn derived_recomputation_and_user_settings_do_not_create_an_entry() {
         let mut store = SessionEditLogStore::default();
         let initial = project("AAAA");
         store.register("p", &initial, false);
         let mut recomputed = initial.clone();
         recomputed.enzymes.push(Default::default());
+        recomputed.methylation_systems = vec!["dam".to_string()];
+        recomputed.methylation_overlap = 4;
         assert!(store.record("p", &recomputed, EditOrigin::Agent).is_none());
         assert!(store.entries("p").is_empty());
     }

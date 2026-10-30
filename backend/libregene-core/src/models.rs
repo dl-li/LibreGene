@@ -432,6 +432,7 @@ pub struct ProjectData {
     pub alignments: Vec<Alignment>,
     #[serde(default)]
     pub enzymes: Vec<Enzyme>,
+    /// Effective user-level settings used for enzyme computation; never persisted.
     /// ["dam","dcm","ecoki"]
     #[serde(default)]
     pub methylation_systems: Vec<String>,

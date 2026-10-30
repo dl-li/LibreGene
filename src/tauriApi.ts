@@ -345,7 +345,6 @@ export async function openSnapgeneSnapshot(projectId, nodeId) {
 // ---------------------------------------------------------------------------
 
 export async function setMethylation(systems, overlap = 2, projectId) {
-  assertEditable();
   return tauriInvoke('set_methylation', { systems, overlap, projectId });
 }
 
