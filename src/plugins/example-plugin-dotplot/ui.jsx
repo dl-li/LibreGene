@@ -69,7 +69,7 @@ export function DialogContent({ className, children }) {
         role="dialog"
         aria-modal="true"
         className={cx(
-          'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-border/60 bg-card p-6 shadow-2xl ring-1 ring-black/[0.04] outline-none',
+          'fixed left-[50%] top-[50%] z-50 flex w-full max-w-lg translate-x-[-50%] translate-y-[-50%] flex-col gap-4 rounded-xl border border-border/60 bg-card p-6 shadow-2xl ring-1 ring-black/[0.04] outline-none',
           className,
         )}
       >
