@@ -33,6 +33,7 @@ pub fn run() {
         // instance instead of spawning a new one. No-op on macOS, where the
         // OS routes open requests to the running app via RunEvent::Opened.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            show_main_window(app);
             queue_open_targets(app, collect_open_targets(argv.into_iter().skip(1)));
         }))
         // Close-to-tray: closing the main window only hides it, keeping the
