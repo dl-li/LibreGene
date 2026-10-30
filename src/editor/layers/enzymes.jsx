@@ -11,7 +11,8 @@ export function renderEnzymeLines({ enzymeLayout, enzymeLinesPath, lp }) {
         d={enzymeLinesPath}
         fill="none"
         stroke="#333"
-        strokeWidth="0.8"
+        strokeWidth="1"
+        shapeRendering="crispEdges"
         style={{ pointerEvents: 'none' }}
       />
       {enzymeLayout
@@ -25,6 +26,7 @@ export function renderEnzymeLines({ enzymeLayout, enzymeLinesPath, lp }) {
             y2={l.sy - lp.enzLineGap}
             stroke="#333"
             strokeWidth="1"
+            shapeRendering="crispEdges"
             style={{ pointerEvents: 'none' }}
           />
         ))}
@@ -406,6 +408,7 @@ export function renderEnzymeOverlay({
                 y2={l.sy + 5}
                 stroke={lineColor}
                 strokeWidth={e.isUnique ? '2' : '1'}
+                shapeRendering="crispEdges"
               />
             </React.Fragment>
           );
@@ -609,6 +612,7 @@ export function renderTooltips({
                 strokeWidth={sw}
                 strokeLinejoin="round"
                 strokeLinecap="round"
+                shapeRendering="crispEdges"
               />
             ))}
             <text y={sy} fontFamily={monoFont} fontSize="14px">
