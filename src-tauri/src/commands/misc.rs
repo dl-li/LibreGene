@@ -3,8 +3,7 @@ use tauri::{AppHandle, Emitter, State};
 use libregene_core::models::Feature;
 
 use crate::kernels::{
-    codon_optimize, do_annotate_features, do_find_orfs, do_search_sequence,
-    do_update_sequence_if_unchanged,
+    codon_optimize, do_annotate_features, do_search_sequence, do_update_sequence_if_unchanged,
 };
 use crate::mcp;
 use crate::payload::resolve_project_id;
@@ -35,19 +34,40 @@ pub(crate) async fn get_enzyme_providers() -> Result<serde_json::Value, String> 
 // ---------------------------------------------------------------------------
 
 /// Find open reading frames (ATG→stop, both strands, all three frames) on the
-/// active project's sequence. Returns virtual CDS features (display only),
+/// supplied sequence snapshot. Returns virtual CDS features (display only),
 /// shaped exactly like the ORF plugin's old JS output: id `orf-<strand><start>:<end>`,
 /// name `ORF <start+1>..<end+1>`, per-strand colors, and a `qualifiers`
 /// `[("orf", "true")]` entry the renderer maps back to `orf: true`.
 #[tauri::command]
 pub(crate) async fn find_orfs(
-    webview_window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
+    sequence: String,
+    topology: String,
     min_aa: Option<usize>,
 ) -> Result<Vec<Feature>, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await?;
+    let min_aa = min_aa.unwrap_or(75);
+    tokio::task::spawn_blocking(move || {
+        libregene_core::orf::find_orfs(&sequence, &topology, min_aa)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))
+}
 
-    do_find_orfs(&state.pm, &project_id, min_aa).await
+#[cfg(test)]
+mod orf_command_tests {
+    #[tokio::test]
+    async fn find_orfs_uses_the_supplied_sequence_snapshot() {
+        let features =
+            super::find_orfs("ATGGGGAAACCCTAA".to_string(), "linear".to_string(), Some(3))
+                .await
+                .unwrap();
+        assert_eq!(features.len(), 1);
+        assert_eq!((features[0].start, features[0].end), (0, 14));
+
+        let edited = super::find_orfs("AAA".to_string(), "linear".to_string(), Some(3))
+            .await
+            .unwrap();
+        assert!(edited.is_empty());
+    }
 }
 
 /// Search the active project's sequence for an IUPAC-aware query on both

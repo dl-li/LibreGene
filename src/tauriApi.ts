@@ -500,8 +500,8 @@ export async function regenerateMcpToken() {
 // ORF search / sequence search / primer design / auto-annotation (backend-computed)
 // ---------------------------------------------------------------------------
 
-export async function findOrfs(minAa = 75) {
-  return tauriInvoke('find_orfs', { minAa: minAa ?? null });
+export async function findOrfs(sequence: string, topology: string, minAa = 75) {
+  return tauriInvoke('find_orfs', { sequence, topology, minAa: minAa ?? null });
 }
 
 /**

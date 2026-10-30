@@ -13,8 +13,8 @@ export const ORF_COLORS = { fwd: '#70C2A6', rev: '#A877CF' };
 // The backend returns real Feature JSON with qualifiers [["orf","true"]];
 // restore the virtual `orf: true` flag the renderer keys off (ORFs get the
 // lowest feature-track priority).
-export async function findOrfs(minAa = MIN_AA) {
-  const features = await findOrfsCommand(minAa);
+export async function findOrfs(sequence, topology, minAa = MIN_AA) {
+  const features = await findOrfsCommand(sequence, topology, minAa);
   // Display names are compact positional numbers ("ORF #1") rather than the
   // backend's coordinate-based names, numbered in template order.
   const sorted = [...features].sort(

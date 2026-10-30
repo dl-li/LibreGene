@@ -189,16 +189,16 @@ export default function useProjectData({
   const [showOrfs, setShowOrfs] = useState(false);
   const orfEnabled = isDna && !disabledPlugins.includes('orf') && showOrfs;
   const [orfFeatures, setOrfFeatures] = useState(EMPTY_ARRAY);
-  // ORFs are computed by the backend on the active project's sequence; refetch
-  // whenever the toggle, sequence, topology, or backend availability changes.
-  // Old ORFs stay visible during the refetch to avoid flicker.
+  // Query the exact snapshot being rendered so a delayed edit or project switch
+  // cannot return ORFs computed from another sequence.
   useEffect(() => {
     if (hidden || !orfEnabled || backendStatus !== 'online' || !sequence) {
       setOrfFeatures(EMPTY_ARRAY);
       return undefined;
     }
     let cancelled = false;
-    findOrfs()
+    setOrfFeatures(EMPTY_ARRAY);
+    findOrfs(sequence, topologyLive)
       .then((feats) => {
         if (!cancelled) setOrfFeatures(feats);
       })
