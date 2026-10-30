@@ -66,6 +66,10 @@ pub fn run() {
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         })
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_theme(Some(tauri::Theme::Light))?;
+            }
             let state = app.state::<AppState>();
             let mcp = mcp::McpServer::new(
                 app.handle().clone(),

@@ -305,6 +305,9 @@ pub(crate) fn spawn_project_window<R: Runtime>(
     .decorations(true)
     .visible(false);
 
+    #[cfg(target_os = "windows")]
+    let builder = builder.theme(Some(tauri::Theme::Light));
+
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
