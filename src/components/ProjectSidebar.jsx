@@ -31,7 +31,7 @@ import { fileNameOf } from '../recentFiles';
 
 export default function ProjectSidebar({
   sidebarWheelRef,
-  titleBarFallback,
+  nativeTitleBar,
   handleOpenFile,
   setNewSeqOpen,
   sidebarScroll,
@@ -67,7 +67,7 @@ export default function ProjectSidebar({
       ref={sidebarWheelRef}
       collapsible="icon"
       variant="sidebar"
-      className={`${titleBarFallback ? '' : 'pt-10 '}transition-[width] duration-300 ease-out`}
+      className={`${nativeTitleBar ? '' : 'pt-10 '}transition-[width] duration-300 ease-out`}
     >
       <SidebarHeader className="flex flex-row items-center gap-2.5 overflow-hidden px-2.5 pb-2 pt-1.5">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">

@@ -17,7 +17,6 @@
     "core:window:allow-show",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-is-fullscreen",
-    "decoration:default",
     "dialog:default",
     "opener:default"
   ]

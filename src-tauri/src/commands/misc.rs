@@ -300,41 +300,9 @@ pub(crate) async fn open_url(app: tauri::AppHandle, url: String) -> Result<(), S
         .map_err(|e| e.to_string())
 }
 
-/// Activate the decoration plugin's overlay titlebar (Windows/Linux), then
-/// show the window. Windows start hidden (visible: false) so native
-/// decorations never flash.
-///
-/// macOS must NOT activate the plugin: its inset semantics (y = extra
-/// container height, buttons centered) differ from tao's
-/// trafficLightPosition (y = button top offset), and its taller titlebar
-/// container fights AppKit's own layout on display/focus changes, making
-/// the traffic lights jump. On macOS the frontend calls `show_window`
-/// instead, leaving tao's trafficLightPosition in charge.
-#[tauri::command]
-pub(crate) fn activate_custom_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
-    use tauri_plugin_decoration::WebviewWindowExt;
-    window
-        .create_overlay_titlebar()
-        .map_err(|e| e.to_string())?;
-    window.show().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Show a window that keeps its native (tao-managed) titlebar — the macOS
-/// counterpart of `activate_custom_titlebar`.
+/// Show a window after its platform-specific chrome is ready.
 #[tauri::command]
 pub(crate) fn show_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.show().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Fallback: restore native decorations if plugin activation fails.
-#[tauri::command]
-pub(crate) fn restore_native_titlebar(window: tauri::WebviewWindow) -> Result<(), String> {
-    use tauri_plugin_decoration::WebviewWindowExt;
-    window
-        .restore_native_titlebar()
-        .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     Ok(())
 }

@@ -289,7 +289,7 @@ pub(crate) async fn delete_project(
 
 /// Build a project window: same chrome as the main window, with cleanup of
 /// the `window_projects` mapping when the window is destroyed. The frontend
-/// activates the overlay titlebar and shows it.
+/// shows it after the platform-specific chrome is ready.
 pub(crate) fn spawn_project_window<R: Runtime>(
     app_handle: &AppHandle<R>,
     window_label: &str,

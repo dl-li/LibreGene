@@ -23,7 +23,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "net",
 libregene-core = { path = "../backend/libregene-core" }
 log = "0.4"
 getrandom = "0.2"
-tauri-plugin-decoration = "2.1.4"
 tauri-plugin-single-instance = "2"
 
 # MCP (Model Context Protocol) embedded server — streamable HTTP on loopback.

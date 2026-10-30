@@ -28,7 +28,6 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_decoration::init())
         // Keep one process on Windows/Linux: a second launch (e.g. opening
         // another file from Explorer) forwards its argv to the running
         // instance instead of spawning a new one. No-op on macOS, where the
@@ -177,9 +176,7 @@ pub fn run() {
             commands::misc::set_mcp_config,
             commands::misc::get_mcp_token,
             commands::misc::regenerate_mcp_token,
-            commands::misc::activate_custom_titlebar,
             commands::misc::show_window,
-            commands::misc::restore_native_titlebar,
             commands::misc::force_quit,
         ])
         .build(tauri::generate_context!())
