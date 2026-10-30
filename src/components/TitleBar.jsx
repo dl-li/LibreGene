@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '@/tauriApi';
 
-// Only Linux ever keeps the native titlebar as a fallback (e.g. X11 sessions,
-// where the decoration plugin requires Wayland). On macOS/Windows the custom
-// overlay is expected to work, so the bar always renders there — a spurious
-// activation error (or a remount re-invoke) must not hide it.
+// Linux uses the desktop environment's native window frame and controls.
+// macOS/Windows keep the custom overlay; a spurious activation error (or a
+// remount re-invoke) must not hide it there.
 const isLinux = typeof navigator !== 'undefined' && /Linux/i.test(navigator.platform);
 
 // macOS never activates the decoration plugin (it refuses dev-URL content
@@ -16,22 +15,24 @@ const isLinux = typeof navigator !== 'undefined' && /Linux/i.test(navigator.plat
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
 export default function TitleBar({ title, dirty = false, onFallback }) {
-  // When the custom decoration can't activate on Linux, the native titlebar
-  // stays; hide our own bar so the two don't stack.
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(isLinux && isTauri);
 
   useEffect(() => {
     if (!isTauri) return undefined;
+    if (isLinux) {
+      setHidden(true);
+      onFallback?.();
+      invoke('restore_native_titlebar').catch(() => {
+        invoke('show_window').catch(() => {});
+      });
+      return undefined;
+    }
     if (isMac) {
       invoke('show_window').catch(() => {});
       return undefined;
     }
     const fallback = () => {
       invoke('restore_native_titlebar').catch(() => {});
-      if (isLinux) {
-        setHidden(true);
-        onFallback?.();
-      }
     };
     invoke('activate_custom_titlebar').catch(fallback);
 
