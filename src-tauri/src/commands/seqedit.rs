@@ -89,6 +89,7 @@ pub(crate) async fn update_sequence(
 /// Color the sequence text of `[start, end]` (0-based inclusive) on one
 /// strand ("+" | "-" | "both"); an empty `color` clears that span.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn set_text_colors(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
