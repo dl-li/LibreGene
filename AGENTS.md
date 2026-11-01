@@ -27,7 +27,8 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 1. bump `package.json` version（`tauri.conf.json` 引用它，无需另改）
 2. 手写 `release-notes/v<version>.md`（缺失时 CI 回退为自动 notes）
-3. 合并到 master
+3. 在仓库根目录运行 `npm run release:check` 并确保全部通过；该命令覆盖前端 format/lint/typecheck/test/build、core check/test/Clippy、Tauri test/Clippy/build
+4. 推送 `dev` 并创建到 `master` 的 PR，等待 PR 的完整 Build 平台矩阵通过后再合并；不要直接推送未经完整矩阵验证的发布提交到 `master`
 
 发布后 `homebrew-tap` job 用本仓库 `homebrew/libregene.rb` 模板（唯一事实来源，勿直接改 tap 仓库）更新 `dl-li/homebrew-libregene`（需 secret `HOMEBREW_TAP_TOKEN`）。
 
