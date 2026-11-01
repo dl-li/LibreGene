@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  activateProject,
   setMethylation,
   setAgentTabLocked,
   emitEditorBackground,
@@ -144,7 +143,7 @@ export default function useProjectData({
   const projectIdRef = useRef(projectId);
 
   // Sync methylation settings with the backend when they change.
-  // Deferred while hidden: the backend command applies to the active project.
+  // Deferred while hidden; the command always targets this workspace's id.
   const methKey = useMemo(
     () => methylationSystems.join(',') + '|' + methylationOverlap,
     [methylationSystems, methylationOverlap],
@@ -159,7 +158,6 @@ export default function useProjectData({
     (async () => {
       try {
         const pid = projectIdRef.current;
-        await activateProject(pid);
         const data = await setMethylation(methylationSystems, methylationOverlap, pid);
         if (cancelled || projectIdRef.current !== pid) return;
         if (data && !data.error && data.enzymes) {

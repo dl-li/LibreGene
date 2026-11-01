@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 use tokio::sync::RwLock;
 
@@ -19,11 +19,11 @@ use libregene_core::models::{Feature, Primer, ProjectData};
 use libregene_core::project::ProjectManager;
 use libregene_core::utils::{orientation_hashes, to_rna};
 
-use crate::mcp::LibreGeneMcp;
 use crate::mcp::next_id;
 use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, unit_for};
 use crate::mcp::tools::{build_export_data, fragment_pieces, resolve_export_region};
 use crate::mcp::types::{AddToWorkspaceRequest, RegionSpec};
+use crate::mcp::LibreGeneMcp;
 
 /// One staged fragment. `sequence` is uppercase and linear; `features` /
 /// `primers` are already rebased to [0, len-1].
@@ -57,7 +57,10 @@ pub(crate) async fn remove_fragments_of(workspace: &Workspace, project_id: &str)
 
 pub(crate) async fn rekey_fragments_of(workspace: &Workspace, old_id: &str, new_id: &str) {
     let mut workspace = workspace.write().await;
-    for item in workspace.iter_mut().filter(|item| item.source_project == old_id) {
+    for item in workspace
+        .iter_mut()
+        .filter(|item| item.source_project == old_id)
+    {
         item.source_project = new_id.to_string();
     }
 }
@@ -81,7 +84,10 @@ pub(crate) fn workspace_item_json(item: &WorkspaceItem) -> serde_json::Value {
         "source": item.source,
         "temporary": item.temporary,
     });
-    insert_seq_hashes(&mut v, &orientation_hashes(&item.sequence, &item.molecule_type));
+    insert_seq_hashes(
+        &mut v,
+        &orientation_hashes(&item.sequence, &item.molecule_type),
+    );
     v
 }
 
@@ -98,7 +104,7 @@ pub(crate) struct ResolvedHash {
     pub flipped: bool,
     /// Entry name or project label, for notes/messages.
     pub label: String,
-    /// Total number of matching entries (the first, newest, was used).
+    /// Total number of matches; successful resolution always has exactly one.
     pub match_count: usize,
 }
 
@@ -121,7 +127,11 @@ fn flipped_content(
         ..Default::default()
     };
     let (seq, feats, primers) = build_export_data(&project, &[(0, len - 1)], true);
-    let seq = if molecule_type == "rna" { to_rna(&seq) } else { seq };
+    let seq = if molecule_type == "rna" {
+        to_rna(&seq)
+    } else {
+        seq
+    };
     (seq, feats, primers)
 }
 
@@ -139,9 +149,7 @@ pub(crate) async fn resolve_workspace_hash(
     let parts: Vec<&str> = hash_str.split('/').collect();
     let (g1, g2) = match parts.as_slice() {
         [a] if !a.is_empty() => ((*a).to_string(), None),
-        [a, b] if !a.is_empty() && !b.is_empty() => {
-            ((*a).to_string(), Some((*b).to_string()))
-        }
+        [a, b] if !a.is_empty() && !b.is_empty() => ((*a).to_string(), Some((*b).to_string())),
         _ => {
             return Err(format!(
                 "invalid hash '{}': expected \"<sequenceHash>\" or \"<sequenceHash>/<revCompHash>\" (see list_workspace)",
@@ -235,13 +243,13 @@ pub(crate) async fn resolve_workspace_hash(
                             p.primers.clone(),
                         )
                     } else {
-                        (
-                            p.sequence.clone(),
-                            p.features.clone(),
-                            p.primers.clone(),
-                        )
+                        (p.sequence.clone(), p.features.clone(), p.primers.clone())
                     };
-                    let label = if p.name.is_empty() { pid.clone() } else { p.name.clone() };
+                    let label = if p.name.is_empty() {
+                        pid.clone()
+                    } else {
+                        p.name.clone()
+                    };
                     first = Some(ResolvedHash {
                         sequence,
                         molecule_type: p.molecule_type.clone(),
@@ -254,6 +262,12 @@ pub(crate) async fn resolve_workspace_hash(
                 }
             }
         }
+    }
+    if match_count > 1 {
+        return Err(format!(
+            "hash '{}' is ambiguous: it matches {} workspace entries/open projects with identical sequences; use a sequence file path or a non-duplicated fragment instead",
+            hash_str, match_count
+        ));
     }
     match first {
         Some(mut r) => {
@@ -279,7 +293,11 @@ struct FragmentSpec {
 /// fragment(s). Cut positions are the internal 0-based
 /// `cut_pairs[0].top_cut_index` of each site (a cut at C severs between bases
 /// C-1 and C), wrapped into 0..len on circular templates.
-fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -> Result<Vec<FragmentSpec>, serde_json::Value> {
+fn enzyme_fragments(
+    project_id: &str,
+    project: &ProjectData,
+    names: &[String],
+) -> Result<Vec<FragmentSpec>, serde_json::Value> {
     let fail = |msg: String| -> serde_json::Value { fail_envelope(project_id, msg) };
     let len = project.length;
     let circular = project.topology == "circular";
@@ -323,7 +341,11 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
                     .first()
                     .map(|p| p.top_cut_index)
                     .unwrap_or(e.cut_index);
-                if circular { c.rem_euclid(len) } else { c }
+                if circular {
+                    c.rem_euclid(len)
+                } else {
+                    c
+                }
             })
             .collect();
         per_enzyme.push((sites[0].name.clone(), cuts));
@@ -337,7 +359,11 @@ fn enzyme_fragments(project_id: &str, project: &ProjectData, names: &[String]) -
         return Err(v);
     }
 
-    let label = if !project.name.is_empty() { project.name.clone() } else { "project".to_string() };
+    let label = if !project.name.is_empty() {
+        project.name.clone()
+    } else {
+        "project".to_string()
+    };
     match per_enzyme.as_slice() {
         [(name, cuts)] => {
             if cuts.len() != 2 {
@@ -499,7 +525,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 )));
             }
             for spec in &specs {
-                let (sequence, features, primers) = build_export_data(&project, &spec.pieces, spec.flip);
+                let (sequence, features, primers) =
+                    build_export_data(&project, &spec.pieces, spec.flip);
                 let name = request.name.clone().unwrap_or_else(|| spec.desc.clone());
                 let item = WorkspaceItem {
                     id: next_id("ws"),
@@ -521,7 +548,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let desc = if specs.len() == 1 {
             specs[0].desc.clone()
         } else {
-            specs.iter().map(|s| s.desc.clone()).collect::<Vec<_>>().join("; ")
+            specs
+                .iter()
+                .map(|s| s.desc.clone())
+                .collect::<Vec<_>>()
+                .join("; ")
         };
         let mut v = ok_envelope(
             &id,

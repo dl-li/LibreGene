@@ -89,6 +89,7 @@ function parseKazusaTable(text) {
 export default function CodonOptimizationDialog({
   open,
   onOpenChange,
+  projectId,
   features = [],
   onProjectChanged,
 }) {
@@ -151,6 +152,7 @@ export default function CodonOptimizationDialog({
       return null;
     }
     const params = {
+      projectId,
       featureId,
       species: species === CUSTOM_SPECIES ? 'custom' : species,
       method,

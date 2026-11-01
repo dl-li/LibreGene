@@ -75,10 +75,9 @@ mod orf_command_tests {
 #[tauri::command]
 pub(crate) async fn search_sequence(
     state: State<'_, AppState>,
+    project_id: String,
     query: String,
 ) -> Result<Vec<libregene_core::search::SeqMatch>, String> {
-    let project_id = resolve_project_id(&state).await?;
-
     do_search_sequence(&state.pm, &project_id, query).await
 }
 
@@ -143,6 +142,7 @@ pub(crate) async fn list_codon_species() -> Vec<String> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn preview_codon_optimization(
     state: State<'_, AppState>,
+    project_id: String,
     feature_id: String,
     species: String,
     method: String,
@@ -151,7 +151,6 @@ pub(crate) async fn preview_codon_optimization(
     avoid_enzyme_sites: Option<Vec<String>>,
     gc_window: Option<(usize, f64, f64)>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state).await?;
     let project = {
         let pm = state.pm.read().await;
         pm.get_project_by_id(&project_id)
@@ -188,6 +187,7 @@ pub(crate) async fn apply_codon_optimization(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     feature_id: String,
     species: String,
     method: String,
@@ -196,7 +196,6 @@ pub(crate) async fn apply_codon_optimization(
     avoid_enzyme_sites: Option<Vec<String>>,
     gc_window: Option<(usize, f64, f64)>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state).await?;
     let project = {
         let pm = state.pm.read().await;
         pm.get_project_by_id(&project_id)

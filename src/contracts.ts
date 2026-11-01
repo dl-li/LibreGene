@@ -129,6 +129,11 @@ export interface ProjectData {
   enzymeFilter?: string;
   dirty?: boolean;
   id?: string;
+  projectId?: string;
+  revision?: number;
+  savedRevision?: number;
+  currentRevision?: number;
+  rekeyedFrom?: string | null;
   error?: string;
 }
 
@@ -139,6 +144,7 @@ export interface ProjectSummary {
   topology: Topology;
   moleculeType: MoleculeType;
   dirty: boolean;
+  revision?: number;
   agentLocked?: boolean | null;
 }
 

@@ -6,7 +6,7 @@ use crate::kernels::{
     do_add_primer, do_check_primers_binding, do_delete_primer, do_design_primer_candidates,
     merge_primer_updates, primer_definitions, primers_equal,
 };
-use crate::payload::{filter_project, resolve_project_id, ProjectParams};
+use crate::payload::{filter_project, ProjectParams};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -14,23 +14,21 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub(crate) async fn get_primers(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state).await {
-        Ok(id) => {
-            let pm = state.pm.read().await;
-            match pm.get_project_by_id(&id) {
-                Some(p) => {
-                    let primers: Vec<serde_json::Value> = p
-                        .primers
-                        .iter()
-                        .map(|primer| serde_json::to_value(primer).unwrap_or_default())
-                        .collect();
-                    Ok(serde_json::json!(primers))
-                }
-                None => Ok(serde_json::json!([])),
-            }
+pub(crate) async fn get_primers(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<serde_json::Value, String> {
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => {
+            let primers: Vec<serde_json::Value> = p
+                .primers
+                .iter()
+                .map(|primer| serde_json::to_value(primer).unwrap_or_default())
+                .collect();
+            Ok(serde_json::json!(primers))
         }
-        Err(_) => Ok(serde_json::json!([])),
+        None => Ok(serde_json::json!([])),
     }
 }
 
@@ -39,13 +37,9 @@ pub(crate) async fn add_primer(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     primer: Primer,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_add_primer(
         &app_handle,
         &state.pm,
@@ -62,13 +56,9 @@ pub(crate) async fn delete_primer(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_delete_primer(
         &app_handle,
         &state.pm,
@@ -87,13 +77,9 @@ pub(crate) async fn delete_primer(
 #[tauri::command]
 pub(crate) async fn check_primers_binding(
     state: State<'_, AppState>,
+    project_id: String,
     primers: Vec<Primer>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_check_primers_binding(&state.pm, &project_id, primers).await
 }
 
@@ -104,13 +90,9 @@ pub(crate) async fn add_primers(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     primers: Vec<Primer>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     // Snapshot → merge → recompute (off-lock) → write-back. The write-back
     // only lands when the primers list is unchanged since the snapshot;
     // otherwise a concurrent add slipped in and we retry onto the fresh list
@@ -118,15 +100,17 @@ pub(crate) async fn add_primers(
     loop {
         let snapshot = {
             let pm = state.pm.read().await;
+            let revision = pm.revision(&project_id);
             pm.get_project_by_id(&project_id).map(|p| {
                 (
                     p.sequence.clone(),
                     p.topology.clone(),
                     primer_definitions(&p.primers),
+                    revision,
                 )
             })
         };
-        let Some((template, topology, existing)) = snapshot else {
+        let Some((template, topology, existing, expected_revision)) = snapshot else {
             return Ok(serde_json::json!({"error": "Project not found"}));
         };
 
@@ -158,8 +142,9 @@ pub(crate) async fn add_primers(
 
         let wrote = {
             let mut pm = state.pm.write().await;
+            let revision_matches = pm.revision(&project_id) == expected_revision;
             match pm.get_project_mut_by_id(&project_id) {
-                Some(p) if primers_equal(&p.primers, &existing) => {
+                Some(p) if revision_matches && primers_equal(&p.primers, &existing) => {
                     merge_primer_updates(&mut p.primers, updated);
                     pm.mark_dirty(&project_id);
                     true
@@ -211,13 +196,8 @@ pub(crate) async fn compute_primer_alignment(
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
-    project_id: Option<String>,
+    project_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match project_id {
-        Some(id) => id,
-        None => resolve_project_id(&state).await?,
-    };
-
     // Clone all needed data while holding the read lock, then drop it before spawn_blocking.
     let (template, topology, existing_primers) = {
         let pm = state.pm.read().await;
@@ -561,6 +541,7 @@ struct BindingSiteCandidate {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn design_primer_candidates(
     state: State<'_, AppState>,
+    project_id: String,
     mode: String,
     seg: Option<Segment>,
     seg2: Option<Segment>,
@@ -578,8 +559,6 @@ pub(crate) async fn design_primer_candidates(
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
 ) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
-    let project_id = resolve_project_id(&state).await?;
-
     do_design_primer_candidates(
         &state.pm,
         &project_id,

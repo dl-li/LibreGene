@@ -272,7 +272,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             Reuse::NotBound => Err(ErrorData::invalid_params(
                 format!(
-                    "Project '{}' is already open and was NOT opened via MCP open_project (it was opened by the user, or in a separate window). To work on a copy, copy the file with bash `cp` to a new path and open_project the copy.",
+                    "Project '{}' is already open and was NOT opened via MCP open_project (it was opened by the user). To work on a copy, copy the file with bash `cp` to a new path and open_project the copy.",
                     id
                 ),
                 None,
@@ -649,7 +649,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `outputPath` for that instead).
     ///
     /// Whole project (no `region`): sequence + features go through the normal
-    /// serializer and the project is marked clean. Returns {ok, message,
+    /// serializer. Saving over the project's own source marks it clean; writing
+    /// to another path is an export and preserves its dirty state. Returns {ok, message,
     /// projectId, unit, path, length, bytesWritten, text, sequenceHash,
     /// revCompHash}.
     ///

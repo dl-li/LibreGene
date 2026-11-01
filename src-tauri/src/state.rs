@@ -53,6 +53,35 @@ pub(crate) fn validate_user_path(path: &str, allowed_exts: &[&str]) -> Result<St
     Ok(ext)
 }
 
+pub(crate) fn normalize_project_path(path: &str) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("path is empty".to_string());
+    }
+    let input = std::path::PathBuf::from(trimmed);
+    let absolute = if input.is_absolute() {
+        input
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(input)
+    };
+    let normalized = if absolute.exists() {
+        std::fs::canonicalize(&absolute).map_err(|e| e.to_string())?
+    } else {
+        let parent = absolute
+            .parent()
+            .ok_or_else(|| "save path has no parent directory".to_string())?;
+        let name = absolute
+            .file_name()
+            .ok_or_else(|| "save path has no file name".to_string())?;
+        std::fs::canonicalize(parent)
+            .map_err(|e| format!("cannot resolve save directory {}: {}", parent.display(), e))?
+            .join(name)
+    };
+    Ok(normalized.to_string_lossy().into_owned())
+}
+
 pub(crate) const SEQ_EXTS: &[&str] = &[
     "gbk", "gb", "genbank", "gbf", "gbff", "dna", "rna", "prot", "gpt", "gp", "gpe", "gpff",
     "fasta", "fa", "fna", "fas", "ffn", "fsa", "faa", "frn", "ab1", "seq",

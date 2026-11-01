@@ -113,12 +113,12 @@ async fn open_project_binds_fresh_file_as_agent_tab() {
         .await
         .unwrap();
     let v = out.0;
+    let id = v["projectId"].as_str().unwrap().to_string();
     assert_eq!(v["ok"], true, "{v}");
-    assert_eq!(v["projectId"], path.to_str().unwrap(), "{v}");
+    assert_eq!(v["projectId"], id, "{v}");
     assert!(v["text"].is_string(), "{v}");
     assert_eq!(v["unit"], "bp", "{v}");
     assert_eq!(v["locked"], true, "{v}");
-    let id = path.to_string_lossy().into_owned();
     {
         let pm = server.pm.read().await;
         assert!(pm.get_project_by_id(&id).is_some(), "project loaded");
@@ -188,7 +188,7 @@ async fn open_project_binds_path_with_parens_and_spaces() {
         .await
         .unwrap();
     let v = out.0;
-    let id = path.to_string_lossy().into_owned();
+    let id = v["projectId"].as_str().unwrap().to_string();
     assert_eq!(v["ok"], true, "{v}");
     assert_eq!(v["projectId"], id, "{v}");
     assert!(server.agent_tabs.read().await.contains_key(&id));

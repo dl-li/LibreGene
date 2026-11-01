@@ -142,20 +142,49 @@ pub(crate) async fn create_project(
 
 #[tauri::command]
 pub(crate) async fn save_file(
+    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state).await {
-        Ok(id) => {
-            let result = do_save_file(&state.pm, id.clone(), path).await?;
-            if result.get("error").is_none() {
-                crate::session_log::mark_project_saved(&app_handle, &state.pm, &id).await;
+    save_file_impl(
+        app_handle,
+        state,
+        project_id,
+        path,
+        Some(webview_window.label()),
+    )
+    .await
+}
+
+async fn save_file_impl<R: tauri::Runtime>(
+    app_handle: AppHandle<R>,
+    state: State<'_, AppState>,
+    project_id: String,
+    path: String,
+    source: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let result = do_save_file(&state.pm, project_id.clone(), path.clone(), true).await?;
+    if result.get("error").is_none() {
+        let final_id = result
+            .get("projectId")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&path)
+            .to_string();
+        if result.get("rekeyedFrom").and_then(|v| v.as_str()).is_some() {
+            let mut at = state.agent_tabs.write().await;
+            if let Some(meta) = at.remove(&project_id) {
+                at.insert(final_id.clone(), meta);
             }
-            Ok(result)
+            drop(at);
+            crate::mcp::rekey_fragments_of(&state.workspace, &project_id, &final_id).await;
+            crate::session_log::rekey_project(&app_handle, &project_id, &final_id).await;
+            broadcast_project(&app_handle, &state, source).await;
         }
-        Err(e) => Ok(serde_json::json!({"error": e})),
+        crate::session_log::mark_project_saved(&app_handle, &state.pm, &final_id).await;
     }
+    Ok(result)
 }
 
 /// Write raw text to a file (used for My Enzymes export). Small payloads only.
@@ -299,14 +328,6 @@ pub(crate) async fn rekey_project(
     old_id: String,
     new_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-    if project_id != old_id {
-        return Ok(serde_json::json!({"error": "Project ID mismatch"}));
-    }
-
     let ok = {
         let mut pm = state.pm.write().await;
         pm.rename_id(&old_id, &new_id)
@@ -327,4 +348,65 @@ pub(crate) async fn rekey_project(
 
     broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
     Ok(serde_json::json!({"status": "ok", "newId": new_id}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use libregene_core::models::ProjectData;
+    use libregene_core::project::ProjectManager;
+    use tauri::Manager;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn background_project_save_uses_requested_id_not_active_project() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let dir =
+            std::env::temp_dir().join(format!("libregene-save-target-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a_path = dir.join("a.gbk");
+        let a_id = crate::normalize_project_path(a_path.to_str().unwrap()).unwrap();
+        let project = |sequence: &str| ProjectData {
+            name: "test".to_string(),
+            sequence: sequence.to_string(),
+            length: sequence.len() as i64,
+            topology: "linear".to_string(),
+            ..Default::default()
+        };
+        pm.write().await.load(&a_id, project("AAAA")).unwrap();
+        pm.write().await.mark_dirty(&a_id);
+        pm.write().await.load("b", project("CCCC")).unwrap();
+        app.manage(AppState {
+            pm: pm.clone(),
+            agent_tabs: Arc::new(RwLock::new(HashMap::new())),
+            workspace: Arc::new(RwLock::new(Vec::new())),
+            session_edit_log: Arc::new(RwLock::new(Default::default())),
+            pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
+            tray_status: Arc::new(std::sync::Mutex::new(None)),
+        });
+
+        let out = save_file_impl(
+            app.handle().clone(),
+            app.state::<AppState>(),
+            a_id,
+            a_path.to_string_lossy().into_owned(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        let saved = file_io::parse_file(&a_path).unwrap();
+        assert_eq!(saved.sequence, "AAAA");
+        assert_eq!(
+            pm.read().await.get_project_by_id("b").unwrap().sequence,
+            "CCCC"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

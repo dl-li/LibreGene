@@ -520,6 +520,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             p.sequence = new_seq.clone();
             p.length = p.sequence.len() as i64;
+            pm.bump_template_revision(&id);
             pm.mark_dirty(&id);
             (new_seq, context_before, context_after, impact)
         };
@@ -619,12 +620,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     label
                 ));
             }
-            if match_count > 1 {
-                push_note(&mut v, format!(
-                    "replacementHash matched {} workspace entries/open projects; used the first ('{}')",
-                    match_count, label
-                ));
-            }
+            let _ = match_count;
         }
         if let Some(rv) = old_region {
             v["textBefore"] = serde_json::json!(rv);

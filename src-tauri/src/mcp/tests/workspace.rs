@@ -405,6 +405,20 @@ async fn hash_inputs_resolve_open_projects_and_fail_cleanly() {
 }
 
 #[tokio::test]
+async fn duplicate_project_sequence_hash_is_rejected_as_ambiguous() {
+    let project = alignment_test_project("linear");
+    let hash =
+        libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type).0;
+    let server = handler_with_project(project.clone()).await;
+    server.pm.write().await.load("duplicate", project).unwrap();
+    let err = match resolve_workspace_hash(&server.pm, &server.workspace, &hash).await {
+        Err(err) => err,
+        Ok(_) => panic!("duplicate sequences must not select an arbitrary project"),
+    };
+    assert!(err.contains("ambiguous"), "{err}");
+}
+
+#[tokio::test]
 async fn convert_sequence_hash_mode_defaults_from_entry_type() {
     let server = handler_with_project(edit_test_project()).await;
     let mut req = add_req("edit_test");

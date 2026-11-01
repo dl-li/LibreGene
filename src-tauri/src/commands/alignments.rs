@@ -9,9 +9,7 @@ use crate::kernels::{
     alignment_reject_message, commit_computed_alignment, do_add_alignment_seq, do_remove_alignment,
     parse_align_algorithm,
 };
-use crate::payload::{
-    filter_project, prune_orphan_bindings, resolve_project_id, with_projects_list, ProjectParams,
-};
+use crate::payload::{filter_project, prune_orphan_bindings, with_projects_list, ProjectParams};
 use crate::state::{validate_user_path, AppState, SEQ_EXTS};
 
 // ---------------------------------------------------------------------------
@@ -23,6 +21,7 @@ pub(crate) async fn add_alignment(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     path: String,
     algorithm: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -31,14 +30,10 @@ pub(crate) async fn add_alignment(
     // the MCP-side add_alignment, which validates every path.
     let ext = validate_user_path(&path, SEQ_EXTS)?;
     let algorithm = parse_align_algorithm(algorithm.as_deref());
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
-    let project_clone = {
+    let (project_clone, expected_revision) = {
         let pm = state.pm.read().await;
-        pm.get_project_by_id(&project_id).cloned()
+        let revision = pm.template_revision(&project_id);
+        (pm.get_project_by_id(&project_id).cloned(), revision)
     };
     let project_clone = match project_clone {
         Some(p) => p,
@@ -94,7 +89,19 @@ pub(crate) async fn add_alignment(
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
 
-    let _ = commit_computed_alignment(&state.pm, &project_id, &snapshot_ids, computed).await;
+    let committed = commit_computed_alignment(
+        &state.pm,
+        &project_id,
+        &snapshot_ids,
+        expected_revision,
+        computed,
+    )
+    .await;
+    if committed.is_none() {
+        return Ok(serde_json::json!({
+            "error": "Project changed while aligning; retry the alignment"
+        }));
+    }
 
     crate::payload::broadcast_project_for_id(
         &app_handle,
@@ -124,14 +131,11 @@ pub(crate) async fn add_alignment_seq(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     name: String,
     seq: String,
     algorithm: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
     let algorithm = parse_align_algorithm(algorithm.as_deref());
 
     do_add_alignment_seq(
@@ -154,13 +158,9 @@ pub(crate) async fn remove_alignment(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     alignment_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_remove_alignment(
         &app_handle,
         &state.pm,

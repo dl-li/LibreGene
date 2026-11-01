@@ -3,7 +3,6 @@ use tauri::{AppHandle, State};
 use libregene_core::models::Feature;
 
 use crate::kernels::{do_add_features, do_delete_feature, do_update_feature};
-use crate::payload::resolve_project_id;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -11,16 +10,14 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub(crate) async fn get_features(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state).await {
-        Ok(id) => {
-            let pm = state.pm.read().await;
-            match pm.get_project_by_id(&id) {
-                Some(p) => Ok(serde_json::to_value(&p.features).unwrap_or(serde_json::json!([]))),
-                None => Ok(serde_json::json!([])),
-            }
-        }
-        Err(_) => Ok(serde_json::json!([])),
+pub(crate) async fn get_features(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<serde_json::Value, String> {
+    let pm = state.pm.read().await;
+    match pm.get_project_by_id(&project_id) {
+        Some(p) => Ok(serde_json::to_value(&p.features).unwrap_or(serde_json::json!([]))),
+        None => Ok(serde_json::json!([])),
     }
 }
 
@@ -28,15 +25,11 @@ pub(crate) async fn get_features(state: State<'_, AppState>) -> Result<serde_jso
 pub(crate) async fn add_feature(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     feature: Feature,
     location_str: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     // If location_str is provided, parse and validate it (0-based inclusive,
     // the App-wide convention, e.g. "99..199", "join(0..99,199..299)")
     let mut resolved = feature;
@@ -69,14 +62,10 @@ pub(crate) async fn add_feature(
 pub(crate) async fn delete_feature(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_delete_feature(
         &app_handle,
         &state.pm,
@@ -92,15 +81,11 @@ pub(crate) async fn delete_feature(
 pub(crate) async fn update_feature_ftype(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     feature_id: String,
     new_ftype: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_update_feature(
         &app_handle,
         &state.pm,
@@ -124,15 +109,11 @@ pub(crate) async fn update_feature_ftype(
 pub(crate) async fn update_feature_color(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     feature_id: String,
     new_color: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_update_feature(
         &app_handle,
         &state.pm,
@@ -160,15 +141,11 @@ pub(crate) async fn update_feature_color(
 pub(crate) async fn update_feature_name(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     feature_id: String,
     new_name: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_update_feature(
         &app_handle,
         &state.pm,
@@ -192,15 +169,11 @@ pub(crate) async fn update_feature_name(
 pub(crate) async fn update_feature_strand(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     feature_id: String,
     strand: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     let valid = strand == "." || strand == "+" || strand == "-";
     if !valid {
         return Ok(serde_json::json!({"error": "Invalid strand: must be ., +, or -".to_string()}));
@@ -229,15 +202,11 @@ pub(crate) async fn update_feature_strand(
 pub(crate) async fn update_feature_location(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    project_id: String,
     app_handle: AppHandle,
     feature_id: String,
     location_str: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
-
     do_update_feature(
         &app_handle,
         &state.pm,

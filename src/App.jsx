@@ -338,7 +338,7 @@ export default function App() {
         const data = await openFile(p);
         if (data && data.sequence) {
           // Hand the response to the new workspace so it doesn't refetch
-          initialDataRef.current[p] = data;
+          initialDataRef.current[data.id || p] = data;
           setRecentFiles(addRecentFile(p));
         } else {
           failed.push({ path: p, error: data?.error || 'Not a readable sequence file' });
@@ -366,7 +366,7 @@ export default function App() {
         try {
           const data = await openFile(target.path, i);
           if (data && data.sequence) {
-            initialDataRef.current[`${target.path}#record-${i}`] = data;
+            initialDataRef.current[data.id || `${target.path}#record-${i}`] = data;
           } else {
             failed.push({
               path: `${fileNameOf(target.path)} (record ${i + 1})`,
@@ -435,7 +435,7 @@ export default function App() {
       try {
         const data = await openFile(path);
         if (data && data.sequence) {
-          initialDataRef.current[path] = data;
+          initialDataRef.current[data.id || path] = data;
           setRecentFiles(addRecentFile(path));
         }
         await refreshProjects();
@@ -468,7 +468,7 @@ export default function App() {
         }
         const data = await openFile(path);
         if (data && data.sequence) {
-          initialDataRef.current[path] = data;
+          initialDataRef.current[data.id || path] = data;
           setRecentFiles(addRecentFile(path));
         } else if (data && data.error) {
           console.error('open external file error:', data.error);

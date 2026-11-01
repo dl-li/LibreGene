@@ -312,8 +312,7 @@ pub fn write_gpt(project: &ProjectData, path: &Path) -> io::Result<()> {
     }
     out.push_str("//\n");
 
-    let mut file = File::create(path)?;
-    file.write_all(out.as_bytes())
+    super::write_atomic(path, |file| file.write_all(out.as_bytes()))
 }
 
 fn dot_or(s: &str) -> &str {

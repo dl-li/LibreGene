@@ -14,6 +14,10 @@ pub struct ProjectManager {
     active: Option<String>,
     /// Set of project IDs that have unsaved modifications.
     dirty_projects: HashSet<String>,
+    revisions: HashMap<String, u64>,
+    next_revision: u64,
+    template_revisions: HashMap<String, u64>,
+    next_template_revision: u64,
 }
 
 impl ProjectManager {
@@ -34,6 +38,8 @@ impl ProjectManager {
         if let Some(i) = idx {
             let id = self.ordered_ids.remove(i);
             self.projects.remove(&id);
+            self.revisions.remove(&id);
+            self.template_revisions.remove(&id);
         }
         self.projects.len() < MAX_PROJECTS
     }
@@ -49,6 +55,8 @@ impl ProjectManager {
             self.ordered_ids.push(id.to_string());
         }
         self.projects.insert(id.to_string(), project);
+        self.bump_revision(id);
+        self.bump_template_revision(id);
         self.active = Some(id.to_string());
         Ok(())
     }
@@ -64,14 +72,14 @@ impl ProjectManager {
             self.ordered_ids.push(id.clone());
         }
         self.projects.insert(id.clone(), project);
+        self.bump_revision(&id);
+        self.bump_template_revision(&id);
         self.active = Some(id);
         Ok(())
     }
 
     pub fn get_project(&self) -> Option<&ProjectData> {
-        self.active
-            .as_ref()
-            .and_then(|id| self.projects.get(id))
+        self.active.as_ref().and_then(|id| self.projects.get(id))
     }
 
     pub fn get_project_by_id(&self, id: &str) -> Option<&ProjectData> {
@@ -96,26 +104,30 @@ impl ProjectManager {
     pub fn list_projects(&self) -> Vec<serde_json::Value> {
         self.ordered_ids
             .iter()
-            .filter_map(|id| self.projects.get(id).map(|p| {
-                // In-memory projects (virtual ids `untitled-{millis}` for new
-                // sequences, `snapshot-{millis}` for opened SnapGene history
-                // snapshots) have no file path to display — show their name
-                // instead (the snapshot's original node name).
-                let name =
-                    if (id.starts_with("untitled-") || id.starts_with("snapshot-")) && !p.name.is_empty() {
+            .filter_map(|id| {
+                self.projects.get(id).map(|p| {
+                    // In-memory projects (virtual ids `untitled-{millis}` for new
+                    // sequences, `snapshot-{millis}` for opened SnapGene history
+                    // snapshots) have no file path to display — show their name
+                    // instead (the snapshot's original node name).
+                    let name = if (id.starts_with("untitled-") || id.starts_with("snapshot-"))
+                        && !p.name.is_empty()
+                    {
                         p.name.as_str()
                     } else {
                         id.as_str()
                     };
-                serde_json::json!({
-                    "id": id,
-                    "name": name,
-                    "length": p.length,
-                    "topology": p.topology,
-                    "moleculeType": p.molecule_type,
-                    "dirty": self.dirty_projects.contains(id.as_str()),
+                    serde_json::json!({
+                        "id": id,
+                        "name": name,
+                        "length": p.length,
+                        "topology": p.topology,
+                        "moleculeType": p.molecule_type,
+                        "dirty": self.dirty_projects.contains(id.as_str()),
+                        "revision": self.revision(id),
+                    })
                 })
-            }))
+            })
             .collect()
     }
 
@@ -128,8 +140,35 @@ impl ProjectManager {
         }
     }
 
+    pub fn bump_revision(&mut self, id: &str) -> u64 {
+        self.next_revision += 1;
+        let revision = self.next_revision;
+        self.revisions.insert(id.to_string(), revision);
+        revision
+    }
+
+    pub fn revision(&self, id: &str) -> u64 {
+        self.revisions.get(id).copied().unwrap_or(0)
+    }
+
+    pub fn bump_template_revision(&mut self, id: &str) -> u64 {
+        self.next_template_revision += 1;
+        let revision = self.next_template_revision;
+        self.template_revisions.insert(id.to_string(), revision);
+        revision
+    }
+
+    pub fn template_revision(&self, id: &str) -> u64 {
+        self.template_revisions.get(id).copied().unwrap_or(0)
+    }
+
     /// Mark a project as having unsaved changes.
     pub fn mark_dirty(&mut self, id: &str) {
+        self.dirty_projects.insert(id.to_string());
+        self.bump_revision(id);
+    }
+
+    pub fn restore_dirty(&mut self, id: &str) {
         self.dirty_projects.insert(id.to_string());
     }
 
@@ -160,6 +199,12 @@ impl ProjectManager {
         if self.dirty_projects.remove(old_id) {
             self.dirty_projects.insert(new_id.to_string());
         }
+        if let Some(revision) = self.revisions.remove(old_id) {
+            self.revisions.insert(new_id.to_string(), revision);
+        }
+        if let Some(revision) = self.template_revisions.remove(old_id) {
+            self.template_revisions.insert(new_id.to_string(), revision);
+        }
         true
     }
 
@@ -172,6 +217,8 @@ impl ProjectManager {
         let existed = self.projects.remove(id).is_some();
         self.ordered_ids.retain(|i| i != id);
         self.dirty_projects.remove(id);
+        self.revisions.remove(id);
+        self.template_revisions.remove(id);
         if self.active.as_deref() == Some(id) {
             self.active = self.ordered_ids.first().cloned();
         }
@@ -233,8 +280,14 @@ mod tests {
         // Active is p23; mark p0 dirty → p1 becomes the oldest evictable.
         pm.mark_dirty("p0");
         pm.load("p24", proj("p24")).unwrap();
-        assert!(pm.get_project_by_id("p0").is_some(), "dirty project must survive eviction");
-        assert!(pm.get_project_by_id("p1").is_none(), "oldest clean project evicted");
+        assert!(
+            pm.get_project_by_id("p0").is_some(),
+            "dirty project must survive eviction"
+        );
+        assert!(
+            pm.get_project_by_id("p1").is_none(),
+            "oldest clean project evicted"
+        );
     }
 
     #[test]

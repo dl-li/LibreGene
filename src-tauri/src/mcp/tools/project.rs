@@ -391,7 +391,19 @@ impl<R: Runtime> LibreGeneMcp<R> {
         &self,
         request: OpenProjectRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        let id = request.path;
+        if self
+            .pm
+            .read()
+            .await
+            .get_project_by_id(&request.path)
+            .is_some()
+        {
+            return self.reuse_agent_tab_or_reject(&request.path).await;
+        }
+        crate::validate_user_path(&request.path, crate::SEQ_EXTS)
+            .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
+        let id = crate::normalize_project_path(&request.path)
+            .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
         // Fast path: already loaded → reuse the binding or reject. No load
         // happens on this path, so there is nothing to race with.
         let already_loaded = {
@@ -401,8 +413,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if already_loaded {
             return self.reuse_agent_tab_or_reject(&id).await;
         }
-        crate::validate_user_path(&id, crate::SEQ_EXTS)
-            .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
         // Parse + recompute off the executor with no locks held (the same
         // pipeline do_open_file runs for the frontend open_file command).
         let path_buf = std::path::PathBuf::from(&id);
@@ -507,7 +517,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             insert_seq_hashes(&mut v, &seq_hashes);
             Json(v)
         };
-        let path = request.path.clone();
+        let path = crate::normalize_project_path(&request.path)
+            .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
         // Overwrite rule: a pre-existing target that is not the project's own
         // source file needs an explicit overwrite flag.
         if path != id && !request.overwrite.unwrap_or(false) && std::path::Path::new(&path).exists()
@@ -524,7 +535,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let Some(spec) = request.region else {
             // Whole-project save.
-            let payload = crate::do_save_file(&self.pm, id.clone(), path.clone())
+            let payload = crate::do_save_file(&self.pm, id.clone(), path.clone(), false)
                 .await
                 .map_err(|e| ErrorData::internal_error(e, None))?;
             if let Some(err) = Self::payload_error(&payload) {

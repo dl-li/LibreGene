@@ -16,9 +16,12 @@ use libregene_core::project::ProjectManager;
 
 use crate::payload::{
     broadcast_project_arcs, broadcast_project_change_arcs, feature_mutation_response,
-    filter_project, prune_orphan_bindings, sidebar_project_list, with_projects_list, ProjectParams,
+    filter_project, prune_orphan_bindings, sidebar_project_list, with_project_meta,
+    with_projects_list, ProjectParams,
 };
-use crate::state::{validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS};
+use crate::state::{
+    normalize_project_path, validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS,
+};
 
 // ---------------------------------------------------------------------------
 // Shared mutation/analysis cores — called by both the Tauri commands and the
@@ -34,6 +37,7 @@ pub(crate) async fn do_open_file(
     record_index: Option<usize>,
 ) -> Result<serde_json::Value, String> {
     validate_user_path(&path, SEQ_EXTS)?;
+    let path = normalize_project_path(&path)?;
     let id = match record_index {
         // A split multi-record FASTA opens each record as its own project; the
         // project id must differ from the file path and from sibling records.
@@ -76,7 +80,8 @@ pub(crate) async fn do_open_file(
                 row_end: None,
                 cpl: None,
             };
-            let return_data = filter_project(&project, &params);
+            let mut return_data = filter_project(&project, &params);
+            return_data["id"] = serde_json::json!(id);
 
             let (projects, active_id) = {
                 let mut pm = pm.write().await;
@@ -276,86 +281,124 @@ pub(crate) async fn do_create_project(
     ))
 }
 
+fn save_lock(key: &str) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    > = std::sync::OnceLock::new();
+    let locks = LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    locks
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key.to_string())
+        .or_default()
+        .clone()
+}
+
 pub(crate) async fn do_save_file(
     pm: &Arc<RwLock<ProjectManager>>,
     project_id: String,
     path: String,
+    rekey: bool,
 ) -> Result<serde_json::Value, String> {
     let ext = validate_user_path(&path, CODON_OUTPUT_EXTS)?;
+    let path = normalize_project_path(&path)?;
     let save_path = std::path::PathBuf::from(&path);
-    // Snapshot the project and clear its dirty flag in ONE write lock: any
-    // mutation landing after this point re-marks the project dirty, so a
-    // concurrent edit during the blocking write is never mistaken for saved
-    // (the written file wouldn't contain it). On write failure the previous
-    // dirty state is restored.
-    let (project, was_dirty) = {
-        let mut pm = pm.write().await;
-        let was_dirty = pm.is_dirty(&project_id);
-        let project = pm.get_project_by_id(&project_id).cloned();
-        if project.is_some() {
-            pm.mark_clean(&project_id);
+    let normalized_source_id =
+        if project_id.starts_with("untitled-") || project_id.starts_with("snapshot-") {
+            project_id.clone()
+        } else {
+            normalize_project_path(&project_id).unwrap_or_else(|_| project_id.clone())
+        };
+    let save_as = normalized_source_id != path;
+    let project_lock = save_lock(&format!("project:{project_id}"));
+    let _project_guard = project_lock.lock().await;
+    let path_lock = save_lock(&format!("path:{path}"));
+    let _path_guard = path_lock.lock().await;
+
+    if rekey && save_as {
+        let target_open = pm.read().await.get_project_by_id(&path).is_some();
+        if target_open {
+            return Ok(serde_json::json!({
+                "error": "The target file is already open as another project; close it before saving over it"
+            }));
         }
-        (project, was_dirty)
+    }
+
+    let (project, saved_revision) = {
+        let pm = pm.read().await;
+        let project = pm.get_project_by_id(&project_id).cloned();
+        let revision = pm.revision(&project_id);
+        (project, revision)
     };
-    match project {
-        Some(ref p) => {
-            // Protein projects cannot round-trip through the DNA GenBank
-            // writer (amino-acid letters would corrupt the file) — force .gpt.
-            if p.molecule_type == "protein" && ext != "gpt" {
-                if was_dirty {
-                    pm.write().await.mark_dirty(&project_id);
-                }
+    let Some(snapshot) = project else {
+        return Ok(serde_json::json!({"error": "Project not found"}));
+    };
+    if snapshot.molecule_type == "protein" && ext != "gpt" {
+        return Ok(serde_json::json!({
+            "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
+        }));
+    }
+
+    let new_name = if save_as {
+        save_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    let mut output = snapshot;
+    if let Some(ref n) = new_name {
+        output.name = n.clone();
+    }
+    let write_path = save_path.clone();
+    let write_ext = ext.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        if write_ext == "gpt" {
+            file_io::gpt::write_gpt(&output, &write_path)
+        } else {
+            file_io::gbk::write_gbk(&output, &write_path)
+        }
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
+    if let Err(e) = result {
+        return Ok(serde_json::json!({"error": e.to_string()}));
+    }
+
+    let mut final_id = project_id.clone();
+    let mut rekeyed_from = None;
+    let (dirty, current_revision) = {
+        let mut pm = pm.write().await;
+        let unchanged = pm.revision(&project_id) == saved_revision;
+        if rekey && save_as {
+            if !pm.rename_id(&project_id, &path) {
                 return Ok(serde_json::json!({
-                    "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
+                    "error": "Save As could not rekey the project because the target project is already open"
                 }));
             }
-            // Save As semantics: when the target path differs from the
-            // project id (first save of an `untitled-*` project, or an
-            // explicit new name in the save dialog), the chosen file stem
-            // becomes the project name so it lands in the LOCUS field.
-            // Direct saves to the same path keep the existing name.
-            let new_name = if project_id != path {
-                save_path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-            } else {
-                None
-            };
-            let mut p = p.clone();
-            if let Some(ref n) = new_name {
-                p.name = n.clone();
-            }
-            let write_path = save_path.clone();
-            let write_ext = ext.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                if write_ext == "gpt" {
-                    file_io::gpt::write_gpt(&p, &write_path)
-                } else {
-                    file_io::gbk::write_gbk(&p, &write_path)
-                }
-            })
-            .await
-            .map_err(|e| format!("task join error: {}", e))?;
-            match result {
-                Ok(()) => {
-                    if let Some(n) = new_name {
-                        if let Some(live) = pm.write().await.get_project_mut_by_id(&project_id) {
-                            live.name = n;
-                        }
-                    }
-                    let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
-                    Ok(serde_json::json!({"status": "ok", "bytesWritten": bytes}))
-                }
-                Err(e) => {
-                    if was_dirty {
-                        pm.write().await.mark_dirty(&project_id);
-                    }
-                    Ok(serde_json::json!({"error": e.to_string()}))
+            rekeyed_from = Some(project_id.clone());
+            final_id = path.clone();
+        }
+        if unchanged && (rekey || !save_as) {
+            pm.mark_clean(&final_id);
+            if let Some(n) = new_name {
+                if let Some(live) = pm.get_project_mut_by_id(&final_id) {
+                    live.name = n;
                 }
             }
         }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+        (pm.is_dirty(&final_id), pm.revision(&final_id))
+    };
+    let bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
+    Ok(serde_json::json!({
+        "status": "ok",
+        "projectId": final_id,
+        "savedRevision": saved_revision,
+        "currentRevision": current_revision,
+        "dirty": dirty,
+        "rekeyedFrom": rekeyed_from,
+        "bytesWritten": bytes,
+    }))
 }
 
 /// CAS write-back of the off-lock recomputed fields after a sequence edit:
@@ -406,9 +449,10 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
     source: Option<&str>,
     project_id: &str,
 ) -> Result<(), String> {
-    let project_clone = {
+    let (project_clone, expected_revision) = {
         let pm = pm.read().await;
-        pm.get_project_by_id(project_id).map(|p| ProjectData {
+        let revision = pm.revision(project_id);
+        let project = pm.get_project_by_id(project_id).map(|p| ProjectData {
             // enzyme::recompute below rebuilds the whole enzyme list from the
             // embedded database, so cloning the existing Vec<Enzyme> (the
             // single heaviest field on large plasmids) is pure waste.
@@ -433,7 +477,8 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
             snapgene_history: p.snapgene_history.clone(),
             text_colors_top: p.text_colors_top.clone(),
             text_colors_bottom: p.text_colors_bottom.clone(),
-        })
+        });
+        (project, revision)
     };
 
     if let Some(mut p) = project_clone {
@@ -452,6 +497,9 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
         // rename, a newer sequence edit) are not clobbered; this also leaves
         // the global active project untouched (no open_project).
         let mut pm = pm.write().await;
+        if pm.revision(project_id) != expected_revision {
+            return Ok(());
+        }
         if let Some(p) = pm.get_project_mut_by_id(project_id) {
             merge_recomputed_after_edit(p, computed);
         }
@@ -494,6 +542,7 @@ async fn update_sequence_inner<R: Runtime>(
             if let Some(primers) = primers {
                 p.primers = primers;
             }
+            pm.bump_template_revision(&project_id);
             pm.mark_dirty(&project_id);
         }
     }
@@ -508,9 +557,11 @@ async fn update_sequence_inner<R: Runtime>(
             row_end: None,
             cpl: None,
         };
-        pm.get_project_by_id(&project_id)
+        let data = pm
+            .get_project_by_id(&project_id)
             .map(|p| filter_project(p, &params))
-            .unwrap_or(serde_json::json!({"error": "Project not found after update"}))
+            .unwrap_or(serde_json::json!({"error": "Project not found after update"}));
+        with_project_meta(data, &pm, &project_id)
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
@@ -899,15 +950,17 @@ pub(crate) async fn do_add_primer<R: Runtime>(
 
         let snapshot = {
             let pm = pm.read().await;
+            let revision = pm.revision(project_id);
             pm.get_project_by_id(project_id).map(|p| {
                 (
                     p.sequence.clone(),
                     p.topology.clone(),
                     primer_definitions(&p.primers),
+                    revision,
                 )
             })
         };
-        let Some((template, topology, existing)) = snapshot else {
+        let Some((template, topology, existing, expected_revision)) = snapshot else {
             return Ok(serde_json::json!({"error": "Project not found"}));
         };
 
@@ -924,8 +977,9 @@ pub(crate) async fn do_add_primer<R: Runtime>(
 
         let wrote = {
             let mut pm = pm.write().await;
+            let revision_matches = pm.revision(project_id) == expected_revision;
             match pm.get_project_mut_by_id(project_id) {
-                Some(p) if primers_equal(&p.primers, &existing) => {
+                Some(p) if revision_matches && primers_equal(&p.primers, &existing) => {
                     merge_primer_updates(&mut p.primers, updated);
                     pm.mark_dirty(project_id);
                     true
@@ -1013,17 +1067,22 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
         .collect();
     let overlap = overlap.unwrap_or(2);
 
-    let project_data = {
+    let (project_data, expected_revision) = {
         let mut pm = pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(project_id) {
+        let project = if let Some(p) = pm.get_project_mut_by_id(project_id) {
             p.methylation_systems = systems;
             p.methylation_overlap = overlap;
             Some(p.clone())
         } else {
             None
+        };
+        if project.is_some() {
+            pm.bump_revision(project_id);
         }
+        (project, pm.revision(project_id))
     };
 
+    let mut should_broadcast = true;
     if let Some(mut p) = project_data {
         let computed = tokio::task::spawn_blocking(move || {
             enzyme::recompute_methylation_only(&mut p);
@@ -1032,16 +1091,19 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
         .await
         .map_err(|e| format!("task join error: {}", e))?;
 
-        // recompute_methylation_only only touches the enzyme list — write
-        // back just that field so concurrent edits survive, and leave the
-        // global active project untouched (no open_project).
         let mut pm = pm.write().await;
-        if let Some(p) = pm.get_project_mut_by_id(project_id) {
-            p.enzymes = computed.enzymes;
+        if pm.revision(project_id) == expected_revision {
+            if let Some(p) = pm.get_project_mut_by_id(project_id) {
+                p.enzymes = computed.enzymes;
+            }
+        } else {
+            should_broadcast = false;
         }
     }
 
-    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
+    if should_broadcast {
+        broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
+    }
 
     let result = {
         let pm = pm.read().await;
@@ -1083,6 +1145,7 @@ pub(crate) async fn do_set_topology<R: Runtime>(
             }
             Some(p) => {
                 p.topology = topology;
+                pm.bump_template_revision(project_id);
                 pm.mark_dirty(project_id);
             }
             None => return Ok(serde_json::json!({"error": "project not found"})),
@@ -1142,9 +1205,13 @@ pub(crate) async fn commit_computed_alignment(
     pm: &Arc<RwLock<ProjectManager>>,
     project_id: &str,
     snapshot_ids: &[String],
+    expected_revision: u64,
     computed: ProjectData,
 ) -> Option<String> {
     let mut pm = pm.write().await;
+    if pm.template_revision(project_id) != expected_revision {
+        return None;
+    }
     let committed_id = if let Some(p) = pm.get_project_mut_by_id(project_id) {
         if p.alignments.len() == snapshot_ids.len()
             && p.alignments
@@ -1165,7 +1232,9 @@ pub(crate) async fn commit_computed_alignment(
     } else {
         None
     };
-    pm.mark_dirty(project_id);
+    if committed_id.is_some() {
+        pm.mark_dirty(project_id);
+    }
     committed_id
 }
 
@@ -1181,9 +1250,10 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
     trace_path: Option<String>,
     algorithm: libregene_core::align::AlignAlgorithm,
 ) -> Result<(serde_json::Value, Option<String>), String> {
-    let project_clone = {
+    let (project_clone, expected_revision) = {
         let pm = pm.read().await;
-        pm.get_project_by_id(project_id).cloned()
+        let revision = pm.template_revision(project_id);
+        (pm.get_project_by_id(project_id).cloned(), revision)
     };
     let project_clone = match project_clone {
         Some(p) => p,
@@ -1242,7 +1312,14 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
         Err(e) => return Ok((serde_json::json!({"error": e}), None)),
     };
 
-    let alignment_id = commit_computed_alignment(pm, project_id, &snapshot_ids, computed).await;
+    let alignment_id =
+        commit_computed_alignment(pm, project_id, &snapshot_ids, expected_revision, computed).await;
+    if alignment_id.is_none() {
+        return Ok((
+            serde_json::json!({"error": "Project changed while aligning; retry the alignment"}),
+            None,
+        ));
+    }
 
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
@@ -1850,17 +1927,15 @@ mod tests {
             &pm,
             "untitled-1".to_string(),
             path.to_str().unwrap().to_string(),
+            true,
         )
         .await
         .unwrap();
         assert!(out.get("error").is_none(), "{out}");
+        let final_id = out["projectId"].as_str().unwrap();
         // In-memory name adopted the chosen stem.
         assert_eq!(
-            pm.read()
-                .await
-                .get_project_by_id("untitled-1")
-                .unwrap()
-                .name,
+            pm.read().await.get_project_by_id(final_id).unwrap().name,
             "My Plasmid"
         );
         // LOCUS carries it (spaces → underscores).
@@ -1890,7 +1965,9 @@ mod tests {
                 },
             )
             .unwrap();
-        let out = do_save_file(&pm, id.clone(), id.clone()).await.unwrap();
+        let out = do_save_file(&pm, id.clone(), id.clone(), true)
+            .await
+            .unwrap();
         assert!(out.get("error").is_none(), "{out}");
         let text = std::fs::read_to_string(&path).unwrap();
         let first_line = text.lines().next().unwrap_or("");
@@ -2404,7 +2481,8 @@ mod tests {
             ],
             ..Default::default()
         };
-        commit_computed_alignment(&pm, "p1", &["aln-1".to_string()], computed).await;
+        let revision = pm.read().await.template_revision("p1");
+        commit_computed_alignment(&pm, "p1", &["aln-1".to_string()], revision, computed).await;
         let pmr = pm.read().await;
         let p = pmr.get_project_by_id("p1").unwrap();
         let ids: Vec<&str> = p.alignments.iter().map(|a| a.id.as_str()).collect();
@@ -2415,6 +2493,73 @@ mod tests {
             new.id != "aln-2" || !ids[..2].contains(&"aln-2"),
             "id re-allocated from the live list: {ids:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn stale_alignment_result_is_rejected_after_template_change() {
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: "ACGT".repeat(50),
+                    length: 200,
+                    alignments: vec![libregene_core::models::Alignment {
+                        id: "aln-1".to_string(),
+                        name: "old".to_string(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let revision = pm.read().await.template_revision("p1");
+        pm.write().await.bump_template_revision("p1");
+        let computed = ProjectData {
+            alignments: vec![libregene_core::models::Alignment {
+                id: "aln-2".to_string(),
+                name: "stale".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let committed =
+            commit_computed_alignment(&pm, "p1", &["aln-1".to_string()], revision, computed).await;
+        assert_eq!(committed, None);
+        let pm = pm.read().await;
+        let p = pm.get_project_by_id("p1").unwrap();
+        assert_eq!(p.alignments.len(), 1);
+        assert_eq!(p.alignments[0].name, "old");
+    }
+
+    #[tokio::test]
+    async fn save_as_rejects_an_already_open_target_without_overwriting_it() {
+        let dir =
+            std::env::temp_dir().join(format!("libregene-open-target-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a_path = dir.join("a.gbk");
+        let b_path = dir.join("b.gbk");
+        let a_id = crate::normalize_project_path(a_path.to_str().unwrap()).unwrap();
+        let b_id = crate::normalize_project_path(b_path.to_str().unwrap()).unwrap();
+        let project = |name: &str, sequence: &str| ProjectData {
+            name: name.to_string(),
+            sequence: sequence.to_string(),
+            length: sequence.len() as i64,
+            topology: "linear".to_string(),
+            ..Default::default()
+        };
+        file_io::gbk::write_gbk(&project("B", "CCCC"), &b_path).unwrap();
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write().await.load(&a_id, project("A", "AAAA")).unwrap();
+        pm.write().await.load(&b_id, project("B", "CCCC")).unwrap();
+        let out = do_save_file(&pm, a_id, b_path.to_string_lossy().into_owned(), true)
+            .await
+            .unwrap();
+        assert!(out.get("error").is_some(), "{out}");
+        assert_eq!(file_io::parse_file(&b_path).unwrap().sequence, "CCCC");
+        assert!(pm.read().await.get_project_by_id(&b_id).is_some());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

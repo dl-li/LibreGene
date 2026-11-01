@@ -138,6 +138,25 @@ pub(crate) fn with_projects_list(
     data
 }
 
+pub(crate) fn with_project_meta(
+    mut data: serde_json::Value,
+    pm: &ProjectManager,
+    project_id: &str,
+) -> serde_json::Value {
+    if let Some(map) = data.as_object_mut() {
+        map.insert("projectId".to_string(), serde_json::json!(project_id));
+        map.insert(
+            "revision".to_string(),
+            serde_json::json!(pm.revision(project_id)),
+        );
+        map.insert(
+            "dirty".to_string(),
+            serde_json::json!(pm.is_dirty(project_id)),
+        );
+    }
+    data
+}
+
 /// Build a lightweight mutation response for feature edits: the calling window
 /// only needs the updated feature list and the sidebar project list. Avoids
 /// serializing the full project (~1.5MB, mostly the enzyme list) on every Apply.
@@ -148,10 +167,11 @@ pub(crate) async fn feature_mutation_response(
 ) -> serde_json::Value {
     let data = {
         let pm = pm.read().await;
-        match pm.get_project_by_id(project_id) {
+        let data = match pm.get_project_by_id(project_id) {
             Some(p) => serde_json::json!({ "features": &p.features }),
             None => serde_json::json!({"error": "Project not found"}),
-        }
+        };
+        with_project_meta(data, &pm, project_id)
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     with_projects_list(data, &projects, active_id.as_deref())
@@ -222,8 +242,8 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
 }
 
 /// Emit the current project state + project list as a Tauri event.
-pub(crate) async fn broadcast_project(
-    app_handle: &AppHandle,
+pub(crate) async fn broadcast_project<R: Runtime>(
+    app_handle: &AppHandle<R>,
     state: &State<'_, AppState>,
     source: Option<&str>,
 ) {

@@ -47,8 +47,10 @@ async fn rollback_session_edit_impl<R: Runtime>(
             return Ok(serde_json::json!({"error": "This edit is no longer in the session log"}));
         };
         *pm.get_project_mut_by_id(&project_id).unwrap() = before;
+        pm.bump_revision(&project_id);
+        pm.bump_template_revision(&project_id);
         if baseline_dirty || has_remaining {
-            pm.mark_dirty(&project_id);
+            pm.restore_dirty(&project_id);
         } else {
             pm.mark_clean(&project_id);
         }

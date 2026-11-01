@@ -19,6 +19,18 @@ use crate::models::ProjectData;
 /// reading it whole would just balloon memory.
 pub const MAX_INPUT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
+pub fn write_atomic(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    write(temp.as_file_mut())?;
+    temp.as_file_mut().sync_all()?;
+    temp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
 /// Fail fast when the file is larger than [`MAX_INPUT_FILE_BYTES`], before
 /// any reader pulls it into memory. Callers re-read from disk later (e.g. the
 /// history views), so they re-check at their own read site.
@@ -361,10 +373,8 @@ mod tests {
     fn rejects_files_over_the_size_cap() {
         // A sparse file: set_len reserves the length without writing data, so
         // the test is instant even for a 256 MiB "file".
-        let path = std::env::temp_dir().join(format!(
-            "libregene_oversize_{}.gbk",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("libregene_oversize_{}.gbk", std::process::id()));
         let f = std::fs::File::create(&path).unwrap();
         f.set_len(MAX_INPUT_FILE_BYTES + 1).unwrap();
         drop(f);
@@ -373,6 +383,20 @@ mod tests {
             err.to_string().contains("cap"),
             "expected a size-cap error, got: {err}"
         );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn atomic_write_failure_preserves_existing_file() {
+        let path =
+            std::env::temp_dir().join(format!("libregene_atomic_write_{}.gbk", std::process::id()));
+        std::fs::write(&path, "original").unwrap();
+        let result = write_atomic(&path, |file| {
+            std::io::Write::write_all(file, b"partial")?;
+            Err(io::Error::new(io::ErrorKind::Other, "injected failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
         std::fs::remove_file(&path).ok();
     }
 }

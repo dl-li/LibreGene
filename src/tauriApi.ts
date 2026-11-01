@@ -146,8 +146,8 @@ export async function annotateSequenceText(sequence, circular = false, moleculeT
   return tauriInvoke('annotate_sequence', { sequence, circular, moleculeType });
 }
 
-export async function saveFile(path) {
-  return tauriInvoke('save_file', { path });
+export async function saveFile(projectId: string, path: string) {
+  return tauriInvoke('save_file', { projectId, path });
 }
 
 export async function getSessionEditLog(projectId: string) {
@@ -180,6 +180,7 @@ export async function setDefaultFileAssociations() {
 // ---------------------------------------------------------------------------
 
 export async function updateSequence(
+  projectId: string,
   sequence: string,
   features?: Feature[],
   primers?: Primer[],
@@ -188,6 +189,7 @@ export async function updateSequence(
 ): Promise<ProjectMutationResponse> {
   assertEditable();
   return tauriInvoke('update_sequence', {
+    projectId,
     sequence,
     features: features || null,
     // Optional full replacement of the project's primers (undo/redo restores
@@ -202,71 +204,71 @@ export async function updateSequence(
 
 // Color the sequence text of [start, end] (0-based inclusive) on one strand
 // ('+' | '-' | 'both'); an empty color clears the span.
-export async function setTextColors(strand, start, end, color) {
+export async function setTextColors(projectId, strand, start, end, color) {
   assertEditable();
-  return tauriInvoke('set_text_colors', { strand, start, end, color });
+  return tauriInvoke('set_text_colors', { projectId, strand, start, end, color });
 }
 
 // ---------------------------------------------------------------------------
 // Features
 // ---------------------------------------------------------------------------
 
-export async function addFeature(feature, locationStr) {
+export async function addFeature(projectId, feature, locationStr) {
   assertEditable();
-  return tauriInvoke('add_feature', { feature, locationStr: locationStr || null });
+  return tauriInvoke('add_feature', { projectId, feature, locationStr: locationStr || null });
 }
 
-export async function deleteFeature(id) {
+export async function deleteFeature(projectId, id) {
   assertEditable();
-  return tauriInvoke('delete_feature', { id });
+  return tauriInvoke('delete_feature', { projectId, id });
 }
 
-export async function updateFeatureFtype(featureId, newFtype) {
+export async function updateFeatureFtype(projectId, featureId, newFtype) {
   assertEditable();
-  return tauriInvoke('update_feature_ftype', { featureId, newFtype });
+  return tauriInvoke('update_feature_ftype', { projectId, featureId, newFtype });
 }
 
-export async function updateFeatureColor(featureId, newColor) {
+export async function updateFeatureColor(projectId, featureId, newColor) {
   assertEditable();
-  return tauriInvoke('update_feature_color', { featureId, newColor });
+  return tauriInvoke('update_feature_color', { projectId, featureId, newColor });
 }
 
-export async function updateFeatureLocation(featureId, locationStr) {
+export async function updateFeatureLocation(projectId, featureId, locationStr) {
   assertEditable();
-  return tauriInvoke('update_feature_location', { featureId, locationStr });
+  return tauriInvoke('update_feature_location', { projectId, featureId, locationStr });
 }
 
-export async function updateFeatureName(featureId, newName) {
+export async function updateFeatureName(projectId, featureId, newName) {
   assertEditable();
-  return tauriInvoke('update_feature_name', { featureId, newName });
+  return tauriInvoke('update_feature_name', { projectId, featureId, newName });
 }
 
-export async function updateFeatureStrand(featureId, strand) {
+export async function updateFeatureStrand(projectId, featureId, strand) {
   assertEditable();
-  return tauriInvoke('update_feature_strand', { featureId, strand });
+  return tauriInvoke('update_feature_strand', { projectId, featureId, strand });
 }
 
 // ---------------------------------------------------------------------------
 // Primers
 // ---------------------------------------------------------------------------
 
-export async function addPrimer(primer) {
+export async function addPrimer(projectId, primer) {
   assertEditable();
-  return tauriInvoke('add_primer', { primer });
+  return tauriInvoke('add_primer', { projectId, primer });
 }
 
-export async function deletePrimer(id) {
+export async function deletePrimer(projectId, id) {
   assertEditable();
-  return tauriInvoke('delete_primer', { id });
+  return tauriInvoke('delete_primer', { projectId, id });
 }
 
-export async function addPrimers(primers) {
+export async function addPrimers(projectId, primers) {
   assertEditable();
-  return tauriInvoke('add_primers', { primers });
+  return tauriInvoke('add_primers', { projectId, primers });
 }
 
-export async function checkPrimersBinding(primers) {
-  return tauriInvoke('check_primers_binding', { primers });
+export async function checkPrimersBinding(projectId, primers) {
+  return tauriInvoke('check_primers_binding', { projectId, primers });
 }
 
 export async function computePrimerAlignment(
@@ -275,7 +277,7 @@ export async function computePrimerAlignment(
   customSeq?: string,
   customName?: string,
   tmParams: TmParams = {},
-  projectId?: string,
+  projectId: string,
 ): Promise<PrimerAlignmentResult> {
   return tauriInvoke('compute_primer_alignment', {
     primerId: primerId || null,
@@ -295,19 +297,19 @@ export async function computePrimerAlignment(
 // Alignments
 // ---------------------------------------------------------------------------
 
-export async function addAlignment(path, algorithm) {
+export async function addAlignment(projectId, path, algorithm) {
   assertEditable();
-  return tauriInvoke('add_alignment', { path, algorithm });
+  return tauriInvoke('add_alignment', { projectId, path, algorithm });
 }
 
-export async function addAlignmentSeq(name, seq, algorithm) {
+export async function addAlignmentSeq(projectId, name, seq, algorithm) {
   assertEditable();
-  return tauriInvoke('add_alignment_seq', { name, seq, algorithm });
+  return tauriInvoke('add_alignment_seq', { projectId, name, seq, algorithm });
 }
 
-export async function removeAlignment(alignmentId) {
+export async function removeAlignment(projectId, alignmentId) {
   assertEditable();
-  return tauriInvoke('remove_alignment', { alignmentId });
+  return tauriInvoke('remove_alignment', { projectId, alignmentId });
 }
 
 /**
@@ -500,8 +502,8 @@ export async function findOrfs(sequence: string, topology: string, minAa = 75) {
  * sequence against the embedded SnapGene feature database.
  * Returns a read-only array of AnnotatedFeature (camelCase).
  */
-export async function annotateFeatures() {
-  return tauriInvoke('annotate_features');
+export async function annotateFeatures(projectId) {
+  return tauriInvoke('annotate_features', { projectId });
 }
 
 /**
@@ -523,6 +525,7 @@ export async function annotateFeatures() {
 export async function designPrimerCandidates(args: any = {}) {
   const tmParams = args.tmParams || {};
   return tauriInvoke('design_primer_candidates', {
+    projectId: args.projectId,
     mode: args.mode,
     seg: args.seg ?? null,
     seg2: args.seg2 ?? null,
@@ -564,6 +567,7 @@ export async function listCodonSpecies() {
  */
 export async function previewCodonOptimization(args: any = {}) {
   return tauriInvoke('preview_codon_optimization', {
+    projectId: args.projectId,
     featureId: args.featureId,
     species: args.species,
     method: args.method,
@@ -578,6 +582,7 @@ export async function previewCodonOptimization(args: any = {}) {
 export async function applyCodonOptimization(args: any = {}) {
   assertEditable();
   return tauriInvoke('apply_codon_optimization', {
+    projectId: args.projectId,
     featureId: args.featureId,
     species: args.species,
     method: args.method,

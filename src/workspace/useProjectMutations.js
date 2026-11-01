@@ -1,20 +1,20 @@
 import { useCallback, useMemo } from 'react';
 import {
-  updateFeatureFtype,
-  updateFeatureColor,
-  updateFeatureName,
-  updateFeatureStrand,
-  updateFeatureLocation,
-  addFeature,
-  deleteFeature,
-  addPrimer,
-  addPrimers,
-  deletePrimer,
+  updateFeatureFtype as updateFeatureFtypeCommand,
+  updateFeatureColor as updateFeatureColorCommand,
+  updateFeatureName as updateFeatureNameCommand,
+  updateFeatureStrand as updateFeatureStrandCommand,
+  updateFeatureLocation as updateFeatureLocationCommand,
+  addFeature as addFeatureCommand,
+  deleteFeature as deleteFeatureCommand,
+  addPrimer as addPrimerCommand,
+  addPrimers as addPrimersCommand,
+  deletePrimer as deletePrimerCommand,
   setTopology,
-  setTextColors,
-  addAlignment,
-  addAlignmentSeq,
-  removeAlignment,
+  setTextColors as setTextColorsCommand,
+  addAlignment as addAlignmentCommand,
+  addAlignmentSeq as addAlignmentSeqCommand,
+  removeAlignment as removeAlignmentCommand,
   openAlignmentFileDialog,
 } from '../tauriApi';
 import { addMyPrimers, removeMyPrimer, libraryToPrimers } from '../myPrimers';
@@ -50,6 +50,25 @@ export default function useProjectMutations({
   showAlignments,
   hiddenAlignIds,
 }) {
+  const forProject =
+    (command) =>
+    (...args) =>
+      command(projectIdRef.current, ...args);
+  const updateFeatureFtype = forProject(updateFeatureFtypeCommand);
+  const updateFeatureColor = forProject(updateFeatureColorCommand);
+  const updateFeatureName = forProject(updateFeatureNameCommand);
+  const updateFeatureStrand = forProject(updateFeatureStrandCommand);
+  const updateFeatureLocation = forProject(updateFeatureLocationCommand);
+  const addFeature = forProject(addFeatureCommand);
+  const deleteFeature = forProject(deleteFeatureCommand);
+  const addPrimer = forProject(addPrimerCommand);
+  const addPrimers = forProject(addPrimersCommand);
+  const deletePrimer = forProject(deletePrimerCommand);
+  const setTextColors = forProject(setTextColorsCommand);
+  const addAlignment = forProject(addAlignmentCommand);
+  const addAlignmentSeq = forProject(addAlignmentSeqCommand);
+  const removeAlignment = forProject(removeAlignmentCommand);
+
   const handleFeatureFtypeChange = useCallback(
     async (featureId, newFtype) => {
       if (agentLockedRef.current) return;

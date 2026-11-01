@@ -30,6 +30,7 @@ function hitExists(hit, existing) {
 export default function DetectFeaturesDialog({
   open,
   onOpenChange,
+  projectId,
   features = EMPTY_ARRAY,
   onAddFeature,
 }) {
@@ -52,7 +53,7 @@ export default function DetectFeaturesDialog({
     setAddError('');
     setItems(EMPTY_ARRAY);
     setSelected(new Set());
-    annotateFeatures()
+    annotateFeatures(projectId)
       .then((list) => {
         if (reqRef.current !== req) return;
         if (list && list.error) {
@@ -76,7 +77,7 @@ export default function DetectFeaturesDialog({
       .finally(() => {
         if (reqRef.current === req) setLoading(false);
       });
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     if (open) runDetection();

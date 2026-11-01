@@ -5,7 +5,6 @@ import {
   saveFile,
   saveFileDialog,
   checkPrimersBinding,
-  rekeyProject,
   getChromatogram,
   listenProjectUpdates,
   listenAgentMutationFocus,
@@ -34,7 +33,7 @@ import WorkspaceDialogs from './workspace/WorkspaceDialogs';
 import { plugins, pluginAvailable } from './plugins';
 import { EMPTY_ARRAY } from './workspace/constants';
 import { readHiddenAlnNames } from './workspace/hiddenAlignments';
-import { createProjectSnapshot } from './workspace/projectSnapshot';
+import { createProjectSnapshot, projectSnapshotsEqual } from './workspace/projectSnapshot';
 
 export default function ProjectWorkspace({
   projectId,
@@ -257,6 +256,7 @@ export default function ProjectWorkspace({
   const { editDialog, setEditDialog, handleEditConfirm } = useEditDialog({
     agentLockedRef,
     operationGenRef,
+    projectIdRef,
     editHistoryRef,
     setRestoreState,
     undoVersionRef,
@@ -385,6 +385,7 @@ export default function ProjectWorkspace({
           data = msg.projectData[id];
         }
         if (!data) return;
+        operationGenRef.current += 1;
         setSequence(data.sequence);
         setFeatures(data.features || EMPTY_ARRAY);
         setEnzymes(data.enzymes || EMPTY_ARRAY);
@@ -783,7 +784,7 @@ export default function ProjectWorkspace({
     }
     let cancelled = false;
     setMyPrimerBinding({ loading: true, results: [] });
-    checkPrimersBinding(libraryToPrimers(myPrimers))
+    checkPrimersBinding(projectIdRef.current, libraryToPrimers(myPrimers))
       .then((data) => {
         if (cancelled) return;
         setMyPrimerBinding({ loading: false, results: (data && data.results) || [] });
@@ -801,91 +802,86 @@ export default function ProjectWorkspace({
     setEditDialog((prev) => ({ ...prev, open: false }));
   }, []);
 
+  const finishSave = useCallback(
+    (result, sourceId, gen, savedSnapshot) => {
+      if (result.rekeyedFrom === sourceId) {
+        projectIdRef.current = result.projectId;
+        onRekey(sourceId, result.projectId);
+      }
+      const unchanged =
+        operationGenRef.current === gen &&
+        result.currentRevision === result.savedRevision &&
+        projectSnapshotsEqual(currentSnapshotRef.current, savedSnapshot);
+      const clean = result.dirty === false && unchanged;
+      if (clean) {
+        baselineSnapshotRef.current = savedSnapshot;
+        editHistoryRef.current.reset({
+          ...savedSnapshot,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+        });
+      }
+      const dirty = !clean;
+      isDirtyRef.current = dirty;
+      setIsDirty(dirty);
+      return clean;
+    },
+    [onRekey],
+  );
+
   // --- Save As (defined before Save because Save may reference it) ---
   const handleSaveAs = useCallback(async () => {
-    if (!isTauri) return;
+    if (!isTauri) return false;
 
-    // Protein projects export as protein GenBank (.gpt); DNA/RNA as .gbk.
     const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
     const pid = projectIdRef.current || '';
-    // Unsaved in-memory projects (ids `untitled-*` / `snapshot-*`) have no
-    // path — prefill the save dialog with the project name (for snapshots,
-    // the snapshot's original node name).
     const rawName =
       pid.startsWith('untitled-') || pid.startsWith('snapshot-') || !pid
         ? projectName || 'sequence'
         : pid.split('/').pop().split('\\').pop();
     const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
     const path = await saveFileDialog(defaultName, defaultExt);
-    if (!path) return; // User cancelled
+    if (!path) return false;
 
+    const gen = operationGenRef.current;
+    const savedSnapshot = currentSnapshotRef.current;
     try {
-      const result = await saveFile(path);
-      if (result && !result.error) {
-        const oldId = projectIdRef.current;
-        if (oldId) {
-          const res = await rekeyProject(oldId, path);
-          if (res && !res.error) {
-            projectIdRef.current = path;
-            onRekey(oldId, path);
-          }
-        }
-        const savedSnapshot = currentSnapshotRef.current;
-        baselineSnapshotRef.current = savedSnapshot;
-        editHistoryRef.current.reset({
-          ...savedSnapshot,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        setIsDirty(false);
-      }
+      const result = await saveFile(pid, path);
+      if (result && !result.error) return finishSave(result, pid, gen, savedSnapshot);
+      console.error('save as error:', result?.error);
     } catch (e) {
       console.error('save as error:', e);
     }
-  }, [onRekey, moleculeType, projectName]);
+    return false;
+  }, [finishSave, moleculeType, projectName]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
     if (!isTauri) {
       console.warn('Save is only available in desktop mode');
-      return;
+      return false;
     }
 
     const filePath = projectIdRef.current;
-    if (!filePath) {
-      // No path known — fall back to Save As
-      await handleSaveAs();
-      return;
-    }
+    if (!filePath) return handleSaveAs();
 
-    // Non-GenBank sources (.dna, .rna, .prot, .fasta, .ab1, ...) must not be
-    // overwritten with text formats — force Save As with a .gbk/.gpt target.
     const ext = filePath.split('.').pop()?.toLowerCase();
     if (ext !== 'gbk' && ext !== 'gb' && !(moleculeType === 'protein' && ext === 'gpt')) {
-      await handleSaveAs();
-      return;
+      return handleSaveAs();
     }
 
+    const gen = operationGenRef.current;
+    const savedSnapshot = currentSnapshotRef.current;
     try {
-      const result = await saveFile(filePath);
-      if (result && !result.error) {
-        const savedSnapshot = currentSnapshotRef.current;
-        baselineSnapshotRef.current = savedSnapshot;
-        editHistoryRef.current.reset({
-          ...savedSnapshot,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-        setIsDirty(false);
-      } else {
-        console.error('save error:', result?.error);
-      }
+      const result = await saveFile(filePath, filePath);
+      if (result && !result.error) return finishSave(result, filePath, gen, savedSnapshot);
+      console.error('save error:', result?.error);
     } catch (e) {
       console.error('save exception:', e);
     }
-  }, [handleSaveAs, moleculeType]);
+    return false;
+  }, [finishSave, handleSaveAs, moleculeType]);
 
   // Refetch the project's data after a mutation whose command response does not
   // carry the updated sequence/features (e.g. apply_codon_optimization); record

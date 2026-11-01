@@ -123,6 +123,7 @@ function Field({ label, className = '', children }) {
 function PrimerDesignDialogInner({
   open,
   onOpenChange,
+  projectId,
   mode,
   segments,
   sequence,
@@ -157,7 +158,7 @@ function PrimerDesignDialogInner({
       setLoading(true);
       setError('');
       try {
-        const common = { mode, targetTm: Number(params.targetTm) || 60, tmParams };
+        const common = { projectId, mode, targetTm: Number(params.targetTm) || 60, tmParams };
         let result;
         if (mode === 'amplify') {
           result = await designPrimerCandidates({
@@ -203,7 +204,7 @@ function PrimerDesignDialogInner({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [open, mode, segments, sequence, params, tmParams]);
+  }, [open, projectId, mode, segments, sequence, params, tmParams]);
 
   const allSelected = groups.length > 0 && groups.every((_, i) => selections[i]);
 

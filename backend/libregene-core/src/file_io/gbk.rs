@@ -392,9 +392,7 @@ fn keywords_without_methylation(keywords: &str) -> String {
     keywords
         .split(';')
         .map(str::trim)
-        .filter(|part| {
-            !part.is_empty() && !part.to_ascii_lowercase().starts_with("methylation:")
-        })
+        .filter(|part| !part.is_empty() && !part.to_ascii_lowercase().starts_with("methylation:"))
         .collect::<Vec<_>>()
         .join("; ")
 }
@@ -556,9 +554,10 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
     // Serialize per-strand text colors on a dedicated carrier misc_feature
     serialize_text_colors_gbk(project, &mut record);
 
-    let file = File::create(path)?;
-    let mut writer = SeqWriter::new(file);
-    writer.write(&record)
+    super::write_atomic(path, |file| {
+        let mut writer = SeqWriter::new(file);
+        writer.write(&record)
+    })
 }
 
 /// Serialize alignments as `misc_feature`s spanning the first segment

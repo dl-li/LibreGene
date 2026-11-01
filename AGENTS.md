@@ -67,7 +67,9 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 ### 单窗口与多项目
 
-- 应用只有主窗口 label `"main"`，不提供“在另一个窗口中打开项目”；多个项目以侧边栏标签共存，所有窗口相关命令只寻址 `ProjectManager::active_id()`。
+- 应用只有主窗口 label `"main"`，不提供“在另一个窗口中打开项目”；多个项目以侧边栏标签共存。`active_id()` 只用于显示当前项目，**项目读写命令必须显式传 `projectId`，不得用 active 猜测调用目标**。
+- 文件型项目 ID 使用 `normalize_project_path` 规范化后的路径，避免相对路径/符号链接等别名重复打开同一文件。`ProjectManager` 为每个项目维护全局 `revision` 和模板 `template_revision`：所有 mutation 递增前者，序列/拓扑变化另递增后者；异步回写必须检查对应 revision。
+- 同项目/同路径保存经 `do_save_file` 串行，保存只在 live revision 仍等于快照 revision 时清除 dirty；Tauri Save As 在同一后端流程中 rekey，MCP 导出到其他路径不清源项目 dirty。GBK/GPT 经同目录临时文件原子替换落盘。
 - MCP `open_project` 不开窗口：项目绑定为**主窗口侧边栏 Agent 标签**（`AppState.agent_tabs`，列表条目带 `agentLocked: bool|null`）。
 
 ## 核心模型约定
@@ -90,7 +92,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 - 进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环）；`Host` 必须严格等于 `127.0.0.1:<port>`，`requireAuth`（默认开）时需 `Authorization: Bearer <token>`（存 `<app_config_dir>/mcp_auth_token`）。与前端共享 `AppState`，所有 mutation 走 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径）。
 - **Agent 标签强制隔离**：`open_project` = 加载 + 绑定主窗口 Agent 标签（默认 locked）；已加载未绑定（用户项目）则拒绝，指引 Agent `cp` 副本再打开；mutation 工具对未绑定项目报错，任何调用自动重锁；解锁走前端 `set_agent_tab_locked`。
-- **Workspace（序列暂存区）**：纯内存、用户不可见（`AppState.workspace`，锁顺序同 `agent_tabs`）；`add_to_workspace` 的片段带 `source_project`，**随来源项目关闭（`do_delete_project`）而移除，主窗口 CloseRequested 视为所有文件关闭=全清**；打开的项目是隐式成员（现场算 hash 动态合并）；需要序列输入的工具接受 workspace hash `"fwd7"` 或 `"fwd7/rev7"`（fwd↔rev 对调 = 反向互补，注释随之翻转）。
+- **Workspace（序列暂存区）**：纯内存、用户不可见（`AppState.workspace`，锁顺序同 `agent_tabs`）；`add_to_workspace` 的片段带 `source_project`，**随来源项目关闭（`do_delete_project`）而移除，主窗口 CloseRequested 视为所有文件关闭=全清**；打开的项目是隐式成员（现场算 hash 动态合并）；需要序列输入的工具接受 workspace hash `"fwd7"` 或 `"fwd7/rev7"`（fwd↔rev 对调 = 反向互补，注释随之翻转）；同一 hash 匹配多个项目/片段时直接拒绝，不得任意选择来源。
 - **约定**（改工具时保持）：参数与响应字段一律 camelCase；坐标 1-based inclusive；统一响应信封 `{ok, message, ...}`，`ok: false` 是业务拒绝（寻址/门控/内部错误才走 MCP 协议错误）；工具描述统一引导 Agent 用文件传序列；`text` 是唯一的人类可读渲染字段。**工具参数与行为细节以 `mcp/mod.rs` 工具描述为准**，不在本文件重复。mutation 工具成功后在 broadcast 之后额外 emit `agent-mutation-focus`（`{projectId, start, end, kind}`，0-based inclusive，kind = sequence/feature/primer，`payload.rs::emit_mutation_focus`），agentLocked 的窗口据此自动滚动并选中变更区域（门控在前端 `ProjectWorkspace`）。
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/鉴权/Agent 标签门控/各工具正反例。
 

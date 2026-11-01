@@ -87,6 +87,7 @@ export default function WorkspaceDialogs({
       <DetectFeaturesDialog
         open={detectFeaturesOpen}
         onOpenChange={setDetectFeaturesOpen}
+        projectId={projectId}
         features={features}
         onAddFeature={handleFeatureAdd}
       />

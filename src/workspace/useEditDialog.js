@@ -46,6 +46,7 @@ export function restoreEditSnapshot(snapshot, setters) {
 export default function useEditDialog({
   agentLockedRef,
   operationGenRef,
+  projectIdRef,
   editHistoryRef,
   setRestoreState,
   undoVersionRef,
@@ -320,6 +321,7 @@ export default function useEditDialog({
       // Send to backend for recomputation (enzymes, primer binding sites)
       try {
         const data = await updateSequence(
+          projectIdRef.current,
           newSeq,
           mergedFeatures,
           null,
@@ -366,7 +368,7 @@ export default function useEditDialog({
               ...(data.features || mergedFeatures),
             ]);
             try {
-              const pData = await addPrimers(primerImports);
+              const pData = await addPrimers(projectIdRef.current, primerImports);
               if (operationGenRef.current !== gen) return;
               if (pData && pData.primers) {
                 setPrimers(pData.primers);

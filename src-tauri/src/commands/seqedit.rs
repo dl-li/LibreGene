@@ -4,7 +4,6 @@ use libregene_core::file_io::strand_colors;
 use libregene_core::models::{Feature, Primer, TextColorRange};
 
 use crate::kernels::{do_set_methylation, do_set_text_colors, do_set_topology, do_update_sequence};
-use crate::payload::resolve_project_id;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -17,16 +16,13 @@ pub(crate) async fn update_sequence(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     sequence: String,
     features: Option<Vec<Feature>>,
     primers: Option<Vec<Primer>>,
     text_colors_top: Option<Vec<TextColorRange>>,
     text_colors_bottom: Option<Vec<TextColorRange>>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
     if let Some(features) = features {
         // Feature coordinates arrive from the frontend (paste-merge, adjust)
         // and serde only checks types — clamp to the NEW sequence length so a
@@ -97,15 +93,12 @@ pub(crate) async fn set_text_colors(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     strand: String,
     start: i64,
     end: i64,
     color: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state).await {
-        Ok(id) => id,
-        Err(e) => return Ok(serde_json::json!({"error": e})),
-    };
     do_set_text_colors(
         &app_handle,
         &state.pm,
@@ -129,29 +122,25 @@ pub(crate) async fn set_roi(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state).await {
-        Ok(id) => {
-            {
-                let mut pm = state.pm.write().await;
-                if let Some(p) = pm.get_project_mut_by_id(&id) {
-                    p.roi = Some((start, end));
-                    pm.mark_dirty(&id);
-                }
-            }
-            crate::payload::broadcast_project_for_id(
-                &app_handle,
-                &state,
-                &id,
-                Some(webview_window.label()),
-            )
-            .await;
-            Ok(serde_json::json!({"status": "ok"}))
+    {
+        let mut pm = state.pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            p.roi = Some((start, end));
+            pm.mark_dirty(&project_id);
         }
-        Err(e) => Ok(serde_json::json!({"error": e})),
     }
+    crate::payload::broadcast_project_for_id(
+        &app_handle,
+        &state,
+        &project_id,
+        Some(webview_window.label()),
+    )
+    .await;
+    Ok(serde_json::json!({"status": "ok"}))
 }
 
 #[tauri::command]
@@ -159,27 +148,23 @@ pub(crate) async fn clear_roi(
     webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
+    project_id: String,
 ) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state).await {
-        Ok(id) => {
-            {
-                let mut pm = state.pm.write().await;
-                if let Some(p) = pm.get_project_mut_by_id(&id) {
-                    p.roi = None;
-                    pm.mark_dirty(&id);
-                }
-            }
-            crate::payload::broadcast_project_for_id(
-                &app_handle,
-                &state,
-                &id,
-                Some(webview_window.label()),
-            )
-            .await;
-            Ok(serde_json::json!({"status": "ok"}))
+    {
+        let mut pm = state.pm.write().await;
+        if let Some(p) = pm.get_project_mut_by_id(&project_id) {
+            p.roi = None;
+            pm.mark_dirty(&project_id);
         }
-        Err(e) => Ok(serde_json::json!({"error": e})),
     }
+    crate::payload::broadcast_project_for_id(
+        &app_handle,
+        &state,
+        &project_id,
+        Some(webview_window.label()),
+    )
+    .await;
+    Ok(serde_json::json!({"status": "ok"}))
 }
 
 // ---------------------------------------------------------------------------
@@ -193,19 +178,8 @@ pub(crate) async fn set_methylation(
     app_handle: AppHandle,
     systems: Vec<String>,
     overlap: Option<i64>,
-    project_id: Option<String>,
+    project_id: String,
 ) -> Result<serde_json::Value, String> {
-    // An explicit projectId wins: the frontend reads the active project, then
-    // awaits this call — a project switch in between must not redirect the
-    // mutation. Fall back to the window's project for older callers.
-    let project_id = match project_id {
-        Some(id) => id,
-        None => match resolve_project_id(&state).await {
-            Ok(id) => id,
-            Err(e) => return Ok(serde_json::json!({"error": e})),
-        },
-    };
-
     do_set_methylation(
         &app_handle,
         &state.pm,
@@ -224,16 +198,8 @@ pub(crate) async fn set_topology(
     state: State<'_, AppState>,
     app_handle: AppHandle,
     topology: String,
-    project_id: Option<String>,
+    project_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match project_id {
-        Some(id) => id,
-        None => match resolve_project_id(&state).await {
-            Ok(id) => id,
-            Err(e) => return Ok(serde_json::json!({"error": e})),
-        },
-    };
-
     do_set_topology(
         &app_handle,
         &state.pm,

@@ -67,6 +67,7 @@ export default function useUndoHistory({
     async (snapshot, gen, commit, operation) => {
       try {
         const data = await updateSequence(
+          projectId,
           snapshot.sequence,
           snapshot.features,
           snapshot.primers,
