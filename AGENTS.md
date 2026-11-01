@@ -61,13 +61,13 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 ### 后端（Rust）
 
-- **锁顺序**：先 `pm` 再 `window_projects`；`session_edit_log` 可在持有 `pm` 时获取，但持日志锁时不得再取 `pm`；`agent_tabs` 锁不得与它们同时持有（取前先 drop 其他 guard）。
-- 重计算（酶/引物/比对）放 `spawn_blocking`；所有 mutation 命令调用 `broadcast_project()` 同步多窗口。
+- **锁顺序**：`session_edit_log` 可在持有 `pm` 时获取，但持日志锁时不得再取 `pm`；`agent_tabs`/`workspace` 锁不得与 `pm` 同时持有（取前先 drop guard）。
+- 重计算（酶/引物/比对）放 `spawn_blocking`；所有 mutation 命令调用 `broadcast_project()` 同步单窗口中的工作区。
 - 环状序列 region 用 `wrap_template_region` 拼接（`% tlen` 可能为 0 导致空切片）。
 
-### 多窗口
+### 单窗口与多项目
 
-- 主窗口 label `"main"`；项目窗口 `"project-{safe_id}-{timestamp}"`（注册在 `window_projects`，经 `resolve_project_id()` 按 label 查项目，未命中=报错提示 reload，绝不回退主窗口 active）。
+- 应用只有主窗口 label `"main"`，不提供“在另一个窗口中打开项目”；多个项目以侧边栏标签共存，所有窗口相关命令只寻址 `ProjectManager::active_id()`。
 - MCP `open_project` 不开窗口：项目绑定为**主窗口侧边栏 Agent 标签**（`AppState.agent_tabs`，列表条目带 `agentLocked: bool|null`）。
 
 ## 核心模型约定

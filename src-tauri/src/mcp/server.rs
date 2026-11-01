@@ -4,16 +4,15 @@
 // Server bootstrap + settings (start/stop/restart without app restart)
 // ---------------------------------------------------------------------------
 
-use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session,
+    session, StreamableHttpServerConfig, StreamableHttpService,
 };
 use tauri::{AppHandle, Runtime};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -63,7 +62,13 @@ impl axum::serve::Listener for CappedListener {
                         continue; // drop the fresh socket, keep accepting
                     }
                     self.live.fetch_add(1, Ordering::Relaxed);
-                    return (CountedStream { inner: stream, live: self.live.clone() }, addr);
+                    return (
+                        CountedStream {
+                            inner: stream,
+                            live: self.live.clone(),
+                        },
+                        addr,
+                    );
                 }
                 Err(_) => continue, // same retry-on-error shape as axum's TcpListener impl
             }
@@ -130,7 +135,6 @@ impl Default for McpConfig {
 pub struct McpServer<R: Runtime> {
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
-    wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
     workspace: Workspace,
     config: Arc<StdMutex<McpConfig>>,
@@ -152,7 +156,6 @@ impl<R: Runtime> Clone for McpServer<R> {
         Self {
             app_handle: self.app_handle.clone(),
             pm: self.pm.clone(),
-            wp: self.wp.clone(),
             agent_tabs: self.agent_tabs.clone(),
             workspace: self.workspace.clone(),
             config: self.config.clone(),
@@ -167,7 +170,6 @@ impl<R: Runtime> McpServer<R> {
     pub fn new(
         app_handle: AppHandle<R>,
         pm: Arc<RwLock<ProjectManager>>,
-        wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
         workspace: Workspace,
         status: impl Fn(bool, u16) + Send + Sync + 'static,
@@ -176,7 +178,6 @@ impl<R: Runtime> McpServer<R> {
         Self {
             app_handle,
             pm,
-            wp,
             agent_tabs,
             workspace,
             config: Arc::new(StdMutex::new(McpConfig::default())),
@@ -242,7 +243,6 @@ impl<R: Runtime> McpServer<R> {
         if cfg.enabled {
             let app = self.app_handle.clone();
             let pm = self.pm.clone();
-            let wp = self.wp.clone();
             let agent_tabs = self.agent_tabs.clone();
             let workspace = self.workspace.clone();
             let port = cfg.port;
@@ -251,7 +251,16 @@ impl<R: Runtime> McpServer<R> {
             let status = self.status.clone();
             let serve_config = self.config.clone();
             let handle = tauri::async_runtime::spawn(async move {
-                if let Err(e) = serve_mcp(app.clone(), pm, wp, agent_tabs, workspace, port, token, serve_config).await
+                if let Err(e) = serve_mcp(
+                    app.clone(),
+                    pm,
+                    agent_tabs,
+                    workspace,
+                    port,
+                    token,
+                    serve_config,
+                )
+                .await
                 {
                     log::error!("MCP server error on port {}: {}", port, e);
                     // Give-up (e.g. the port is held by another app): the
@@ -317,7 +326,6 @@ fn jsonrpc_id_from_body(bytes: &[u8]) -> Option<serde_json::Value> {
 pub(crate) async fn serve_mcp<R: Runtime>(
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
-    wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
     workspace: Workspace,
     port: u16,
@@ -352,7 +360,6 @@ pub(crate) async fn serve_mcp<R: Runtime>(
             Ok(LibreGeneMcp::new(
                 app_handle.clone(),
                 pm.clone(),
-                wp.clone(),
                 agent_tabs.clone(),
                 workspace.clone(),
             ))
@@ -406,7 +413,10 @@ pub(crate) async fn serve_mcp<R: Runtime>(
                         .map(|h| {
                             h.strip_prefix("Bearer ")
                                 .map(|t| {
-                                    token_eq(t, &auth_token.lock().unwrap_or_else(|e| e.into_inner()))
+                                    token_eq(
+                                        t,
+                                        &auth_token.lock().unwrap_or_else(|e| e.into_inner()),
+                                    )
                                 })
                                 .unwrap_or(false)
                         })
@@ -452,7 +462,9 @@ pub(crate) async fn serve_mcp<R: Runtime>(
                         .headers
                         .get(axum::http::header::ACCEPT)
                         .and_then(|h| h.to_str().ok())
-                        .is_some_and(|h| h.contains("application/json") && h.contains("text/event-stream"))
+                        .is_some_and(|h| {
+                            h.contains("application/json") && h.contains("text/event-stream")
+                        })
                 } else {
                     true
                 };
@@ -486,7 +498,10 @@ pub(crate) async fn serve_mcp<R: Runtime>(
                             );
                         }
                         Err(_) => {
-                            return axum::http::Response::from_parts(rparts, axum::body::Body::empty())
+                            return axum::http::Response::from_parts(
+                                rparts,
+                                axum::body::Body::empty(),
+                            )
                         }
                     }
                 }

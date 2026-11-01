@@ -3,31 +3,27 @@
 
 use std::collections::HashMap;
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 
-use libregene_core::digest::{DigestOptions, cut_flanks, project_digest, read_sequence};
+use libregene_core::digest::{cut_flanks, project_digest, read_sequence, DigestOptions};
 use libregene_core::models::{Enzyme, Feature};
 
-use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{
-    MAX_FLANK, fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope,
-    to1, unit_for,
+    fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope, to1, unit_for,
+    MAX_FLANK,
 };
 use crate::mcp::types::{
     FindOrfsRequest, FindRestrictionSitesRequest, OverviewRequest, RegionRequest, SequenceRequest,
 };
+use crate::mcp::LibreGeneMcp;
 
 /// Feature/translation hits containing internal 0-based `position`,
 /// serialized for read_sequence: every containing feature with its 1-based
 /// feature-relative offset, plus CDS/mRNA codon/amino-acid details. Used for
 /// the window mode's startContext/endContext and the coordinate modes' hit
 /// details.
-fn position_context_json(
-    position: i64,
-    sequence: &str,
-    features: &[Feature],
-) -> serde_json::Value {
+fn position_context_json(position: i64, sequence: &str, features: &[Feature]) -> serde_json::Value {
     let feature_hits = libregene_core::coords::position_to_features(position, features);
     let translation_hits =
         libregene_core::coords::position_to_translations(position, sequence, features);
@@ -103,7 +99,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // workspace lock together with it.
         let workspace: Vec<serde_json::Value> = {
             let ws = self.workspace.read().await;
-            ws.iter().map(crate::mcp::workspace::workspace_item_json).collect()
+            ws.iter()
+                .map(crate::mcp::workspace::workspace_item_json)
+                .collect()
         };
         let wcount = workspace.len();
         Ok(Json(serde_json::json!({
@@ -120,7 +118,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         request: OverviewRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
-        let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let hashes =
+            libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let label = project_label(&id, &project);
         let unit = unit_for(&project.molecule_type);
         let opts = DigestOptions {
@@ -147,7 +146,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         request: RegionRequest,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
-        let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let hashes =
+            libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let unit = unit_for(&project.molecule_type);
         let tlen = project.length;
         let (start, end) = (request.start, request.end);
@@ -159,10 +159,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             include_alignment_view: request.show_alignment_columns.unwrap_or(false),
         };
         let region = (from1(request.start), from1(request.end));
-        let text = tokio::task::spawn_blocking(move || project_digest(&project, &opts, Some(region)))
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let text =
+            tokio::task::spawn_blocking(move || project_digest(&project, &opts, Some(region)))
+                .await
+                .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
         let mut v = ok_envelope(
             &id,
             format!("Region {}..{} ({} {})", start, end, tlen, unit),
@@ -180,7 +181,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project_light(request.project_id).await?;
         let unit = unit_for(&project.molecule_type);
-        let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let seq_hashes =
+            libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         // Reads never mutate, so the resolve-time hash stays valid; the
         // closure also serves fail paths that run inside a lock below (no
         // lock acquisition allowed there).
@@ -210,8 +212,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 }
             };
             let (s, e) = (from1(s1), from1(e1));
-            let text = read_sequence(&project, s, e)
-                .map_err(|e| ErrorData::invalid_params(e, None))?;
+            let text =
+                read_sequence(&project, s, e).map_err(|e| ErrorData::invalid_params(e, None))?;
             let bases = libregene_core::digest::read_sequence_bases(&project, s, e)
                 .map_err(|e| ErrorData::invalid_params(e, None))?;
             let mut v = serde_json::json!({
@@ -253,9 +255,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         if let Some(pos1) = request.position {
             if pos1 < 1 || pos1 > len {
-                return Ok(fail(
-                    format!("position {} out of bounds (1..={})", pos1, len),
-                ));
+                return Ok(fail(format!(
+                    "position {} out of bounds (1..={})",
+                    pos1, len
+                )));
             }
             position = pos1 - 1;
             input_json = serde_json::json!({ "mode": "position", "position": pos1 });
@@ -264,7 +267,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let f = features
                 .iter()
                 .find(|f| &f.id == feature_id)
-                .ok_or_else(|| ErrorData::invalid_params(format!("feature '{}' not found", feature_id), None))?;
+                .ok_or_else(|| {
+                    ErrorData::invalid_params(format!("feature '{}' not found", feature_id), None)
+                })?;
             if let Some(offset1) = request.feature_offset {
                 match libregene_core::coords::position_from_feature_offset(f, offset1) {
                     Ok(pos0) => {
@@ -272,12 +277,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         // range-checked at parse time; reject before the
                         // sequence indexing below panics.
                         if pos0 < 0 || pos0 >= len {
-                            return Ok(fail(
-                                format!(
-                                    "feature '{}' coordinates fall outside the sequence (length {})",
-                                    f.name, len
-                                ),
-                            ));
+                            return Ok(fail(format!(
+                                "feature '{}' coordinates fall outside the sequence (length {})",
+                                f.name, len
+                            )));
                         }
                         position = pos0;
                         input_json = serde_json::json!({
@@ -320,8 +323,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let ws = position.saturating_sub(flank).max(0);
         let we = position.saturating_add(flank).min(len - 1);
         let ctx = position_context_json(position, sequence, features);
-        let text = read_sequence(&project, ws, we)
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let text =
+            read_sequence(&project, ws, we).map_err(|e| ErrorData::invalid_params(e, None))?;
         let bases = libregene_core::digest::read_sequence_bases(&project, ws, we)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
         let base = sequence[position as usize..position as usize + 1].to_ascii_uppercase();
@@ -343,9 +346,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             "text": text,
         });
         if let Some(positions) = codon_positions_opt {
-            v["codonPositions"] = serde_json::json!(
-                positions.iter().map(|p| p + 1).collect::<Vec<_>>()
-            );
+            v["codonPositions"] =
+                serde_json::json!(positions.iter().map(|p| p + 1).collect::<Vec<_>>());
         }
         insert_seq_hashes(&mut v, &seq_hashes);
         Ok(Json(v))
@@ -365,7 +367,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 None,
             ));
         }
-        let hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let hashes =
+            libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let wanted: Option<Vec<String>> = request.enzymes.map(|v| {
             v.into_iter()
                 .map(|s| s.trim().to_string())
@@ -497,7 +500,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 "note": "enzyme exists in the enzyme database but has no recognition site on this sequence",
             }));
         }
-        enzymes_json.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
+        enzymes_json.sort_by(|a, b| {
+            a["name"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["name"].as_str().unwrap_or(""))
+        });
         let enzyme_count = enzymes_json.len();
         let mut resp = serde_json::json!({
             "ok": true,
@@ -579,7 +587,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
-            &self.wp,
             &self.agent_tabs,
             None,
             &id,
@@ -597,8 +604,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some((s, e)) = first_span {
             crate::payload::emit_mutation_focus(&self.app_handle, &id, s, e, "feature");
         }
-        let region = self.digest_region(&id, Some((min_s, max_e)), true, false).await;
-        let mut v = ok_envelope(&id, format!("Added {} ORF(s) as CDS features", count), region);
+        let region = self
+            .digest_region(&id, Some((min_s, max_e)), true, false)
+            .await;
+        let mut v = ok_envelope(
+            &id,
+            format!("Added {} ORF(s) as CDS features", count),
+            region,
+        );
         v["unit"] = serde_json::json!(unit);
         v["minAa"] = serde_json::json!(min_aa);
         v["orfCount"] = serde_json::json!(count);

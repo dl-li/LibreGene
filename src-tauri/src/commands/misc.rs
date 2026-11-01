@@ -74,11 +74,10 @@ mod orf_command_tests {
 /// strands, mirroring `findSeqMatches` in `src/searchUtils.js`.
 #[tauri::command]
 pub(crate) async fn search_sequence(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     query: String,
 ) -> Result<Vec<libregene_core::search::SeqMatch>, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await?;
+    let project_id = resolve_project_id(&state).await?;
 
     do_search_sequence(&state.pm, &project_id, query).await
 }
@@ -89,13 +88,12 @@ pub(crate) async fn search_sequence(
 /// defaults to the calling window's project.
 #[tauri::command]
 pub(crate) async fn annotate_features(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     project_id: Option<String>,
 ) -> Result<Vec<libregene_core::annotate::AnnotatedFeature>, String> {
     let project_id = match project_id {
         Some(id) => id,
-        None => resolve_project_id(&state, webview_window.label()).await?,
+        None => resolve_project_id(&state).await?,
     };
 
     do_annotate_features(&state.pm, &project_id).await
@@ -144,7 +142,6 @@ pub(crate) async fn list_codon_species() -> Vec<String> {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn preview_codon_optimization(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     feature_id: String,
     species: String,
@@ -154,7 +151,7 @@ pub(crate) async fn preview_codon_optimization(
     avoid_enzyme_sites: Option<Vec<String>>,
     gc_window: Option<(usize, f64, f64)>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await?;
+    let project_id = resolve_project_id(&state).await?;
     let project = {
         let pm = state.pm.read().await;
         pm.get_project_by_id(&project_id)
@@ -199,7 +196,7 @@ pub(crate) async fn apply_codon_optimization(
     avoid_enzyme_sites: Option<Vec<String>>,
     gc_window: Option<(usize, f64, f64)>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await?;
+    let project_id = resolve_project_id(&state).await?;
     let project = {
         let pm = state.pm.read().await;
         pm.get_project_by_id(&project_id)
@@ -227,7 +224,6 @@ pub(crate) async fn apply_codon_optimization(
     do_update_sequence_if_unchanged(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         project_id.clone(),
@@ -305,34 +301,6 @@ pub(crate) async fn open_url(app: tauri::AppHandle, url: String) -> Result<(), S
 pub(crate) fn show_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())?;
     Ok(())
-}
-
-/// Return the project_id bound to the calling window.
-/// Returns null for the main window (use active project instead).
-#[tauri::command]
-pub(crate) async fn get_window_project_id(
-    webview_window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    let wp = state.window_projects.read().await;
-    Ok(wp.get(webview_window.label()).cloned())
-}
-
-/// Return the lock state of the agent tab bound to `project_id`:
-/// `{projectId, locked}` for agent-bound projects, null otherwise.
-#[tauri::command]
-pub(crate) async fn get_agent_tab_state(
-    project_id: String,
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    let at = state.agent_tabs.read().await;
-    Ok(match at.get(&project_id) {
-        Some(meta) => serde_json::json!({
-            "projectId": project_id,
-            "locked": meta.locked,
-        }),
-        None => serde_json::Value::Null,
-    })
 }
 
 /// Set an agent tab's lock state (the unlock/lock button in the UI). The next

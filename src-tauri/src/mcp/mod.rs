@@ -75,34 +75,32 @@ mod tools;
 mod types;
 pub(crate) mod workspace;
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use rmcp::{
-    ErrorData, ServerHandler,
     handler::server::wrapper::{Json, Parameters},
-    tool, tool_handler, tool_router,
+    tool, tool_handler, tool_router, ErrorData, ServerHandler,
 };
-use tokio::sync::RwLock;
 use tauri::{AppHandle, Emitter, Runtime};
+use tokio::sync::RwLock;
 
-use libregene_core::digest::{DigestOptions, project_digest};
+use libregene_core::digest::{project_digest, DigestOptions};
 use libregene_core::models::{ProjectData, Segment};
 use libregene_core::project::ProjectManager;
 
 // Names mcp/tests.rs reaches through `use super::*;` (the test module globs
 // this module's scope); some are not used by mod.rs itself.
 #[allow(unused_imports)]
-use rmcp::schemars;
-#[allow(unused_imports)]
 use libregene_core::digest::read_sequence;
 #[allow(unused_imports)]
 use libregene_core::models::{Enzyme, Feature, Primer, PrimerBindingSite};
+#[allow(unused_imports)]
+use rmcp::schemars;
 
+pub(crate) use support::*;
 #[allow(unused_imports)]
 pub(crate) use tools::*;
-pub(crate) use support::*;
 pub(crate) use types::*;
 pub(crate) use workspace::*;
 
@@ -121,7 +119,6 @@ pub const MCP_PORT: u16 = 8766;
 pub struct LibreGeneMcp<R: Runtime> {
     app_handle: AppHandle<R>,
     pm: Arc<RwLock<ProjectManager>>,
-    wp: Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: crate::AgentTabs,
     workspace: Workspace,
 }
@@ -137,30 +134,19 @@ fn next_id(prefix: &str) -> String {
     format!("{}_{}_{}", prefix, millis, n)
 }
 
-/// Window-label sanitizer: keep only `[A-Za-z0-9-_]`; every other character
-/// (path separators, '.', spaces, parentheses, ...) becomes '_' so a file
-/// path never produces an invalid Tauri window label.
-pub(crate) fn sanitize_window_label(id: &str) -> String {
-    id.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 impl<R: Runtime> LibreGeneMcp<R> {
     pub fn new(
         app_handle: AppHandle<R>,
         pm: Arc<RwLock<ProjectManager>>,
-        wp: Arc<RwLock<HashMap<String, String>>>,
         agent_tabs: crate::AgentTabs,
         workspace: Workspace,
     ) -> Self {
-        Self { app_handle, pm, wp, agent_tabs, workspace }
+        Self {
+            app_handle,
+            pm,
+            agent_tabs,
+            workspace,
+        }
     }
 
     /// Resolving a project also re-locks any agent tab bound to it — the user
@@ -172,7 +158,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Clone the project's data out of the lock (and re-lock its agent tab).
-    async fn resolve_project(&self, project_id: String) -> Result<(String, ProjectData), ErrorData> {
+    async fn resolve_project(
+        &self,
+        project_id: String,
+    ) -> Result<(String, ProjectData), ErrorData> {
         self.resolve_project_impl(project_id, false).await
     }
 
@@ -197,7 +186,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 ErrorData::invalid_params(format!("Project not found: {}", project_id), None)
             })?;
             if strip_enzymes {
-                ProjectData { enzymes: Vec::new(), ..p }
+                ProjectData {
+                    enzymes: Vec::new(),
+                    ..p
+                }
             } else {
                 p
             }
@@ -228,7 +220,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// the user opened it, and their projects stay under user control.
     /// Shared by open_project's fast path and the lost-race path after its
     /// atomic check-and-load.
-    async fn reuse_agent_tab_or_reject(&self, id: &str) -> Result<Json<serde_json::Value>, ErrorData> {
+    async fn reuse_agent_tab_or_reject(
+        &self,
+        id: &str,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
         // Emit agent-tab-lock only on an unlocked → locked transition
         // (same semantics as lock_agent_tab_for_project).
         enum Reuse {
@@ -410,7 +405,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         end: i64,
     ) -> Result<(), String> {
         let pm = self.pm.read().await;
-        let plen = pm.get_project_by_id(project_id).map(|p| p.length).unwrap_or(0);
+        let plen = pm
+            .get_project_by_id(project_id)
+            .map(|p| p.length)
+            .unwrap_or(0);
         let max_coord = segments
             .iter()
             .map(|s| s.end.max(s.start))
@@ -431,7 +429,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// A `{"error": ...}` payload from a shared core means a tool-level failure.
     fn payload_error(payload: &serde_json::Value) -> Option<String> {
-        payload.get("error").and_then(|v| v.as_str()).map(String::from)
+        payload
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 }
 
@@ -911,7 +912,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         self.convert_sequence_impl(request).await
     }
-
 }
 
 /// Splice the core's built-in codon-usage species keys into every tool
@@ -929,7 +929,10 @@ pub(crate) fn splice_species_keys(tools: &mut [rmcp::model::Tool]) {
     }
 }
 
-#[tool_handler(name = "LibreGene", instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_workspace's activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent. WORKSPACE: add_to_workspace stages a project fragment (feature / start+end region / enzyme-digest fragment, annotations kept) in an in-memory workspace (fragments are removed when their source project closes; closing the main window removes them all); open projects are implicit members. Sequence-taking tools accept a workspace hash — `hash` (edit_sequence: `replacementHash`) as '<sequenceHash>' or '<sequenceHash>/<revCompHash>' from list_workspace; a swapped pair means the entry's reverse complement (annotations flip with it).")]
+#[tool_handler(
+    name = "LibreGene",
+    instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_workspace's activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent. WORKSPACE: add_to_workspace stages a project fragment (feature / start+end region / enzyme-digest fragment, annotations kept) in an in-memory workspace (fragments are removed when their source project closes; closing the main window removes them all); open projects are implicit members. Sequence-taking tools accept a workspace hash — `hash` (edit_sequence: `replacementHash`) as '<sequenceHash>' or '<sequenceHash>/<revCompHash>' from list_workspace; a swapped pair means the entry's reverse complement (annotations flip with it)."
+)]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
     // no top-level "type". The MCP spec requires outputSchema.type == "object";

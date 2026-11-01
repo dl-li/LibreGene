@@ -32,7 +32,10 @@ pub(crate) fn validate_user_path(path: &str, allowed_exts: &[&str]) -> Result<St
             Component::ParentDir => {
                 return Err("parent-directory traversal (..) is not allowed".to_string())
             }
-            Component::RootDir | Component::Prefix(_) | Component::Normal(_) | Component::CurDir => {}
+            Component::RootDir
+            | Component::Prefix(_)
+            | Component::Normal(_)
+            | Component::CurDir => {}
         }
     }
     let ext = p
@@ -51,11 +54,8 @@ pub(crate) fn validate_user_path(path: &str, allowed_exts: &[&str]) -> Result<St
 }
 
 pub(crate) const SEQ_EXTS: &[&str] = &[
-    "gbk", "gb", "genbank", "gbf", "gbff",
-    "dna", "rna", "prot",
-    "gpt", "gp", "gpe", "gpff",
-    "fasta", "fa", "fna", "fas", "ffn", "fsa", "faa", "frn",
-    "ab1", "seq",
+    "gbk", "gb", "genbank", "gbf", "gbff", "dna", "rna", "prot", "gpt", "gp", "gpe", "gpff",
+    "fasta", "fa", "fna", "fas", "ffn", "fsa", "faa", "frn", "ab1", "seq",
 ];
 pub(crate) const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
 /// Output extensions accepted by save paths that write a whole project
@@ -63,7 +63,8 @@ pub(crate) const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
 pub(crate) const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
 /// Output extensions accepted by MCP `convert_sequence`'s `output_path`:
 /// the GenBank set above plus bare-sequence text (.fa/.fasta/.txt).
-pub(crate) const CONVERT_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt", "fa", "fasta", "txt"];
+pub(crate) const CONVERT_OUTPUT_EXTS: &[&str] =
+    &["gbk", "gb", "genbank", "gpt", "fa", "fasta", "txt"];
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -82,17 +83,13 @@ pub type AgentTabs = Arc<RwLock<HashMap<String, AgentTabMeta>>>;
 
 pub struct AppState {
     pub pm: Arc<RwLock<ProjectManager>>,
-    /// Maps window labels to project IDs for multi-window support.
-    /// Main window ("main") is NOT in this map — it uses the active project.
-    /// Project windows ("project-{sanitized_id}") are mapped to their project.
-    pub window_projects: Arc<RwLock<HashMap<String, String>>>,
-    /// MCP-agent-bound projects, keyed by project id. Lock order: never take
-    /// this lock while holding `pm` or `window_projects`.
+    /// MCP-agent-bound projects, keyed by project id. Never take this lock
+    /// while holding `pm`.
     pub agent_tabs: AgentTabs,
     /// Agent-only MCP sequence workspace (in-memory): a fragment is removed
     /// when its source project closes, closing the main window removes them
-    /// all, and nothing survives process exit. Same lock-order rule as
-    /// `agent_tabs`: never held together with `pm` or `window_projects`.
+    /// all, and nothing survives process exit. Never hold this lock together
+    /// with `pm`.
     pub workspace: crate::mcp::Workspace,
     /// Session-only edit history. Lock order: `pm` before this lock;
     /// never take `pm` while holding it.

@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Runtime, State};
 
 use crate::payload::{
-    ProjectParams, broadcast_project_for_id, filter_project, sidebar_project_list,
+    broadcast_project_for_id, filter_project, sidebar_project_list, ProjectParams,
 };
 use crate::session_log::SESSION_ROLLBACK_SOURCE;
 use crate::state::AppState;
@@ -83,8 +83,7 @@ async fn rollback_session_edit_impl<R: Runtime>(
         }
         data
     };
-    let (projects, active_id) =
-        sidebar_project_list(&state.pm, &state.window_projects, &state.agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(&state.pm, &state.agent_tabs).await;
     Ok(serde_json::json!({
         "status": "ok",
         "data": data,
@@ -99,8 +98,8 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use tauri::Manager;
     use tauri::test::{mock_builder, mock_context, noop_assets};
+    use tauri::Manager;
     use tokio::sync::RwLock;
 
     use libregene_core::models::ProjectData;
@@ -123,7 +122,6 @@ mod tests {
         pm.write().await.load("p", initial.clone()).unwrap();
         app.manage(AppState {
             pm: pm.clone(),
-            window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
             workspace: Arc::new(RwLock::new(Vec::new())),
             session_edit_log: Arc::new(RwLock::new(Default::default())),
@@ -136,7 +134,6 @@ mod tests {
         crate::do_set_methylation(
             app.handle(),
             &pm,
-            &state.window_projects,
             &state.agent_tabs,
             Some("main"),
             "p",
@@ -155,28 +152,13 @@ mod tests {
             project.length = 9;
             manager.mark_dirty("p");
         }
-        broadcast_project_change_arcs(
-            app.handle(),
-            &pm,
-            &state.window_projects,
-            &state.agent_tabs,
-            "p",
-            None,
-        )
-        .await;
+        broadcast_project_change_arcs(app.handle(), &pm, &state.agent_tabs, "p", None).await;
         {
             let mut manager = pm.write().await;
             manager.get_project_mut_by_id("p").unwrap().topology = "linear".to_string();
         }
-        broadcast_project_change_arcs(
-            app.handle(),
-            &pm,
-            &state.window_projects,
-            &state.agent_tabs,
-            "p",
-            Some("main"),
-        )
-        .await;
+        broadcast_project_change_arcs(app.handle(), &pm, &state.agent_tabs, "p", Some("main"))
+            .await;
 
         let entries = state.session_edit_log.read().await.entries("p");
         assert_eq!(entries.len(), 2);

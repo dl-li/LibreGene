@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, State};
 
 use libregene_core::file_io;
 
@@ -7,8 +7,7 @@ use crate::kernels::{
     NewFeatureInput,
 };
 use crate::payload::{
-    broadcast_project, broadcast_project_arcs, filter_project, resolve_project_id,
-    sidebar_project_list, ProjectParams,
+    broadcast_project, filter_project, resolve_project_id, sidebar_project_list, ProjectParams,
 };
 use crate::state::{validate_user_path, AppState, SEQ_EXTS, TEXT_EXPORT_EXTS};
 
@@ -18,18 +17,20 @@ use crate::state::{validate_user_path, AppState, SEQ_EXTS, TEXT_EXPORT_EXTS};
 
 #[tauri::command]
 pub(crate) async fn get_project(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     enzyme_filter: Option<String>,
     row_start: Option<i64>,
     row_end: Option<i64>,
     cpl: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let window_label = webview_window.label().to_string();
-    let params = ProjectParams { enzyme_filter, row_start, row_end, cpl };
+    let params = ProjectParams {
+        enzyme_filter,
+        row_start,
+        row_end,
+        cpl,
+    };
 
-    // Resolve project_id for this window
-    let project_id = match resolve_project_id(&state, &window_label).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -39,7 +40,10 @@ pub(crate) async fn get_project(
         Some(p) => {
             let mut filtered = filter_project(p, &params);
             if let Some(ref mut map) = filtered.as_object_mut() {
-                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&project_id)));
+                map.insert(
+                    "dirty".to_string(),
+                    serde_json::json!(pm.is_dirty(&project_id)),
+                );
             }
             Ok(filtered)
         }
@@ -55,7 +59,6 @@ pub(crate) async fn open_file(
 ) -> Result<serde_json::Value, String> {
     do_open_file(
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         &state.workspace,
         path,
@@ -126,7 +129,6 @@ pub(crate) async fn create_project(
 ) -> Result<serde_json::Value, String> {
     do_create_project(
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         &state.workspace,
         name,
@@ -140,12 +142,11 @@ pub(crate) async fn create_project(
 
 #[tauri::command]
 pub(crate) async fn save_file(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     app_handle: AppHandle,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state, webview_window.label()).await {
+    match resolve_project_id(&state).await {
         Ok(id) => {
             let result = do_save_file(&state.pm, id.clone(), path).await?;
             if result.get("error").is_none() {
@@ -159,7 +160,10 @@ pub(crate) async fn save_file(
 
 /// Write raw text to a file (used for My Enzymes export). Small payloads only.
 #[tauri::command]
-pub(crate) async fn write_text_file(path: String, contents: String) -> Result<serde_json::Value, String> {
+pub(crate) async fn write_text_file(
+    path: String,
+    contents: String,
+) -> Result<serde_json::Value, String> {
     validate_user_path(&path, TEXT_EXPORT_EXTS)?;
     // "Small payloads only" per the original intent — cap explicitly so a
     // runaway caller can't push megabyte strings through IPC into disk.
@@ -204,8 +208,7 @@ pub(crate) async fn read_text_file(path: String) -> Result<serde_json::Value, St
 
 #[tauri::command]
 pub(crate) async fn get_projects(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let (projects, active_id) =
-        sidebar_project_list(&state.pm, &state.window_projects, &state.agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(&state.pm, &state.agent_tabs).await;
     Ok(serde_json::json!({
         "projects": projects,
         "activeId": active_id,
@@ -222,10 +225,26 @@ pub(crate) async fn get_project_by_id(
     match pm.get_project_by_id(&id) {
         Some(p) => {
             let filter = enzyme_filter.as_deref().unwrap_or("all");
-            let needs_all = ["blunt", "overhang5", "overhang3", "iis", "rec4", "rec5", "rec6", "rec8p"]
-                .contains(&filter);
+            let needs_all = [
+                "blunt",
+                "overhang5",
+                "overhang3",
+                "iis",
+                "rec4",
+                "rec5",
+                "rec6",
+                "rec8p",
+            ]
+            .contains(&filter);
             let params = ProjectParams {
-                enzyme_filter: Some(if needs_all || filter == "all" { "all" } else { "unique" }.to_string()),
+                enzyme_filter: Some(
+                    if needs_all || filter == "all" {
+                        "all"
+                    } else {
+                        "unique"
+                    }
+                    .to_string(),
+                ),
                 row_start: None,
                 row_end: None,
                 cpl: None,
@@ -242,20 +261,9 @@ pub(crate) async fn get_project_by_id(
 
 #[tauri::command]
 pub(crate) async fn activate_project(
-    webview_window: tauri::WebviewWindow,
-    _app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    // Project windows must not change the global active project —
-    // they are bound to a single project via window_projects mapping.
-    {
-        let wp = state.window_projects.read().await;
-        if wp.contains_key(webview_window.label()) {
-            return Ok(serde_json::json!({"error": "Project windows cannot change the active project"}));
-        }
-    }
-
     do_activate_project(&state.pm, id).await
 }
 
@@ -273,7 +281,6 @@ pub(crate) async fn delete_project(
     do_delete_project(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         &state.workspace,
         Some(webview_window.label()),
@@ -283,130 +290,6 @@ pub(crate) async fn delete_project(
     .await
 }
 
-// ---------------------------------------------------------------------------
-// Tauri commands — multi-window
-// ---------------------------------------------------------------------------
-
-/// Build a project window: same chrome as the main window, with cleanup of
-/// the `window_projects` mapping when the window is destroyed. The frontend
-/// shows it after the platform-specific chrome is ready.
-pub(crate) fn spawn_project_window<R: Runtime>(
-    app_handle: &AppHandle<R>,
-    window_label: &str,
-) -> Result<(), String> {
-    let builder = WebviewWindowBuilder::new(
-        app_handle,
-        window_label,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("LibreGene - Plasmid Editor")
-    .inner_size(1400.0, 900.0)
-    .min_inner_size(960.0, 540.0)
-    .decorations(true)
-    .visible(false);
-
-    #[cfg(target_os = "windows")]
-    let builder = builder.theme(Some(tauri::Theme::Light));
-
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
-
-    let window = builder
-        .build()
-        .map_err(|e| format!("failed to create window: {e}"))?;
-
-    // When the window is destroyed, restore the project to the main window
-    let ah = app_handle.clone();
-    let lbl = window_label.to_string();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::Destroyed = event {
-            let ah = ah.clone();
-            let lbl = lbl.clone();
-            tauri::async_runtime::spawn(async move {
-                let state = ah.state::<AppState>();
-                {
-                    let mut wp = state.window_projects.write().await;
-                    wp.remove(&lbl);
-                }
-                broadcast_project_arcs(&ah, &state.pm, &state.window_projects, &state.agent_tabs, None).await;
-            });
-        }
-    });
-    Ok(())
-}
-
-/// Open the given project in a new OS window.
-#[tauri::command]
-pub(crate) async fn open_in_new_window(
-    webview_window: tauri::WebviewWindow,
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-    project_id: String,
-) -> Result<serde_json::Value, String> {
-    // Validate the project exists
-    let exists = {
-        let pm = state.pm.read().await;
-        pm.get_project_by_id(&project_id).is_some()
-    };
-    if !exists {
-        return Ok(serde_json::json!({"error": "Project not found"}));
-    }
-
-    // A locked agent tab must not escape into a project window: project
-    // windows do honor the edit lock, but splitting the project across
-    // windows while the agent believes it owns it is confusing — make the
-    // user unlock explicitly first.
-    {
-        let at = state.agent_tabs.read().await;
-        if let Some(meta) = at.get(&project_id) {
-            if meta.locked {
-                return Ok(serde_json::json!({
-                    "error": "Project is locked by an agent tab. Unlock it in the sidebar before opening in a new window."
-                }));
-            }
-        }
-    }
-
-    // Cap the number of simultaneous project windows (each is a full
-    // WebView; runaway opens exhaust resources).
-    const MAX_PROJECT_WINDOWS: usize = 8;
-    let open_count = app_handle
-        .webview_windows()
-        .keys()
-        .filter(|l| l.starts_with("project-"))
-        .count();
-    if open_count >= MAX_PROJECT_WINDOWS {
-        return Ok(serde_json::json!({
-            "error": format!("Too many project windows open ({}). Close one first.", MAX_PROJECT_WINDOWS)
-        }));
-    }
-
-    // Build a safe label for the new window (append timestamp for uniqueness)
-    let safe = crate::mcp::sanitize_window_label(&project_id);
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let window_label = format!("project-{safe}-{ts}");
-
-    // Build the window FIRST: registering the mapping before a successful
-    // build would leave a dangling entry behind on failure.
-    spawn_project_window(&app_handle, &window_label)?;
-
-    // Register the window → project mapping
-    {
-        let mut wp = state.window_projects.write().await;
-        wp.insert(window_label.clone(), project_id);
-    }
-
-    // Broadcast so the main window updates its sidebar immediately
-    broadcast_project(&app_handle, &state, Some(webview_window.label())).await;
-
-    Ok(serde_json::json!({"status": "ok", "windowLabel": window_label}))
-}
 /// Rename a project's ID (called after Save As to re-key the project).
 #[tauri::command]
 pub(crate) async fn rekey_project(
@@ -416,7 +299,7 @@ pub(crate) async fn rekey_project(
     old_id: String,
     new_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -432,16 +315,7 @@ pub(crate) async fn rekey_project(
         return Ok(serde_json::json!({"error": "Rename failed (target may already exist)"}));
     }
 
-    // Keep the window and agent-tab bindings pointed at the renamed project
-    // (each lock taken in its own scope — never held together with pm).
-    {
-        let mut wp = state.window_projects.write().await;
-        for v in wp.values_mut() {
-            if *v == old_id {
-                *v = new_id.clone();
-            }
-        }
-    }
+    // Keep the agent-tab binding pointed at the renamed project.
     {
         let mut at = state.agent_tabs.write().await;
         if let Some(meta) = at.remove(&old_id) {

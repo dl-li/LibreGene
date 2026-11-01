@@ -4,18 +4,18 @@
 //! binding-site shape (see `support::primer_site_json`), and every Tm is °C
 //! rounded to 0.1.
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 
 use libregene_core::models::Primer;
 
-use crate::mcp::LibreGeneMcp;
 use crate::mcp::next_id;
 use crate::mcp::support::{
     fail_envelope, from1, insert_seq_hashes, ok_envelope, primer_site_json, push_note,
     push_warning, rename_key, round1, site_json_to_1based, to1, unit_for,
 };
 use crate::mcp::types::{AddPrimerRequest, DesignPrimersRequest, PrimerInput, TestPrimersRequest};
+use crate::mcp::LibreGeneMcp;
 
 /// analyze_mutagenesis reports internal 0-based coordinates; bump the
 /// template span, the diff offsets and the CDS codon index to the 1-based
@@ -24,7 +24,9 @@ use crate::mcp::types::{AddPrimerRequest, DesignPrimersRequest, PrimerInput, Tes
 /// numbering is dropped so the response carries one convention only. The
 /// block-level `warning` is hoisted to the response's `warnings` array by the
 /// caller.
-fn mutagenesis_json_1based(info: &libregene_core::primer::design::MutagenesisAnalysis) -> serde_json::Value {
+fn mutagenesis_json_1based(
+    info: &libregene_core::primer::design::MutagenesisAnalysis,
+) -> serde_json::Value {
     let mut v = serde_json::to_value(info).unwrap_or_default();
     v["segStart"] = serde_json::json!(to1(info.seg_start));
     v["segEnd"] = serde_json::json!(to1(info.seg_end));
@@ -78,7 +80,11 @@ fn clean_primer_input(name: &str, r#type: &str, seq: &str) -> Result<String, Str
 /// lists near matches so the caller can fix the name.
 fn resolve_enzyme_site(name: &str) -> Result<String, String> {
     let db = libregene_core::enzyme::search::get_db();
-    if let Some(e) = db.enzymes.iter().find(|e| e.name.eq_ignore_ascii_case(name)) {
+    if let Some(e) = db
+        .enzymes
+        .iter()
+        .find(|e| e.name.eq_ignore_ascii_case(name))
+    {
         return Ok(e.site.to_ascii_uppercase());
     }
     let q = name.to_lowercase();
@@ -90,16 +96,28 @@ fn resolve_enzyme_site(name: &str) -> Result<String, String> {
         .take(5)
         .collect();
     if suggestions.is_empty() {
-        Err(format!("Unknown enzyme '{}'; no similar names in the enzyme database", name))
+        Err(format!(
+            "Unknown enzyme '{}'; no similar names in the enzyme database",
+            name
+        ))
     } else {
-        Err(format!("Unknown enzyme '{}'; similar: {}", name, suggestions.join(", ")))
+        Err(format!(
+            "Unknown enzyme '{}'; similar: {}",
+            name,
+            suggestions.join(", ")
+        ))
     }
 }
 
 /// Map one shared-core candidate to the unified MCP candidate shape: `id`
 /// (stable within the response, e.g. "fwd-1"), `recommended`, and the
 /// `...Length`/`gcPercent` naming.
-fn candidate_json(candidate: &serde_json::Value, group_type: &str, index: usize, default_index: usize) -> serde_json::Value {
+fn candidate_json(
+    candidate: &serde_json::Value,
+    group_type: &str,
+    index: usize,
+    default_index: usize,
+) -> serde_json::Value {
     let mut c = candidate.clone();
     rename_key(&mut c, "tailLen", "tailLength");
     rename_key(&mut c, "annealLen", "annealLength");
@@ -172,14 +190,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let raw_seq = match (request.seq, request.hash) {
             (Some(s), None) => s,
             (None, Some(hash)) => {
-                match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                match crate::mcp::workspace::resolve_workspace_hash(
+                    &self.pm,
+                    &self.workspace,
+                    &hash,
+                )
+                .await
+                {
                     Ok(r) => r.sequence,
                     Err(e) => return Ok(fail(e)),
                 }
             }
             _ => {
                 return Ok(fail(
-                    "Provide exactly one of `seq` (plain text) or `hash` (workspace hash)".to_string(),
+                    "Provide exactly one of `seq` (plain text) or `hash` (workspace hash)"
+                        .to_string(),
                 ));
             }
         };
@@ -194,9 +219,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
             primer_seq: clean_seq.clone(),
             binding_sites: Vec::new(),
         };
-        let payload = crate::do_add_primer(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None, &id, primer)
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
+        let payload = crate::do_add_primer(
+            &self.app_handle,
+            &self.pm,
+            &self.agent_tabs,
+            None,
+            &id,
+            primer,
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e, None))?;
         if let Some(err) = Self::payload_error(&payload) {
             let mut v = fail_envelope(&id, err);
             if let Some(h) = &seq_hashes {
@@ -300,7 +332,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             ignored.push("fwdEnzyme/revEnzyme/protectBases apply to amplify mode only — ignored");
         }
         if mode != "mutagenesis"
-            && (request.mut_seq.is_some() || request.site_name.is_some() || request.arm_len.is_some())
+            && (request.mut_seq.is_some()
+                || request.site_name.is_some()
+                || request.arm_len.is_some())
         {
             ignored.push("mutSeq/siteName/armLen apply to mutagenesis mode only — ignored");
         }
@@ -324,7 +358,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let p = pm
                 .get_project_by_id(&id)
                 .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
-            (p.length, p.topology == "circular", unit_for(&p.molecule_type))
+            (
+                p.length,
+                p.topology == "circular",
+                unit_for(&p.molecule_type),
+            )
         };
         for (label, s) in [("seg", &seg), ("seg2", &seg2)] {
             let Some(s) = s else { continue };
@@ -350,7 +388,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut fwd_tail = None;
         let mut rev_tail = None;
         let mut enzyme_sites: Vec<(String, String)> = Vec::new();
-        if request.mode == "amplify" && (request.fwd_enzyme.is_some() || request.rev_enzyme.is_some())
+        if request.mode == "amplify"
+            && (request.fwd_enzyme.is_some() || request.rev_enzyme.is_some())
         {
             let protect = libregene_core::primer::design::protect_sequence(
                 request.protect_bases.unwrap_or(3),
@@ -388,7 +427,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let amplicon: Option<String> = if s >= 0 && e < len && s <= e {
                     Some(sequence[s as usize..=e as usize].to_string())
                 } else if topology == "circular" && s >= 0 && e < len {
-                    Some(format!("{}{}", &sequence[s as usize..], &sequence[..=e as usize]))
+                    Some(format!(
+                        "{}{}",
+                        &sequence[s as usize..],
+                        &sequence[..=e as usize]
+                    ))
                 } else {
                     None
                 };
@@ -417,9 +460,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     .ok_or_else(|| ErrorData::invalid_params("Project not found", None))?;
                 (p.sequence.clone(), p.features.clone())
             };
-            let seg_ref = seg.as_ref().ok_or_else(|| {
-                ErrorData::invalid_params("seg required for mutagenesis", None)
-            })?;
+            let seg_ref = seg
+                .as_ref()
+                .ok_or_else(|| ErrorData::invalid_params("seg required for mutagenesis", None))?;
             match libregene_core::primer::design::analyze_mutagenesis(
                 &sequence,
                 seg_ref,
@@ -439,7 +482,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     // the length/identity/diff-count errors).
                     let e = e.replace(
                         &format!("seg {}..{}", seg_ref.start, seg_ref.end),
-                        &format!("seg {}..{} (1-based inclusive)", seg_ref.start + 1, seg_ref.end + 1),
+                        &format!(
+                            "seg {}..{} (1-based inclusive)",
+                            seg_ref.start + 1,
+                            seg_ref.end + 1
+                        ),
                     );
                     let mut v = fail_envelope(&id, e);
                     if let Some(h) = &seq_hashes {
@@ -533,9 +580,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                                     } else {
                                         f.segments.iter().map(|s| (s.start, s.end)).collect()
                                     };
-                                    pieces
-                                        .iter()
-                                        .any(|&(ps, pe)| spans.iter().any(|&(s, e)| s <= pe && ps <= e))
+                                    pieces.iter().any(|&(ps, pe)| {
+                                        spans.iter().any(|&(s, e)| s <= pe && ps <= e)
+                                    })
                                 })
                                 .map(|f| {
                                     serde_json::json!({
@@ -575,7 +622,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             return Ok(Json(v));
         }
-        self.check_ad_hoc_primers(request.project_id, request.primers).await
+        self.check_ad_hoc_primers(request.project_id, request.primers)
+            .await
     }
 
     async fn check_ad_hoc_primers(
@@ -598,7 +646,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let raw_seq = match (p.seq, p.hash) {
                 (Some(s), None) => s,
                 (None, Some(hash)) => {
-                    match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                    match crate::mcp::workspace::resolve_workspace_hash(
+                        &self.pm,
+                        &self.workspace,
+                        &hash,
+                    )
+                    .await
+                    {
                         Ok(r) => r.sequence,
                         Err(e) => return Ok(fail(e)),
                     }

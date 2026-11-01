@@ -1,8 +1,11 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(test)]
+use std::collections::HashMap;
+#[cfg(test)]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime};
 use tokio::sync::RwLock;
 
 use libregene_core::enzyme;
@@ -12,8 +15,8 @@ use libregene_core::primer;
 use libregene_core::project::ProjectManager;
 
 use crate::payload::{
-    broadcast_project_arcs, broadcast_project_change_arcs, feature_mutation_response, filter_project,
-    prune_orphan_bindings, sidebar_project_list, with_projects_list, ProjectParams,
+    broadcast_project_arcs, broadcast_project_change_arcs, feature_mutation_response,
+    filter_project, prune_orphan_bindings, sidebar_project_list, with_projects_list, ProjectParams,
 };
 use crate::state::{validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS};
 
@@ -25,7 +28,6 @@ use crate::state::{validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS};
 
 pub(crate) async fn do_open_file(
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     workspace: &crate::mcp::Workspace,
     path: String,
@@ -40,34 +42,31 @@ pub(crate) async fn do_open_file(
     };
     let path_buf = std::path::PathBuf::from(&path);
 
-    let result =
-        tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
-            let mut project = match record_index {
-                Some(i) => {
-                    let ext = path_buf
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    let molecule_type = if ext == "faa" { "protein" } else { "dna" };
-                    let records = file_io::fasta::parse_fasta_all_with_molecule_type(
-                        &path_buf,
-                        molecule_type,
-                    )
-                    .map_err(|e| e.to_string())?;
-                    records
-                        .into_iter()
-                        .nth(i)
-                        .ok_or_else(|| format!("record index {} out of range", i))?
-                }
-                None => file_io::parse_file(&path_buf).map_err(|e| e.to_string())?,
-            };
-            enzyme::recompute(&mut project);
-            primer::recompute(&mut project);
-            Ok(project)
-        })
-        .await
-        .map_err(|e| format!("task join error: {}", e))?;
+    let result = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
+        let mut project = match record_index {
+            Some(i) => {
+                let ext = path_buf
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let molecule_type = if ext == "faa" { "protein" } else { "dna" };
+                let records =
+                    file_io::fasta::parse_fasta_all_with_molecule_type(&path_buf, molecule_type)
+                        .map_err(|e| e.to_string())?;
+                records
+                    .into_iter()
+                    .nth(i)
+                    .ok_or_else(|| format!("record index {} out of range", i))?
+            }
+            None => file_io::parse_file(&path_buf).map_err(|e| e.to_string())?,
+        };
+        enzyme::recompute(&mut project);
+        primer::recompute(&mut project);
+        Ok(project)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?;
 
     match result {
         Ok(project) => {
@@ -97,9 +96,13 @@ pub(crate) async fn do_open_file(
                 (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
             };
             // The load may have evicted another project; drop its bindings.
-            prune_orphan_bindings(pm, wp, agent_tabs, workspace).await;
+            prune_orphan_bindings(pm, agent_tabs, workspace).await;
 
-            Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
+            Ok(with_projects_list(
+                return_data,
+                &projects,
+                active_id.as_deref(),
+            ))
         }
         Err(e) => Ok(serde_json::json!({"error": e})),
     }
@@ -152,7 +155,6 @@ fn feature_from_input(input: NewFeatureInput, id: &str) -> Option<Feature> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_create_project(
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     workspace: &crate::mcp::Workspace,
     name: String,
@@ -265,9 +267,13 @@ pub(crate) async fn do_create_project(
         (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
     // The load may have evicted another project; drop its bindings.
-    prune_orphan_bindings(pm, wp, agent_tabs, workspace).await;
+    prune_orphan_bindings(pm, agent_tabs, workspace).await;
 
-    Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
+    Ok(with_projects_list(
+        return_data,
+        &projects,
+        active_id.as_deref(),
+    ))
 }
 
 pub(crate) async fn do_save_file(
@@ -309,7 +315,9 @@ pub(crate) async fn do_save_file(
             // becomes the project name so it lands in the LOCUS field.
             // Direct saves to the same path keep the existing name.
             let new_name = if project_id != path {
-                save_path.file_stem().map(|s| s.to_string_lossy().into_owned())
+                save_path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
             } else {
                 None
             };
@@ -394,7 +402,6 @@ fn merge_recomputed_after_edit(live: &mut ProjectData, computed: ProjectData) ->
 pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -450,7 +457,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
         }
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
     Ok(())
 }
 
@@ -464,7 +471,6 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
 async fn update_sequence_inner<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: String,
@@ -492,7 +498,7 @@ async fn update_sequence_inner<R: Runtime>(
         }
     }
 
-    recompute_after_sequence_change(app_handle, pm, wp, agent_tabs, source, &project_id).await?;
+    recompute_after_sequence_change(app_handle, pm, agent_tabs, source, &project_id).await?;
 
     let result = {
         let pm = pm.read().await;
@@ -506,7 +512,7 @@ async fn update_sequence_inner<R: Runtime>(
             .map(|p| filter_project(p, &params))
             .unwrap_or(serde_json::json!({"error": "Project not found after update"}))
     };
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
@@ -515,7 +521,6 @@ async fn update_sequence_inner<R: Runtime>(
 pub(crate) async fn do_update_sequence<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: String,
@@ -523,15 +528,7 @@ pub(crate) async fn do_update_sequence<R: Runtime>(
     primers: Option<Vec<Primer>>,
 ) -> Result<serde_json::Value, String> {
     update_sequence_inner(
-        app_handle,
-        pm,
-        wp,
-        agent_tabs,
-        source,
-        project_id,
-        sequence,
-        primers,
-        None,
+        app_handle, pm, agent_tabs, source, project_id, sequence, primers, None,
     )
     .await
 }
@@ -540,7 +537,6 @@ pub(crate) async fn do_update_sequence<R: Runtime>(
 pub(crate) async fn do_update_sequence_if_unchanged<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: String,
@@ -550,7 +546,6 @@ pub(crate) async fn do_update_sequence_if_unchanged<R: Runtime>(
     update_sequence_inner(
         app_handle,
         pm,
-        wp,
         agent_tabs,
         source,
         project_id,
@@ -613,7 +608,6 @@ pub(crate) async fn do_activate_project(
 pub(crate) async fn do_delete_project<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     workspace: &crate::mcp::Workspace,
     source: Option<&str>,
@@ -638,33 +632,13 @@ pub(crate) async fn do_delete_project<R: Runtime>(
     };
     match outcome {
         Outcome::Closed => {
-            // Collect the window labels bound to this project, then drop the
-            // mappings. Keeping a window open after its project is deleted
-            // leaves a ghost webview whose commands would fail — and before
-            // the evicted-window fix, silently redirected to the MAIN
-            // window's active project, overwriting a different file.
-            let orphan_labels: Vec<String> = {
-                let mut wp = wp.write().await;
-                let labels: Vec<String> = wp
-                    .iter()
-                    .filter(|(_, v)| *v == &id)
-                    .map(|(k, _)| k.clone())
-                    .collect();
-                wp.retain(|_, v| v != &id);
-                labels
-            };
             {
                 let mut at = agent_tabs.write().await;
                 at.remove(&id);
             }
             // Workspace fragments extracted from this project die with it.
             crate::mcp::remove_fragments_of(workspace, &id).await;
-            broadcast_project_arcs(app_handle, pm, wp, agent_tabs, source).await;
-            for label in orphan_labels {
-                if let Some(win) = app_handle.get_webview_window(&label) {
-                    let _ = win.close();
-                }
-            }
+            broadcast_project_arcs(app_handle, pm, agent_tabs, source).await;
             Ok(serde_json::json!({"status": "ok"}))
         }
         Outcome::Dirty => Ok(serde_json::json!({
@@ -679,7 +653,6 @@ pub(crate) async fn do_delete_project<R: Runtime>(
 pub(crate) async fn do_add_features<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -702,15 +675,14 @@ pub(crate) async fn do_add_features<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    Ok(feature_mutation_response(pm, wp, agent_tabs, project_id).await)
+    Ok(feature_mutation_response(pm, agent_tabs, project_id).await)
 }
 
 pub(crate) async fn do_delete_feature<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -736,9 +708,9 @@ pub(crate) async fn do_delete_feature<R: Runtime>(
         feats
     };
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     Ok(with_projects_list(
         serde_json::json!({ "features": feats }),
         &projects,
@@ -751,7 +723,6 @@ pub(crate) async fn do_delete_feature<R: Runtime>(
 pub(crate) async fn do_update_feature<R: Runtime, F>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -773,9 +744,9 @@ where
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    Ok(feature_mutation_response(pm, wp, agent_tabs, project_id).await)
+    Ok(feature_mutation_response(pm, agent_tabs, project_id).await)
 }
 
 /// Color the sequence text of `[start, end]` (0-based inclusive) on one
@@ -786,7 +757,6 @@ where
 pub(crate) async fn do_set_text_colors<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -842,7 +812,7 @@ pub(crate) async fn do_set_text_colors<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
     let data = {
         let pm = pm.read().await;
@@ -854,7 +824,7 @@ pub(crate) async fn do_set_text_colors<R: Runtime>(
             None => serde_json::json!({"error": "Project not found"}),
         }
     };
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     Ok(with_projects_list(data, &projects, active_id.as_deref()))
 }
 
@@ -894,7 +864,6 @@ pub(crate) fn merge_primer_updates(target: &mut Vec<Primer>, updates: Vec<Primer
 pub(crate) async fn do_add_primer<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -907,24 +876,35 @@ pub(crate) async fn do_add_primer<R: Runtime>(
     loop {
         let name_conflict = {
             let pm = pm.read().await;
-            pm.get_project_by_id(project_id).map(|p| {
-                if p.primers.iter().any(|p| p.id != primer.id && p.name == primer.name) {
-                    Some("primer")
-                } else if p.features.iter().any(|f| f.name == primer.name) {
-                    Some("feature")
-                } else {
-                    None
-                }
-            }).unwrap_or(None)
+            pm.get_project_by_id(project_id)
+                .map(|p| {
+                    if p.primers
+                        .iter()
+                        .any(|p| p.id != primer.id && p.name == primer.name)
+                    {
+                        Some("primer")
+                    } else if p.features.iter().any(|f| f.name == primer.name) {
+                        Some("feature")
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(None)
         };
         if let Some(kind) = name_conflict {
-            return Ok(serde_json::json!({"error": format!("Primer name '{}' already exists as a {}", primer.name, kind)}));
+            return Ok(
+                serde_json::json!({"error": format!("Primer name '{}' already exists as a {}", primer.name, kind)}),
+            );
         }
 
         let snapshot = {
             let pm = pm.read().await;
             pm.get_project_by_id(project_id).map(|p| {
-                (p.sequence.clone(), p.topology.clone(), primer_definitions(&p.primers))
+                (
+                    p.sequence.clone(),
+                    p.topology.clone(),
+                    primer_definitions(&p.primers),
+                )
             })
         };
         let Some((template, topology, existing)) = snapshot else {
@@ -933,7 +913,11 @@ pub(crate) async fn do_add_primer<R: Runtime>(
 
         let to_compute = primer.clone();
         let updated = tokio::task::spawn_blocking(move || {
-            libregene_core::primer::align::recompute_all_primers(&template, &topology, &[to_compute])
+            libregene_core::primer::align::recompute_all_primers(
+                &template,
+                &topology,
+                &[to_compute],
+            )
         })
         .await
         .map_err(|e| format!("task join error: {}", e))?;
@@ -946,7 +930,7 @@ pub(crate) async fn do_add_primer<R: Runtime>(
                     pm.mark_dirty(project_id);
                     true
                 }
-                // The list changed under us (another window added a primer):
+                // The list changed under us (a concurrent add landed):
                 // re-merge onto the fresh state instead of overwriting.
                 Some(_) => false,
                 None => return Ok(serde_json::json!({"error": "Project not found"})),
@@ -957,7 +941,7 @@ pub(crate) async fn do_add_primer<R: Runtime>(
         }
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {
@@ -977,7 +961,6 @@ pub(crate) async fn do_add_primer<R: Runtime>(
 pub(crate) async fn do_delete_primer<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -1003,9 +986,9 @@ pub(crate) async fn do_delete_primer<R: Runtime>(
         primers
     };
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     Ok(with_projects_list(
         serde_json::json!({ "primers": primers }),
         &projects,
@@ -1017,7 +1000,6 @@ pub(crate) async fn do_delete_primer<R: Runtime>(
 pub(crate) async fn do_set_methylation<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -1059,7 +1041,7 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
         }
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
     let result = {
         let pm = pm.read().await;
@@ -1073,7 +1055,7 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
             .map(|p| filter_project(p, &params))
             .unwrap_or(serde_json::json!({"error": "Project not found after methylation"}))
     };
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
@@ -1083,7 +1065,6 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
 pub(crate) async fn do_set_topology<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -1108,7 +1089,7 @@ pub(crate) async fn do_set_topology<R: Runtime>(
         }
     }
 
-    recompute_after_sequence_change(app_handle, pm, wp, agent_tabs, source, project_id).await?;
+    recompute_after_sequence_change(app_handle, pm, agent_tabs, source, project_id).await?;
 
     let result = {
         let pm = pm.read().await;
@@ -1122,7 +1103,7 @@ pub(crate) async fn do_set_topology<R: Runtime>(
             .map(|p| filter_project(p, &params))
             .unwrap_or(serde_json::json!({"error": "Project not found after topology change"}))
     };
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
     Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
@@ -1166,8 +1147,7 @@ pub(crate) async fn commit_computed_alignment(
     let mut pm = pm.write().await;
     let committed_id = if let Some(p) = pm.get_project_mut_by_id(project_id) {
         if p.alignments.len() == snapshot_ids.len()
-            && p
-                .alignments
+            && p.alignments
                 .iter()
                 .zip(snapshot_ids)
                 .all(|(a, id)| &a.id == id)
@@ -1193,7 +1173,6 @@ pub(crate) async fn commit_computed_alignment(
 pub(crate) async fn do_add_alignment_seq<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -1211,12 +1190,19 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
         None => return Ok((serde_json::json!({"error": "Project not found"}), None)),
     };
     if !project_clone.is_dna() {
-        return Ok((serde_json::json!({"error": format!(
-            "Alignments are only supported for DNA projects; project '{}' is a {} project",
-            project_id, project_clone.molecule_type
-        )}), None));
+        return Ok((
+            serde_json::json!({"error": format!(
+                "Alignments are only supported for DNA projects; project '{}' is a {} project",
+                project_id, project_clone.molecule_type
+            )}),
+            None,
+        ));
     }
-    let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
+    let snapshot_ids: Vec<String> = project_clone
+        .alignments
+        .iter()
+        .map(|a| a.id.clone())
+        .collect();
 
     let clean_seq: String = seq
         .chars()
@@ -1230,9 +1216,13 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
     let computed = tokio::task::spawn_blocking(move || -> Result<ProjectData, String> {
         let mut p = project_clone;
         let circular = p.topology == "circular";
-        let mut aln =
-            libregene_core::align::align_read_checked_with(&p.sequence, &clean_seq, circular, algorithm)
-                .map_err(alignment_reject_message)?;
+        let mut aln = libregene_core::align::align_read_checked_with(
+            &p.sequence,
+            &clean_seq,
+            circular,
+            algorithm,
+        )
+        .map_err(alignment_reject_message)?;
         aln.name = if name.trim().is_empty() {
             "alignment".to_string()
         } else {
@@ -1254,7 +1244,7 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
 
     let alignment_id = commit_computed_alignment(pm, project_id, &snapshot_ids, computed).await;
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
     let pm = pm.read().await;
     let payload = match pm.get_project_by_id(project_id) {
@@ -1275,7 +1265,6 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
 pub(crate) async fn do_remove_alignment<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
@@ -1286,7 +1275,7 @@ pub(crate) async fn do_remove_alignment<R: Runtime>(
         pm.remove_alignment(project_id, &alignment_id);
     }
 
-    broadcast_project_change_arcs(app_handle, pm, wp, agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
     let pm = pm.read().await;
     match pm.get_project_by_id(project_id) {
@@ -1337,11 +1326,9 @@ pub(crate) async fn do_search_sequence(
         project.sequence.clone()
     };
 
-    tokio::task::spawn_blocking(move || {
-        libregene_core::search::find_seq_matches(&sequence, &query)
-    })
-    .await
-    .map_err(|e| format!("task join error: {}", e))
+    tokio::task::spawn_blocking(move || libregene_core::search::find_seq_matches(&sequence, &query))
+        .await
+        .map_err(|e| format!("task join error: {}", e))
 }
 
 /// Run automatic annotation of a project's sequence against the embedded
@@ -1523,7 +1510,10 @@ pub(crate) async fn do_check_primers_binding(
                     .map(|s| {
                         let (aligned_template, match_mask) =
                             libregene_core::primer::align::template_coverage(
-                                &template, &topology, &p.primer_seq, s,
+                                &template,
+                                &topology,
+                                &p.primer_seq,
+                                s,
                             );
                         serde_json::json!({
                             "strand": s.strand,
@@ -1599,49 +1589,73 @@ pub(crate) async fn do_design_primer_candidates(
     let arm_len = arm_len.unwrap_or(20).max(8);
     let mut_seq = mut_seq.unwrap_or_default();
 
-    tokio::task::spawn_blocking(move || -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
-        let mut groups = match mode.as_str() {
-            "amplify" => {
-                let name = name.unwrap_or_else(|| "Amplicon".to_string());
-                match (fwd_tail, rev_tail) {
-                    (None, None) => libregene_core::primer::design::build_amplify_groups(
-                        &sequence, &seg1, &name, target_tm, &topology, &tm_params,
-                    ),
-                    (f, r) => libregene_core::primer::design::build_amplify_groups_tailed(
-                        &sequence, &seg1, &name, target_tm, &topology,
-                        f.as_deref().unwrap_or(""), r.as_deref().unwrap_or(""), &tm_params,
-                    ),
+    tokio::task::spawn_blocking(
+        move || -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
+            let mut groups = match mode.as_str() {
+                "amplify" => {
+                    let name = name.unwrap_or_else(|| "Amplicon".to_string());
+                    match (fwd_tail, rev_tail) {
+                        (None, None) => libregene_core::primer::design::build_amplify_groups(
+                            &sequence, &seg1, &name, target_tm, &topology, &tm_params,
+                        ),
+                        (f, r) => libregene_core::primer::design::build_amplify_groups_tailed(
+                            &sequence,
+                            &seg1,
+                            &name,
+                            target_tm,
+                            &topology,
+                            f.as_deref().unwrap_or(""),
+                            r.as_deref().unwrap_or(""),
+                            &tm_params,
+                        ),
+                    }
                 }
-            }
-            "oepcr" => {
-                let seg2 = seg2.as_ref().ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
-                let name1 = name1.unwrap_or_else(|| "Fragment 1".to_string());
-                let name2 = name2.unwrap_or_else(|| "Fragment 2".to_string());
-                libregene_core::primer::design::build_oepcr_groups(
-                    &sequence, &seg1, seg2, &name1, &name2, target_tm, overlap_len, &topology, &tm_params,
-                )
-            }
-            "mutagenesis" => {
-                let site_name = site_name.unwrap_or_else(|| "Mutation".to_string());
-                libregene_core::primer::design::build_mutagenesis_groups(
-                    &sequence, &seg1, &site_name, &mut_seq, target_tm, arm_len, &topology, &tm_params,
-                )
-            }
-            other => return Err(format!("Unknown primer design mode: {other}")),
-        };
-        let segs: Vec<libregene_core::models::Segment> = match mode.as_str() {
-            "amplify" | "mutagenesis" => vec![seg1],
-            "oepcr" => {
-                let seg2 = seg2.ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
-                vec![seg1, seg2]
-            }
-            _ => Vec::new(),
-        };
-        libregene_core::primer::design::unify_candidate_tm(
-            &sequence, &topology, &segs, &mut groups, &tm_params,
-        );
-        Ok(groups)
-    })
+                "oepcr" => {
+                    let seg2 = seg2
+                        .as_ref()
+                        .ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
+                    let name1 = name1.unwrap_or_else(|| "Fragment 1".to_string());
+                    let name2 = name2.unwrap_or_else(|| "Fragment 2".to_string());
+                    libregene_core::primer::design::build_oepcr_groups(
+                        &sequence,
+                        &seg1,
+                        seg2,
+                        &name1,
+                        &name2,
+                        target_tm,
+                        overlap_len,
+                        &topology,
+                        &tm_params,
+                    )
+                }
+                "mutagenesis" => {
+                    let site_name = site_name.unwrap_or_else(|| "Mutation".to_string());
+                    libregene_core::primer::design::build_mutagenesis_groups(
+                        &sequence, &seg1, &site_name, &mut_seq, target_tm, arm_len, &topology,
+                        &tm_params,
+                    )
+                }
+                other => return Err(format!("Unknown primer design mode: {other}")),
+            };
+            let segs: Vec<libregene_core::models::Segment> = match mode.as_str() {
+                "amplify" | "mutagenesis" => vec![seg1],
+                "oepcr" => {
+                    let seg2 =
+                        seg2.ok_or_else(|| "Second segment required for OE-PCR".to_string())?;
+                    vec![seg1, seg2]
+                }
+                _ => Vec::new(),
+            };
+            libregene_core::primer::design::unify_candidate_tm(
+                &sequence,
+                &topology,
+                &segs,
+                &mut groups,
+                &tm_params,
+            );
+            Ok(groups)
+        },
+    )
     .await
     .map_err(|e| format!("task join error: {}", e))?
 }
@@ -1661,15 +1675,27 @@ mod tests {
         let template: &str = "GCCACCATGGATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCGGAGCAATCACAGGTGAGCAAAAAA";
         let primer = "ccgctcgagTTTTTTGCTCACCTGTGATTGCTCC";
         let tm = libregene_core::primer::thermodynamics::TmParams {
-            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+            na_conc: 0.050,
+            mg_conc: 0.0,
+            dntp_conc: 0.0,
+            tris_conc: 0.0,
+            primer_conc: 2.5e-7,
         };
         let res = compute_primer_alignment_sync(template, true, "TIGR3-XhoI-R", primer, None, &tm)
             .expect("alignment computation failed");
         let cur = &res["current"];
         assert_eq!(cur["strand"], serde_json::json!(-1));
         let aln = cur["alignment"].as_str().expect("alignment text missing");
-        assert!(aln.contains("3' <"), "expected reverse-primer arrows:\n{}", aln);
-        assert!(aln.contains("GGAGCAATCACAGGTGAGCAAAAAA"), "template line:\n{}", aln);
+        assert!(
+            aln.contains("3' <"),
+            "expected reverse-primer arrows:\n{}",
+            aln
+        );
+        assert!(
+            aln.contains("GGAGCAATCACAGGTGAGCAAAAAA"),
+            "template line:\n{}",
+            aln
+        );
         assert!(
             aln.contains("gagctcgcc"),
             "non-matching 5' tail must be visible as an overhang:\n{}",
@@ -1685,7 +1711,11 @@ mod tests {
         let template: &str = "AATTTCTACTAAGTGTAGATACCGCAGCAGCGCAGTTGCGCTCAATTTCTACTAAGTGTAGATATGCGAATGCTCTGGTCAAAGCAGCTT";
         let primer = "AAGCTGCTTTGACCAGAGCATTCGCATATCTACACTTAGTAGAAATTGAGCGCAACTGCGCTGCTGCGGT";
         let tm = libregene_core::primer::thermodynamics::TmParams {
-            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+            na_conc: 0.050,
+            mg_conc: 0.0,
+            dntp_conc: 0.0,
+            tris_conc: 0.0,
+            primer_conc: 2.5e-7,
         };
         let res = compute_primer_alignment_sync(template, false, "MX5-R", primer, None, &tm)
             .expect("alignment computation failed");
@@ -1693,21 +1723,34 @@ mod tests {
         assert_eq!(cur["strand"], serde_json::json!(-1));
         assert_eq!(cur["end"], serde_json::json!(90));
         let aln = cur["alignment"].as_str().expect("alignment text missing");
-        assert!(aln.contains("CAGCTT"), "template line must reach position 90:\n{}", aln);
+        assert!(
+            aln.contains("CAGCTT"),
+            "template line must reach position 90:\n{}",
+            aln
+        );
     }
-
-
 
     #[test]
     fn primer_alignment_includes_all_alternative_sites() {
         let tm = libregene_core::primer::thermodynamics::TmParams {
-            na_conc: 0.050, mg_conc: 0.0, dntp_conc: 0.0, tris_conc: 0.0, primer_conc: 2.5e-7,
+            na_conc: 0.050,
+            mg_conc: 0.0,
+            dntp_conc: 0.0,
+            tris_conc: 0.0,
+            primer_conc: 2.5e-7,
         };
         let res = compute_primer_alignment_sync(
-            "ACGTACGTACGTACGT", false, "repeat-primer", "ACGTAC", Some(6), &tm,
+            "ACGTACGTACGTACGT",
+            false,
+            "repeat-primer",
+            "ACGTAC",
+            Some(6),
+            &tm,
         )
         .expect("alignment computation failed");
-        let alternatives = res["alternatives"].as_array().expect("alternatives missing");
+        let alternatives = res["alternatives"]
+            .as_array()
+            .expect("alternatives missing");
         assert!(!alternatives.is_empty());
         for site in alternatives {
             let alignment = site["alignment"]
@@ -1719,7 +1762,10 @@ mod tests {
 
     #[test]
     fn validate_path_accepts_normal_sequence_file() {
-        assert_eq!(validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(), "gbk");
+        assert_eq!(
+            validate_user_path("C:/some/dir/plasmid.gbk", SEQ_EXTS).unwrap(),
+            "gbk"
+        );
         assert_eq!(validate_user_path("plasmid.fa", SEQ_EXTS).unwrap(), "fa");
         assert_eq!(validate_user_path("reads.faa", SEQ_EXTS).unwrap(), "faa");
         assert_eq!(validate_user_path("genome.gbff", SEQ_EXTS).unwrap(), "gbff");
@@ -1751,16 +1797,31 @@ mod tests {
 
     #[test]
     fn validate_path_accepts_text_exports_for_write() {
-        assert_eq!(validate_user_path("enzymes.csv", TEXT_EXPORT_EXTS).unwrap(), "csv");
-        assert_eq!(validate_user_path("data.json", TEXT_EXPORT_EXTS).unwrap(), "json");
+        assert_eq!(
+            validate_user_path("enzymes.csv", TEXT_EXPORT_EXTS).unwrap(),
+            "csv"
+        );
+        assert_eq!(
+            validate_user_path("data.json", TEXT_EXPORT_EXTS).unwrap(),
+            "json"
+        );
         assert!(validate_user_path("evil.exe", TEXT_EXPORT_EXTS).is_err());
     }
 
     #[test]
     fn validate_path_accepts_codon_output_exts() {
-        assert_eq!(validate_user_path("out.gbk", CODON_OUTPUT_EXTS).unwrap(), "gbk");
-        assert_eq!(validate_user_path("out.GB", CODON_OUTPUT_EXTS).unwrap(), "gb");
-        assert_eq!(validate_user_path("out.gpt", CODON_OUTPUT_EXTS).unwrap(), "gpt");
+        assert_eq!(
+            validate_user_path("out.gbk", CODON_OUTPUT_EXTS).unwrap(),
+            "gbk"
+        );
+        assert_eq!(
+            validate_user_path("out.GB", CODON_OUTPUT_EXTS).unwrap(),
+            "gb"
+        );
+        assert_eq!(
+            validate_user_path("out.gpt", CODON_OUTPUT_EXTS).unwrap(),
+            "gpt"
+        );
         assert!(validate_user_path("out.fasta", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.ab1", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.txt", CODON_OUTPUT_EXTS).is_err());
@@ -1769,26 +1830,37 @@ mod tests {
     #[tokio::test]
     async fn save_as_adopts_chosen_file_stem_as_locus() {
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        pm.write().await.open_project(
-            "untitled-1".to_string(),
-            ProjectData {
-                name: "Untitled".to_string(),
-                sequence: "GATTACAGTCGATTACAGTC".to_string(),
-                length: 20,
-                topology: "circular".to_string(),
-                ..Default::default()
-            },
-        ).unwrap();
+        pm.write()
+            .await
+            .open_project(
+                "untitled-1".to_string(),
+                ProjectData {
+                    name: "Untitled".to_string(),
+                    sequence: "GATTACAGTCGATTACAGTC".to_string(),
+                    length: 20,
+                    topology: "circular".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let dir = std::env::temp_dir().join(format!("libregene-saveas-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("My Plasmid.gbk");
-        let out = do_save_file(&pm, "untitled-1".to_string(), path.to_str().unwrap().to_string())
-            .await
-            .unwrap();
+        let out = do_save_file(
+            &pm,
+            "untitled-1".to_string(),
+            path.to_str().unwrap().to_string(),
+        )
+        .await
+        .unwrap();
         assert!(out.get("error").is_none(), "{out}");
         // In-memory name adopted the chosen stem.
         assert_eq!(
-            pm.read().await.get_project_by_id("untitled-1").unwrap().name,
+            pm.read()
+                .await
+                .get_project_by_id("untitled-1")
+                .unwrap()
+                .name,
             "My Plasmid"
         );
         // LOCUS carries it (spaces → underscores).
@@ -1801,20 +1873,23 @@ mod tests {
 
     #[tokio::test]
     async fn direct_save_keeps_existing_locus_name() {
-        let path = std::env::temp_dir()
-            .join(format!("libregene-directsave-{}.gbk", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("libregene-directsave-{}.gbk", std::process::id()));
         let id = path.to_str().unwrap().to_string();
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        pm.write().await.open_project(
-            id.clone(),
-            ProjectData {
-                name: "OriginalLocus".to_string(),
-                sequence: "GATTACAGTCGATTACAGTC".to_string(),
-                length: 20,
-                topology: "linear".to_string(),
-                ..Default::default()
-            },
-        ).unwrap();
+        pm.write()
+            .await
+            .open_project(
+                id.clone(),
+                ProjectData {
+                    name: "OriginalLocus".to_string(),
+                    sequence: "GATTACAGTCGATTACAGTC".to_string(),
+                    length: 20,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let out = do_save_file(&pm, id.clone(), id.clone()).await.unwrap();
         assert!(out.get("error").is_none(), "{out}");
         let text = std::fs::read_to_string(&path).unwrap();
@@ -1830,15 +1905,18 @@ mod tests {
         // and would be filtered out by the tm threshold.)
         let tpl = "GATTACAGTCGATTACAGTC";
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        pm.write().await.open_project(
-            "p1".to_string(),
-            ProjectData {
-                sequence: tpl.to_string(),
-                length: tpl.len() as i64,
-                topology: "linear".to_string(),
-                ..Default::default()
-            },
-        ).unwrap();
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: tpl.to_string(),
+                    length: tpl.len() as i64,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let primers = vec![Primer {
             id: "f1".to_string(),
             name: "f1".to_string(),
@@ -1877,10 +1955,7 @@ mod tests {
             .collect();
         assert_eq!(r0["site"]["templateStart"], sites[0]["templateStart"]);
         assert!(starts.contains(&0) && starts.contains(&10));
-        let tms: Vec<f64> = sites
-            .iter()
-            .map(|s| s["tm"].as_f64().unwrap())
-            .collect();
+        let tms: Vec<f64> = sites.iter().map(|s| s["tm"].as_f64().unwrap()).collect();
         assert!(tms.windows(2).all(|w| w[0] >= w[1]));
     }
 
@@ -1892,15 +1967,18 @@ mod tests {
         // must expose the tail's per-base pairing against the template.
         let tpl = "TGCGTACGCTAGCTA";
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        pm.write().await.open_project(
-            "p1".to_string(),
-            ProjectData {
-                sequence: tpl.to_string(),
-                length: tpl.len() as i64,
-                topology: "linear".to_string(),
-                ..Default::default()
-            },
-        ).unwrap();
+        pm.write()
+            .await
+            .open_project(
+                "p1".to_string(),
+                ProjectData {
+                    sequence: tpl.to_string(),
+                    length: tpl.len() as i64,
+                    topology: "linear".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let primers = vec![Primer {
             id: "t1".to_string(),
             name: "t1".to_string(),
@@ -1922,7 +2000,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_project_id_never_falls_back_for_evicted_project_windows() {
+    async fn resolve_project_id_uses_active_project() {
         use tauri::test::{mock_builder, mock_context, noop_assets};
         let app = mock_builder()
             .build(mock_context(noop_assets()))
@@ -1942,7 +2020,6 @@ mod tests {
             .unwrap();
         app.manage(AppState {
             pm: pm.clone(),
-            window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
             workspace: Arc::new(RwLock::new(Vec::new())),
             session_edit_log: Arc::new(RwLock::new(Default::default())),
@@ -1950,24 +2027,7 @@ mod tests {
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         });
         let state = app.state::<AppState>();
-
-        // Main window falls back to the active project.
-        assert_eq!(resolve_project_id(&state, "main").await.unwrap(), "p1");
-
-        // Project windows resolve through their mapping.
-        state
-            .window_projects
-            .write()
-            .await
-            .insert("project-x-1".to_string(), "p1".to_string());
-        assert_eq!(resolve_project_id(&state, "project-x-1").await.unwrap(), "p1");
-
-        // Evicted (mapping pruned): the window errors instead of silently
-        // falling back to the main window's active project — which would
-        // route its mutations to the wrong file.
-        state.window_projects.write().await.remove("project-x-1");
-        let err = resolve_project_id(&state, "project-x-1").await.unwrap_err();
-        assert!(err.contains("evicted"), "{err}");
+        assert_eq!(resolve_project_id(&state).await.unwrap(), "p1");
     }
 
     #[tokio::test]
@@ -1989,7 +2049,6 @@ mod tests {
                 },
             )
             .unwrap();
-        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
         let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         let mk = |id: &str| Primer {
             id: id.to_string(),
@@ -2002,24 +2061,8 @@ mod tests {
         // Two adds racing on the same empty list: each snapshots the same
         // state, so a naive last-writer-wins write-back would drop one.
         let (a, b) = tokio::join!(
-            do_add_primer(
-                app.handle(),
-                &pm,
-                &wp,
-                &agent_tabs,
-                None,
-                "p1",
-                mk("f1"),
-            ),
-            do_add_primer(
-                app.handle(),
-                &pm,
-                &wp,
-                &agent_tabs,
-                None,
-                "p1",
-                mk("f2"),
-            ),
+            do_add_primer(app.handle(), &pm, &agent_tabs, None, "p1", mk("f1"),),
+            do_add_primer(app.handle(), &pm, &agent_tabs, None, "p1", mk("f2"),),
         );
         a.unwrap();
         b.unwrap();
@@ -2074,12 +2117,10 @@ mod tests {
                 },
             )
             .unwrap();
-        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
         let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         do_add_primer(
             app.handle(),
             &pm,
-            &wp,
             &agent_tabs,
             None,
             "p1",
@@ -2098,13 +2139,17 @@ mod tests {
         let primers = &pm.get_project_by_id("p1").unwrap().primers;
         let old = primers.iter().find(|p| p.id == "old").unwrap();
         assert_eq!(old.binding_sites[0].template_start, 999);
-        assert!(!primers.iter().find(|p| p.id == "new").unwrap().binding_sites.is_empty());
+        assert!(!primers
+            .iter()
+            .find(|p| p.id == "new")
+            .unwrap()
+            .binding_sites
+            .is_empty());
     }
 
     #[tokio::test]
     async fn create_project_validates_feature_segment_encoding_order() {
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
-        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
         let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         let workspace: crate::mcp::Workspace = Arc::new(RwLock::new(Vec::new()));
         let seq = "A".repeat(5000);
@@ -2120,7 +2165,6 @@ mod tests {
         // start > end semantics instead of being flattened.
         let ok = do_create_project(
             &pm,
-            &wp,
             &agent_tabs,
             &workspace,
             "circ".to_string(),
@@ -2130,8 +2174,16 @@ mod tests {
             vec![nf(
                 "wrap",
                 vec![
-                    Segment { start: 4900, end: 4999, color: None },
-                    Segment { start: 0, end: 99, color: None },
+                    Segment {
+                        start: 4900,
+                        end: 4999,
+                        color: None,
+                    },
+                    Segment {
+                        start: 0,
+                        end: 99,
+                        color: None,
+                    },
                 ],
             )],
         )
@@ -2144,7 +2196,6 @@ mod tests {
         // Head-before-tail disorder → explicit error instead of a phantom wrap.
         let bad = do_create_project(
             &pm,
-            &wp,
             &agent_tabs,
             &workspace,
             "circ2".to_string(),
@@ -2154,9 +2205,21 @@ mod tests {
             vec![nf(
                 "bad",
                 vec![
-                    Segment { start: 0, end: 99, color: None },
-                    Segment { start: 4900, end: 4999, color: None },
-                    Segment { start: 200, end: 299, color: None },
+                    Segment {
+                        start: 0,
+                        end: 99,
+                        color: None,
+                    },
+                    Segment {
+                        start: 4900,
+                        end: 4999,
+                        color: None,
+                    },
+                    Segment {
+                        start: 200,
+                        end: 299,
+                        color: None,
+                    },
                 ],
             )],
         )
@@ -2171,14 +2234,20 @@ mod tests {
         // A segment with start > end is not a linear span → error.
         let bad2 = do_create_project(
             &pm,
-            &wp,
             &agent_tabs,
             &workspace,
             "circ3".to_string(),
             seq.clone(),
             "dna".to_string(),
             "circular".to_string(),
-            vec![nf("bad2", vec![Segment { start: 100, end: 50, color: None }])],
+            vec![nf(
+                "bad2",
+                vec![Segment {
+                    start: 100,
+                    end: 50,
+                    color: None,
+                }],
+            )],
         )
         .await
         .unwrap();
@@ -2187,7 +2256,6 @@ mod tests {
         // Multi-segment linear feature (ascending, no wrap) stays valid.
         let ok2 = do_create_project(
             &pm,
-            &wp,
             &agent_tabs,
             &workspace,
             "linear".to_string(),
@@ -2197,8 +2265,16 @@ mod tests {
             vec![nf(
                 "multi",
                 vec![
-                    Segment { start: 10, end: 20, color: None },
-                    Segment { start: 30, end: 40, color: None },
+                    Segment {
+                        start: 10,
+                        end: 20,
+                        color: None,
+                    },
+                    Segment {
+                        start: 30,
+                        end: 40,
+                        color: None,
+                    },
                 ],
             )],
         )
@@ -2219,7 +2295,9 @@ mod tests {
         let mut seq = String::new();
         let mut x = 7u64;
         for _ in 0..200 {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             seq.push(b"ACGT"[(x >> 33) as usize & 3] as char);
         }
         let pm = Arc::new(RwLock::new(ProjectManager::new()));
@@ -2235,7 +2313,6 @@ mod tests {
                 },
             )
             .unwrap();
-        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
         let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
         let read = seq[20..170].to_string();
 
@@ -2246,7 +2323,6 @@ mod tests {
             do_add_alignment_seq(
                 app.handle(),
                 &pm,
-                &wp,
                 &agent_tabs,
                 None,
                 "p1",
@@ -2258,7 +2334,6 @@ mod tests {
             do_add_alignment_seq(
                 app.handle(),
                 &pm,
-                &wp,
                 &agent_tabs,
                 None,
                 "p1",
@@ -2361,13 +2436,11 @@ mod tests {
                 },
             )
             .unwrap();
-        let wp: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
         let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
 
         let err = do_update_sequence_if_unchanged(
             app.handle(),
             &pm,
-            &wp,
             &agent_tabs,
             None,
             "p1".to_string(),

@@ -1,25 +1,22 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-export default function useTabDrag({ windowInfo, orderedProjectsRef, setProjectOrder }) {
+export default function useTabDrag({ orderedProjectsRef, setProjectOrder }) {
   const [dragTabId, setDragTabId] = useState(null);
   const tabDragRef = useRef(null); // { id, dragging }
   const tabDragTimerRef = useRef(null);
   const tabItemRefs = useRef(new Map());
   const suppressTabClickRef = useRef(false);
 
-  const handleTabPointerDown = useCallback(
-    (e, id) => {
-      if (e.button !== 0 || windowInfo?.type === 'project') return;
-      tabDragRef.current = { id, dragging: false };
-      clearTimeout(tabDragTimerRef.current);
-      tabDragTimerRef.current = setTimeout(() => {
-        if (!tabDragRef.current || tabDragRef.current.id !== id) return;
-        tabDragRef.current.dragging = true;
-        setDragTabId(id);
-      }, 300);
-    },
-    [windowInfo],
-  );
+  const handleTabPointerDown = useCallback((e, id) => {
+    if (e.button !== 0) return;
+    tabDragRef.current = { id, dragging: false };
+    clearTimeout(tabDragTimerRef.current);
+    tabDragTimerRef.current = setTimeout(() => {
+      if (!tabDragRef.current || tabDragRef.current.id !== id) return;
+      tabDragRef.current.dragging = true;
+      setDragTabId(id);
+    }, 300);
+  }, []);
 
   useEffect(() => {
     const moveDragTo = (targetIndex) => {

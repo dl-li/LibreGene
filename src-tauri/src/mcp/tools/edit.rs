@@ -1,15 +1,17 @@
 //! Mutating MCP tools: edit_sequence + set_feature.
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 
-use libregene_core::digest::{DigestOptions, project_digest};
+use libregene_core::digest::{project_digest, DigestOptions};
 use libregene_core::models::{Feature, Segment};
 
-use crate::mcp::LibreGeneMcp;
 use crate::mcp::next_id;
-use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, push_note, to1, unit_for};
+use crate::mcp::support::{
+    fail_envelope, from1, insert_seq_hashes, ok_envelope, push_note, to1, unit_for,
+};
 use crate::mcp::types::{EditSequenceRequest, FeatureSegmentSpec, SetFeatureRequest};
+use crate::mcp::LibreGeneMcp;
 
 /// `removedFeatures`/`clippedFeatures` echo for edit_sequence, 1-based
 /// inclusive (the impact model is internal 0-based).
@@ -65,7 +67,11 @@ fn stored_location(f: &Feature) -> String {
         .map(|(s, e)| format!("{}..{}", s + 1, e + 1))
         .collect::<Vec<_>>()
         .join(",");
-    let loc = if segs.len() > 1 { format!("join({})", inner) } else { inner };
+    let loc = if segs.len() > 1 {
+        format!("join({})", inner)
+    } else {
+        inner
+    };
     if f.strand == "-" {
         format!("complement({})", loc)
     } else {
@@ -93,7 +99,15 @@ fn resolve_feature_span(
                     s, e
                 ));
             }
-            Ok((vec![Segment { start: s - 1, end: e - 1, color: None }], s - 1, e - 1))
+            Ok((
+                vec![Segment {
+                    start: s - 1,
+                    end: e - 1,
+                    color: None,
+                }],
+                s - 1,
+                e - 1,
+            ))
         }
         (None, None, Some(segs)) => {
             if segs.is_empty() {
@@ -107,7 +121,11 @@ fn resolve_feature_span(
                         seg.start, seg.end
                     ));
                 }
-                out.push(Segment { start: seg.start - 1, end: seg.end - 1, color: None });
+                out.push(Segment {
+                    start: seg.start - 1,
+                    end: seg.end - 1,
+                    color: None,
+                });
             }
             // Encoding order (same rule as project creation): ascending
             // starts; an origin-wrapping feature leads with its tail, the one
@@ -145,7 +163,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project_light(request.project_id).await?;
         self.require_agent_tab(&id).await?;
-        let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let seq_hashes =
+            libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let fail = |msg: String| -> Json<serde_json::Value> {
             let mut v = fail_envelope(&id, msg);
             insert_seq_hashes(&mut v, &seq_hashes);
@@ -176,7 +195,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         // the response notes.
         let mut hash_notes: Option<(bool, String, usize)> = None;
 
-        let (replacement, parsed_annotations) = match (request.replacement, request.replacement_path, request.replacement_hash) {
+        let (replacement, parsed_annotations) = match (
+            request.replacement,
+            request.replacement_path,
+            request.replacement_hash,
+        ) {
             (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (None, Some(_), Some(_)) => {
                 return Ok(fail(
                     "Provide exactly one of `replacement`, `replacementPath` or `replacementHash`, not several"
@@ -192,7 +215,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (Some(s), None, None) => (s, None),
             (None, None, Some(hash)) => {
                 // A hash that matches nothing is a domain rejection.
-                let resolved = match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                let resolved = match crate::mcp::workspace::resolve_workspace_hash(
+                    &self.pm,
+                    &self.workspace,
+                    &hash,
+                )
+                .await
+                {
                     Ok(r) => r,
                     Err(e) => return Ok(fail(e)),
                 };
@@ -204,10 +233,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 }
                 if project.molecule_type != "protein" && resolved.molecule_type == "protein" {
                     return Ok(fail(
-                        "replacementHash resolved to a protein entry but the project is DNA/RNA".to_string(),
+                        "replacementHash resolved to a protein entry but the project is DNA/RNA"
+                            .to_string(),
                     ));
                 }
-                hash_notes = Some((resolved.flipped, resolved.label.clone(), resolved.match_count));
+                hash_notes = Some((
+                    resolved.flipped,
+                    resolved.label.clone(),
+                    resolved.match_count,
+                ));
                 (
                     resolved.sequence,
                     Some((resolved.features, resolved.primers)),
@@ -240,10 +274,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                                 "replacementPath is a protein file (.gpt/.prot) but the project is DNA/RNA — pass a nucleotide sequence file".to_string(),
                             ));
                         }
-                        (
-                            data.sequence,
-                            Some((data.features, data.primers)),
-                        )
+                        (data.sequence, Some((data.features, data.primers)))
                     }
                     Err(e) => {
                         return Ok(fail(format!(
@@ -264,15 +295,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut replacement = replacement.to_ascii_uppercase();
         if project.molecule_type == "protein" {
             let body = replacement.strip_suffix('*').unwrap_or(&replacement);
-            if replacement.matches('*').count() > 1 || !body.chars().all(|c| c.is_ascii_alphabetic()) {
+            if replacement.matches('*').count() > 1
+                || !body.chars().all(|c| c.is_ascii_alphabetic())
+            {
                 return Ok(fail(
                     "Invalid protein replacement: only amino-acid letters (A-Z) and an optional trailing '*' (stop codon) are allowed".to_string(),
                 ));
             }
         } else if !replacement.is_empty()
-            && !replacement
-                .chars()
-                .all(|c| c.is_ascii() && !libregene_core::primer::iupac::iupac_expand(c as u8).is_empty())
+            && !replacement.chars().all(|c| {
+                c.is_ascii() && !libregene_core::primer::iupac::iupac_expand(c as u8).is_empty()
+            })
         {
             return Ok(fail(
                 "Invalid DNA/RNA replacement: only IUPAC nucleotide bases (ACGTURYSWKMBDHVN) are allowed".to_string(),
@@ -320,7 +353,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if reverse {
             if !project.is_dna() {
                 return Ok(fail(
-                    "strand \"-\" (reverse complement) is only supported on DNA projects".to_string(),
+                    "strand \"-\" (reverse complement) is only supported on DNA projects"
+                        .to_string(),
                 ));
             }
             replacement = libregene_core::utils::reverse_complement(&replacement);
@@ -346,7 +380,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             // concurrent edit may have shrunk the sequence since — re-check
             // against the live sequence or the slices below would panic.
             let live_len = p.sequence.len() as i64;
-            let out_of_bounds = if is_insertion { start > live_len } else { end >= live_len };
+            let out_of_bounds = if is_insertion {
+                start > live_len
+            } else {
+                end >= live_len
+            };
             if out_of_bounds {
                 return Ok(fail(format!(
                     "range {}..{} out of bounds for sequence of length {} (1-based inclusive)",
@@ -377,14 +415,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
             // to derive them from the edit coordinates.
             let cb_lo = (start - 30).max(0);
             let cb = p.sequence[cb_lo as usize..start as usize].to_string();
-            let context_before = (!cb.is_empty()).then(|| {
-                serde_json::json!({ "start": cb_lo + 1, "end": start, "sequence": cb })
-            });
+            let context_before = (!cb.is_empty())
+                .then(|| serde_json::json!({ "start": cb_lo + 1, "end": start, "sequence": cb }));
             let ca_hi = (end + 1 + 30).min(p.length);
             let ca = p.sequence[(end + 1) as usize..ca_hi as usize].to_string();
-            let context_after = (!ca.is_empty()).then(|| {
-                serde_json::json!({ "start": end + 2, "end": ca_hi, "sequence": ca })
-            });
+            let context_after = (!ca.is_empty())
+                .then(|| serde_json::json!({ "start": end + 2, "end": ca_hi, "sequence": ca }));
 
             // Side effects on features, derived from the pre-edit list with
             // the same span math as the adjust below.
@@ -438,11 +474,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     while i < p.features.len() {
                         if libregene_core::utils::feature_fully_within(&p.features[i], start, end) {
                             let f = p.features.remove(i);
-                            impact.removed_features.push(libregene_core::models::RemovedFeatureImpact {
-                                name: f.name,
-                                ftype: f.ftype,
-                                location: format!("{}..{}", f.start, f.end),
-                            });
+                            impact.removed_features.push(
+                                libregene_core::models::RemovedFeatureImpact {
+                                    name: f.name,
+                                    ftype: f.ftype,
+                                    location: format!("{}..{}", f.start, f.end),
+                                },
+                            );
                         } else {
                             i += 1;
                         }
@@ -464,8 +502,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     f.name = libregene_core::utils::unique_name(&f.name, &taken);
                     taken.insert(f.name.clone());
                 }
-                transferred_feature_names =
-                    transferred.iter().map(|f| f.name.clone()).collect();
+                transferred_feature_names = transferred.iter().map(|f| f.name.clone()).collect();
                 p.features.extend(transferred);
                 if p.is_dna() {
                     let mut taken_ids: std::collections::HashSet<String> =
@@ -488,10 +525,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         let new_len = new_seq.len() as i64;
 
-        let old_win = (
-            (start - 30).max(0),
-            (end + 30).min(len - 1),
-        );
+        let old_win = ((start - 30).max(0), (end + 30).min(len - 1));
         let old_opts = DigestOptions {
             compact_enzymes: true,
             ..DigestOptions::default()
@@ -501,7 +535,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         crate::recompute_after_sequence_change(
             &self.app_handle,
             &self.pm,
-            &self.wp,
             &self.agent_tabs,
             None,
             &id,
@@ -653,9 +686,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     return Ok(fail("Invalid strand: must be ., +, or -".to_string()));
                 }
             }
-            let has_span = request.start.is_some()
-                || request.end.is_some()
-                || request.segments.is_some();
+            let has_span =
+                request.start.is_some() || request.end.is_some() || request.segments.is_some();
             let new_span = if has_span {
                 let span = resolve_feature_span(request.start, request.end, request.segments)
                     .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -669,7 +701,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let payload = crate::do_update_feature(
                 &self.app_handle,
                 &self.pm,
-                &self.wp,
                 &self.agent_tabs,
                 None,
                 &id,
@@ -766,12 +797,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 ))
             }
         };
-        let (segments, start, end) = resolve_feature_span(
-            request.start,
-            request.end,
-            request.segments,
-        )
-        .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let (segments, start, end) =
+            resolve_feature_span(request.start, request.end, request.segments)
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
         let strand = request.strand.clone().unwrap_or_else(|| "+".to_string());
         if !matches!(strand.as_str(), "." | "+" | "-") {
             return Ok(fail("Invalid strand: must be ., +, or -".to_string()));
@@ -800,14 +828,23 @@ impl<R: Runtime> LibreGeneMcp<R> {
             (feature.start, feature.end)
         } else {
             (
-                feature.segments.iter().map(|s| s.start).min().unwrap_or(feature.start),
-                feature.segments.iter().map(|s| s.end).max().unwrap_or(feature.end),
+                feature
+                    .segments
+                    .iter()
+                    .map(|s| s.start)
+                    .min()
+                    .unwrap_or(feature.start),
+                feature
+                    .segments
+                    .iter()
+                    .map(|s| s.end)
+                    .max()
+                    .unwrap_or(feature.end),
             )
         };
         let payload = crate::do_add_features(
             &self.app_handle,
             &self.pm,
-            &self.wp,
             &self.agent_tabs,
             None,
             &id,
@@ -818,7 +855,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(err) = Self::payload_error(&payload) {
             return Ok(fail(err));
         }
-        crate::payload::emit_mutation_focus(&self.app_handle, &id, focus_span.0, focus_span.1, "feature");
+        crate::payload::emit_mutation_focus(
+            &self.app_handle,
+            &id,
+            focus_span.0,
+            focus_span.1,
+            "feature",
+        );
         let region = self.digest_feature_region(&id, &feature_id).await;
         let mut v = ok_envelope(
             &id,
@@ -838,5 +881,4 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         Ok(Json(v))
     }
-
 }

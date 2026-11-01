@@ -36,8 +36,7 @@ export default function useProjectData({
   const [tracePath, setTracePath] = useState(initialData?.tracePath || null);
   // Alignment track whose chromatogram band is expanded (one at a time).
   const [expandedChromAlnId, setExpandedChromAlnId] = useState(null);
-  // Live topology: project windows receive a constant prop, so mirror it into
-  // state and refresh from broadcasts / the toggle command response.
+  // Mirror the project-list prop and refresh from broadcasts / toggle responses.
   const [topologyLive, setTopologyLive] = useState(initialData?.topology || topology);
   useEffect(() => {
     setTopologyLive((cur) => (cur === topology ? cur : topology));

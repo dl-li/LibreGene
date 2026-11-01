@@ -2,7 +2,6 @@ import {
   Bot,
   ChevronDown,
   Clock,
-  ExternalLink,
   FilePlus2,
   FolderOpen,
   Info,
@@ -38,7 +37,6 @@ export default function ProjectSidebar({
   setSidebarScroll,
   sidebarContentRef,
   visibleRecent,
-  windowInfo,
   recentOpen,
   setRecentOpen,
   handleOpenRecent,
@@ -53,7 +51,6 @@ export default function ProjectSidebar({
   handleTabPointerDown,
   suppressTabClickRef,
   handleSwitchProject,
-  handleOpenInNewWindow,
   handleCloseProject,
   visiblePlugins,
   handlesRef,
@@ -134,7 +131,7 @@ export default function ProjectSidebar({
             });
           }}
         >
-          {visibleRecent.length > 0 && (!windowInfo || windowInfo.type === 'main') && (
+          {visibleRecent.length > 0 && (
             <Collapsible open={recentOpen} onOpenChange={setRecentOpen}>
               <SidebarGroup className="pt-0">
                 <CollapsibleTrigger asChild>
@@ -228,8 +225,7 @@ export default function ProjectSidebar({
                           isActive={isActiveProject}
                           tooltip={name}
                           className={cn(
-                            'flex-1 min-w-0 select-none',
-                            !windowInfo || windowInfo.type !== 'project' ? 'pr-12' : 'pr-6',
+                            'flex-1 min-w-0 select-none pr-6',
                             isDragging && 'bg-sidebar-accent ring-1 ring-sidebar-ring',
                           )}
                         >
@@ -239,45 +235,17 @@ export default function ProjectSidebar({
                         {dirtyById[p.id] === true && (
                           <span className="pointer-events-none absolute right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-amber-500 group-hover/menu-item:hidden group-data-[state=collapsed]:hidden" />
                         )}
-                        {!windowInfo || windowInfo.type !== 'project' ? (
-                          <div
-                            className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
-                            onPointerDown={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenInNewWindow(p.id);
-                              }}
-                              title="Open in new window"
-                            >
-                              <ExternalLink className="size-3" />
-                            </button>
-                            <button
-                              className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCloseProject(p.id);
-                              }}
-                              title="Close"
-                            >
-                              <X className="size-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCloseProject(p.id);
-                            }}
-                            title="Close"
-                          >
-                            <X className="size-3" />
-                          </button>
-                        )}
+                        <button
+                          className="absolute right-1 top-1/2 hidden size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex group-data-[state=collapsed]:hidden"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCloseProject(p.id);
+                          }}
+                          title="Close"
+                        >
+                          <X className="size-3" />
+                        </button>
                       </SidebarMenuItem>
                     );
                   })}

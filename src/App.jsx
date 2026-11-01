@@ -6,10 +6,8 @@ import {
   openSnapgeneSnapshot,
   isTauri,
   openFileDialog,
-  getWindowProjectId,
   setAgentTabLocked,
   setAgentEditLock,
-  openInNewWindow,
   setWindowTitle,
   setMcpConfig,
   getMcpConfig,
@@ -126,11 +124,7 @@ export default function App() {
     doCloseProject,
   } = useProjects();
 
-  // Multi-window: tracks whether this window is "main" or a "project" window
-  const [windowInfo, setWindowInfo] = useState(null);
-  // { type: 'main' } | { type: 'project', projectId }
   const { dragTabId, tabItemRefs, suppressTabClickRef, handleTabPointerDown } = useTabDrag({
-    windowInfo,
     orderedProjectsRef,
     setProjectOrder,
   });
@@ -232,9 +226,8 @@ export default function App() {
 
   // Apply the persisted MCP config once on startup so the server reflects the
   // saved enable/port (the Rust side already started with the default config).
-  // Only the main window pushes config; project windows would just repeat it.
   useEffect(() => {
-    if (!isTauri || windowInfo?.type !== 'main') return;
+    if (!isTauri) return;
     let cfg = { enabled: true, port: 8766, requireAuth: true };
     try {
       cfg = { ...cfg, ...(JSON.parse(localStorage.getItem('mcpConfig')) || {}) };
@@ -242,7 +235,7 @@ export default function App() {
       /* ignore malformed stored config */
     }
     setMcpConfig(Boolean(cfg.enabled), Number(cfg.port), cfg.requireAuth !== false).catch(() => {});
-  }, [windowInfo]);
+  }, []);
 
   // The MCP guide reflects the backend's real state: a failed bind flips
   // enabled off server-side while localStorage still claims it is running.
@@ -278,19 +271,6 @@ export default function App() {
     };
   }, [mcpGuideOpen]);
 
-  // Detect window type on mount
-  useEffect(() => {
-    if (!isTauri) {
-      setWindowInfo({ type: 'main' });
-      return;
-    }
-    getWindowProjectId()
-      .then((pid) => {
-        setWindowInfo(pid ? { type: 'project', projectId: pid } : { type: 'main' });
-      })
-      .catch(() => setWindowInfo({ type: 'main' }));
-  }, []);
-
   // --- beforeunload: warn on close with unsaved changes in any workspace ---
   const anyDirty = Object.values(dirtyById).some(Boolean);
   useEffect(() => {
@@ -312,13 +292,10 @@ export default function App() {
 
   // Title: display name of the active project (the list name carries the
   // entered name for unsaved `untitled-*` projects), or the app name
-  const titleSourceId =
-    activeId || (windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : null);
-  const activeTitle = titleSourceId
-    ? fileName(projects.find((p) => p.id === titleSourceId) || { id: titleSourceId })
+  const activeTitle = activeId
+    ? fileName(projects.find((p) => p.id === activeId) || { id: activeId })
     : 'LibreGene';
-  const titleId = windowInfo && windowInfo.type !== 'main' ? windowInfo.projectId : activeId;
-  const activeDirty = titleId ? dirtyById[titleId] === true : false;
+  const activeDirty = activeId ? dirtyById[activeId] === true : false;
   useEffect(() => {
     setWindowTitle(activeTitle);
   }, [activeTitle]);
@@ -545,14 +522,6 @@ export default function App() {
     unsavedPendingRef.current = null;
   }, []);
 
-  const handleOpenInNewWindow = useCallback(async (id) => {
-    try {
-      await openInNewWindow(id);
-    } catch (e) {
-      console.error('open in new window error:', e);
-    }
-  }, []);
-
   // Recent group is collapsible (default collapsed); already-open files are hidden from it
   const [recentOpen, setRecentOpen] = useState(false);
   useEffect(() => {
@@ -560,15 +529,8 @@ export default function App() {
   }, [sidebarHover]);
   const visibleRecent = recentFiles.filter((p) => !projects.some((pr) => pr.id === p));
 
-  // Agent tabs live in the main window; project windows render a single
-  // workspace with no sidebar.
-  const isProjectWindow = windowInfo?.type === 'project';
-  // The active project is an agent tab, bound and locked by the MCP agent.
-  // The project whose lock state drives this window: activeId in the main
-  // window, the bound projectId in project windows.
-  const lockTargetId = isProjectWindow ? windowInfo.projectId : activeId;
-  const activeAgentLocked = !!lockTargetId && agentTabs[lockTargetId] === true;
-  const activeAgentUnlocked = !!lockTargetId && agentTabs[lockTargetId] === false;
+  const activeAgentLocked = !!activeId && agentTabs[activeId] === true;
+  const activeAgentUnlocked = !!activeId && agentTabs[activeId] === false;
 
   // While the active project is a locked agent tab, the workspace stays
   // interactive (scroll/select/copy all work) and dirty-producing operations
@@ -583,10 +545,8 @@ export default function App() {
     setAgentTabLocked(projectId, locked).catch(() => {});
   }, []);
 
-  const hasProject = isProjectWindow || projects.length > 0;
-  // Sidebar buttons target the visible workspace: projectId in project windows,
-  // activeId in the main window
-  const sidebarTargetId = isProjectWindow ? windowInfo.projectId : activeId;
+  const hasProject = projects.length > 0;
+  const sidebarTargetId = activeId;
   // rna/protein projects hide DNA-only sidebar entries (ORFs, codon
   // optimization); DNA-only plugins are marked dnaOnly in the registry,
   // RNA-only plugins (RNA folding) are marked rnaOnly.
@@ -622,7 +582,6 @@ export default function App() {
   );
 
   useTauriEvents({
-    windowInfo,
     setBackendStatus,
     setProjects,
     setActiveId,
@@ -763,7 +722,6 @@ export default function App() {
       setSidebarScroll={setSidebarScroll}
       sidebarContentRef={sidebarContentRef}
       visibleRecent={visibleRecent}
-      windowInfo={windowInfo}
       recentOpen={recentOpen}
       setRecentOpen={setRecentOpen}
       handleOpenRecent={handleOpenRecent}
@@ -778,7 +736,6 @@ export default function App() {
       handleTabPointerDown={handleTabPointerDown}
       suppressTabClickRef={suppressTabClickRef}
       handleSwitchProject={handleSwitchProject}
-      handleOpenInNewWindow={handleOpenInNewWindow}
       handleCloseProject={handleCloseProject}
       visiblePlugins={visiblePlugins}
       handlesRef={handlesRef}
@@ -809,15 +766,14 @@ export default function App() {
                 variant="ghost"
                 size="sm"
                 className="h-6 gap-1 px-2 text-xs"
-                onClick={() => handleSetAgentLocked(lockTargetId, true)}
+                onClick={() => handleSetAgentLocked(activeId, true)}
               >
                 <Lock className="size-3" />
                 Lock
               </Button>
             </div>
           )}
-          {/* Only show sidebar in main window */}
-          {hasProject && !isProjectWindow && (
+          {hasProject && (
             <div
               className="absolute left-0 top-0 bottom-0 z-40"
               onMouseEnter={handleSidebarEnter}
@@ -827,17 +783,7 @@ export default function App() {
             </div>
           )}
           <div className="relative flex flex-1 min-h-0">
-            {isProjectWindow ? (
-              <ProjectWorkspace
-                key={keyFor(windowInfo.projectId)}
-                projectId={windowInfo.projectId}
-                hidden={false}
-                initialData={initialDataRef.current[windowInfo.projectId]}
-                topology="circular"
-                agentLocked={activeAgentLocked}
-                {...workspaceProps}
-              />
-            ) : projects.length > 0 ? (
+            {projects.length > 0 ? (
               orderedProjects.map((p) => (
                 <ProjectWorkspace
                   key={keyFor(p.id)}

@@ -31,7 +31,7 @@ pub(crate) async fn add_alignment(
     // the MCP-side add_alignment, which validates every path.
     let ext = validate_user_path(&path, SEQ_EXTS)?;
     let algorithm = parse_align_algorithm(algorithm.as_deref());
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -50,7 +50,11 @@ pub(crate) async fn add_alignment(
             project_id, project_clone.molecule_type
         )}));
     }
-    let snapshot_ids: Vec<String> = project_clone.alignments.iter().map(|a| a.id.clone()).collect();
+    let snapshot_ids: Vec<String> = project_clone
+        .alignments
+        .iter()
+        .map(|a| a.id.clone())
+        .collect();
 
     let path_buf = std::path::PathBuf::from(&path);
     let name = path_buf
@@ -92,7 +96,13 @@ pub(crate) async fn add_alignment(
 
     let _ = commit_computed_alignment(&state.pm, &project_id, &snapshot_ids, computed).await;
 
-    crate::payload::broadcast_project_for_id(&app_handle, &state, &project_id, Some(webview_window.label())).await;
+    crate::payload::broadcast_project_for_id(
+        &app_handle,
+        &state,
+        &project_id,
+        Some(webview_window.label()),
+    )
+    .await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -118,7 +128,7 @@ pub(crate) async fn add_alignment_seq(
     seq: String,
     algorithm: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -127,7 +137,6 @@ pub(crate) async fn add_alignment_seq(
     do_add_alignment_seq(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -147,7 +156,7 @@ pub(crate) async fn remove_alignment(
     app_handle: AppHandle,
     alignment_id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -155,7 +164,6 @@ pub(crate) async fn remove_alignment(
     do_remove_alignment(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -170,7 +178,9 @@ pub(crate) async fn remove_alignment(
 /// Chromatogram model/parsing ported from GenePad (https://github.com/GenePad),
 /// provided by the GenePad team / https://github.com/Masterchiefm.
 #[tauri::command]
-pub(crate) async fn get_chromatogram(path: String) -> Result<libregene_core::models::Chromatogram, String> {
+pub(crate) async fn get_chromatogram(
+    path: String,
+) -> Result<libregene_core::models::Chromatogram, String> {
     validate_user_path(&path, &["ab1"])?;
     tokio::task::spawn_blocking(move || {
         libregene_core::file_io::ensure_within_size_limit(std::path::Path::new(&path))
@@ -278,11 +288,10 @@ pub(crate) async fn open_snapgene_snapshot(
                     .ok_or("this file carries no SnapGene history")?
             }
         };
-        let mut project =
-            libregene_core::file_io::snapgene_history::snapshot_project_from_history(
-                &history, node_id,
-            )
-            .ok_or("snapshot not found (its sequence may be unavailable)")?;
+        let mut project = libregene_core::file_io::snapgene_history::snapshot_project_from_history(
+            &history, node_id,
+        )
+        .ok_or("snapshot not found (its sequence may be unavailable)")?;
         enzyme::recompute(&mut project);
         primer::recompute(&mut project);
         libregene_core::translate::refresh_feature_translations(&mut project);
@@ -320,13 +329,11 @@ pub(crate) async fn open_snapgene_snapshot(
         (pm.list_projects(), pm.active_id().map(|s| s.to_string()))
     };
     // The load may have evicted another project; drop its bindings.
-    prune_orphan_bindings(
-        &state.pm,
-        &state.window_projects,
-        &state.agent_tabs,
-        &state.workspace,
-    )
-    .await;
+    prune_orphan_bindings(&state.pm, &state.agent_tabs, &state.workspace).await;
 
-    Ok(with_projects_list(return_data, &projects, active_id.as_deref()))
+    Ok(with_projects_list(
+        return_data,
+        &projects,
+        active_id.as_deref(),
+    ))
 }

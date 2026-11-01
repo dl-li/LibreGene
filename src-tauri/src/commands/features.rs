@@ -11,11 +11,8 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub(crate) async fn get_features(
-    webview_window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state, webview_window.label()).await {
+pub(crate) async fn get_features(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    match resolve_project_id(&state).await {
         Ok(id) => {
             let pm = state.pm.read().await;
             match pm.get_project_by_id(&id) {
@@ -35,7 +32,7 @@ pub(crate) async fn add_feature(
     feature: Feature,
     location_str: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -60,7 +57,6 @@ pub(crate) async fn add_feature(
     do_add_features(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -76,7 +72,7 @@ pub(crate) async fn delete_feature(
     app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -84,7 +80,6 @@ pub(crate) async fn delete_feature(
     do_delete_feature(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -101,7 +96,7 @@ pub(crate) async fn update_feature_ftype(
     feature_id: String,
     new_ftype: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -109,7 +104,6 @@ pub(crate) async fn update_feature_ftype(
     do_update_feature(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -134,7 +128,7 @@ pub(crate) async fn update_feature_color(
     feature_id: String,
     new_color: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -142,7 +136,6 @@ pub(crate) async fn update_feature_color(
     do_update_feature(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -171,7 +164,7 @@ pub(crate) async fn update_feature_name(
     feature_id: String,
     new_name: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -179,7 +172,6 @@ pub(crate) async fn update_feature_name(
     do_update_feature(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -204,7 +196,7 @@ pub(crate) async fn update_feature_strand(
     feature_id: String,
     strand: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -217,7 +209,6 @@ pub(crate) async fn update_feature_strand(
     do_update_feature(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -242,7 +233,7 @@ pub(crate) async fn update_feature_location(
     feature_id: String,
     location_str: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -250,7 +241,6 @@ pub(crate) async fn update_feature_location(
     do_update_feature(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,

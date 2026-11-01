@@ -1,15 +1,15 @@
 //! add_alignment MCP tool + alignment JSON helpers.
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 
 use libregene_core::digest::cut_flanks;
 
-use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{
-    MAX_FLANK, fail_envelope, insert_seq_hashes, ok_envelope, push_note, to1, unit_for,
+    fail_envelope, insert_seq_hashes, ok_envelope, push_note, to1, unit_for, MAX_FLANK,
 };
 use crate::mcp::types::AddAlignmentRequest;
+use crate::mcp::LibreGeneMcp;
 
 /// Per-alignment JSON for add_alignment responses, with every template
 /// coordinate converted to 1-based inclusive. An insertion at internal
@@ -119,7 +119,10 @@ pub(crate) fn filter_alignment_json_focus(
         Some(o) => o,
         None => return (0, 0, 0),
     };
-    if let Some(arr) = obj.get_mut("mismatchDetails").and_then(|a| a.as_array_mut()) {
+    if let Some(arr) = obj
+        .get_mut("mismatchDetails")
+        .and_then(|a| a.as_array_mut())
+    {
         arr.retain(|m| {
             m.get("position")
                 .and_then(|p| p.as_i64())
@@ -130,18 +133,26 @@ pub(crate) fn filter_alignment_json_focus(
     // run in alignment_diff) can carry position + length past tlen; map those
     // coordinates back into 1..=tlen before comparing with the window.
     let wrap_x = |x: i64| if circular && x > tlen { x - tlen } else { x };
-    if let Some(arr) = obj.get_mut("deletionDetails").and_then(|a| a.as_array_mut()) {
+    if let Some(arr) = obj
+        .get_mut("deletionDetails")
+        .and_then(|a| a.as_array_mut())
+    {
         arr.retain(|d| {
             match (
                 d.get("position").and_then(|p| p.as_i64()),
                 d.get("length").and_then(|l| l.as_i64()),
             ) {
-                (Some(p), Some(l)) => (p..p + l.max(1)).any(|x| in_window_1based(wrap_x(x), s1, e1)),
+                (Some(p), Some(l)) => {
+                    (p..p + l.max(1)).any(|x| in_window_1based(wrap_x(x), s1, e1))
+                }
                 _ => false,
             }
         });
     }
-    if let Some(arr) = obj.get_mut("insertionDetails").and_then(|a| a.as_array_mut()) {
+    if let Some(arr) = obj
+        .get_mut("insertionDetails")
+        .and_then(|a| a.as_array_mut())
+    {
         arr.retain(|i| {
             i.get("position").and_then(|p| p.as_i64()).is_some_and(|p| {
                 let next = if circular && p == tlen { 1 } else { p + 1 };
@@ -192,7 +203,11 @@ pub(crate) fn filter_alignment_json_focus(
 /// Total template columns not covered by any segment, summed over the gaps
 /// between consecutive segments. 0 for single-segment reads and for
 /// origin-spanning circular reads whose segments are adjacent at the wrap.
-pub(crate) fn uncovered_between_segments(a: &libregene_core::models::Alignment, tlen: usize, circular: bool) -> usize {
+pub(crate) fn uncovered_between_segments(
+    a: &libregene_core::models::Alignment,
+    tlen: usize,
+    circular: bool,
+) -> usize {
     let mut total = 0usize;
     for i in 0..a.segments.len().saturating_sub(1) {
         let end = a.segments[i].end as i64;
@@ -295,15 +310,20 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             (Some(bases), None, None) => bases,
             (None, None, Some(hash)) => {
-                match crate::mcp::workspace::resolve_workspace_hash(&self.pm, &self.workspace, &hash).await {
+                match crate::mcp::workspace::resolve_workspace_hash(
+                    &self.pm,
+                    &self.workspace,
+                    &hash,
+                )
+                .await
+                {
                     Ok(r) => r.sequence,
                     Err(e) => return Ok(fail(e)),
                 }
             }
             (None, Some(path), None) => {
-                let ext = crate::validate_user_path(&path, crate::SEQ_EXTS).map_err(|e| {
-                    ErrorData::invalid_params(format!("invalid path: {}", e), None)
-                })?;
+                let ext = crate::validate_user_path(&path, crate::SEQ_EXTS)
+                    .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
                 if ext == "ab1" {
                     trace_path = Some(path.clone());
                 }
@@ -327,7 +347,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let (payload, alignment_id) = match crate::do_add_alignment_seq(
             &self.app_handle,
             &self.pm,
-            &self.wp,
             &self.agent_tabs,
             None,
             &id,
@@ -408,7 +427,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     let coverage_note = added.and_then(|a| {
                         let gap = uncovered_between_segments(a, p.sequence.len(), circular);
                         (gap > 0).then(|| {
-                            format!("{} template bp uncovered between the read's coverage segments", gap)
+                            format!(
+                                "{} template bp uncovered between the read's coverage segments",
+                                gap
+                            )
                         })
                     });
                     (summary, alignments, region, coverage_note, in_window)
@@ -454,9 +476,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(note) = coverage_note {
             push_note(&mut env, note.clone());
             if let Some(added) = env["alignments"].as_array_mut().and_then(|arr| {
-                arr.iter_mut().find(|v| {
-                    v["alignmentId"].as_str() == alignment_id.as_deref()
-                })
+                arr.iter_mut()
+                    .find(|v| v["alignmentId"].as_str() == alignment_id.as_deref())
             }) {
                 added["coverageNote"] = serde_json::json!(note);
             }
@@ -466,5 +487,4 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         Ok(Json(env))
     }
-
 }

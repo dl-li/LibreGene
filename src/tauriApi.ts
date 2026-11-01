@@ -381,24 +381,7 @@ export async function deleteProject(id) {
   return tauriInvoke('delete_project', { id });
 }
 
-// ---------------------------------------------------------------------------
-// Multi-window
-// ---------------------------------------------------------------------------
-
-export async function openInNewWindow(projectId) {
-  return tauriInvoke('open_in_new_window', { projectId });
-}
-
-export async function getWindowProjectId() {
-  return tauriInvoke('get_window_project_id');
-}
-
 // --- Agent tabs (MCP-controlled, user-locked) ---
-
-/** Returns {projectId, locked} when the project is bound as an agent tab, else null. */
-export async function getAgentTabState(projectId) {
-  return tauriInvoke('get_agent_tab_state', { projectId });
-}
 
 /** Unlock/lock the agent tab bound to the project (the on-screen button). */
 export async function setAgentTabLocked(projectId, locked) {
@@ -836,7 +819,7 @@ export function listenDragDrop(callback) {
   };
 }
 
-/** Broadcast the per-molecule-type editor background map so other windows sync immediately. */
+/** Broadcast the per-molecule-type editor background map to every workspace. */
 export function emitEditorBackground(backgrounds) {
   if (!isTauri) return;
   (async () => {
@@ -848,7 +831,7 @@ export function emitEditorBackground(backgrounds) {
   })().catch(() => {});
 }
 
-/** Listen for editor-background changes broadcast from other windows. */
+/** Listen for editor-background changes broadcast between workspaces. */
 export function listenEditorBackground(callback) {
   let closed = false;
   const ready = tauriListen('editor-background-changed', (event) => {

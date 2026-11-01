@@ -1,16 +1,16 @@
 //! Project lifecycle MCP tools: open/save/close + the save_file region
 //! export engine.
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::{Emitter, Runtime};
 
 use libregene_core::digest::cut_notation;
 use libregene_core::models::{Feature, Primer, ProjectData, Segment};
 
-use crate::mcp::LibreGeneMcp;
 use super::convert::output_project_name;
 use crate::mcp::support::{fail_envelope, from1, insert_seq_hashes, ok_envelope, unit_for};
 use crate::mcp::types::{OpenProjectRequest, RegionSpec, SaveFileRequest};
+use crate::mcp::LibreGeneMcp;
 
 // ---------------------------------------------------------------------------
 // save_file region mode: region resolution + export data building
@@ -31,7 +31,11 @@ fn region_pieces(project: &ProjectData, s: i64, e: i64) -> Vec<(i64, i64)> {
 /// the larger cut ([lo, hi-1]). Circular: the forward arc from cut1 to cut2,
 /// wrapping over the origin when cut1 > cut2, the whole molecule when they
 /// coincide.
-pub(crate) fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result<Vec<(i64, i64)>, String> {
+pub(crate) fn fragment_pieces(
+    project: &ProjectData,
+    c1: i64,
+    c2: i64,
+) -> Result<Vec<(i64, i64)>, String> {
     let len = project.length;
     if project.topology == "circular" {
         if c1 < c2 {
@@ -53,8 +57,6 @@ pub(crate) fn fragment_pieces(project: &ProjectData, c1: i64, c2: i64) -> Result
         Ok(vec![(lo, hi - 1)])
     }
 }
-
-
 
 /// Bounding box for the export `text` digest. min/max over all pieces:
 /// first/last is wrong for multi-segment minus-strand features, whose pieces
@@ -221,7 +223,10 @@ pub(crate) fn resolve_export_region(
         return Ok((fragment_pieces(project, a, b)?, false, desc));
     }
 
-    Err("exactly one region selector required: (start+end), (featureId), or (cut1+cut2)".to_string())
+    Err(
+        "exactly one region selector required: (start+end), (featureId), or (cut1+cut2)"
+            .to_string(),
+    )
 }
 
 /// Build the exported sequence (template bases of the pieces, uppercase,
@@ -439,7 +444,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return self.reuse_agent_tab_or_reject(&id).await;
         }
         // The load may have evicted another project; drop its bindings.
-        crate::prune_orphan_bindings(&self.pm, &self.wp, &self.agent_tabs, &self.workspace).await;
+        crate::prune_orphan_bindings(&self.pm, &self.agent_tabs, &self.workspace).await;
         // Bind the freshly opened project as this agent's tab (locked).
         {
             let mut at = self.agent_tabs.write().await;
@@ -467,8 +472,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         // The open_file command does not broadcast (frontend applies the
         // response) — the MCP server must notify the UI itself.
-        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, None).await;
-        let summary = self.project_summary(&id).await.unwrap_or_else(|| format!("Opened {}", id));
+        crate::broadcast_project_arcs(&self.app_handle, &self.pm, &self.agent_tabs, None).await;
+        let summary = self
+            .project_summary(&id)
+            .await
+            .unwrap_or_else(|| format!("Opened {}", id));
         let region = self.digest_region(&id, None, true, false).await;
         let unit = self
             .pm
@@ -492,7 +500,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let (id, project) = self.resolve_project(request.project_id).await?;
         self.require_agent_tab(&id).await?;
-        let seq_hashes = libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
+        let seq_hashes =
+            libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let fail = |msg: String| -> Json<serde_json::Value> {
             let mut v = fail_envelope(&id, msg);
             insert_seq_hashes(&mut v, &seq_hashes);
@@ -501,9 +510,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let path = request.path.clone();
         // Overwrite rule: a pre-existing target that is not the project's own
         // source file needs an explicit overwrite flag.
-        if path != id
-            && !request.overwrite.unwrap_or(false)
-            && std::path::Path::new(&path).exists()
+        if path != id && !request.overwrite.unwrap_or(false) && std::path::Path::new(&path).exists()
         {
             return Ok(fail(
                 format!(
@@ -525,7 +532,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             let bytes_written = payload.get("bytesWritten").and_then(|v| v.as_u64());
             crate::session_log::mark_project_saved(&self.app_handle, &self.pm, &id).await;
-            crate::payload::broadcast_project_change_arcs(&self.app_handle, &self.pm, &self.wp, &self.agent_tabs, &id, None).await;
+            crate::payload::broadcast_project_change_arcs(
+                &self.app_handle,
+                &self.pm,
+                &self.agent_tabs,
+                &id,
+                None,
+            )
+            .await;
             let region = self.digest_region(&id, None, true, false).await;
             let mut env = ok_envelope(&id, format!("Saved {}", path), region);
             insert_seq_hashes(&mut env, &seq_hashes);
@@ -555,7 +569,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             return Ok(fail(format!(
                 "molecule type '{}' exports as {} (DNA/RNA → .gbk/.gb/.genbank, protein → .gpt)",
                 project.molecule_type,
-                if is_protein { ".gpt" } else { ".gbk/.gb/.genbank" }
+                if is_protein {
+                    ".gpt"
+                } else {
+                    ".gbk/.gb/.genbank"
+                }
             )));
         }
         let unit = unit_for(&project.molecule_type);
@@ -601,9 +619,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let write_path = message_path.clone();
         let written = tokio::task::spawn_blocking(move || {
             let res = if wants_gpt {
-                libregene_core::file_io::gpt::write_gpt(&out_project, std::path::Path::new(&write_path))
+                libregene_core::file_io::gpt::write_gpt(
+                    &out_project,
+                    std::path::Path::new(&write_path),
+                )
             } else {
-                libregene_core::file_io::gbk::write_gbk(&out_project, std::path::Path::new(&write_path))
+                libregene_core::file_io::gbk::write_gbk(
+                    &out_project,
+                    std::path::Path::new(&write_path),
+                )
             };
             res.map_err(|e| format!("failed to write {}: {}", write_path, e))
         })
@@ -616,7 +640,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let region = self.digest_region(&id, Some(bbox), true, false).await;
         let mut v = ok_envelope(
             &id,
-            format!("Exported {} ({} {}) to {}", desc, length, unit, message_path),
+            format!(
+                "Exported {} ({} {}) to {}",
+                desc, length, unit, message_path
+            ),
             region,
         );
         v["unit"] = serde_json::json!(unit);
@@ -632,6 +659,4 @@ impl<R: Runtime> LibreGeneMcp<R> {
         insert_seq_hashes(&mut v, &seq_hashes);
         Ok(Json(v))
     }
-
-
 }

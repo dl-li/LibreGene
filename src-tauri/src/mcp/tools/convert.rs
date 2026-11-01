@@ -1,14 +1,14 @@
 //! convert_sequence MCP tool + the conversion engine (input resolution,
 //! codon optimization, output writing).
 
-use rmcp::{ErrorData, handler::server::wrapper::Json};
+use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 
 use libregene_core::models::{Feature, ProjectData};
 
-use crate::mcp::LibreGeneMcp;
 use crate::mcp::support::{insert_seq_hashes, round1, unit_for};
 use crate::mcp::types::{ConvertItem, ConvertSequenceRequest, OptimizeInput};
+use crate::mcp::LibreGeneMcp;
 
 /// Validate the input-mode combination and resolve it to exactly one
 /// [`OptimizeInput`]. Error messages name the offending combination.
@@ -217,12 +217,10 @@ pub(crate) fn write_convert_output(
             std::fs::write(path, format!("{}\n", sequence))
                 .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
         }
-        other => {
-            return Err(format!(
-                "unsupported output extension '.{}' (allowed: gbk, gb, genbank, gpt, fa, fasta, txt)",
-                other
-            ))
-        }
+        other => return Err(format!(
+            "unsupported output extension '.{}' (allowed: gbk, gb, genbank, gpt, fa, fasta, txt)",
+            other
+        )),
     }
     Ok(output_path.to_string())
 }
@@ -331,7 +329,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
 
         match mode {
-            OptimizeInput::Project { project_id, feature_id } => {
+            OptimizeInput::Project {
+                project_id,
+                feature_id,
+            } => {
                 if let Some(f) = &item.from {
                     if f != "dna" {
                         return Err(format!(
@@ -361,12 +362,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 require_species_for(&from, &to, item)?;
                 self.convert_sequence_input(item, seq, &from, &to).await
             }
-            OptimizeInput::Workspace { sequence, molecule_type } => {
+            OptimizeInput::Workspace {
+                sequence,
+                molecule_type,
+            } => {
                 let from = item.from.clone().unwrap_or(molecule_type);
                 let to = default_to(item.to.as_deref(), &from);
                 check_conversion(&from, &to, item)?;
                 require_species_for(&from, &to, item)?;
-                self.convert_sequence_input(item, sequence, &from, &to).await
+                self.convert_sequence_input(item, sequence, &from, &to)
+                    .await
             }
             OptimizeInput::File { path, feature_id } => {
                 self.convert_file_input(item, path, feature_id).await
@@ -384,9 +389,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         species: &str,
         apply: bool,
     ) -> Result<serde_json::Value, String> {
-        let id = self.resolve_project_id(project_id).await.map_err(|e| e.message.to_string())?;
+        let id = self
+            .resolve_project_id(project_id)
+            .await
+            .map_err(|e| e.message.to_string())?;
         if apply {
-            self.require_agent_tab(&id).await.map_err(|e| e.message.to_string())?;
+            self.require_agent_tab(&id)
+                .await
+                .map_err(|e| e.message.to_string())?;
         }
         let project = {
             let pm = self.pm.read().await;
@@ -400,7 +410,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 project.molecule_type
             ));
         }
-        let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let method = item
+            .method
+            .clone()
+            .unwrap_or_else(|| "use_best_codon".to_string());
         let expected_sequence = project.sequence.clone();
         let f_id = feature_id.clone();
         let sp = species.to_string();
@@ -435,7 +448,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let payload = crate::do_update_sequence_if_unchanged(
                 &self.app_handle,
                 &self.pm,
-                &self.wp,
                 &self.agent_tabs,
                 None,
                 id.clone(),
@@ -457,7 +469,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
                         (f.start, f.end)
                     } else {
                         (
-                            f.segments.iter().map(|sg| sg.start).min().unwrap_or(f.start),
+                            f.segments
+                                .iter()
+                                .map(|sg| sg.start)
+                                .min()
+                                .unwrap_or(f.start),
                             f.segments.iter().map(|sg| sg.end).max().unwrap_or(f.end),
                         )
                     };
@@ -487,7 +503,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
         } else {
             let optimized: String = result.new_codons.concat();
-            insert_seq_hashes(&mut v, &libregene_core::utils::orientation_hashes(&optimized, "dna"));
+            insert_seq_hashes(
+                &mut v,
+                &libregene_core::utils::orientation_hashes(&optimized, "dna"),
+            );
         }
         Ok(v)
     }
@@ -509,7 +528,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
             _ => sequence.clone(),
         };
         let species = item.species.clone();
-        let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let method = item
+            .method
+            .clone()
+            .unwrap_or_else(|| "use_best_codon".to_string());
         let os = item.original_species.clone();
         let aes = item.avoid_enzyme_sites.clone();
         let rev = item.rev_comp.unwrap_or(false);
@@ -523,7 +545,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let mut v = standalone_result_json(&conv, from, to);
         // Hashes describe the OUTPUT sequence.
-        insert_seq_hashes(&mut v, &libregene_core::utils::orientation_hashes(&conv.sequence, to));
+        insert_seq_hashes(
+            &mut v,
+            &libregene_core::utils::orientation_hashes(&conv.sequence, to),
+        );
         if let Some(op) = &item.output_path {
             let written = write_convert_output(op, &conv.sequence, to, None, None)?;
             v["path"] = serde_json::json!(written);
@@ -580,7 +605,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         require_species_for(&from, &to, item)?;
 
         let species = item.species.clone();
-        let method = item.method.clone().unwrap_or_else(|| "use_best_codon".to_string());
+        let method = item
+            .method
+            .clone()
+            .unwrap_or_else(|| "use_best_codon".to_string());
         let os = item.original_species.clone();
         let aes = item.avoid_enzyme_sites.clone();
         let rev = item.rev_comp.unwrap_or(false);
@@ -593,7 +621,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .map(str::to_string)
         {
             let fid_label = fid.clone();
-            let sp = species.clone().expect("require_species_for gates optimization");
+            let sp = species
+                .clone()
+                .expect("require_species_for gates optimization");
             let m = method.clone();
             let proj = project.clone();
             let (new_sequence, result, coding) = tokio::task::spawn_blocking(move || {
@@ -636,8 +666,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 let cds_name = std::path::Path::new(&path)
                     .file_stem()
                     .map(|s| s.to_string_lossy().replace(' ', "_"));
-                let written =
-                    write_convert_output(op, &new_sequence, "dna", Some(&source_project), cds_name.as_deref())?;
+                let written = write_convert_output(
+                    op,
+                    &new_sequence,
+                    "dna",
+                    Some(&source_project),
+                    cds_name.as_deref(),
+                )?;
                 v["path"] = serde_json::json!(written);
             }
             return Ok(v);
@@ -652,8 +687,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let raw = project.sequence.to_ascii_uppercase();
         let optimize = from == "dna" && to == "dna" && wants_optimization(item);
         let cleaned = match from.as_str() {
-            "dna" if optimize => clean_coding_sequence(&raw)
-                .map_err(|e| format!("invalid file sequence: {}", e))?,
+            "dna" if optimize => {
+                clean_coding_sequence(&raw).map_err(|e| format!("invalid file sequence: {}", e))?
+            }
             "dna" => clean_na_sequence(&raw, "ACGT")
                 .map_err(|e| format!("invalid file sequence: {}", e))?,
             "rna" => clean_na_sequence(&raw, "ACGU")
@@ -680,8 +716,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             let cds_name = std::path::Path::new(&path)
                 .file_stem()
                 .map(|s| s.to_string_lossy().replace(' ', "_"));
-            let written =
-                write_convert_output(op, &conv.sequence, &to, None, cds_name.as_deref())?;
+            let written = write_convert_output(op, &conv.sequence, &to, None, cds_name.as_deref())?;
             v["path"] = serde_json::json!(written);
         }
         Ok(v)
@@ -778,8 +813,12 @@ fn convert_sequence_text(
             .map(|c| c.to_ascii_uppercase())
             .collect();
         let table = crate::codon_usage_table(&sp, None)?;
-        let opts =
-            crate::codon_optimize_options(method, original_species.as_deref(), avoid_enzyme_sites, None)?;
+        let opts = crate::codon_optimize_options(
+            method,
+            original_species.as_deref(),
+            avoid_enzyme_sites,
+            None,
+        )?;
         let result = libregene_core::codon::optimize_from_aa(&aa, &table, &opts)?;
         let dna: String = result.new_codons.concat();
         let out = if to == "rna" {
@@ -808,7 +847,13 @@ fn convert_sequence_text(
         };
         return Ok(Conversion {
             sequence: out,
-            preview: Some(codon_preview_json(&result, &aa, aa.chars().count(), method, &sp)),
+            preview: Some(codon_preview_json(
+                &result,
+                &aa,
+                aa.chars().count(),
+                method,
+                &sp,
+            )),
             message,
             notes,
         });
@@ -821,8 +866,12 @@ fn convert_sequence_text(
             .map(|c| String::from_utf8_lossy(c).into_owned())
             .collect();
         let table = crate::codon_usage_table(&sp, None)?;
-        let opts =
-            crate::codon_optimize_options(method, original_species.as_deref(), avoid_enzyme_sites, None)?;
+        let opts = crate::codon_optimize_options(
+            method,
+            original_species.as_deref(),
+            avoid_enzyme_sites,
+            None,
+        )?;
         let result = libregene_core::codon::optimize_codons(&codons, &table, &opts);
         let aa: String = codons
             .iter()
@@ -867,16 +916,28 @@ fn convert_sequence_text(
         "Converted {} → {}{}: {} {}",
         from,
         to,
-        if rev_comp { " (reverse-complemented)" } else { "" },
+        if rev_comp {
+            " (reverse-complemented)"
+        } else {
+            ""
+        },
         out.len(),
         unit
     );
-    Ok(Conversion { sequence: out, preview: None, message, notes: Vec::new() })
+    Ok(Conversion {
+        sequence: out,
+        preview: None,
+        message,
+        notes: Vec::new(),
+    })
 }
 
 /// The per-item result JSON shared by the sequence/input_path modes.
 fn standalone_result_json(conv: &Conversion, from: &str, to: &str) -> serde_json::Value {
-    let mut v = conv.preview.clone().unwrap_or_else(|| serde_json::json!({}));
+    let mut v = conv
+        .preview
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
     v["ok"] = serde_json::json!(true);
     v["from"] = serde_json::json!(from);
     v["to"] = serde_json::json!(to);
@@ -905,7 +966,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             Some(items) => items,
             None => {
-                if single.project_id.is_some() || single.sequence.is_some() || single.input_path.is_some() || single.hash.is_some() {
+                if single.project_id.is_some()
+                    || single.sequence.is_some()
+                    || single.input_path.is_some()
+                    || single.hash.is_some()
+                {
                     vec![single]
                 } else {
                     return Err(ErrorData::invalid_params(
@@ -917,7 +982,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         };
         if items.len() > 64 {
             return Err(ErrorData::invalid_params(
-                format!("items is capped at 64 entries per call (got {})", items.len()),
+                format!(
+                    "items is capped at 64 entries per call (got {})",
+                    items.len()
+                ),
                 None,
             ));
         }
@@ -948,12 +1016,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         } else if ok_count == 0 {
             let detail = results
                 .iter()
-                .map(|r| format!("[{}] {}", r["index"], r["message"].as_str().unwrap_or_default()))
+                .map(|r| {
+                    format!(
+                        "[{}] {}",
+                        r["index"],
+                        r["message"].as_str().unwrap_or_default()
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("; ");
             format!("All {} item(s) failed: {}", total, detail)
         } else {
-            format!("Converted {} of {} item(s); {} failed", ok_count, total, failed)
+            format!(
+                "Converted {} of {} item(s); {} failed",
+                ok_count, total, failed
+            )
         };
         Ok(Json(serde_json::json!({
             "ok": ok_count > 0,

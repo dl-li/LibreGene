@@ -81,7 +81,10 @@ async fn add_to_workspace_feature_rebases_and_flips_minus_strand() {
     let item = &ws[0];
     assert_eq!(item.sequence, expected);
     let outer = item.features.iter().find(|f| f.name == "outer").unwrap();
-    assert_eq!((outer.start, outer.end, outer.strand.as_str()), (0, 79, "+"));
+    assert_eq!(
+        (outer.start, outer.end, outer.strand.as_str()),
+        (0, 79, "+")
+    );
     let tag = item.features.iter().find(|f| f.name == "tag").unwrap();
     assert_eq!((tag.start, tag.end, tag.strand.as_str()), (60, 69, "-"));
 }
@@ -99,7 +102,11 @@ async fn add_to_workspace_region_wraps_origin_on_circular() {
     assert_eq!(v["added"][0]["length"], 20, "{v}");
     let ws = server.workspace.read().await;
     assert_eq!(ws[0].sequence, format!("{}{}", &seq[190..], &seq[..=9]));
-    let ori = ws[0].features.iter().find(|f| f.name == "crossOrigin").unwrap();
+    let ori = ws[0]
+        .features
+        .iter()
+        .find(|f| f.name == "crossOrigin")
+        .unwrap();
     assert_eq!((ori.start, ori.end), (0, 19));
 }
 
@@ -175,7 +182,11 @@ async fn add_to_workspace_error_paths() {
     let server = handler_with_project(enzyme_test_project()).await;
 
     // No selector.
-    let v = server.add_to_workspace(Parameters(add_req("enz"))).await.unwrap().0;
+    let v = server
+        .add_to_workspace(Parameters(add_req("enz")))
+        .await
+        .unwrap()
+        .0;
     assert_eq!(v["ok"], false, "{v}");
 
     // Several selectors.
@@ -201,7 +212,11 @@ async fn add_to_workspace_error_paths() {
     let unknown = &v["unknownEnzymes"][0];
     assert_eq!(unknown["name"], "eco", "{v}");
     assert!(
-        unknown["similar"].as_array().unwrap().iter().any(|s| s == "EcoRI"),
+        unknown["similar"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s == "EcoRI"),
         "{v}"
     );
 
@@ -210,7 +225,13 @@ async fn add_to_workspace_error_paths() {
     req.enzymes = Some(vec!["AgeI".to_string()]);
     let v = server.add_to_workspace(Parameters(req)).await.unwrap().0;
     assert_eq!(v["ok"], false, "{v}");
-    assert!(v["message"].as_str().unwrap().contains("no recognition site"), "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("no recognition site"),
+        "{v}"
+    );
 
     // Enzyme mode is DNA-gated (MCP protocol error, not an envelope).
     let server = handler_with_project(rna_test_project()).await;
@@ -241,7 +262,13 @@ async fn list_workspace_merges_projects_and_fragments() {
     assert_eq!(ws[0]["featureCount"], 1, "{v}");
     assert_hex7(&ws[0]["sequenceHash"]);
     assert_hex7(&ws[0]["revCompHash"]);
-    assert!(v["message"].as_str().unwrap().contains("1 workspace fragment"), "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("1 workspace fragment"),
+        "{v}"
+    );
 }
 
 #[tokio::test]
@@ -252,8 +279,14 @@ async fn edit_sequence_replacement_hash_forward_and_flipped() {
     let mut req = add_req("edit_test");
     req.feature_id = Some("f1".to_string());
     let added = server.add_to_workspace(Parameters(req)).await.unwrap().0;
-    let fwd = added["added"][0]["sequenceHash"].as_str().unwrap().to_string();
-    let rev = added["added"][0]["revCompHash"].as_str().unwrap().to_string();
+    let fwd = added["added"][0]["sequenceHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rev = added["added"][0]["revCompHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let frag = seq[50..=100].to_ascii_uppercase();
 
     // Forward: pure insertion before base 1; annotations travel along.
@@ -277,7 +310,11 @@ async fn edit_sequence_replacement_hash_forward_and_flipped() {
         assert_eq!(p.sequence, format!("{}{}", frag, seq));
         // 'gene' clashes with the existing feature and is uniquified; the
         // transferred copy covers the inserted span on the + strand.
-        let t = p.features.iter().find(|f| f.start == 0 && f.end == 50).unwrap();
+        let t = p
+            .features
+            .iter()
+            .find(|f| f.start == 0 && f.end == 50)
+            .unwrap();
         assert_eq!(t.strand, "+");
     }
 
@@ -295,7 +332,11 @@ async fn edit_sequence_replacement_hash_forward_and_flipped() {
         .0;
     assert_eq!(v["ok"], true, "{v}");
     assert!(
-        v["notes"].as_array().unwrap().iter().any(|n| n.as_str().unwrap().contains("reverse complement")),
+        v["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("reverse complement")),
         "{v}"
     );
     let flipped_frag = libregene_core::utils::reverse_complement(&frag);
@@ -303,7 +344,11 @@ async fn edit_sequence_replacement_hash_forward_and_flipped() {
     let p = pm.get_project_by_id("edit_test").unwrap();
     assert_eq!(p.sequence, format!("{}{}{}", flipped_frag, frag, seq));
     // The transferred feature of the flipped insert is strand-flipped.
-    let t = p.features.iter().find(|f| f.start == 0 && f.end == 50).unwrap();
+    let t = p
+        .features
+        .iter()
+        .find(|f| f.start == 0 && f.end == 50)
+        .unwrap();
     assert_eq!(t.strand, "-");
 }
 
@@ -316,8 +361,14 @@ async fn hash_inputs_resolve_open_projects_and_fail_cleanly() {
     // An open project is an implicit workspace member: its own hash pair is a
     // valid `hash` input (here: align the template against itself).
     let list = server.list_workspace().await.unwrap().0;
-    let fwd = list["projects"][0]["sequenceHash"].as_str().unwrap().to_string();
-    let rev = list["projects"][0]["revCompHash"].as_str().unwrap().to_string();
+    let fwd = list["projects"][0]["sequenceHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rev = list["projects"][0]["revCompHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let v = server
         .add_alignment(Parameters(AddAlignmentRequest {
             project_id: "aln_test".to_string(),
@@ -347,7 +398,10 @@ async fn hash_inputs_resolve_open_projects_and_fail_cleanly() {
         .unwrap()
         .0;
     assert_eq!(v["ok"], false, "{v}");
-    assert!(v["message"].as_str().unwrap().contains("list_workspace"), "{v}");
+    assert!(
+        v["message"].as_str().unwrap().contains("list_workspace"),
+        "{v}"
+    );
 }
 
 #[tokio::test]
@@ -358,7 +412,10 @@ async fn convert_sequence_hash_mode_defaults_from_entry_type() {
     req.end = Some(101);
     server.add_to_workspace(Parameters(req)).await.unwrap();
     let list = server.list_workspace().await.unwrap().0;
-    let hash = list["workspace"][0]["sequenceHash"].as_str().unwrap().to_string();
+    let hash = list["workspace"][0]["sequenceHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let v = server
         .convert_sequence(Parameters(convert_req(vec![ConvertItem {
@@ -388,8 +445,14 @@ async fn add_primer_accepts_workspace_hash() {
     req.start = Some(11);
     req.end = Some(30);
     let added = server.add_to_workspace(Parameters(req)).await.unwrap().0;
-    let fwd = added["added"][0]["sequenceHash"].as_str().unwrap().to_string();
-    let rev = added["added"][0]["revCompHash"].as_str().unwrap().to_string();
+    let fwd = added["added"][0]["sequenceHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rev = added["added"][0]["revCompHash"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let v = server
         .add_primer(Parameters(AddPrimerRequest {
@@ -498,12 +561,6 @@ async fn capacity_eviction_prunes_workspace_fragments_and_bindings() {
     req.end = Some(10);
     let out = server.add_to_workspace(Parameters(req)).await.unwrap().0;
     assert_eq!(out["ok"], true, "{out}");
-    server
-        .wp
-        .write()
-        .await
-        .insert("project-edit_test-1".to_string(), "edit_test".to_string());
-
     for i in 1..=24 {
         let mut project = dna_test_project();
         project.name = format!("p{i}");
@@ -514,9 +571,13 @@ async fn capacity_eviction_prunes_workspace_fragments_and_bindings() {
             .load(&format!("p{i}"), project)
             .unwrap();
     }
-    assert!(server.pm.read().await.get_project_by_id("edit_test").is_none());
-    crate::prune_orphan_bindings(&server.pm, &server.wp, &server.agent_tabs, &server.workspace).await;
+    assert!(server
+        .pm
+        .read()
+        .await
+        .get_project_by_id("edit_test")
+        .is_none());
+    crate::prune_orphan_bindings(&server.pm, &server.agent_tabs, &server.workspace).await;
     assert!(server.workspace.read().await.is_empty());
-    assert!(server.wp.read().await.is_empty());
     assert!(server.agent_tabs.read().await.is_empty());
 }

@@ -23,31 +23,12 @@ pub(crate) struct ProjectParams {
 
 pub(crate) const DEFAULT_CPL: i64 = 60;
 
-/// Resolve the project_id for a given window:
-/// - Project windows look up their mapping in `window_projects`; a miss means
-///   the project was evicted — never fall back to the main window's active
-///   project, or the window's mutations would silently hit the wrong file.
-/// - The main window falls back to `ProjectManager::active_id()`.
-pub(crate) async fn resolve_project_id(
-    state: &State<'_, AppState>,
-    window_label: &str,
-) -> Result<String, String> {
-    if window_label != "main" {
-        let wp = state.window_projects.read().await;
-        return wp.get(window_label).cloned().ok_or_else(|| {
-            "Project not found in this window (may have been evicted); reload the file".to_string()
-        });
-    }
+/// Resolve the single window's active project.
+pub(crate) async fn resolve_project_id(state: &State<'_, AppState>) -> Result<String, String> {
     let pm = state.pm.read().await;
     pm.active_id()
         .map(|s| s.to_string())
         .ok_or_else(|| "No project loaded".to_string())
-}
-
-/// Returns the set of project IDs that are currently open in dedicated project windows.
-/// These projects should be hidden from the main window's sidebar.
-pub(crate) fn excluded_project_ids(wp: &tokio::sync::RwLockReadGuard<HashMap<String, String>>) -> HashSet<String> {
-    wp.values().cloned().collect()
 }
 
 /// Lock the agent tab bound to `project_id` and notify the main window.
@@ -95,34 +76,10 @@ pub(crate) fn emit_mutation_focus<R: Runtime>(
     );
 }
 
-/// Filter out projects that are open in project windows, and adjust the activeId
-/// if it points to an excluded project.
-pub(crate) fn filter_main_window_projects(
-    projects: Vec<serde_json::Value>,
-    excluded: &HashSet<String>,
-    active_id: Option<String>,
-) -> (Vec<serde_json::Value>, Option<String>) {
-    let filtered: Vec<_> = projects
-        .into_iter()
-        .filter(|p| p["id"].as_str().is_none_or(|id| !excluded.contains(id)))
-        .collect();
-    let active = active_id.filter(|id| !excluded.contains(id.as_str()))
-        .or_else(|| {
-            filtered.first()
-                .and_then(|p| p["id"].as_str().map(String::from))
-        });
-    (filtered, active)
-}
-
-/// The main-window sidebar project list: projects bound to dedicated project
-/// windows filtered out, activeId adjusted, and `agentLocked` injected from
-/// the agent-tabs map. This is the exact same payload shape
-/// `broadcast_project_arcs` emits, so mutation responses and broadcasts never
-/// diverge. Lock order: agent_tabs is read (and dropped) BEFORE pm/wp; pm is
-/// taken before window_projects.
+/// The sidebar project list with `agentLocked` injected from the agent-tabs
+/// map. The agent-tabs guard is dropped before taking the pm guard.
 pub(crate) async fn sidebar_project_list(
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
 ) -> (Vec<serde_json::Value>, Option<String>) {
     let tab_locks: HashMap<String, bool> = {
@@ -130,13 +87,9 @@ pub(crate) async fn sidebar_project_list(
         at.iter().map(|(id, m)| (id.clone(), m.locked)).collect()
     };
     let pm = pm.read().await;
-    let wp = wp.read().await;
-    let excluded = excluded_project_ids(&wp);
-    let all_projects = pm.list_projects();
-    let raw_active_id = pm.active_id().map(|s| s.to_string());
-    let (mut filtered_projects, active_id) =
-        filter_main_window_projects(all_projects, &excluded, raw_active_id);
-    for p in &mut filtered_projects {
+    let mut projects = pm.list_projects();
+    let active_id = pm.active_id().map(|s| s.to_string());
+    for p in &mut projects {
         if let Some(id) = p["id"].as_str() {
             p["agentLocked"] = tab_locks
                 .get(id)
@@ -144,23 +97,17 @@ pub(crate) async fn sidebar_project_list(
                 .unwrap_or(serde_json::Value::Null);
         }
     }
-    (filtered_projects, active_id)
+    (projects, active_id)
 }
 
-/// Drop window_projects/agent_tabs entries and workspace fragments pointing
-/// at projects no longer loaded (e.g. evicted by ProjectManager's capacity
-/// limit). Called on load paths so an eviction never leaves dangling state.
+/// Drop agent-tab entries and workspace fragments pointing at projects no
+/// longer loaded (e.g. evicted by ProjectManager's capacity limit).
 pub(crate) async fn prune_orphan_bindings(
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     workspace: &crate::mcp::Workspace,
 ) {
     let loaded: HashSet<String> = pm.read().await.all_project_ids().into_iter().collect();
-    {
-        let mut wp = wp.write().await;
-        wp.retain(|_, v| loaded.contains(v));
-    }
     {
         let mut at = agent_tabs.write().await;
         at.retain(|k, _| loaded.contains(k));
@@ -196,7 +143,6 @@ pub(crate) fn with_projects_list(
 /// serializing the full project (~1.5MB, mostly the enzyme list) on every Apply.
 pub(crate) async fn feature_mutation_response(
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     project_id: &str,
 ) -> serde_json::Value {
@@ -207,7 +153,7 @@ pub(crate) async fn feature_mutation_response(
             None => serde_json::json!({"error": "Project not found"}),
         }
     };
-    let (projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     with_projects_list(data, &projects, active_id.as_deref())
 }
 
@@ -275,9 +221,13 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
     })
 }
 
-/// Emit the current project state + filtered project list as a Tauri event.
-pub(crate) async fn broadcast_project(app_handle: &AppHandle, state: &State<'_, AppState>, source: Option<&str>) {
-    broadcast_project_arcs(app_handle, &state.pm, &state.window_projects, &state.agent_tabs, source).await;
+/// Emit the current project state + project list as a Tauri event.
+pub(crate) async fn broadcast_project(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+    source: Option<&str>,
+) {
+    broadcast_project_arcs(app_handle, &state.pm, &state.agent_tabs, source).await;
 }
 
 pub(crate) async fn broadcast_project_for_id<R: Runtime>(
@@ -286,18 +236,18 @@ pub(crate) async fn broadcast_project_for_id<R: Runtime>(
     project_id: &str,
     source: Option<&str>,
 ) {
-    broadcast_project_change_arcs(app_handle, &state.pm, &state.window_projects, &state.agent_tabs, project_id, source).await;
+    broadcast_project_change_arcs(app_handle, &state.pm, &state.agent_tabs, project_id, source)
+        .await;
 }
 
 /// Full synchronization for project collection changes and legacy callers.
 pub(crate) async fn broadcast_project_arcs<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     source: Option<&str>,
 ) {
-    broadcast_project_arcs_impl(app_handle, pm, wp, agent_tabs, None, source).await;
+    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, None, source).await;
 }
 
 /// Mutation synchronization: project summaries stay complete, but only the
@@ -305,16 +255,23 @@ pub(crate) async fn broadcast_project_arcs<R: Runtime>(
 pub(crate) async fn broadcast_project_change_arcs<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     project_id: &str,
     source: Option<&str>,
 ) {
-    broadcast_project_arcs_impl(app_handle, pm, wp, agent_tabs, Some(project_id), source).await;
+    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, Some(project_id), source).await;
 }
 
-fn project_data_payload(pm: &ProjectManager, wanted: &HashSet<String>) -> serde_json::Map<String, serde_json::Value> {
-    let params = ProjectParams { enzyme_filter: Some("all".to_string()), row_start: None, row_end: None, cpl: None };
+fn project_data_payload(
+    pm: &ProjectManager,
+    wanted: &HashSet<String>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let params = ProjectParams {
+        enzyme_filter: Some("all".to_string()),
+        row_start: None,
+        row_end: None,
+        cpl: None,
+    };
     let mut result = serde_json::Map::new();
     for id in pm.all_project_ids() {
         if !wanted.contains(&id) {
@@ -334,30 +291,29 @@ fn project_data_payload(pm: &ProjectManager, wanted: &HashSet<String>) -> serde_
 async fn broadcast_project_arcs_impl<R: Runtime>(
     app_handle: &AppHandle<R>,
     pm: &Arc<RwLock<ProjectManager>>,
-    wp: &Arc<RwLock<HashMap<String, String>>>,
     agent_tabs: &AgentTabs,
     changed_project_id: Option<&str>,
     source: Option<&str>,
 ) {
-    let (filtered_projects, active_id) = sidebar_project_list(pm, wp, agent_tabs).await;
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     let pm = pm.read().await;
     let mut payload = serde_json::json!({
-        "projects": filtered_projects,
+        "projects": projects,
         "activeId": active_id,
         "source": source,
         "changedProjectId": changed_project_id,
     });
 
-    let has_other_windows = match source {
-        Some(label) => app_handle.webview_windows().keys().any(|l| l != label),
-        None => !app_handle.webview_windows().is_empty(),
-    };
-
-    if has_other_windows {
+    if !app_handle.webview_windows().is_empty() {
         if let Some(ref active) = active_id {
             if changed_project_id.is_none_or(|id| id == active) {
                 if let Some(project) = pm.get_project_by_id(active) {
-                    let params = ProjectParams { enzyme_filter: Some("all".to_string()), row_start: None, row_end: None, cpl: None };
+                    let params = ProjectParams {
+                        enzyme_filter: Some("all".to_string()),
+                        row_start: None,
+                        row_end: None,
+                        cpl: None,
+                    };
                     let mut filtered = filter_project(project, &params);
                     if let Some(map) = filtered.as_object_mut() {
                         map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
@@ -366,17 +322,18 @@ async fn broadcast_project_arcs_impl<R: Runtime>(
                 }
             }
         }
-        let mut wanted: HashSet<String> = if let Some(id) = changed_project_id {
+        let wanted: HashSet<String> = if let Some(id) = changed_project_id {
             HashSet::from([id.to_string()])
         } else {
-            payload["projects"].as_array().map(|arr| {
-                arr.iter().filter_map(|p| p["id"].as_str().map(String::from)).collect()
-            }).unwrap_or_default()
+            payload["projects"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|p| p["id"].as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
         };
-        if changed_project_id.is_none() {
-            let wp = wp.read().await;
-            wanted.extend(wp.values().cloned());
-        }
         payload["projectData"] = serde_json::Value::Object(project_data_payload(&pm, &wanted));
     }
 
@@ -408,7 +365,15 @@ mod tests {
     fn scoped_payload_contains_only_the_changed_project() {
         let mut pm = ProjectManager::new();
         for (id, sequence) in [("a", "AAAA"), ("b", "CCCC")] {
-            pm.load(id, ProjectData { sequence: sequence.to_string(), length: 4, ..Default::default() }).unwrap();
+            pm.load(
+                id,
+                ProjectData {
+                    sequence: sequence.to_string(),
+                    length: 4,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         }
         let payload = project_data_payload(&pm, &HashSet::from(["a".to_string()]));
         assert_eq!(payload.len(), 1);

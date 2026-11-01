@@ -14,11 +14,8 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub(crate) async fn get_primers(
-    webview_window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state, webview_window.label()).await {
+pub(crate) async fn get_primers(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    match resolve_project_id(&state).await {
         Ok(id) => {
             let pm = state.pm.read().await;
             match pm.get_project_by_id(&id) {
@@ -44,7 +41,7 @@ pub(crate) async fn add_primer(
     app_handle: AppHandle,
     primer: Primer,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -52,7 +49,6 @@ pub(crate) async fn add_primer(
     do_add_primer(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -68,7 +64,7 @@ pub(crate) async fn delete_primer(
     app_handle: AppHandle,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -76,7 +72,6 @@ pub(crate) async fn delete_primer(
     do_delete_primer(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -91,11 +86,10 @@ pub(crate) async fn delete_primer(
 /// as the editor for consistency.
 #[tauri::command]
 pub(crate) async fn check_primers_binding(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     primers: Vec<Primer>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -112,7 +106,7 @@ pub(crate) async fn add_primers(
     app_handle: AppHandle,
     primers: Vec<Primer>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -125,7 +119,11 @@ pub(crate) async fn add_primers(
         let snapshot = {
             let pm = state.pm.read().await;
             pm.get_project_by_id(&project_id).map(|p| {
-                (p.sequence.clone(), p.topology.clone(), primer_definitions(&p.primers))
+                (
+                    p.sequence.clone(),
+                    p.topology.clone(),
+                    primer_definitions(&p.primers),
+                )
             })
         };
         let Some((template, topology, existing)) = snapshot else {
@@ -138,8 +136,9 @@ pub(crate) async fn add_primers(
             let seq_conflict = merged
                 .iter()
                 .any(|p| p.primer_seq.to_uppercase() == primer.primer_seq.to_uppercase());
-            let name_conflict =
-                merged.iter().any(|p| p.id != primer.id && p.name == primer.name);
+            let name_conflict = merged
+                .iter()
+                .any(|p| p.id != primer.id && p.name == primer.name);
             if seq_conflict || name_conflict {
                 continue;
             }
@@ -165,7 +164,7 @@ pub(crate) async fn add_primers(
                     pm.mark_dirty(&project_id);
                     true
                 }
-                // The list changed under us (another window added a primer):
+                // The list changed under us (a concurrent add landed):
                 // re-merge onto the fresh state instead of overwriting.
                 Some(_) => false,
                 None => return Ok(serde_json::json!({"error": "Project not found"})),
@@ -176,7 +175,13 @@ pub(crate) async fn add_primers(
         }
     }
 
-    crate::payload::broadcast_project_for_id(&app_handle, &state, &project_id, Some(webview_window.label())).await;
+    crate::payload::broadcast_project_for_id(
+        &app_handle,
+        &state,
+        &project_id,
+        Some(webview_window.label()),
+    )
+    .await;
 
     let pm = state.pm.read().await;
     match pm.get_project_by_id(&project_id) {
@@ -196,7 +201,6 @@ pub(crate) async fn add_primers(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn compute_primer_alignment(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     primer_id: Option<String>,
     seed_length: Option<usize>,
@@ -211,29 +215,41 @@ pub(crate) async fn compute_primer_alignment(
 ) -> Result<serde_json::Value, String> {
     let project_id = match project_id {
         Some(id) => id,
-        None => resolve_project_id(&state, webview_window.label()).await?,
+        None => resolve_project_id(&state).await?,
     };
 
     // Clone all needed data while holding the read lock, then drop it before spawn_blocking.
     let (template, topology, existing_primers) = {
         let pm = state.pm.read().await;
-        let project = pm.get_project_by_id(&project_id)
+        let project = pm
+            .get_project_by_id(&project_id)
             .ok_or_else(|| "Project not found".to_string())?;
-        (project.sequence.clone(), project.topology.clone(), project.primers.clone())
+        (
+            project.sequence.clone(),
+            project.topology.clone(),
+            project.primers.clone(),
+        )
     };
 
     // Resolve primer outside the lock.
     let (primer_name, primer_seq) = match &primer_id {
         Some(pid) => {
-            let existing = existing_primers.iter()
+            let existing = existing_primers
+                .iter()
                 .find(|p| p.id == *pid)
                 .ok_or_else(|| "Primer not found".to_string())?;
-            let seq = custom_seq.clone().unwrap_or_else(|| existing.primer_seq.clone());
+            let seq = custom_seq
+                .clone()
+                .unwrap_or_else(|| existing.primer_seq.clone());
             (existing.name.clone(), seq)
         }
         None => {
-            let name = custom_name.clone().unwrap_or_else(|| "New Primer".to_string());
-            let seq = custom_seq.clone().ok_or_else(|| "Sequence required for new primer alignment".to_string())?;
+            let name = custom_name
+                .clone()
+                .unwrap_or_else(|| "New Primer".to_string());
+            let seq = custom_seq
+                .clone()
+                .ok_or_else(|| "Sequence required for new primer alignment".to_string())?;
             (name, seq)
         }
     };
@@ -251,7 +267,12 @@ pub(crate) async fn compute_primer_alignment(
     // Move heavy computation to blocking thread pool.
     tokio::task::spawn_blocking(move || {
         compute_primer_alignment_sync(
-            &template, is_circular, &primer_name, &primer_seq, seed_length, &tm_params,
+            &template,
+            is_circular,
+            &primer_name,
+            &primer_seq,
+            seed_length,
+            &tm_params,
         )
     })
     .await
@@ -280,7 +301,10 @@ pub(crate) fn compute_primer_alignment_sync(
     let expansion: usize = 60;
 
     if plen < seed_len {
-        return Err(format!("Primer too short ({}bp < {}bp seed)", plen, seed_len));
+        return Err(format!(
+            "Primer too short ({}bp < {}bp seed)",
+            plen, seed_len
+        ));
     }
     if tlen < seed_len {
         return Err(format!(
@@ -291,7 +315,8 @@ pub(crate) fn compute_primer_alignment_sync(
 
     let rev_bytes: Vec<u8> = primer_bytes.iter().rev().copied().collect();
     let orig_rev_bytes: Vec<u8> = orig_bytes.iter().rev().copied().collect();
-    let rc_seed: Vec<u8> = primer_bytes[plen - seed_len..].iter()
+    let rc_seed: Vec<u8> = primer_bytes[plen - seed_len..]
+        .iter()
         .rev()
         .map(|&b| libregene_core::utils::complement_char(b as char) as u8)
         .collect();
@@ -317,18 +342,25 @@ pub(crate) fn compute_primer_alignment_sync(
             }
 
             let seed_tstart = if is_circular { i % tlen } else { i };
-            let tp_3prime = if is_rev { seed_tstart } else { seed_tstart + seed_len - 1 };
+            let tp_3prime = if is_rev {
+                seed_tstart
+            } else {
+                seed_tstart + seed_len - 1
+            };
 
             if candidates.iter().any(|c| {
                 let d = c.tp_3prime.abs_diff(tp_3prime);
                 d <= 3
-            }) { continue; }
+            }) {
+                continue;
+            }
 
             let mut ext = 0usize;
             // On circular templates the footprint may wrap the origin; cap the
             // extension so it cannot run into its own seed.
             let max_ext = if is_circular {
-                plen.saturating_sub(seed_len).min(tlen.saturating_sub(seed_len))
+                plen.saturating_sub(seed_len)
+                    .min(tlen.saturating_sub(seed_len))
             } else {
                 plen.saturating_sub(seed_len)
             };
@@ -336,34 +368,63 @@ pub(crate) fn compute_primer_alignment_sync(
                 let p_pos = plen - seed_len - ext - 1;
                 let t_pos = if is_rev {
                     let raw = seed_tstart + seed_len + ext;
-                    if is_circular { raw % tlen } else { raw }
+                    if is_circular {
+                        raw % tlen
+                    } else {
+                        raw
+                    }
                 } else if is_circular {
                     (seed_tstart + tlen - 1 - (ext % tlen)) % tlen
                 } else {
                     seed_tstart.checked_sub(ext + 1).unwrap_or(usize::MAX)
                 };
-                if t_pos >= tlen { break; }
+                if t_pos >= tlen {
+                    break;
+                }
                 let ok = if is_rev {
                     libregene_core::primer::iupac::bases_pair(primer_bytes[p_pos], tpl_bytes[t_pos])
                 } else {
-                    libregene_core::primer::iupac::bases_overlap(primer_bytes[p_pos], tpl_bytes[t_pos])
+                    libregene_core::primer::iupac::bases_overlap(
+                        primer_bytes[p_pos],
+                        tpl_bytes[t_pos],
+                    )
                 };
-                if ok { ext += 1; } else { break; }
+                if ok {
+                    ext += 1;
+                } else {
+                    break;
+                }
             }
 
             let footprint_len = seed_len + ext;
 
             let footprint_seq: String = primer_bytes[plen - footprint_len..]
-                .iter().map(|&b| b.to_ascii_uppercase() as char).collect();
+                .iter()
+                .map(|&b| b.to_ascii_uppercase() as char)
+                .collect();
             let est_tm = if footprint_seq.len() >= 2 {
-                libregene_core::primer::thermodynamics::compute_tm_with_params(&footprint_seq, tm_params)
-            } else { 0.0 };
+                libregene_core::primer::thermodynamics::compute_tm_with_params(
+                    &footprint_seq,
+                    tm_params,
+                )
+            } else {
+                0.0
+            };
 
-            candidates.push(BindingSiteCandidate { is_rev, tp_3prime, footprint_len, est_tm });
+            candidates.push(BindingSiteCandidate {
+                is_rev,
+                tp_3prime,
+                footprint_len,
+                est_tm,
+            });
         }
     }
 
-    candidates.sort_by(|a, b| b.est_tm.partial_cmp(&a.est_tm).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.est_tm
+            .partial_cmp(&a.est_tm)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     candidates.dedup_by(|a, b| (a.tp_3prime as i64 - b.tp_3prime as i64).unsigned_abs() <= 3);
 
     if candidates.is_empty() {
@@ -397,14 +458,24 @@ pub(crate) fn compute_primer_alignment_sync(
 
         let sw_ok = if c.is_rev {
             libregene_core::primer::alignment::align_first_base_constrained_rev(
-                &rev_bytes, &template_region,
-            ).map(|result| {
+                &rev_bytes,
+                &template_region,
+            )
+            .map(|result| {
                 let text = libregene_core::primer::display::format_alignment_text(
-                    &orig_rev_bytes, &template_region, &result,
-                    "Template", primer_name, win_start, true,
-                    tlen, is_circular,
+                    &orig_rev_bytes,
+                    &template_region,
+                    &result,
+                    "Template",
+                    primer_name,
+                    win_start,
+                    true,
+                    tlen,
+                    is_circular,
                 );
-                let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(&rev_bytes, &result, tm_params);
+                let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(
+                    &rev_bytes, &result, tm_params,
+                );
                 results.push(serde_json::json!({
                     "tm": (sw_tm * 10.0).round() / 10.0,
                     "strand": -1,
@@ -415,14 +486,26 @@ pub(crate) fn compute_primer_alignment_sync(
             })
         } else {
             libregene_core::primer::alignment::align_3prime_constrained(
-                primer_bytes, &template_region,
-            ).map(|result| {
+                primer_bytes,
+                &template_region,
+            )
+            .map(|result| {
                 let text = libregene_core::primer::display::format_alignment_text(
-                    orig_bytes, &template_region, &result,
-                    "Template", primer_name, win_start, false,
-                    tlen, is_circular,
+                    orig_bytes,
+                    &template_region,
+                    &result,
+                    "Template",
+                    primer_name,
+                    win_start,
+                    false,
+                    tlen,
+                    is_circular,
                 );
-                let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(primer_bytes, &result, tm_params);
+                let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(
+                    primer_bytes,
+                    &result,
+                    tm_params,
+                );
                 results.push(serde_json::json!({
                     "tm": (sw_tm * 10.0).round() / 10.0,
                     "strand": 1,
@@ -458,7 +541,10 @@ fn fallback_site_json(c: &BindingSiteCandidate, tp: usize) -> serde_json::Value 
     })
 }
 
-enum SearchMode { Forward, Reverse }
+enum SearchMode {
+    Forward,
+    Reverse,
+}
 
 struct BindingSiteCandidate {
     is_rev: bool,
@@ -474,7 +560,6 @@ struct BindingSiteCandidate {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn design_primer_candidates(
-    webview_window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     mode: String,
     seg: Option<Segment>,
@@ -493,7 +578,7 @@ pub(crate) async fn design_primer_candidates(
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
 ) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
-    let project_id = resolve_project_id(&state, webview_window.label()).await?;
+    let project_id = resolve_project_id(&state).await?;
 
     do_design_primer_candidates(
         &state.pm,

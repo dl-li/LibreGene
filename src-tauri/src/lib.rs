@@ -37,7 +37,7 @@ pub fn run() {
             queue_open_targets(app, collect_open_targets(argv.into_iter().skip(1)));
         }))
         // Close-to-tray: closing the main window only hides it, keeping the
-        // process (and the MCP server) alive. Project windows close normally.
+        // process (and the MCP server) alive.
         // Without a tray icon there is no way to bring a hidden window back,
         // so in that case let the window close normally. Either way, closing
         // the main window counts as closing every file: drop all MCP
@@ -58,7 +58,6 @@ pub fn run() {
         })
         .manage(AppState {
             pm: Arc::new(RwLock::new(ProjectManager::new())),
-            window_projects: Arc::new(RwLock::new(HashMap::new())),
             agent_tabs: Arc::new(RwLock::new(HashMap::new())),
             workspace: Arc::new(RwLock::new(Vec::new())),
             session_edit_log: Arc::new(RwLock::new(Default::default())),
@@ -74,7 +73,6 @@ pub fn run() {
             let mcp = mcp::McpServer::new(
                 app.handle().clone(),
                 state.pm.clone(),
-                state.window_projects.clone(),
                 state.agent_tabs.clone(),
                 state.workspace.clone(),
                 {
@@ -111,10 +109,7 @@ pub fn run() {
                 }
             }
             // Cold-start file open (Windows/Linux: path passed in argv).
-            queue_open_targets(
-                app.handle(),
-                collect_open_targets(std::env::args().skip(1)),
-            );
+            queue_open_targets(app.handle(), collect_open_targets(std::env::args().skip(1)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -169,9 +164,6 @@ pub fn run() {
             commands::projects::get_projects,
             commands::projects::activate_project,
             commands::projects::delete_project,
-            commands::projects::open_in_new_window,
-            commands::misc::get_window_project_id,
-            commands::misc::get_agent_tab_state,
             commands::misc::set_agent_tab_locked,
             commands::projects::rekey_project,
             commands::primers::compute_tm,

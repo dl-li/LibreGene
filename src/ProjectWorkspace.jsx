@@ -359,7 +359,7 @@ export default function ProjectWorkspace({
     // mount-only load; projectId prop changes come from Save As rekey (state preserved)
   }, []);
 
-  // Listen for external mutations on this project (other windows)
+  // Listen for external mutations on this project (MCP tools)
   useEffect(() => {
     let listener = null;
     let cancelled = false;

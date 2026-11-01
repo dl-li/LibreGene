@@ -23,7 +23,7 @@ pub(crate) async fn update_sequence(
     text_colors_top: Option<Vec<TextColorRange>>,
     text_colors_bottom: Option<Vec<TextColorRange>>,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
@@ -77,7 +77,6 @@ pub(crate) async fn update_sequence(
     do_update_sequence(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         project_id,
@@ -103,14 +102,13 @@ pub(crate) async fn set_text_colors(
     end: i64,
     color: String,
 ) -> Result<serde_json::Value, String> {
-    let project_id = match resolve_project_id(&state, webview_window.label()).await {
+    let project_id = match resolve_project_id(&state).await {
         Ok(id) => id,
         Err(e) => return Ok(serde_json::json!({"error": e})),
     };
     do_set_text_colors(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -134,7 +132,7 @@ pub(crate) async fn set_roi(
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state, webview_window.label()).await {
+    match resolve_project_id(&state).await {
         Ok(id) => {
             {
                 let mut pm = state.pm.write().await;
@@ -143,7 +141,13 @@ pub(crate) async fn set_roi(
                     pm.mark_dirty(&id);
                 }
             }
-            crate::payload::broadcast_project_for_id(&app_handle, &state, &id, Some(webview_window.label())).await;
+            crate::payload::broadcast_project_for_id(
+                &app_handle,
+                &state,
+                &id,
+                Some(webview_window.label()),
+            )
+            .await;
             Ok(serde_json::json!({"status": "ok"}))
         }
         Err(e) => Ok(serde_json::json!({"error": e})),
@@ -156,7 +160,7 @@ pub(crate) async fn clear_roi(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<serde_json::Value, String> {
-    match resolve_project_id(&state, webview_window.label()).await {
+    match resolve_project_id(&state).await {
         Ok(id) => {
             {
                 let mut pm = state.pm.write().await;
@@ -165,7 +169,13 @@ pub(crate) async fn clear_roi(
                     pm.mark_dirty(&id);
                 }
             }
-            crate::payload::broadcast_project_for_id(&app_handle, &state, &id, Some(webview_window.label())).await;
+            crate::payload::broadcast_project_for_id(
+                &app_handle,
+                &state,
+                &id,
+                Some(webview_window.label()),
+            )
+            .await;
             Ok(serde_json::json!({"status": "ok"}))
         }
         Err(e) => Ok(serde_json::json!({"error": e})),
@@ -190,7 +200,7 @@ pub(crate) async fn set_methylation(
     // mutation. Fall back to the window's project for older callers.
     let project_id = match project_id {
         Some(id) => id,
-        None => match resolve_project_id(&state, webview_window.label()).await {
+        None => match resolve_project_id(&state).await {
             Ok(id) => id,
             Err(e) => return Ok(serde_json::json!({"error": e})),
         },
@@ -199,7 +209,6 @@ pub(crate) async fn set_methylation(
     do_set_methylation(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
@@ -219,7 +228,7 @@ pub(crate) async fn set_topology(
 ) -> Result<serde_json::Value, String> {
     let project_id = match project_id {
         Some(id) => id,
-        None => match resolve_project_id(&state, webview_window.label()).await {
+        None => match resolve_project_id(&state).await {
             Ok(id) => id,
             Err(e) => return Ok(serde_json::json!({"error": e})),
         },
@@ -228,7 +237,6 @@ pub(crate) async fn set_topology(
     do_set_topology(
         &app_handle,
         &state.pm,
-        &state.window_projects,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
