@@ -16,7 +16,7 @@ export default function AlignmentNavigator({ show, continuous, onJump }) {
         type="button"
         title="Previous alignment marker"
         onClick={() => onJump(-1)}
-        className="rounded-t-full py-2 pl-2.5 pr-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
+        className="rounded-t-full px-2 py-2 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
       >
         <ChevronUp className="mx-auto size-4" strokeWidth={2.25} />
       </button>
@@ -25,7 +25,7 @@ export default function AlignmentNavigator({ show, continuous, onJump }) {
         type="button"
         title="Next alignment marker"
         onClick={() => onJump(1)}
-        className="rounded-b-full py-2 pl-1.5 pr-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
+        className="rounded-b-full px-2 py-2 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
       >
         <ChevronDown className="mx-auto size-4" strokeWidth={2.25} />
       </button>
