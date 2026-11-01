@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { collectAnnotations, parseMetaFromPasteEvent } from '../clipboardAnnotations';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  collectAnnotations,
+  parseMetaFromPasteEvent,
+  writePlainClipboard,
+} from '../clipboardAnnotations';
 
 function fakePasteEvent(payload) {
   return {
@@ -132,5 +136,39 @@ describe('parseMetaFromPasteEvent (forged-flavor hardening)', () => {
   it('returns null when flavor absent', () => {
     const e = { clipboardData: { getData: () => '' } };
     expect(parseMetaFromPasteEvent(e)).toBeNull();
+  });
+
+  it('preserves valid GenBank qualifiers and filters malformed entries', () => {
+    const base = validMeta();
+    base.features[0].qualifiers = [
+      ['gene', 'example'],
+      ['product', 'Example protein'],
+      ['bad-key', 'discarded'],
+      ['too_short'],
+    ];
+    const parsed = parseMetaFromPasteEvent(fakePasteEvent(base));
+    expect(parsed.features[0].qualifiers).toEqual([
+      ['gene', 'example'],
+      ['product', 'Example protein'],
+    ]);
+  });
+
+  it('clears stale annotation metadata on plain-text copies', async () => {
+    const values = new Map();
+    vi.stubGlobal('localStorage', {
+      setItem: (key, value) => values.set(key, value),
+      getItem: (key) => values.get(key) ?? null,
+      removeItem: (key) => values.delete(key),
+    });
+    try {
+      localStorage.setItem(
+        'clipboardAnnotations',
+        JSON.stringify({ text: 'ACGT', meta: validMeta() }),
+      );
+      await writePlainClipboard('TTTT');
+      expect(localStorage.getItem('clipboardAnnotations')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

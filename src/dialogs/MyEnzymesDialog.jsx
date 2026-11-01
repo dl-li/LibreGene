@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { X, Copy, Check, FileDown, Plus, FileUp, Trash2 } from 'lucide-react';
 import { parseEnzymeText, exportEnzymeText } from '../myEnzymes';
 import { saveTextDialog, writeTextFile } from '../tauriApi';
+import { writePlainClipboard } from '../clipboardAnnotations';
 
 export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onChange }) {
   const [importText, setImportText] = useState('');
@@ -36,7 +37,7 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
   }, [importText, handleAddParsed]);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(exportEnzymeText(enzymes)).then(() => {
+    writePlainClipboard(exportEnzymeText(enzymes)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });

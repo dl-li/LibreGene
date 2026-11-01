@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Copy, Check } from 'lucide-react';
+import { writePlainClipboard } from '../clipboardAnnotations';
 
 const DIR_COLORS = { fwd: '#166534', rev: '#4A148C' };
 const MAX_SEQ_DISPLAY = 30;
@@ -15,7 +16,7 @@ function truncateSeq(seq) {
 function CopyCell({ text, mono }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
+    writePlainClipboard(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });

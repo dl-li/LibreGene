@@ -15,6 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { Bot, Check, ChevronDown, ChevronRight, Copy, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getMcpToken, regenerateMcpToken } from '@/tauriApi';
+import { writePlainClipboard } from '../clipboardAnnotations';
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -25,7 +26,7 @@ function CopyButton({ text }) {
       className="size-6 shrink-0"
       title="Copy"
       onClick={() => {
-        navigator.clipboard.writeText(text).catch(() => {});
+        writePlainClipboard(text).catch(() => {});
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}

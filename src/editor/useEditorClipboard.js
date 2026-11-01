@@ -6,6 +6,7 @@ import {
   parseMetaFromPasteEvent,
   readClipboardMeta,
   writeAnnotatedClipboard,
+  writePlainClipboard,
 } from '../clipboardAnnotations';
 
 export default function useEditorClipboard({
@@ -29,7 +30,7 @@ export default function useEditorClipboard({
   topology,
 }) {
   const writeClipboard = useCallback((text) => {
-    if (text) navigator.clipboard.writeText(text).catch(() => {});
+    if (text) writePlainClipboard(text).catch(() => {});
   }, []);
 
   const copySelection = useCallback(

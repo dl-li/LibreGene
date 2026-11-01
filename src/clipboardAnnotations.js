@@ -89,7 +89,21 @@ export function revCompClipboardMeta(meta) {
   return { ...meta, features };
 }
 
+let clipboardWriteGeneration = 0;
+
+export async function writePlainClipboard(text) {
+  clipboardWriteGeneration += 1;
+  localStorage.removeItem(STORAGE_KEY);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // ignore
+  }
+}
+
 export async function writeAnnotatedClipboard(text, meta) {
+  const generation = ++clipboardWriteGeneration;
+  localStorage.removeItem(STORAGE_KEY);
   if (meta) {
     try {
       await navigator.clipboard.write([
@@ -100,17 +114,21 @@ export async function writeAnnotatedClipboard(text, meta) {
           }),
         }),
       ]);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, meta }));
+      if (generation === clipboardWriteGeneration) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, meta }));
+      }
       return;
     } catch {
-      // fall through to writeText
+      if (generation !== clipboardWriteGeneration) return;
     }
   }
+  if (generation !== clipboardWriteGeneration) return;
   try {
     await navigator.clipboard.writeText(text);
   } catch {
     // ignore
   }
+  if (generation !== clipboardWriteGeneration) return;
   if (meta) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, meta }));
   } else {
@@ -188,6 +206,18 @@ function sanitizePastedMeta(meta) {
   if (rawPrimers && rawPrimers.length > MAX_PASTE_PRIMERS) return null;
 
   const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : null);
+  const sanitizeQualifiers = (value) => {
+    if (!Array.isArray(value)) return [];
+    const out = [];
+    for (const entry of value.slice(0, 64)) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue;
+      const [key, val] = entry;
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) continue;
+      const text = str(val, 4000);
+      if (text !== null) out.push([key, text]);
+    }
+    return out;
+  };
 
   const features = [];
   if (rawFeatures) {
@@ -220,6 +250,7 @@ function sanitizePastedMeta(meta) {
         color: /^#[0-9a-fA-F]{3,8}$/.test(String(f.color)) ? f.color : null,
         strand: ['+', '-', '.'].includes(f.strand) ? f.strand : '.',
         notes: str(f.notes, 4000) ?? '',
+        qualifiers: sanitizeQualifiers(f.qualifiers),
         segments,
       });
     }

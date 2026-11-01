@@ -59,7 +59,11 @@ import FoldWatermark from './editor/FoldWatermark';
 import SelectionLengthBadge from './editor/SelectionLengthBadge';
 import useEditorClipboard from './editor/useEditorClipboard';
 import { showContextMenu } from './contextMenu';
-import { collectAnnotations, writeAnnotatedClipboard } from './clipboardAnnotations';
+import {
+  collectAnnotations,
+  writeAnnotatedClipboard,
+  writePlainClipboard,
+} from './clipboardAnnotations';
 import {
   Check,
   Copy,
@@ -1719,7 +1723,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
                 cleanSeq.substring(0, revPrimer.matchStart);
             }
             const amplimer = fSeq + intervening + reverseComplement(rSeq);
-            navigator.clipboard.writeText(amplimer).catch(() => {});
+            writePlainClipboard(amplimer).catch(() => {});
           }
           return;
         }
@@ -1728,7 +1732,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
           if (p) {
             const seq = p.primerSeq || matchedSeqOf(p, cleanSeq);
-            navigator.clipboard.writeText(seq).catch(() => {});
+            writePlainClipboard(seq).catch(() => {});
           }
           return;
         }

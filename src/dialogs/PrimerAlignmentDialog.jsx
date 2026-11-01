@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { monoFont } from '../editorConstants';
 import { computePrimerAlignment } from '../tauriApi';
+import { writePlainClipboard } from '../clipboardAnnotations';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
 /* Reverse complement (preserves case, supports IUPAC degenerate bases) */
@@ -190,7 +191,7 @@ export function OtherBindingSites({ sites }) {
 function CopyBtn({ text }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
+    writePlainClipboard(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
