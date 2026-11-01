@@ -257,7 +257,7 @@ export default function PrimerAlignmentDialog({
         setData(alignmentData);
       } else {
         setData(null);
-        computePrimerAlignment(primer.id, seedLength, undefined, undefined, tmParams, projectId)
+        computePrimerAlignment(projectId, primer.id, seedLength, undefined, undefined, tmParams)
           .then(setData)
           .catch(() => {});
       }
@@ -331,14 +331,14 @@ export default function PrimerAlignmentDialog({
       setPreview({ data: null, loading: true, error: null });
       try {
         const result = isNewPrimer
-          ? await computePrimerAlignment(null, seedLength, editSeq, editName, tmParams, projectId)
+          ? await computePrimerAlignment(projectId, null, seedLength, editSeq, editName, tmParams)
           : await computePrimerAlignment(
+              projectId,
               primer.id,
               seedLength,
               editSeq,
               undefined,
               tmParams,
-              projectId,
             );
         if (key === autoPreviewKey.current) {
           setPreview({ data: result, loading: false, error: null });

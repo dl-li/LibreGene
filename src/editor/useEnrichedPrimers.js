@@ -115,12 +115,12 @@ export default function useEnrichedPrimers({
         const results = await Promise.allSettled(
           batch.map((p) =>
             computePrimerAlignment(
+              projectId,
               p.id,
               primerSeedLength,
               undefined,
               undefined,
               tmParams,
-              projectId,
             ),
           ),
         );

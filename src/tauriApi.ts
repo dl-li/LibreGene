@@ -272,12 +272,12 @@ export async function checkPrimersBinding(projectId, primers) {
 }
 
 export async function computePrimerAlignment(
+  projectId: string,
   primerId: string | null,
   seedLength?: number,
   customSeq?: string,
   customName?: string,
   tmParams: TmParams = {},
-  projectId: string,
 ): Promise<PrimerAlignmentResult> {
   return tauriInvoke('compute_primer_alignment', {
     primerId: primerId || null,
