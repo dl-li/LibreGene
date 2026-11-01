@@ -5,8 +5,9 @@ export default function AlignmentNavigator({ show, continuous, onJump }) {
   if (!show || continuous) return null;
   return (
     <div
-      className="nav-bar-enter fixed right-7 top-1/2 z-40 flex -translate-y-1/2 flex-col items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
+      className="nav-bar-enter fixed right-7 top-1/2 z-40 flex flex-col items-stretch overflow-hidden rounded-full border border-border/60 bg-background/70 shadow-md backdrop-blur-md transition-shadow duration-200 hover:shadow-lg"
       style={{
+        transform: 'translateY(-50%)',
         '--align-hilite': BASE_HILITE_BG,
         '--align-hilite-soft': `${BASE_HILITE_BG}99`,
       }}
