@@ -29,4 +29,17 @@ describe('MsaEditor', () => {
     expect(html).toContain('>--</text>');
     expect(html.match(/<text/g)?.length).toBeGreaterThan(10);
   });
+
+  it('supports black residue coloring', () => {
+    const html = renderToString(
+      React.createElement(MsaEditor, {
+        rows,
+        aligned: true,
+        moleculeType: 'dna',
+        colorMode: 'black',
+      }),
+    );
+    expect(html).toContain('fill="#111827"');
+    expect(html).not.toContain('fill="#15803d"');
+  });
 });

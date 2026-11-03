@@ -457,6 +457,7 @@ export default function MsaWorkspace({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="base">Residue colors</SelectItem>
+            <SelectItem value="black">Black residues</SelectItem>
             <SelectItem value="consensus">vs Consensus</SelectItem>
             <SelectItem value="reference" disabled={!referenceRowId}>
               vs Reference

@@ -273,6 +273,7 @@ export default function MsaEditor({
 
   const styleFor = useCallback(
     (c, col) => {
+      if (colorMode === 'black') return { color: '#111827', background: null };
       if (comparisonTarget && c !== '-') {
         const matches = comparisonTarget[col] === c;
         return {
@@ -282,15 +283,15 @@ export default function MsaEditor({
       }
       return { color: baseColor(c, moleculeType), background: null };
     },
-    [comparisonTarget, moleculeType],
+    [comparisonTarget, moleculeType, colorMode],
   );
 
   const consensusStyle = useCallback(
     (c, col) => ({
-      color: baseColor(c, moleculeType),
+      color: colorMode === 'black' ? '#111827' : baseColor(c, moleculeType),
       background: `rgba(15, 118, 110, ${Math.min(0.2, (consensus.conservation[col] || 0) * 0.2)})`,
     }),
-    [moleculeType, consensus.conservation],
+    [moleculeType, consensus.conservation, colorMode],
   );
 
   const handleScroll = useCallback((event) => {
