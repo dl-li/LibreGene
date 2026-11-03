@@ -5,7 +5,6 @@ const CW = 10;
 const ROW_H = 24;
 const LABEL_W = 176;
 const RULER_H = 24;
-const BLOCK_GAP = 24;
 
 const DNA_COLORS = {
   A: '#15803d',
@@ -231,7 +230,6 @@ export default function MsaEditor({
   rows,
   aligned,
   moleculeType,
-  viewMode,
   referenceRowId,
   colorMode,
   selection,
@@ -264,7 +262,7 @@ export default function MsaEditor({
   useEffect(() => {
     setScroll({ top: 0, left: 0 });
     scrollRef.current?.scrollTo({ top: 0, left: 0 });
-  }, [viewMode, rows.length, aligned]);
+  }, [rows.length, aligned]);
 
   const comparisonTarget =
     colorMode === 'reference' && referenceIndex >= 0
@@ -290,69 +288,6 @@ export default function MsaEditor({
     color: baseColor(c, moleculeType),
     background: `rgba(15, 118, 110, ${Math.min(0.2, (consensus.conservation[col] || 0) * 0.2)})`,
   });
-
-  if (viewMode === 'wrap') {
-    const cpl = Math.max(10, Math.min(160, Math.floor((width - LABEL_W - 36) / CW)));
-    const blockCount = Math.max(1, Math.ceil(columnCount / cpl));
-    const blockHeight = (rows.length + 3) * ROW_H + BLOCK_GAP;
-    const firstBlock = Math.max(0, Math.floor(scroll.top / blockHeight) - 1);
-    const lastBlock = Math.min(
-      blockCount - 1,
-      Math.ceil((scroll.top + (containerRef.current?.clientHeight || 700)) / blockHeight) + 1,
-    );
-    const blocks = [];
-    for (let block = firstBlock; block <= lastBlock; block++) {
-      const startCol = block * cpl;
-      const endCol = Math.min(columnCount - 1, startCol + cpl - 1);
-      blocks.push(
-        <div
-          key={block}
-          className="absolute left-0 right-0"
-          style={{ top: block * blockHeight, height: blockHeight }}
-        >
-          <Ruler startCol={startCol} endCol={endCol} />
-          {rows.map((row, rowIndex) => (
-            <SequenceLine
-              key={row.id}
-              sequence={sequences[rowIndex]}
-              startCol={startCol}
-              endCol={endCol}
-              label={row.name}
-              rowIndex={rowIndex}
-              selection={selection}
-              onSelect={onSelectionChange}
-              styleFor={styleForRow(rowIndex)}
-              reference={row.id === referenceRowId}
-            />
-          ))}
-          <SequenceLine
-            sequence={consensus.sequence}
-            startCol={startCol}
-            endCol={endCol}
-            label="Consensus"
-            rowIndex={-1}
-            styleFor={consensusStyle}
-          />
-          <ConservationLine values={consensus.conservation} startCol={startCol} endCol={endCol} />
-        </div>,
-      );
-    }
-    return (
-      <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">
-        <div
-          ref={scrollRef}
-          className="h-full overflow-auto overscroll-contain"
-          onScroll={(event) =>
-            setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })
-          }
-        >
-          <div className="relative" style={{ height: blockCount * blockHeight }}>
-            {blocks}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const visibleStartCol = Math.max(0, Math.floor(scroll.left / CW) - 8);
   const visibleEndCol = Math.min(columnCount - 1, Math.ceil((scroll.left + width) / CW) + 8);

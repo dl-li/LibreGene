@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
-  Columns2,
   Copy,
   Download,
   FilePlus2,
-  Grid2X2,
   LoaderCircle,
   Redo2,
   Rows3,
@@ -65,8 +63,6 @@ export default function MsaWorkspace({
   projectName,
   initialData,
   hidden,
-  viewMode,
-  onViewModeChange,
   agentLocked,
   onDirtyChange,
   registerHandle,
@@ -460,26 +456,6 @@ export default function MsaWorkspace({
             </SelectItem>
           </SelectContent>
         </Select>
-        <div className="flex rounded-md border border-border/60 p-0.5">
-          <Button
-            size="icon"
-            variant={viewMode === 'wrap' ? 'secondary' : 'ghost'}
-            className="size-7"
-            title="Vertical (Wrap)"
-            onClick={() => onViewModeChange('wrap')}
-          >
-            <Grid2X2 className="size-4" />
-          </Button>
-          <Button
-            size="icon"
-            variant={viewMode === 'continuous' ? 'secondary' : 'ghost'}
-            className="size-7"
-            title="Horizontal (Continuous)"
-            onClick={() => onViewModeChange('continuous')}
-          >
-            <Columns2 className="size-4" />
-          </Button>
-        </div>
         <div className="ml-auto flex items-center gap-1">
           <Button
             size="icon"
@@ -552,7 +528,6 @@ export default function MsaWorkspace({
           rows={visibleRows}
           aligned={aligned}
           moleculeType={moleculeType}
-          viewMode={viewMode}
           referenceRowId={referenceRowId}
           colorMode={colorMode}
           selection={selection}
