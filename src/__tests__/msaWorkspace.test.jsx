@@ -23,5 +23,6 @@ describe('MsaWorkspace layout', () => {
       }),
     );
     expect(html).toContain('padding-left:48px');
+    expect(html).toContain('title="Save options"');
   });
 });

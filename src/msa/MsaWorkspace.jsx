@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
+  ChevronDown,
   Copy,
   Download,
   FilePlus2,
@@ -12,6 +13,12 @@ import {
   Undo2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -487,12 +494,29 @@ export default function MsaWorkspace({
           >
             <Copy className="size-4" />
           </Button>
-          <Button size="sm" variant="outline" onClick={handleExport}>
-            <Download className="size-4" /> Ungapped
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleSave}>
-            <Save className="size-4" /> Save
-          </Button>
+          <div className="flex items-center">
+            <Button size="sm" variant="outline" className="rounded-r-none" onClick={handleSave}>
+              <Save className="size-4" /> Save
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-8 rounded-l-none border-l-0 px-0"
+                  title="Save options"
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={handleSaveAs}>Save As…</DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleExport}>
+                  <Download /> Export Ungapped FASTA
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
