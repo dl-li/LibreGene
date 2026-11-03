@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeConsensus, rowDisplaySequence } from './msaAnalysis';
 
 const CW = 10;
@@ -271,8 +271,8 @@ export default function MsaEditor({
         ? consensus.sequence
         : null;
 
-  const styleForRow = () => {
-    return (c, col) => {
+  const styleFor = useCallback(
+    (c, col) => {
       if (comparisonTarget && c !== '-') {
         const matches = comparisonTarget[col] === c;
         return {
@@ -281,13 +281,31 @@ export default function MsaEditor({
         };
       }
       return { color: baseColor(c, moleculeType), background: null };
-    };
-  };
+    },
+    [comparisonTarget, moleculeType],
+  );
 
-  const consensusStyle = (c, col) => ({
-    color: baseColor(c, moleculeType),
-    background: `rgba(15, 118, 110, ${Math.min(0.2, (consensus.conservation[col] || 0) * 0.2)})`,
-  });
+  const consensusStyle = useCallback(
+    (c, col) => ({
+      color: baseColor(c, moleculeType),
+      background: `rgba(15, 118, 110, ${Math.min(0.2, (consensus.conservation[col] || 0) * 0.2)})`,
+    }),
+    [moleculeType, consensus.conservation],
+  );
+
+  const handleScroll = useCallback((event) => {
+    const left = event.currentTarget.scrollLeft;
+    const top = event.currentTarget.scrollTop;
+    setScroll((previous) => {
+      if (
+        Math.floor(previous.left / CW) === Math.floor(left / CW) &&
+        Math.floor(previous.top / ROW_H) === Math.floor(top / ROW_H)
+      ) {
+        return previous;
+      }
+      return { left, top };
+    });
+  }, []);
 
   const visibleStartCol = Math.max(0, Math.floor(scroll.left / CW) - 8);
   const visibleEndCol = Math.min(columnCount - 1, Math.ceil((scroll.left + width) / CW) + 8);
@@ -304,9 +322,7 @@ export default function MsaEditor({
       <div
         ref={scrollRef}
         className="h-full overflow-auto overscroll-contain"
-        onScroll={(event) =>
-          setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })
-        }
+        onScroll={handleScroll}
       >
         <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
           <div className="sticky top-0 z-30 bg-background">
@@ -328,7 +344,7 @@ export default function MsaEditor({
                   rowIndex={rowIndex}
                   selection={selection}
                   onSelect={onSelectionChange}
-                  styleFor={styleForRow(rowIndex)}
+                  styleFor={styleFor}
                   stickyLabel
                   reference={row.id === referenceRowId}
                 />
