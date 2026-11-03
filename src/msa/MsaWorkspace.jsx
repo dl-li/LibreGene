@@ -72,6 +72,7 @@ export default function MsaWorkspace({
   registerHandle,
   onProjectsSync,
   onRekey,
+  leftViewportInset = 0,
 }) {
   const [rows, setRows] = useState(initialData?.msaRows || []);
   const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
@@ -404,7 +405,10 @@ export default function MsaWorkspace({
   const canRedo = historyVersion >= 0 && history.index < history.stack.length - 1;
 
   return (
-    <main className={hidden ? 'hidden' : 'flex h-full min-h-0 w-full flex-col bg-background'}>
+    <main
+      className={hidden ? 'hidden' : 'flex h-full min-h-0 w-full flex-col bg-background'}
+      style={{ paddingLeft: leftViewportInset }}
+    >
       <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-2">
         <Button size="sm" onClick={handleAlign} disabled={busy || agentLocked || !rows.length}>
           {busy ? (
