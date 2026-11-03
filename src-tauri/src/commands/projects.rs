@@ -69,9 +69,12 @@ pub(crate) async fn open_file(
 
 /// Lightweight scan of a FASTA file's records (name + length only) so the
 /// frontend can offer to split a multi-record file into separate projects
-/// before opening it.
+/// before opening it. MSA-suffixed FASTA always opens directly as an MSA.
 #[tauri::command]
 pub(crate) async fn peek_fasta_records(path: String) -> Result<serde_json::Value, String> {
+    if file_io::fasta::is_msa_fasta_path(std::path::Path::new(&path)) {
+        return Ok(serde_json::json!({"records": []}));
+    }
     let ext = validate_user_path(&path, SEQ_EXTS)?;
     if !matches!(
         ext.as_str(),
@@ -360,6 +363,20 @@ mod tests {
     use libregene_core::project::ProjectManager;
     use tauri::Manager;
     use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn msa_fasta_peek_never_offers_record_splitting() {
+        let path = std::env::temp_dir().join(format!(
+            "libregene-msa-peek-{}.msa.fa",
+            std::process::id()
+        ));
+        std::fs::write(&path, ">a\nACGT\n>b\nAC-GT\n").unwrap();
+        let result = peek_fasta_records(path.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert_eq!(result["records"].as_array().unwrap().len(), 0);
+        std::fs::remove_file(&path).ok();
+    }
 
     #[tokio::test]
     async fn background_project_save_uses_requested_id_not_active_project() {
