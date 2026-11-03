@@ -26,9 +26,12 @@ describe('MsaEditor', () => {
     expect(html).toContain('REF');
     expect(html).toContain('Consensus');
     expect(html).toContain('Conservation');
-    expect(html).toContain('>--</text>');
-    expect(html).toContain('textLength="10"');
-    expect(html).toContain('lengthAdjust="spacing"');
+    expect(html).toContain('>-</tspan>');
+    expect(html).toContain('text-anchor="middle"');
+    expect(html).toContain('<tspan x="5">A</tspan>');
+    expect(html).toContain('<tspan x="15">C</tspan>');
+    expect(html).not.toContain('textLength');
+    expect(html).not.toContain('lengthAdjust');
     expect(html).not.toContain('letterSpacing');
     expect(html.match(/<text/g)?.length).toBeGreaterThan(10);
   });

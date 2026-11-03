@@ -156,14 +156,15 @@ const SequenceLine = React.memo(function SequenceLine({
                 fill={run.background}
               />
             )}
-            <text
-              x={(run.startCol - startCol) * CW}
-              y={16}
-              fill={run.color}
-              textLength={(run.endCol - run.startCol + 1) * CW}
-              lengthAdjust="spacing"
-            >
-              {run.text}
+            <text y={16} fill={run.color} textAnchor="middle">
+              {[...run.text].map((c, index) => (
+                <tspan
+                  key={run.startCol + index}
+                  x={(run.startCol + index - startCol) * CW + CW / 2}
+                >
+                  {c}
+                </tspan>
+              ))}
             </text>
           </g>
         ))}
