@@ -196,7 +196,7 @@ export function MsaSequencesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[80vh] sm:max-w-2xl">
+      <DialogContent className="flex flex-col max-h-[80vh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Sequences</DialogTitle>
           <DialogDescription>
@@ -304,7 +304,7 @@ export function PairwiseStatsDialog({ open, onOpenChange, rows, aligned, molecul
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-[90vw] sm:max-w-4xl">
+      <DialogContent className="flex flex-col max-h-[85vh] max-w-[90vw] sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Pairwise Sequence Statistics</DialogTitle>
           <DialogDescription>
