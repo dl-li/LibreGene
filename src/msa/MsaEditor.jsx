@@ -65,6 +65,9 @@ const SequenceLine = React.memo(function SequenceLine({
   styleFor,
   stickyLabel = false,
   reference = false,
+  hoverRow = -1,
+  hoverCol = -1,
+  onHover,
 }) {
   const runs = useMemo(
     () => buildRuns(sequence, startCol, endCol, styleFor),
@@ -98,7 +101,10 @@ const SequenceLine = React.memo(function SequenceLine({
         className={`top-0 z-10 flex h-6 items-center gap-1.5 border-r border-border/60 bg-background px-2 text-xs ${
           stickyLabel ? 'sticky left-0 float-left' : 'absolute left-0'
         }`}
-        style={{ width: LABEL_W }}
+        style={{
+          width: LABEL_W,
+          backgroundColor: hoverRow >= 0 && hoverRow === rowIndex ? '#f1f5f9' : undefined,
+        }}
         title={label}
       >
         <span className="truncate font-medium text-foreground/80">{label}</span>
@@ -117,9 +123,28 @@ const SequenceLine = React.memo(function SequenceLine({
           onSelect(rowIndex, columnAt(event), false);
         }}
         onMouseEnter={(event) => {
+          onHover?.(rowIndex, columnAt(event));
           if (onSelect && (event.buttons & 1) === 1) onSelect(rowIndex, columnAt(event), true);
         }}
+        onMouseMove={(event) => {
+          onHover?.(rowIndex, columnAt(event));
+          if (onSelect && (event.buttons & 1) === 1) onSelect(rowIndex, columnAt(event), true);
+        }}
+        onMouseLeave={() => onHover?.(-1, -1)}
       >
+        {hoverRow >= 0 && hoverRow === rowIndex && (
+          <rect x={0} y={0} width={width} height={ROW_H} fill="#f1f5f9" pointerEvents="none" />
+        )}
+        {hoverCol >= startCol && hoverCol <= endCol && (
+          <rect
+            x={(hoverCol - startCol) * CW}
+            y={0}
+            width={CW}
+            height={ROW_H}
+            fill="#e2e8f0"
+            pointerEvents="none"
+          />
+        )}
         {runs.map((run) => (
           <g key={`${run.startCol}-${run.endCol}`}>
             {run.background && (
@@ -240,6 +265,12 @@ export default function MsaEditor({
   const scrollRef = useRef(null);
   const [width, setWidth] = useState(1000);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  const [hover, setHover] = useState({ row: -1, col: -1 });
+  const handleHover = useCallback((row, col) => {
+    setHover((previous) =>
+      previous.row === row && previous.col === col ? previous : { row, col },
+    );
+  }, []);
   const sequences = useMemo(
     () => rows.map((row) => rowDisplaySequence(row, aligned)),
     [rows, aligned],
@@ -348,6 +379,9 @@ export default function MsaEditor({
                   styleFor={styleFor}
                   stickyLabel
                   reference={row.id === referenceRowId}
+                  hoverRow={hover.row}
+                  hoverCol={hover.col}
+                  onHover={handleHover}
                 />
               </div>
             );
@@ -364,6 +398,8 @@ export default function MsaEditor({
               rowIndex={-1}
               styleFor={consensusStyle}
               stickyLabel
+              hoverCol={hover.col}
+              onHover={handleHover}
             />
           </div>
           <div
