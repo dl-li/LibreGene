@@ -862,6 +862,7 @@ export default function App() {
                     hidden={p.id !== activeId}
                     initialData={initialDataRef.current[p.id]}
                     agentLocked={agentTabs[p.id] === true}
+                    leftViewportInset={48}
                     {...workspaceProps}
                   />
                 ) : (
