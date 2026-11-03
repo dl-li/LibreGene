@@ -157,10 +157,11 @@ const SequenceLine = React.memo(function SequenceLine({
               />
             )}
             <text
-              x={(run.startCol - startCol) * CW + 1}
+              x={(run.startCol - startCol) * CW}
               y={16}
               fill={run.color}
-              style={{ letterSpacing: `${CW - 7.2}px` }}
+              textLength={(run.endCol - run.startCol + 1) * CW}
+              lengthAdjust="spacing"
             >
               {run.text}
             </text>

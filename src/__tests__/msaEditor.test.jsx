@@ -27,6 +27,9 @@ describe('MsaEditor', () => {
     expect(html).toContain('Consensus');
     expect(html).toContain('Conservation');
     expect(html).toContain('>--</text>');
+    expect(html).toContain('textLength="10"');
+    expect(html).toContain('lengthAdjust="spacing"');
+    expect(html).not.toContain('letterSpacing');
     expect(html.match(/<text/g)?.length).toBeGreaterThan(10);
   });
 
