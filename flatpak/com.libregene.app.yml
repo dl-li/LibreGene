@@ -19,6 +19,7 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 LibreGene /app/bin/LibreGene
+      - install -Dm755 muscle /app/bin/muscle
       - install -Dm644 com.libregene.app.desktop /app/share/applications/com.libregene.app.desktop
       - install -Dm644 com.libregene.app.xml /app/share/mime/packages/com.libregene.app.xml
       - install -Dm644 icon-32.png /app/share/icons/hicolor/32x32/apps/com.libregene.app.png
@@ -27,6 +28,14 @@ modules:
     sources:
       - type: file
         path: ../src-tauri/target/release/LibreGene
+      - type: file
+        path: ../src-tauri/binaries/muscle-x86_64-unknown-linux-gnu
+        dest-filename: muscle
+        only-arches: [x86_64]
+      - type: file
+        path: ../src-tauri/binaries/muscle-aarch64-unknown-linux-gnu
+        dest-filename: muscle
+        only-arches: [aarch64]
       - type: file
         path: com.libregene.app.desktop
       - type: file

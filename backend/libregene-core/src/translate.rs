@@ -190,6 +190,10 @@ mod tests {
             length: 9,
             topology: "circular".to_string(),
             molecule_type: "dna".to_string(),
+            project_kind: "sequence".to_string(),
+            msa_rows: Vec::new(),
+            msa_aligned: false,
+            reference_row_id: None,
             features: vec![
                 Feature {
                     ftype: "CDS".to_string(),
@@ -238,6 +242,10 @@ mod tests {
             length: 9,
             topology: "circular".to_string(),
             molecule_type: "dna".to_string(),
+            project_kind: "sequence".to_string(),
+            msa_rows: Vec::new(),
+            msa_aligned: false,
+            reference_row_id: None,
             features: vec![Feature {
                 ftype: "CDS".to_string(),
                 translation: "MXX".to_string(),
@@ -270,6 +278,10 @@ mod tests {
             length: 9,
             topology: "circular".to_string(),
             molecule_type: "dna".to_string(),
+            project_kind: "sequence".to_string(),
+            msa_rows: Vec::new(),
+            msa_aligned: false,
+            reference_row_id: None,
             features: vec![Feature {
                 ftype: "CDS".to_string(),
                 translation: String::new(),
@@ -301,6 +313,10 @@ mod tests {
             length: 3,
             topology: "linear".to_string(),
             molecule_type: "protein".to_string(),
+            project_kind: "sequence".to_string(),
+            msa_rows: Vec::new(),
+            msa_aligned: false,
+            reference_row_id: None,
             features: vec![Feature {
                 ftype: "CDS".to_string(),
                 translation: "keep".to_string(),

@@ -158,7 +158,7 @@ pub(crate) async fn save_file(
     .await
 }
 
-async fn save_file_impl<R: tauri::Runtime>(
+pub(crate) async fn save_file_impl<R: tauri::Runtime>(
     app_handle: AppHandle<R>,
     state: State<'_, AppState>,
     project_id: String,

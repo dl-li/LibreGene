@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   openFile,
+  openMsaFasta,
   peekFastaRecords,
   createProject,
+  createMsaProject,
   openSnapgeneSnapshot,
   isTauri,
   openFileDialog,
@@ -15,6 +17,7 @@ import {
 } from './tauriApi';
 import { plugins, pluginAvailable } from './plugins';
 import ProjectWorkspace from './ProjectWorkspace';
+import MsaWorkspace from './msa/MsaWorkspace';
 import ProjectSidebar from './components/ProjectSidebar';
 import SettingsPage from './components/SettingsPage';
 import TitleBar from './components/TitleBar';
@@ -29,7 +32,7 @@ import { useWheelContainment } from './hooks/useWheelContainment';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { FolderOpen, FilePlus2, Bot, Lock } from 'lucide-react';
+import { FolderOpen, FilePlus2, Bot, Lock, Grid2X2 } from 'lucide-react';
 import {
   getRecentFiles,
   addRecentFile,
@@ -40,6 +43,14 @@ import {
 } from './recentFiles';
 import { getMyPrimers } from './myPrimers';
 import { getMyEnzymes } from './myEnzymes';
+
+function isOpenedProjectData(data) {
+  return !!data && (data.projectKind === 'msa' ? data.msaRows?.length > 0 : !!data.sequence);
+}
+
+function isMsaFastaPath(path) {
+  return /\.msa\.fasta?$/i.test(path || '');
+}
 
 export default function App() {
   const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
@@ -139,6 +150,7 @@ export default function App() {
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [newSeqOpen, setNewSeqOpen] = useState(false);
+  const [newMsaOpen, setNewMsaOpen] = useState(false);
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
   const unsavedPendingRef = useRef(null);
   // Drag-drop: { paths } when the user must pick alignment-vs-open, and
@@ -327,7 +339,13 @@ export default function App() {
       // record (historical behavior).
       try {
         const peek = await peekFastaRecords(p);
-        if (peek && peek.records && peek.records.length > 1 && !splitPending) {
+        if (
+          !isMsaFastaPath(p) &&
+          peek &&
+          peek.records &&
+          peek.records.length > 1 &&
+          !splitPending
+        ) {
           splitPending = { path: p, records: peek.records };
           continue;
         }
@@ -336,7 +354,7 @@ export default function App() {
       }
       try {
         const data = await openFile(p);
-        if (data && data.sequence) {
+        if (isOpenedProjectData(data)) {
           // Hand the response to the new workspace so it doesn't refetch
           initialDataRef.current[data.id || p] = data;
           setRecentFiles(addRecentFile(p));
@@ -359,13 +377,28 @@ export default function App() {
       const target = fastaSplit;
       setFastaSplit(null);
       if (!target || !choice) return;
+      if (choice === 'msa') {
+        try {
+          const data = await openMsaFasta(target.path);
+          if (isOpenedProjectData(data)) {
+            initialDataRef.current[data.id || target.path] = data;
+            setRecentFiles(addRecentFile(target.path));
+          } else {
+            setOpenError([{ path: target.path, error: data?.error || 'Failed to open MSA' }]);
+          }
+        } catch (e) {
+          setOpenError([{ path: target.path, error: e?.message || String(e) }]);
+        }
+        await refreshProjects();
+        return;
+      }
       const indices = choice === 'split' ? target.records.map((_, i) => i) : [0];
       const failed = [];
       setRecentFiles(addRecentFile(target.path));
       for (const i of indices) {
         try {
           const data = await openFile(target.path, i);
-          if (data && data.sequence) {
+          if (isOpenedProjectData(data)) {
             initialDataRef.current[data.id || `${target.path}#record-${i}`] = data;
           } else {
             failed.push({
@@ -392,7 +425,7 @@ export default function App() {
     async (payload) => {
       try {
         const data = await createProject(payload);
-        if (data && data.sequence && data.id) {
+        if (isOpenedProjectData(data) && data.id) {
           initialDataRef.current[data.id] = data;
           await refreshProjects();
           return { ok: true };
@@ -405,13 +438,43 @@ export default function App() {
     [refreshProjects],
   );
 
+  const handleCreateMsa = useCallback(
+    async (payload) => {
+      try {
+        const data = await createMsaProject(payload);
+        if (isOpenedProjectData(data) && data.id) {
+          initialDataRef.current[data.id] = data;
+          await refreshProjects();
+          return { ok: true };
+        }
+        return { ok: false, error: data?.error || 'Failed to create MSA' };
+      } catch (e) {
+        return { ok: false, error: e?.message || String(e) };
+      }
+    },
+    [refreshProjects],
+  );
+
+  const handleCreateMsaFromActive = useCallback(() => {
+    const source = projects.find((project) => project.id === activeId);
+    const handle = activeId ? handlesRef.current[activeId] : null;
+    const sequence = handle?.getSequence?.();
+    if (!source || !sequence) return { ok: false, error: 'No active sequence' };
+    const base = fileName(source).replace(/\.[^.]+$/, '');
+    return handleCreateMsa({
+      name: `${base} MSA`,
+      sequence,
+      moleculeType: source.moleculeType,
+    });
+  }, [activeId, projects, handlesRef, handleCreateMsa]);
+
   // Open a SnapGene history snapshot as a new in-memory project (Snapshots
   // dialog); the workspace mounts for the new id like handleCreateProject.
   const handleOpenSnapshot = useCallback(
     async (projectId, nodeId) => {
       try {
         const data = await openSnapgeneSnapshot(projectId, nodeId);
-        if (data && data.sequence && data.id) {
+        if (isOpenedProjectData(data) && data.id) {
           initialDataRef.current[data.id] = data;
           await refreshProjects();
           return { ok: true };
@@ -434,7 +497,7 @@ export default function App() {
       }
       try {
         const data = await openFile(path);
-        if (data && data.sequence) {
+        if (isOpenedProjectData(data)) {
           initialDataRef.current[data.id || path] = data;
           setRecentFiles(addRecentFile(path));
         }
@@ -467,7 +530,7 @@ export default function App() {
           return;
         }
         const data = await openFile(path);
-        if (data && data.sequence) {
+        if (isOpenedProjectData(data)) {
           initialDataRef.current[data.id || path] = data;
           setRecentFiles(addRecentFile(path));
         } else if (data && data.error) {
@@ -555,13 +618,16 @@ export default function App() {
   // While the active project's moleculeType is unknown (project list still
   // loading), hide type-gated entries instead of flashing DNA-only items.
   const moleculeTypeKnown = !activeId || !!activeProject;
-  const visiblePlugins = plugins.filter((plugin) =>
-    pluginAvailable(plugin, {
-      moleculeType: moleculeTypeKnown ? activeMoleculeType : null,
-      disabledPlugins,
-      isTauri,
-    }),
-  );
+  const visiblePlugins =
+    activeProject?.projectKind === 'msa'
+      ? []
+      : plugins.filter((plugin) =>
+          pluginAvailable(plugin, {
+            moleculeType: moleculeTypeKnown ? activeMoleculeType : null,
+            disabledPlugins,
+            isTauri,
+          }),
+        );
 
   // Files dragged onto the window: valid sequence files either attach to the
   // active DNA project as alignments (after confirmation) or open as new
@@ -654,6 +720,7 @@ export default function App() {
       registerHandle,
       onProjectsSync,
       onRekey,
+      onCreateMsa: handleCreateMsaFromActive,
       myPrimers,
       onMyPrimersChange: setMyPrimers,
       myEnzymes,
@@ -704,6 +771,7 @@ export default function App() {
       registerHandle,
       onProjectsSync,
       onRekey,
+      handleCreateMsaFromActive,
       myPrimers,
       myEnzymes,
       autoAddPrimers,
@@ -718,6 +786,7 @@ export default function App() {
       nativeTitleBar={isTauri && !/Mac/i.test(navigator.platform)}
       handleOpenFile={handleOpenFile}
       setNewSeqOpen={setNewSeqOpen}
+      setNewMsaOpen={setNewMsaOpen}
       sidebarScroll={sidebarScroll}
       setSidebarScroll={setSidebarScroll}
       sidebarContentRef={sidebarContentRef}
@@ -784,22 +853,32 @@ export default function App() {
           )}
           <div className="relative flex flex-1 min-h-0">
             {projects.length > 0 ? (
-              orderedProjects.map((p) => (
-                <ProjectWorkspace
-                  key={keyFor(p.id)}
-                  projectId={p.id}
-                  projectName={p.name}
-                  hidden={p.id !== activeId}
-                  initialData={initialDataRef.current[p.id]}
-                  topology={p.topology || 'circular'}
-                  moleculeType={p.moleculeType || 'dna'}
-                  agentLocked={agentTabs[p.id] === true}
-                  // Collapsed sidebar icon rail (3rem) overlays the left edge
-                  // of the main window's content.
-                  leftViewportInset={48}
-                  {...workspaceProps}
-                />
-              ))
+              orderedProjects.map((p) =>
+                p.projectKind === 'msa' ? (
+                  <MsaWorkspace
+                    key={keyFor(p.id)}
+                    projectId={p.id}
+                    projectName={p.name}
+                    hidden={p.id !== activeId}
+                    initialData={initialDataRef.current[p.id]}
+                    agentLocked={agentTabs[p.id] === true}
+                    {...workspaceProps}
+                  />
+                ) : (
+                  <ProjectWorkspace
+                    key={keyFor(p.id)}
+                    projectId={p.id}
+                    projectName={p.name}
+                    hidden={p.id !== activeId}
+                    initialData={initialDataRef.current[p.id]}
+                    topology={p.topology || 'circular'}
+                    moleculeType={p.moleculeType || 'dna'}
+                    agentLocked={agentTabs[p.id] === true}
+                    leftViewportInset={48}
+                    {...workspaceProps}
+                  />
+                ),
+              )
             ) : (
               <main className="w-full flex-1 overflow-y-auto overscroll-contain hide-scrollbar">
                 <div className="flex min-h-full flex-col items-center justify-center gap-5 p-6 text-center">
@@ -818,6 +897,7 @@ export default function App() {
                       '.gbff',
                       '.dna',
                       '.fasta',
+                      '.msa.fa',
                       '.faa',
                       '.ab1',
                       '.rna',
@@ -842,6 +922,10 @@ export default function App() {
                     <Button variant="outline" size="lg" onClick={() => setNewSeqOpen(true)}>
                       <FilePlus2 className="size-4" />
                       New Sequence
+                    </Button>
+                    <Button variant="outline" size="lg" onClick={() => setNewMsaOpen(true)}>
+                      <Grid2X2 className="size-4" />
+                      New MSA
                     </Button>
                   </div>
                   <button
@@ -895,6 +979,9 @@ export default function App() {
           newSeqOpen={newSeqOpen}
           setNewSeqOpen={setNewSeqOpen}
           onCreateProject={handleCreateProject}
+          newMsaOpen={newMsaOpen}
+          setNewMsaOpen={setNewMsaOpen}
+          onCreateMsa={handleCreateMsa}
           unsavedDialog={unsavedDialog}
           onUnsavedCancel={handleUnsavedCancel}
           onUnsavedDiscard={handleUnsavedDiscard}

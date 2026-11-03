@@ -1,0 +1,40 @@
+import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { renderToString } from 'react-dom/server';
+import MsaEditor from '../msa/MsaEditor';
+
+const rows = [
+  { id: 'a', name: 'alpha', description: '', sequence: 'ACGT', alignedSequence: 'AC-GT' },
+  { id: 'b', name: 'beta', description: '', sequence: 'AGT', alignedSequence: 'A--GT' },
+];
+
+function render(viewMode) {
+  return renderToString(
+    React.createElement(MsaEditor, {
+      rows,
+      aligned: true,
+      moleculeType: 'dna',
+      viewMode,
+      referenceRowId: 'b',
+      colorMode: 'consensus',
+      selection: { startRow: 0, endRow: 1, startCol: 1, endCol: 2 },
+      onSelectionChange: () => {},
+    }),
+  );
+}
+
+describe('MsaEditor', () => {
+  it.each(['wrap', 'continuous'])(
+    'renders rows, reference, consensus and conservation in %s mode',
+    (viewMode) => {
+      const html = render(viewMode);
+      expect(html).toContain('alpha');
+      expect(html).toContain('beta');
+      expect(html).toContain('REF');
+      expect(html).toContain('Consensus');
+      expect(html).toContain('Conservation');
+      expect(html).toContain('>--</text>');
+      expect(html.match(/<text/g)?.length).toBeGreaterThan(10);
+    },
+  );
+});

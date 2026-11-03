@@ -21,6 +21,10 @@ fn synthetic_project() -> ProjectData {
         trace_path: None,
         topology: "circular".to_string(),
         molecule_type: "dna".to_string(),
+        project_kind: "sequence".to_string(),
+        msa_rows: Vec::new(),
+        msa_aligned: false,
+        reference_row_id: None,
         features: vec![
             Feature {
                 id: "f1".into(),

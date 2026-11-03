@@ -64,6 +64,9 @@ pub fn parse_file_with_molecule_type(
     molecule_type: Option<&str>,
 ) -> io::Result<ProjectData> {
     ensure_within_size_limit(path)?;
+    if fasta::is_msa_fasta_path(path) {
+        return fasta::parse_msa_fasta(path);
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())

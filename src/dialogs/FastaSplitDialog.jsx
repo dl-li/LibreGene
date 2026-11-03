@@ -54,6 +54,9 @@ export default function FastaSplitDialog({ target, onChoice }) {
           <Button variant="outline" onClick={() => onChoice('first')}>
             Open First Only
           </Button>
+          <Button variant="outline" onClick={() => onChoice('msa')}>
+            Open as Alignment
+          </Button>
           <Button onClick={() => onChoice('split')}>Split All Records</Button>
         </DialogFooter>
       </DialogContent>
