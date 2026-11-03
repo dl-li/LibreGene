@@ -11,8 +11,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { fileNameOf } from '../recentFiles';
 
-// Shown when a multi-record FASTA is opened: split every record into its own
-// project, or open only the first record (the historical behavior).
+// Shown when a multi-record FASTA is opened: split records, open the first,
+// or open the collection as an MSA.
 export default function FastaSplitDialog({ target, onChoice }) {
   const records = target?.records || [];
   return (
@@ -45,7 +45,7 @@ export default function FastaSplitDialog({ target, onChoice }) {
             </li>
           ))}
         </ul>
-        <DialogFooter>
+        <DialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:space-x-0">
           <DialogClose asChild>
             <Button variant="outline" onClick={() => onChoice(null)}>
               Cancel
