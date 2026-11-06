@@ -1,5 +1,5 @@
 //! Melting temperature computation — delegates to the full
-//! SantaLucia 1998 nearest-neighbour model in [`thermodynamics`].
+//! SantaLucia 2004 nearest-neighbour model in [`thermodynamics`].
 //!
 //! This module is kept as a thin re-export so existing callers don't break.
 

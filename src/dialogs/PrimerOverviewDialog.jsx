@@ -107,7 +107,7 @@ export default function PrimerOverviewDialog({
                   Primary Site
                 </th>
                 <th className="text-left font-semibold py-2 pr-3">Dir</th>
-                <th className="text-left font-semibold py-2 pr-3">Tm</th>
+                <th className="text-left font-semibold py-2 pr-3">Initial-cycle Tm</th>
                 <th className="text-left font-semibold py-2">Other Sites</th>
               </tr>
             </thead>

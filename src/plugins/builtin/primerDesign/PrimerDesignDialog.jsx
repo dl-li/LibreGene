@@ -522,7 +522,7 @@ function PrimerDesignDialogInner({
 
         <div className="flex items-center justify-between border-t border-border/60 bg-muted/30 px-6 py-3">
           <span className="text-[11px] text-muted-foreground/70">
-            Tm is computed on the 3' annealing portion only
+            Initial-cycle Tm: 3′ annealing region only
           </span>
           <Button size="sm" onClick={handleConfirm} disabled={!allSelected || busy || loading}>
             {busy && <LoaderCircle className="size-4 animate-spin" />}

@@ -2,7 +2,7 @@
 //!
 //! Computes melting temperature (Tm) from dinucleotide stacking energies,
 //! salt concentration, Mg²⁺/dNTPs correction, and primer concentration.
-//! Only matched/aligned base pairs participate — tails and overhangs are excluded.
+//! Unaligned primer tails are excluded from initial-cycle primer Tm.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -111,14 +111,13 @@ impl TmParams {
 }
 
 // ---------------------------------------------------------------------------
-// Na⁺ equivalent concentration (Owens et al. / BioPython saltcorr=7)
+// Na⁺ equivalent concentration (von Ahsen et al., 2001)
 // ---------------------------------------------------------------------------
 
 /// Compute effective monovalent cation concentration accounting for
 /// Mg²⁺, dNTPs, and Tris. Returns concentration in M.
 ///
-/// Formula from BioPython `salt_correction` method 7.  Note that the
-/// 120×√(Mg−dNTPs) term expects mM units internally, so we convert
+/// The 120×√(Mg−dNTPs) term expects mM units internally, so we convert
 /// to mM for the calculation and back to M for the result.
 ///
 ///   [Na⁺_eq] = [Na⁺] + [K⁺] + [Tris]/2 + 120 × sqrt([Mg²⁺] − [dNTPs])
@@ -279,7 +278,7 @@ pub(crate) fn tm_from_nn_params(dh: f64, ds: f64, n: usize, params: &TmParams) -
     }
 }
 
-/// Convenience wrapper with default PCR conditions (Taq buffer).
+/// Convenience wrapper with SnapGene/supplier-compatible reference conditions.
 pub fn compute_tm(duplex: &str) -> f64 {
     compute_tm_with_params(duplex, &TmParams::default())
 }
