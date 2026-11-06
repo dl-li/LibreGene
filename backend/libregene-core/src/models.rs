@@ -401,6 +401,22 @@ pub struct AlignmentDiff {
 }
 
 // ---------------------------------------------------------------------------
+// Multiple sequence alignment
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MsaRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub sequence: String,
+    #[serde(default)]
+    pub aligned_sequence: String,
+}
+
+// ---------------------------------------------------------------------------
 // ProjectData
 // ---------------------------------------------------------------------------
 
@@ -424,6 +440,14 @@ pub struct ProjectData {
     /// "dna" | "rna" | "protein"
     #[serde(default = "default_molecule_type")]
     pub molecule_type: String,
+    #[serde(default = "default_project_kind")]
+    pub project_kind: String,
+    #[serde(default)]
+    pub msa_rows: Vec<MsaRow>,
+    #[serde(default)]
+    pub msa_aligned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_row_id: Option<String>,
     #[serde(default)]
     pub features: Vec<Feature>,
     #[serde(default)]
@@ -530,6 +554,10 @@ fn default_topology() -> String {
 
 fn default_molecule_type() -> String {
     "dna".to_string()
+}
+
+fn default_project_kind() -> String {
+    "sequence".to_string()
 }
 
 impl ProjectData {

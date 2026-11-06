@@ -79,11 +79,11 @@ const METHYLATION_SYSTEMS = [
 ];
 
 const TM_FIELDS = [
-  { key: 'naConc', label: 'Na⁺', unit: 'mM', mult: 1000, step: 1, min: 0, max: 500 },
+  { key: 'naConc', label: 'Na⁺ + K⁺', unit: 'mM', mult: 1000, step: 1, min: 0, max: 500 },
   { key: 'mgConc', label: 'Mg²⁺', unit: 'mM', mult: 1000, step: 0.1, min: 0, max: 10 },
   { key: 'dntpConc', label: 'dNTPs', unit: 'mM', mult: 1000, step: 0.1, min: 0, max: 10 },
   { key: 'trisConc', label: 'Tris-HCl', unit: 'mM', mult: 1000, step: 1, min: 0, max: 200 },
-  { key: 'primerConc', label: 'Primer', unit: 'nM', mult: 1e9, step: 50, min: 0, max: 5000 },
+  { key: 'primerConc', label: 'Primer (each)', unit: 'nM', mult: 1e9, step: 50, min: 0, max: 5000 },
 ];
 
 const CASE_DISPLAY_OPTIONS = [
@@ -487,6 +487,10 @@ export default function SettingsPage({
                 </SettingRow>
                 <div className="py-3">
                   <div className="text-[13px] font-medium">Tm calculation conditions</div>
+                  <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Compatibility defaults: 50 mM Na⁺, 250 nM primer, no Mg²⁺, dNTPs, or Tris-HCl.
+                    These are SnapGene/supplier conventions, not a complete PCR buffer.
+                  </div>
                   <div className="mt-2.5 divide-y divide-border/60 rounded-md border border-border/60 px-3">
                     {TM_FIELDS.map(({ key, label, unit, mult, step, min, max }) => (
                       <div key={key} className="flex items-center justify-between gap-4 py-2">

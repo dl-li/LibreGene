@@ -88,8 +88,9 @@ pub(crate) const SEQ_EXTS: &[&str] = &[
 ];
 pub(crate) const TEXT_EXPORT_EXTS: &[&str] = &["txt", "csv", "json"];
 /// Output extensions accepted by save paths that write a whole project
-/// (.gbk/.gb/.genbank → DNA/RNA GenBank, .gpt → protein GenBank).
-pub(crate) const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt"];
+/// (.gbk/.gb/.genbank → DNA/RNA GenBank, .gpt → protein GenBank,
+/// .fa/.fasta → MSA aligned FASTA).
+pub(crate) const CODON_OUTPUT_EXTS: &[&str] = &["gbk", "gb", "genbank", "gpt", "fa", "fasta"];
 /// Output extensions accepted by MCP `convert_sequence`'s `output_path`:
 /// the GenBank set above plus bare-sequence text (.fa/.fasta/.txt).
 pub(crate) const CONVERT_OUTPUT_EXTS: &[&str] =

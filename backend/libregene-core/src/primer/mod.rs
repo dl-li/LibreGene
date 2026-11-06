@@ -13,6 +13,7 @@ pub mod alignment;
 pub mod design;
 pub mod display;
 pub mod dna;
+pub mod duplex;
 pub mod formatter;
 pub mod gbk;
 pub mod iupac;

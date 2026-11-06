@@ -41,6 +41,7 @@ export interface PrimerBindingSite {
   templateStart: number;
   templateEnd: number;
   tm: number;
+  tmScope?: 'fullDuplex' | 'matchedCore';
   gcContent: number;
   matchScore: number;
   has3PrimeMismatch?: boolean;
@@ -110,11 +111,23 @@ export interface Enzyme {
   [key: string]: unknown;
 }
 
+export interface MsaRow {
+  id: string;
+  name: string;
+  description: string;
+  sequence: string;
+  alignedSequence: string;
+}
+
 export interface ProjectData {
   sequence: string;
   length: number;
   topology: Topology;
   moleculeType: MoleculeType;
+  projectKind?: 'sequence' | 'msa';
+  msaRows?: MsaRow[];
+  msaAligned?: boolean;
+  referenceRowId?: string | null;
   features: Feature[];
   primers: Primer[];
   alignments: Alignment[];
@@ -143,6 +156,7 @@ export interface ProjectSummary {
   length: number;
   topology: Topology;
   moleculeType: MoleculeType;
+  projectKind?: 'sequence' | 'msa';
   dirty: boolean;
   revision?: number;
   agentLocked?: boolean | null;

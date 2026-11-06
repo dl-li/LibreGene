@@ -192,8 +192,8 @@ pub fn format_alignment_text(
 
     // ----- Line 5: primer name centred over the aligned region -----
     let line5 = format!("{}{}", " ".repeat(lead), centre(primer_name, block_len))
-    .trim_end()
-    .to_string();
+        .trim_end()
+        .to_string();
 
     // Ellipses mark template bases hidden beyond the displayed flanks. On
     // circular templates both sides continue (unless the whole template fits
@@ -227,35 +227,222 @@ fn centre(text: &str, width: usize) -> String {
     format!("{:>l$}{}{:<r$}", "", text, "", l = left, r = right)
 }
 
-/// Compute melting temperature from the aligned primer bases in an
-/// [`AlignmentResult`].  Extracts every primer base that participates
-/// (matches, mismatches, and insertions) and runs nearest-neighbour Tm.
-pub fn compute_tm_from_alignment(primer_seq: &[u8], result: &AlignmentResult) -> f64 {
-    compute_tm_from_alignment_with_params(primer_seq, result, &TmParams::default())
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TmScope {
+    FullDuplex,
+    MatchedCore,
 }
 
-/// Like [`compute_tm_from_alignment`] but with configurable PCR conditions.
-pub fn compute_tm_from_alignment_with_params(
+#[derive(Debug, Clone, Copy)]
+pub struct AlignmentTm {
+    pub tm: f64,
+    pub scope: TmScope,
+}
+
+struct DuplexColumn {
+    op: Op,
+    primer: Option<u8>,
+    template: Option<u8>,
+    template_pos: Option<usize>,
+}
+
+fn duplex_columns(
     primer_seq: &[u8],
+    template_region: &[u8],
     result: &AlignmentResult,
-    params: &TmParams,
-) -> f64 {
-    let matched: String = result
-        .ops
+    reverse_alignment: bool,
+) -> Vec<DuplexColumn> {
+    let ops: Vec<_> = if reverse_alignment {
+        result.ops.iter().rev().collect()
+    } else {
+        result.ops.iter().collect()
+    };
+    ops.into_iter()
+        .map(|pair| {
+            let primer = pair.primer_pos.map(|i| {
+                let original_i = if reverse_alignment {
+                    primer_seq.len() - 1 - i
+                } else {
+                    i
+                };
+                primer_seq[original_i].to_ascii_uppercase()
+            });
+            let template = pair.template_pos.map(|p| {
+                let base = template_region[p].to_ascii_uppercase();
+                if reverse_alignment {
+                    base
+                } else {
+                    crate::utils::complement_char(base as char) as u8
+                }
+            });
+            DuplexColumn {
+                op: pair.op,
+                primer,
+                template,
+                template_pos: pair.template_pos,
+            }
+        })
+        .collect()
+}
+
+fn continuous_core_tm(columns: &[DuplexColumn], params: &TmParams) -> f64 {
+    let core: Vec<u8> = columns
         .iter()
-        .filter_map(|op| op.primer_pos)
-        .map(|i| primer_seq[i].to_ascii_uppercase() as char)
+        .rev()
+        .take_while(|column| column.op == Op::Match && column.primer.is_some())
+        .filter_map(|column| column.primer)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
         .collect();
-    if matched.len() < 2 {
+    if core.len() < 2 {
         return 0.0;
     }
-    thermodynamics::compute_tm_with_params(&matched, params)
+    thermodynamics::compute_tm_with_params(std::str::from_utf8(&core).unwrap_or_default(), params)
+}
+
+pub fn compute_tm_from_alignment_with_params(
+    primer_seq: &[u8],
+    template_region: &[u8],
+    result: &AlignmentResult,
+    reverse_alignment: bool,
+    params: &TmParams,
+) -> AlignmentTm {
+    let columns = duplex_columns(primer_seq, template_region, result, reverse_alignment);
+    let gap_free = columns
+        .iter()
+        .all(|column| column.primer.is_some() && column.template.is_some());
+    if gap_free && !columns.is_empty() {
+        let mut seq: Vec<u8> = columns.iter().filter_map(|column| column.primer).collect();
+        let mut cseq: Vec<u8> = columns
+            .iter()
+            .filter_map(|column| column.template)
+            .collect();
+        if let Some(pos) = columns.first().and_then(|column| column.template_pos) {
+            let dangling = if reverse_alignment {
+                pos.checked_add(1).filter(|&p| p < template_region.len())
+            } else {
+                pos.checked_sub(1)
+            };
+            if let Some(p) = dangling {
+                let base = template_region[p].to_ascii_uppercase();
+                seq.insert(0, b'.');
+                cseq.insert(
+                    0,
+                    if reverse_alignment {
+                        base
+                    } else {
+                        crate::utils::complement_char(base as char) as u8
+                    },
+                );
+            }
+        }
+        if let Some(pos) = columns.last().and_then(|column| column.template_pos) {
+            let dangling = if reverse_alignment {
+                pos.checked_sub(1)
+            } else {
+                pos.checked_add(1).filter(|&p| p < template_region.len())
+            };
+            if let Some(p) = dangling {
+                let base = template_region[p].to_ascii_uppercase();
+                seq.push(b'.');
+                cseq.push(if reverse_alignment {
+                    base
+                } else {
+                    crate::utils::complement_char(base as char) as u8
+                });
+            }
+        }
+        if let Some(tm) = super::duplex::compute_duplex_tm(&seq, &cseq, params) {
+            return AlignmentTm {
+                tm,
+                scope: TmScope::FullDuplex,
+            };
+        }
+    }
+    AlignmentTm {
+        tm: continuous_core_tm(&columns, params),
+        scope: TmScope::MatchedCore,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primer::alignment::align;
+    use crate::primer::alignment::{
+        align, align_3prime_constrained, align_first_base_constrained_rev,
+    };
+
+    #[test]
+    fn test_reverse_alignment_uses_primer_orientation_for_tm() {
+        let primer = b"CGTACGTACGTACGTACGTA";
+        let fwd_result = align_3prime_constrained(primer, primer).unwrap();
+        let expected = compute_tm_from_alignment_with_params(
+            primer,
+            primer,
+            &fwd_result,
+            false,
+            &TmParams::default(),
+        );
+
+        let reversed: Vec<u8> = primer.iter().rev().copied().collect();
+        let template = crate::utils::reverse_complement(std::str::from_utf8(primer).unwrap());
+        let rev_result = align_first_base_constrained_rev(&reversed, template.as_bytes()).unwrap();
+        let actual = compute_tm_from_alignment_with_params(
+            primer,
+            template.as_bytes(),
+            &rev_result,
+            true,
+            &TmParams::default(),
+        );
+
+        assert!(
+            (actual.tm - expected.tm).abs() < 1e-9,
+            "{actual:?} != {expected:?}"
+        );
+    }
+
+    #[test]
+    fn test_alignment_mismatch_uses_duplex_thermodynamics() {
+        let primer = b"CGTTCCAAAGATGTGGGCATGAGCTTAC";
+        let mut template = primer.to_vec();
+        template[6] = b'G';
+        let result = align_3prime_constrained(primer, &template).unwrap();
+        let actual = compute_tm_from_alignment_with_params(
+            primer,
+            &template,
+            &result,
+            false,
+            &TmParams::default(),
+        );
+
+        assert_eq!(actual.scope, TmScope::FullDuplex);
+        assert!((actual.tm - 57.1).abs() < 0.2, "Tm={}", actual.tm);
+    }
+
+    #[test]
+    fn test_alignment_gap_falls_back_to_continuous_core() {
+        let primer = b"CGTACGTACGTACGTACGTA";
+        let mut template = primer[..10].to_vec();
+        template.push(b'A');
+        template.extend_from_slice(&primer[10..]);
+        let result = align_3prime_constrained(primer, &template).unwrap();
+        let actual = compute_tm_from_alignment_with_params(
+            primer,
+            &template,
+            &result,
+            false,
+            &TmParams::default(),
+        );
+        let expected = thermodynamics::compute_tm_with_params(
+            std::str::from_utf8(&primer[10..]).unwrap(),
+            &TmParams::default(),
+        );
+
+        assert_eq!(actual.scope, TmScope::MatchedCore);
+        assert!((actual.tm - expected).abs() < 1e-9);
+    }
 
     #[test]
     fn test_format_exact_match() {

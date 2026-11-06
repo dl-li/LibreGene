@@ -97,6 +97,7 @@ export default function ProjectWorkspace({
   // Open a SnapGene history snapshot as a new project (App owns project
   // switching; returns {ok} or {ok: false, error}).
   onOpenSnapshot,
+  onCreateMsa,
 }) {
   const {
     sequence,
@@ -931,6 +932,7 @@ export default function ProjectWorkspace({
       save: handleSave,
       saveAs: handleSaveAs,
       isDirty: () => isDirtyRef.current,
+      getSequence: () => sequenceRef.current,
       openPluginDialog: (key) => {
         setPluginDialogs((prev) => ({ ...prev, [key]: true }));
       },
@@ -1027,6 +1029,7 @@ export default function ProjectWorkspace({
               restoreState={restoreState}
               onSave={handleSave}
               onSaveAs={handleSaveAs}
+              onCreateMsa={onCreateMsa}
               canDirectSave={canDirectSave}
               onFeatureFtypeChange={handleFeatureFtypeChange}
               onFeatureColorChange={handleFeatureColorChange}
@@ -1228,6 +1231,7 @@ export default function ProjectWorkspace({
         topology={topologyLive}
         alignments={alignments}
         primers={primers}
+        tmParams={tmParams}
         myPrimers={myPrimers}
         myEnzymes={myEnzymes}
         enzymeFilter={enzymeFilter}

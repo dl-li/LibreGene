@@ -105,6 +105,7 @@ export default function useEnrichedPrimers({
       setPrimerAlignmentCache({});
       return undefined;
     }
+    setPrimerAlignmentCache({});
     let cancelled = false;
     async function prefetchAll() {
       const cache = {};

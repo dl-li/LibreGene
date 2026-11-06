@@ -159,6 +159,7 @@ function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children })
 export default function EditorNavMenu({
   onSave,
   onSaveAs,
+  onCreateMsa,
   canDirectSave = true,
   canUndo,
   canRedo,
@@ -410,6 +411,9 @@ export default function EditorNavMenu({
           <DropdownMenuItem onSelect={onSaveAs}>
             <FileDown /> Save As…
             <DropdownMenuShortcut>⇧⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onCreateMsa}>
+            <Rows3 /> New MSA from Sequence
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>

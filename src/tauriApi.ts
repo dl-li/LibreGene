@@ -112,6 +112,10 @@ export async function openFile(
  * caller can offer to split a multi-record file into separate projects.
  * Returns `{ records: [{name, length}] }` (empty for non-FASTA extensions).
  */
+export async function openMsaFasta(path) {
+  return tauriInvoke('open_msa_fasta', { path });
+}
+
 export async function peekFastaRecords(path) {
   return tauriInvoke('peek_fasta_records', { path });
 }
@@ -144,6 +148,34 @@ export async function createProject(args: any = {}) {
  */
 export async function annotateSequenceText(sequence, circular = false, moleculeType = 'dna') {
   return tauriInvoke('annotate_sequence', { sequence, circular, moleculeType });
+}
+
+export async function createMsaProject(args: any = {}) {
+  return tauriInvoke('create_msa_project', {
+    name: args.name,
+    sequence: args.sequence,
+    moleculeType: args.moleculeType ?? null,
+  });
+}
+
+export async function updateMsa(projectId, rows, moleculeType, aligned, referenceRowId = null) {
+  assertEditable();
+  return tauriInvoke('update_msa', {
+    projectId,
+    rows,
+    moleculeType,
+    aligned,
+    referenceRowId,
+  });
+}
+
+export async function alignMsa(projectId) {
+  assertEditable();
+  return tauriInvoke('align_msa', { projectId });
+}
+
+export async function exportMsaFasta(projectId, path, unaligned = false) {
+  return tauriInvoke('export_msa_fasta', { projectId, path, unaligned });
 }
 
 export async function saveFile(projectId: string, path: string) {
@@ -675,9 +707,10 @@ export async function openAlignmentFileDialog() {
 
 export async function saveFileDialog(defaultName = 'project.gbk', ext = 'gbk') {
   if (!isTauri) return null;
-  const label = ext === 'gpt' ? 'Protein GenBank' : 'GenBank';
+  const label =
+    ext === 'fa' || ext === 'fasta' ? 'FASTA' : ext === 'gpt' ? 'Protein GenBank' : 'GenBank';
   const result = await tauriSave({
-    title: 'Save GenBank file',
+    title: `Save ${label} file`,
     defaultPath: defaultName,
     filters: [{ name: label, extensions: [ext] }],
   });

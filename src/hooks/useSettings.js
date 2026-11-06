@@ -1,7 +1,8 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { plugins } from '../plugins';
 import { ENZYME_PROVIDER_VALUES } from '../enzymeProviders';
 import { isTauri, setMcpConfig, getMcpConfig } from '../tauriApi';
+import { readStoredTmParams, writeStoredTmParams } from '../tmParams';
 
 // Generic per-plugin UI state derived from the registry: featuresMenuItem
 // declares a persisted boolean toggle, settingsField a persisted number.
@@ -256,13 +257,10 @@ export default function useSettings() {
       // storage may be unavailable; selection still applies in-memory
     }
   }, []);
-  const [tmParams, setTmParams] = useState({
-    naConc: 0.05,
-    mgConc: 0,
-    dntpConc: 0,
-    trisConc: 0,
-    primerConc: 2.5e-7,
-  });
+  const [tmParams, setTmParams] = useState(() => readStoredTmParams());
+  useEffect(() => {
+    writeStoredTmParams(tmParams);
+  }, [tmParams]);
   const [mcpConfig, setMcpConfigState] = useState(() => {
     try {
       return { ...MCP_CONFIG_DEFAULTS, ...(JSON.parse(localStorage.getItem('mcpConfig')) || {}) };

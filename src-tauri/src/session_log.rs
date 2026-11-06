@@ -72,6 +72,9 @@ fn project_content(project: &ProjectData) -> serde_json::Value {
         "length": project.length,
         "topology": project.topology,
         "moleculeType": project.molecule_type,
+        "msaRows": project.msa_rows,
+        "msaAligned": project.msa_aligned,
+        "referenceRowId": project.reference_row_id,
         "features": project.features.iter().map(feature_content).collect::<Vec<_>>(),
         "primers": project.primers.iter().map(primer_content).collect::<Vec<_>>(),
         "alignments": project.alignments,
@@ -285,6 +288,16 @@ fn describe_change(before: &ProjectData, after: &ProjectData) -> Vec<String> {
             _ => "bp",
         };
         details.push(sequence_change(&before.sequence, &after.sequence, unit));
+    }
+    if before.msa_rows != after.msa_rows || before.msa_aligned != after.msa_aligned {
+        details.push(if before.msa_aligned != after.msa_aligned && after.msa_aligned {
+            format!("Aligned {} sequences with MUSCLE", after.msa_rows.len())
+        } else {
+            format!("Updated MSA rows ({} sequences)", after.msa_rows.len())
+        });
+    }
+    if before.molecule_type != after.molecule_type {
+        details.push(format!("Changed molecule type to {}", after.molecule_type));
     }
     details.extend(feature_changes(&before.features, &after.features));
     details.extend(primer_changes(&before.primers, &after.primers));

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Copy, Check } from 'lucide-react';
 import { writePlainClipboard } from '../clipboardAnnotations';
+import { isDefaultTmParams } from '../tmParams';
 
 const DIR_COLORS = { fwd: '#166534', rev: '#4A148C' };
 const MAX_SEQ_DISPLAY = 30;
@@ -68,13 +69,26 @@ function formatTm(site) {
   return `${t.toFixed(1)}°C`;
 }
 
+export function resolvePrimerOverviewSites(primer, cacheData, useCompatibilityDefaults) {
+  const storedSites = primer.bindingSites || [];
+  const primary = cacheData?.current || (useCompatibilityDefaults ? storedSites[0] : null);
+  const alternatives = cacheData
+    ? cacheData.alternatives || []
+    : useCompatibilityDefaults
+      ? storedSites.slice(1)
+      : [];
+  return { primary, alternatives };
+}
+
 export default function PrimerOverviewDialog({
   open,
   onOpenChange,
   primers = [],
   alignmentCacheRef,
+  tmParams,
   onEditPrimer,
 }) {
+  const useCompatibilityDefaults = isDefaultTmParams(tmParams);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[80vh] flex flex-col px-8">
@@ -93,19 +107,18 @@ export default function PrimerOverviewDialog({
                   Primary Site
                 </th>
                 <th className="text-left font-semibold py-2 pr-3">Dir</th>
-                <th className="text-left font-semibold py-2 pr-3">Tm</th>
+                <th className="text-left font-semibold py-2 pr-3">Initial-cycle Tm</th>
                 <th className="text-left font-semibold py-2">Other Sites</th>
               </tr>
             </thead>
             <tbody>
               {primers.map((p) => {
-                const bs = p.bindingSites?.[0];
                 const cacheData = alignmentCacheRef?.current?.[p.id];
-                const cacheCur = cacheData?.current;
-                // prefer bindingSites[0] for primary, fall back to cache current
-                const primary = bs || cacheCur;
-                const cacheAlts = cacheData?.alternatives || [];
-                const alts = [...(p.bindingSites?.slice(1) || []), ...cacheAlts];
+                const { primary, alternatives: alts } = resolvePrimerOverviewSites(
+                  p,
+                  cacheData,
+                  useCompatibilityDefaults,
+                );
                 const dirColor = DIR_COLORS[p.type] || '#666';
                 return (
                   <tr

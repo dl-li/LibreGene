@@ -2,7 +2,7 @@
 //!
 //! Computes melting temperature (Tm) from dinucleotide stacking energies,
 //! salt concentration, Mg²⁺/dNTPs correction, and primer concentration.
-//! Only matched/aligned base pairs participate — tails and overhangs are excluded.
+//! Unaligned primer tails are excluded from initial-cycle primer Tm.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -55,10 +55,10 @@ const R: f64 = 1.987;
 // https://support.snapgene.com/hc/en-us/articles/10242720294036
 // ---------------------------------------------------------------------------
 
-const DEFAULT_NA: f64 = 0.050;   // 50 mM monovalent
-const DEFAULT_MG: f64 = 0.0;     // no Mg²⁺
-const DEFAULT_DNTP: f64 = 0.0;   // no dNTPs
-const DEFAULT_TRIS: f64 = 0.0;   // no Tris-HCl
+const DEFAULT_NA: f64 = 0.050; // 50 mM monovalent
+const DEFAULT_MG: f64 = 0.0; // no Mg²⁺
+const DEFAULT_DNTP: f64 = 0.0; // no dNTPs
+const DEFAULT_TRIS: f64 = 0.0; // no Tris-HCl
 const DEFAULT_PRIMER_CONC: f64 = 2.5e-7; // 0.25 μM primer
 
 // ---------------------------------------------------------------------------
@@ -111,14 +111,13 @@ impl TmParams {
 }
 
 // ---------------------------------------------------------------------------
-// Na⁺ equivalent concentration (Owens et al. / BioPython saltcorr=7)
+// Na⁺ equivalent concentration (von Ahsen et al., 2001)
 // ---------------------------------------------------------------------------
 
 /// Compute effective monovalent cation concentration accounting for
 /// Mg²⁺, dNTPs, and Tris. Returns concentration in M.
 ///
-/// Formula from BioPython `salt_correction` method 7.  Note that the
-/// 120×√(Mg−dNTPs) term expects mM units internally, so we convert
+/// The 120×√(Mg−dNTPs) term expects mM units internally, so we convert
 /// to mM for the calculation and back to M for the result.
 ///
 ///   [Na⁺_eq] = [Na⁺] + [K⁺] + [Tris]/2 + 120 × sqrt([Mg²⁺] − [dNTPs])
@@ -141,7 +140,7 @@ pub fn na_equivalent(params: &TmParams) -> f64 {
 /// Cached NN parameter lookup map — built once, shared globally.
 static NN_MAP: OnceLock<HashMap<[u8; 2], (f64, f64)>> = OnceLock::new();
 
-fn get_nn_map() -> &'static HashMap<[u8; 2], (f64, f64)> {
+pub(crate) fn get_nn_map() -> &'static HashMap<[u8; 2], (f64, f64)> {
     NN_MAP.get_or_init(|| {
         let mut m = HashMap::with_capacity(16);
         for &(k, dh, ds) in NN_TABLE {
@@ -153,7 +152,11 @@ fn get_nn_map() -> &'static HashMap<[u8; 2], (f64, f64)> {
 
 /// Look up NN parameters for a dinucleotide pair, averaging over IUPAC
 /// expansions when ambiguous bases are present.
-fn lookup_nn(b1: u8, b2: u8, nn_map: &HashMap<[u8; 2], (f64, f64)>) -> Option<(f64, f64)> {
+pub(crate) fn lookup_nn(
+    b1: u8,
+    b2: u8,
+    nn_map: &HashMap<[u8; 2], (f64, f64)>,
+) -> Option<(f64, f64)> {
     let e1 = iupac::iupac_expand(b1);
     let e2 = iupac::iupac_expand(b2);
     if e1.is_empty() || e2.is_empty() {
@@ -260,14 +263,13 @@ pub fn compute_tm_with_params(duplex: &str, params: &TmParams) -> f64 {
     }
 
     let (dh, ds) = sum_nn_params(seq_bytes);
+    tm_from_nn_params(dh, ds, n, params)
+}
 
+pub(crate) fn tm_from_nn_params(dh: f64, ds: f64, n: usize, params: &TmParams) -> f64 {
     let na_eq = na_equivalent(params);
-    // Salt correction: ΔS°_salt = ΔS° + 0.368 × (N−1) × ln([Na⁺_eq])
     let ds_salt = ds + 0.368 * (n as f64 - 1.0) * (na_eq.max(1e-9)).ln();
-
-    // Tm = ΔH°×1000 / (ΔS°_salt + R × ln(C/4)) − 273.15
-    let tm =
-        (dh * 1000.0) / (ds_salt + R * (params.primer_conc.max(1e-12) / 4.0).ln()) - 273.15;
+    let tm = (dh * 1000.0) / (ds_salt + R * (params.primer_conc.max(1e-12) / 4.0).ln()) - 273.15;
 
     if tm.is_nan() || tm < -273.15 {
         0.0
@@ -276,7 +278,7 @@ pub fn compute_tm_with_params(duplex: &str, params: &TmParams) -> f64 {
     }
 }
 
-/// Convenience wrapper with default PCR conditions (Taq buffer).
+/// Convenience wrapper with SnapGene/supplier-compatible reference conditions.
 pub fn compute_tm(duplex: &str) -> f64 {
     compute_tm_with_params(duplex, &TmParams::default())
 }

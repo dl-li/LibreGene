@@ -55,6 +55,13 @@ See `package.json` and `package-lock.json` for the full list and their respectiv
 
 ## Algorithms & Data Adapted from Other Projects
 
+### MUSCLE
+- **Source**: Robert C. Edgar, https://github.com/rcedgar/muscle (v5.3)
+- **License**: GPL-3.0; see the root `LICENSE` and the upstream license at https://github.com/rcedgar/muscle/blob/v5.3/LICENSE
+- **Usage**: Bundled as an independent sidecar executable for multiple sequence alignment; platform binaries are in `src-tauri/binaries/`
+- **Corresponding source**: https://github.com/rcedgar/muscle/tree/v5.3
+- **macOS**: The Apple Silicon binary is built from unmodified v5.3 sources with GCC 16, statically linking libstdc++, libgcc and libgomp so only the system C library is required. Rebuild with `scripts/build-muscle-macos.sh`.
+
 ### DNA Chisel
 - **Source**: Edinburgh Genome Foundry (https://github.com/Edinburgh-Genome-Foundry/DnaChisel)
 - **License**: MIT

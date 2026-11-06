@@ -508,6 +508,9 @@ export default function PrimerAlignmentDialog({
               Tm
               <span className="font-semibold tabular-nums">{cur.tm}°C</span>
             </span>
+            <span className="text-xs text-muted-foreground">
+              {cur.tmScope === 'fullDuplex' ? 'Full duplex' : '3′ matching region'}
+            </span>
             {preview?.loading && (
               <span className="text-xs text-muted-foreground italic">Computing…</span>
             )}

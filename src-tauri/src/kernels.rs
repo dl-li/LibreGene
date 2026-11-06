@@ -65,8 +65,10 @@ pub(crate) async fn do_open_file(
             }
             None => file_io::parse_file(&path_buf).map_err(|e| e.to_string())?,
         };
-        enzyme::recompute(&mut project);
-        primer::recompute(&mut project);
+        if project.project_kind != "msa" {
+            enzyme::recompute(&mut project);
+            primer::recompute(&mut project);
+        }
         Ok(project)
     })
     .await
@@ -333,7 +335,20 @@ pub(crate) async fn do_save_file(
     let Some(snapshot) = project else {
         return Ok(serde_json::json!({"error": "Project not found"}));
     };
-    if snapshot.molecule_type == "protein" && ext != "gpt" {
+    if snapshot.project_kind == "msa"
+        && (!matches!(ext.as_str(), "fa" | "fasta")
+            || !file_io::fasta::is_msa_fasta_path(&save_path))
+    {
+        return Ok(
+            serde_json::json!({"error": "MSA projects must be saved as .msa.fa or .msa.fasta"}),
+        );
+    }
+    if snapshot.project_kind != "msa" && matches!(ext.as_str(), "fa" | "fasta") {
+        return Ok(
+            serde_json::json!({"error": "Single-sequence projects must be saved as GenBank"}),
+        );
+    }
+    if snapshot.project_kind != "msa" && snapshot.molecule_type == "protein" && ext != "gpt" {
         return Ok(serde_json::json!({
             "error": "Protein projects must be saved as .gpt (GenBank protein format); .gbk/.gb cannot represent an amino-acid sequence"
         }));
@@ -343,6 +358,7 @@ pub(crate) async fn do_save_file(
         save_path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
+            .map(|s| s.strip_suffix(".msa").unwrap_or(&s).to_string())
     } else {
         None
     };
@@ -353,7 +369,9 @@ pub(crate) async fn do_save_file(
     let write_path = save_path.clone();
     let write_ext = ext.clone();
     let result = tokio::task::spawn_blocking(move || {
-        if write_ext == "gpt" {
+        if output.project_kind == "msa" {
+            file_io::fasta::write_msa_fasta(&output, &write_path, false)
+        } else if write_ext == "gpt" {
             file_io::gpt::write_gpt(&output, &write_path)
         } else {
             file_io::gbk::write_gbk(&output, &write_path)
@@ -467,6 +485,10 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
             length: p.length,
             topology: p.topology.clone(),
             molecule_type: p.molecule_type.clone(),
+            project_kind: p.project_kind.clone(),
+            msa_rows: p.msa_rows.clone(),
+            msa_aligned: p.msa_aligned,
+            reference_row_id: p.reference_row_id.clone(),
             features: p.features.clone(),
             primers: p.primers.clone(),
             alignments: p.alignments.clone(),
@@ -1899,7 +1921,10 @@ mod tests {
             validate_user_path("out.gpt", CODON_OUTPUT_EXTS).unwrap(),
             "gpt"
         );
-        assert!(validate_user_path("out.fasta", CODON_OUTPUT_EXTS).is_err());
+        assert_eq!(
+            validate_user_path("out.fasta", CODON_OUTPUT_EXTS).unwrap(),
+            "fasta"
+        );
         assert!(validate_user_path("out.ab1", CODON_OUTPUT_EXTS).is_err());
         assert!(validate_user_path("out.txt", CODON_OUTPUT_EXTS).is_err());
     }
