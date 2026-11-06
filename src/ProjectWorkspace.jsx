@@ -1231,6 +1231,7 @@ export default function ProjectWorkspace({
         topology={topologyLive}
         alignments={alignments}
         primers={primers}
+        tmParams={tmParams}
         myPrimers={myPrimers}
         myEnzymes={myEnzymes}
         enzymeFilter={enzymeFilter}

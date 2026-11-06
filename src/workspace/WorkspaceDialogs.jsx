@@ -27,6 +27,7 @@ export default function WorkspaceDialogs({
   topology,
   alignments,
   primers,
+  tmParams,
   myPrimers,
   myEnzymes,
   enzymeFilter,
@@ -77,6 +78,7 @@ export default function WorkspaceDialogs({
           open={primerOverviewOpen}
           onOpenChange={setPrimerOverviewOpen}
           primers={primers}
+          tmParams={tmParams}
           alignmentCacheRef={alignmentCacheRef}
           onEditPrimer={(p) => {
             openPrimerEditorRef.current?.(p);
