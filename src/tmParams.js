@@ -26,3 +26,21 @@ export function isDefaultTmParams(params) {
   const normalized = normalizeTmParams(params);
   return TM_PARAM_KEYS.every((key) => normalized[key] === TM_PARAM_DEFAULTS[key]);
 }
+
+export function readStoredTmParams(storage = globalThis.localStorage) {
+  try {
+    return normalizeTmParams(JSON.parse(storage?.getItem('tmParams') || '{}'));
+  } catch {
+    return { ...TM_PARAM_DEFAULTS };
+  }
+}
+
+export function writeStoredTmParams(params, storage = globalThis.localStorage) {
+  const normalized = normalizeTmParams(params);
+  try {
+    storage?.setItem('tmParams', JSON.stringify(normalized));
+  } catch {
+    // Keep the in-memory setting when storage is unavailable.
+  }
+  return normalized;
+}
