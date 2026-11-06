@@ -455,12 +455,14 @@ pub(crate) fn compute_primer_alignment_sync(
                 );
                 let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(
                     primer_bytes,
+                    &template_region,
                     &result,
                     true,
                     tm_params,
                 );
                 results.push(serde_json::json!({
-                    "tm": (sw_tm * 10.0).round() / 10.0,
+                    "tm": (sw_tm.tm * 10.0).round() / 10.0,
+                    "tmScope": sw_tm.scope,
                     "strand": -1,
                     "start": (result.template_start + win_start) as i64,
                     "end": (result.template_end + win_start) as i64,
@@ -486,12 +488,14 @@ pub(crate) fn compute_primer_alignment_sync(
                 );
                 let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(
                     primer_bytes,
+                    &template_region,
                     &result,
                     false,
                     tm_params,
                 );
                 results.push(serde_json::json!({
-                    "tm": (sw_tm * 10.0).round() / 10.0,
+                    "tm": (sw_tm.tm * 10.0).round() / 10.0,
+                    "tmScope": sw_tm.scope,
                     "strand": 1,
                     "start": (result.template_start + win_start) as i64,
                     "end": (result.template_end + win_start) as i64,
@@ -518,6 +522,7 @@ fn fallback_site_json(c: &BindingSiteCandidate, tp: usize) -> serde_json::Value 
     };
     serde_json::json!({
         "tm": (c.est_tm * 10.0).round() / 10.0,
+        "tmScope": "matchedCore",
         "strand": if c.is_rev { -1 } else { 1 },
         "start": start,
         "end": end,

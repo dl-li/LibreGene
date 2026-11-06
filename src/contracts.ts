@@ -41,6 +41,7 @@ export interface PrimerBindingSite {
   templateStart: number;
   templateEnd: number;
   tm: number;
+  tmScope?: 'fullDuplex' | 'matchedCore';
   gcContent: number;
   matchScore: number;
   has3PrimeMismatch?: boolean;
