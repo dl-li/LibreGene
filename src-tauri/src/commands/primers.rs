@@ -454,7 +454,10 @@ pub(crate) fn compute_primer_alignment_sync(
                     is_circular,
                 );
                 let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(
-                    &rev_bytes, &result, tm_params,
+                    primer_bytes,
+                    &result,
+                    true,
+                    tm_params,
                 );
                 results.push(serde_json::json!({
                     "tm": (sw_tm * 10.0).round() / 10.0,
@@ -484,6 +487,7 @@ pub(crate) fn compute_primer_alignment_sync(
                 let sw_tm = libregene_core::primer::display::compute_tm_from_alignment_with_params(
                     primer_bytes,
                     &result,
+                    false,
                     tm_params,
                 );
                 results.push(serde_json::json!({

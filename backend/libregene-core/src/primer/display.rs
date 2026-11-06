@@ -192,8 +192,8 @@ pub fn format_alignment_text(
 
     // ----- Line 5: primer name centred over the aligned region -----
     let line5 = format!("{}{}", " ".repeat(lead), centre(primer_name, block_len))
-    .trim_end()
-    .to_string();
+        .trim_end()
+        .to_string();
 
     // Ellipses mark template bases hidden beyond the displayed flanks. On
     // circular templates both sides continue (unless the whole template fits
@@ -231,21 +231,32 @@ fn centre(text: &str, width: usize) -> String {
 /// [`AlignmentResult`].  Extracts every primer base that participates
 /// (matches, mismatches, and insertions) and runs nearest-neighbour Tm.
 pub fn compute_tm_from_alignment(primer_seq: &[u8], result: &AlignmentResult) -> f64 {
-    compute_tm_from_alignment_with_params(primer_seq, result, &TmParams::default())
+    compute_tm_from_alignment_with_params(primer_seq, result, false, &TmParams::default())
 }
 
 /// Like [`compute_tm_from_alignment`] but with configurable PCR conditions.
 pub fn compute_tm_from_alignment_with_params(
     primer_seq: &[u8],
     result: &AlignmentResult,
+    reverse_alignment: bool,
     params: &TmParams,
 ) -> f64 {
-    let matched: String = result
+    let mut matched: String = result
         .ops
         .iter()
         .filter_map(|op| op.primer_pos)
-        .map(|i| primer_seq[i].to_ascii_uppercase() as char)
+        .map(|i| {
+            let original_i = if reverse_alignment {
+                primer_seq.len() - 1 - i
+            } else {
+                i
+            };
+            primer_seq[original_i].to_ascii_uppercase() as char
+        })
         .collect();
+    if reverse_alignment {
+        matched = matched.chars().rev().collect();
+    }
     if matched.len() < 2 {
         return 0.0;
     }
@@ -255,7 +266,25 @@ pub fn compute_tm_from_alignment_with_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primer::alignment::align;
+    use crate::primer::alignment::{
+        align, align_3prime_constrained, align_first_base_constrained_rev,
+    };
+
+    #[test]
+    fn test_reverse_alignment_uses_primer_orientation_for_tm() {
+        let primer = b"CGTACGTACGTACGTACGTA";
+        let fwd_result = align_3prime_constrained(primer, primer).unwrap();
+        let expected =
+            compute_tm_from_alignment_with_params(primer, &fwd_result, false, &TmParams::default());
+
+        let reversed: Vec<u8> = primer.iter().rev().copied().collect();
+        let template = crate::utils::reverse_complement(std::str::from_utf8(primer).unwrap());
+        let rev_result = align_first_base_constrained_rev(&reversed, template.as_bytes()).unwrap();
+        let actual =
+            compute_tm_from_alignment_with_params(primer, &rev_result, true, &TmParams::default());
+
+        assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
 
     #[test]
     fn test_format_exact_match() {
