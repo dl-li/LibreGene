@@ -169,6 +169,25 @@ export function averagePairwiseIdentity(matrix) {
   return count ? sum / count : null;
 }
 
+export function computeAveragePairwiseIdentity(rows, aligned, moleculeType) {
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const { identity } = pairwiseMsaStats(
+        rowDisplaySequence(rows[i], aligned),
+        rowDisplaySequence(rows[j], aligned),
+        moleculeType,
+      );
+      if (identity != null) {
+        sum += identity;
+        count += 1;
+      }
+    }
+  }
+  return count ? sum / count : null;
+}
+
 export function selectionToFasta(rows, aligned, selection) {
   if (!selection || !rows.length) return '';
   const startRow = Math.max(0, Math.min(selection.startRow, selection.endRow));

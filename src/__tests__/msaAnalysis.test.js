@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   averagePairwiseIdentity,
+  computeAveragePairwiseIdentity,
   computeConsensus,
   computePairwiseMatrix,
   detectMsaMoleculeType,
@@ -55,6 +56,8 @@ describe('MSA column analysis', () => {
     ];
     const matrix = computePairwiseMatrix(rows, true, 'dna');
     expect(averagePairwiseIdentity(matrix)).toBeCloseTo((0.75 + 0.5 + 0.75) / 3);
+    expect(computeAveragePairwiseIdentity(rows, true, 'dna')).toBe(averagePairwiseIdentity(matrix));
+    expect(computeAveragePairwiseIdentity([rows[0]], true, 'dna')).toBeNull();
   });
 });
 

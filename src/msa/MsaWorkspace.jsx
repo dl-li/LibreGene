@@ -38,8 +38,7 @@ import {
 import MsaEditor from './MsaEditor';
 import { AddSequencesDialog, MsaSequencesDialog, PairwiseStatsDialog } from './MsaDialogs';
 import {
-  averagePairwiseIdentity,
-  computePairwiseMatrix,
+  computeAveragePairwiseIdentity,
   detectMsaMoleculeType,
   selectionToFasta,
 } from './msaAnalysis';
@@ -385,11 +384,10 @@ export default function MsaWorkspace({
     if (!referenceRowId && colorMode === 'reference') setColorMode('consensus');
   }, [referenceRowId, hiddenRowIds, rows, colorMode]);
 
-  const pairwiseMatrix = useMemo(
-    () => computePairwiseMatrix(visibleRows, aligned, moleculeType),
+  const averageIdentity = useMemo(
+    () => computeAveragePairwiseIdentity(visibleRows, aligned, moleculeType),
     [visibleRows, aligned, moleculeType],
   );
-  const averageIdentity = averagePairwiseIdentity(pairwiseMatrix);
   const columnCount = aligned
     ? visibleRows[0]?.alignedSequence.length || 0
     : visibleRows.reduce((max, row) => Math.max(max, row.sequence.length), 0);
