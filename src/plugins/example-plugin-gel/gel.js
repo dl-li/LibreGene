@@ -93,13 +93,20 @@ export function groupEnzymeSites(enzymes) {
         recSeq: e.recSeq || '',
         cutType,
         cuts: [],
+        pairCount: 0,
         blocked: false,
         gray: false,
         iis: false,
       };
       byName.set(e.name, g);
     }
-    if (!g.cuts.includes(e.cutIndex)) g.cuts.push(e.cutIndex);
+    const pairs = e.cutPairs?.length
+      ? e.cutPairs
+      : [{ topCutIndex: e.cutIndex, botCutIndex: e.botCutIndex }];
+    g.pairCount += pairs.length;
+    for (const pair of pairs) {
+      if (!g.cuts.includes(pair.topCutIndex)) g.cuts.push(pair.topCutIndex);
+    }
     if (e.methylationBlocked) g.blocked = true;
     if (e.methylationBlocked || (e.methylationRequired && e.methylRequiredSources?.length))
       g.gray = true;
@@ -137,7 +144,7 @@ export function enzymeGroupOptions(myEnzymes) {
 }
 
 export function enzymeMatchesGroup(g, filter, myEnzymeNames) {
-  const n = g.cuts.length;
+  const n = g.pairCount;
   const recLen = g.recSeq.length;
   switch (filter) {
     case 'myEnzymes':
@@ -175,8 +182,8 @@ export function categorizeEnzymes(groups) {
   const double = [];
   const other = [];
   for (const g of groups) {
-    if (g.cuts.length === 1) single.push(g);
-    else if (g.cuts.length === 2) double.push(g);
+    if (g.pairCount === 1) single.push(g);
+    else if (g.pairCount === 2) double.push(g);
     else other.push(g);
   }
   return { single, double, other };

@@ -71,7 +71,7 @@ function EnzymeName({ g, plain }) {
           : undefined;
   return (
     <span
-      style={{ fontFamily: ENZYME_MONO_FONT, fontWeight: g.cuts.length === 1 ? 700 : 350, color }}
+      style={{ fontFamily: ENZYME_MONO_FONT, fontWeight: g.pairCount === 1 ? 700 : 350, color }}
     >
       {s.normal ? (
         <>
@@ -81,7 +81,7 @@ function EnzymeName({ g, plain }) {
       ) : (
         g.name
       )}
-      {g.cuts.length === 2 && <sup className="ml-px text-[0.7em]">2</sup>}
+      {g.pairCount === 2 && <sup className="ml-px text-[0.7em]">2</sup>}
     </span>
   );
 }
@@ -92,7 +92,7 @@ function EnzymeBadge({ g, active, disabled, onClick }) {
       type="button"
       disabled={disabled}
       onClick={onClick}
-      title={`${g.recSeq} — ${g.cuts.length} cut${g.cuts.length === 1 ? '' : 's'}${g.blocked ? ' (methylation blocked)' : ''}`}
+      title={`${g.recSeq} — ${g.pairCount} cut${g.pairCount === 1 ? '' : 's'}${g.blocked ? ' (methylation blocked)' : ''}`}
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
         active
           ? 'border-blue-800 bg-blue-800 text-white'
