@@ -242,7 +242,7 @@ impl ProjectManager {
         aln.id = crate::align::next_alignment_id(&p.alignments);
         let p = self.projects.get_mut(id)?;
         p.alignments.push(aln.clone());
-        self.dirty_projects.insert(id.to_string());
+        self.mark_dirty(id);
         Some(aln)
     }
 
@@ -252,7 +252,7 @@ impl ProjectManager {
             let before = p.alignments.len();
             p.alignments.retain(|a| a.id != alignment_id);
             if p.alignments.len() != before {
-                self.dirty_projects.insert(id.to_string());
+                self.mark_dirty(id);
                 return true;
             }
         }
@@ -319,5 +319,28 @@ mod tests {
         assert_eq!(list[1]["name"], "/tmp/foo.gbk");
         // Opened SnapGene history snapshots display the snapshot's node name.
         assert_eq!(list[2]["name"], "Vector.dna");
+    }
+
+    #[test]
+    fn removing_alignment_marks_dirty_and_bumps_revision() {
+        let mut pm = ProjectManager::new();
+        pm.load(
+            "p",
+            ProjectData {
+                alignments: vec![crate::models::Alignment {
+                    id: "read-1".to_string(),
+                    ..Default::default()
+                }],
+                ..proj("p")
+            },
+        )
+        .unwrap();
+        let before = pm.revision("p");
+
+        assert!(pm.remove_alignment("p", "read-1"));
+        assert!(pm.is_dirty("p"));
+        assert!(pm.revision("p") > before);
+        assert!(!pm.remove_alignment("p", "missing"));
+        assert!(pm.get_project_by_id("p").unwrap().alignments.is_empty());
     }
 }
