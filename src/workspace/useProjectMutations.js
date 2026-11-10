@@ -22,6 +22,12 @@ import { setMyEnzymes } from '../myEnzymes';
 import { writeHiddenAlnNames } from './hiddenAlignments';
 import { EMPTY_ARRAY } from './constants';
 
+export function requirePrimerMutationData(data) {
+  if (data?.error) throw new Error(data.error);
+  if (!data?.primers) throw new Error('Primer update failed');
+  return data;
+}
+
 export default function useProjectMutations({
   agentLockedRef,
   operationGenRef,
@@ -160,20 +166,19 @@ export default function useProjectMutations({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        const data = await addPrimer(primerData);
+        const data = requirePrimerMutationData(await addPrimer(primerData));
         if (operationGenRef.current !== gen) return;
-        if (data && data.primers) {
-          // Batch callers record history once via recordHistory on their last
-          // call only — the response carries the full post-batch list.
-          if (recordHistory) pushHistory({ primers: data.primers });
-          setPrimers(data.primers);
-          if (data.alignments) setAlignments(data.alignments);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-          if (data.projects) onProjectsSync(data.projects);
-        }
+        // Batch callers record history once via recordHistory on their last
+        // call only — the response carries the full post-batch list.
+        if (recordHistory) pushHistory({ primers: data.primers });
+        setPrimers(data.primers);
+        if (data.alignments) setAlignments(data.alignments);
+        if (data.enzymes) setEnzymes(data.enzymes);
+        setIsDirty(true);
+        if (data.projects) onProjectsSync(data.projects);
       } catch (e) {
         console.error('add primer error:', e);
+        throw e;
       }
     },
     [pushHistory, onProjectsSync],
