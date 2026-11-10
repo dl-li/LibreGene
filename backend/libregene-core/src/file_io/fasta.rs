@@ -27,6 +27,19 @@ pub fn parse_fasta_with_molecule_type(path: &Path, molecule_type: &str) -> io::R
     })
 }
 
+fn validate_ascii_sequence(sequence: &str, name: &str) -> io::Result<()> {
+    if let Some(c) = sequence
+        .chars()
+        .find(|c| !c.is_ascii_alphabetic() && *c != '-' && *c != '*' && *c != '?')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Invalid character '{}' in sequence '{}'", c, name),
+        ));
+    }
+    Ok(())
+}
+
 /// Parse ALL records of a multi-record FASTA file, one `ProjectData` per
 /// `>` header. Record name is the first whitespace token of the header.
 pub fn parse_fasta_all_with_molecule_type(
@@ -61,6 +74,7 @@ pub fn parse_fasta_all_with_molecule_type(
     }
 
     for record in &mut records {
+        validate_ascii_sequence(&record.sequence, &record.name)?;
         record.length = record.sequence.len() as i64;
     }
 
@@ -150,6 +164,7 @@ pub fn parse_msa_fasta(path: &Path) -> io::Result<ProjectData> {
             .first()
             .is_some_and(|first| aligned_rows.iter().all(|s| s.len() == first.len()));
     for (row, aligned_sequence) in rows.iter_mut().zip(aligned_rows) {
+        validate_ascii_sequence(&aligned_sequence, &row.name)?;
         row.sequence = aligned_sequence.replace('-', "");
         if aligned {
             row.aligned_sequence = aligned_sequence;
@@ -310,6 +325,19 @@ mod tests {
         assert!(records.is_empty());
         let first = parse_fasta(&path).unwrap();
         assert_eq!(first.sequence, "");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn rejects_non_ascii_sequences_before_coordinate_use() {
+        let path = write_temp("unicode.fa", ">bad\nAC😀GT\n");
+        let error = parse_fasta_all_with_molecule_type(&path, "dna").unwrap_err();
+        assert!(error.to_string().contains("Invalid character"));
+        std::fs::remove_file(&path).ok();
+
+        let path = write_temp("unicode.msa.fa", ">bad\nAC😀GT\n");
+        let error = parse_msa_fasta(&path).unwrap_err();
+        assert!(error.to_string().contains("Invalid character"));
         std::fs::remove_file(&path).ok();
     }
 
