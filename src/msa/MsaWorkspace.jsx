@@ -108,14 +108,21 @@ export default function MsaWorkspace({
     setDirty(next);
   }, []);
 
-  const applySnapshot = useCallback((snapshot) => {
-    setRows(snapshot.rows || []);
-    setMoleculeType(snapshot.moleculeType || 'dna');
-    setAligned(!!snapshot.aligned);
-    setReferenceRowId(snapshot.referenceRowId || null);
+  const clearSelection = useCallback(() => {
     setSelection(null);
     selectionAnchorRef.current = null;
   }, []);
+
+  const applySnapshot = useCallback(
+    (snapshot) => {
+      setRows(snapshot.rows || []);
+      setMoleculeType(snapshot.moleculeType || 'dna');
+      setAligned(!!snapshot.aligned);
+      setReferenceRowId(snapshot.referenceRowId || null);
+      clearSelection();
+    },
+    [clearSelection],
+  );
 
   useEffect(() => {
     projectIdRef.current = projectId;
@@ -387,13 +394,16 @@ export default function MsaWorkspace({
     ? visibleRows[0]?.alignedSequence.length || 0
     : visibleRows.reduce((max, row) => Math.max(max, row.sequence.length), 0);
 
-  const handleSelection = useCallback((rowIndex, col, dragging) => {
-    if (!dragging || !selectionAnchorRef.current) {
-      selectionAnchorRef.current = { row: rowIndex, col };
-    }
-    const anchor = selectionAnchorRef.current;
-    setSelection({ startRow: anchor.row, endRow: rowIndex, startCol: anchor.col, endCol: col });
-  }, []);
+  const handleSelection = useCallback(
+    (rowIndex, col, dragging) => {
+      if (!dragging || !selectionAnchorRef.current) {
+        selectionAnchorRef.current = { row: rowIndex, col };
+      }
+      const anchor = selectionAnchorRef.current;
+      setSelection({ startRow: anchor.row, endRow: rowIndex, startCol: anchor.col, endCol: col });
+    },
+    [clearSelection],
+  );
 
   const copySelection = useCallback(async () => {
     if (!selection) return;
@@ -593,15 +603,17 @@ export default function MsaWorkspace({
         rows={rows}
         hiddenRowIds={hiddenRowIds}
         referenceRowId={referenceRowId}
-        onToggleHidden={(id) =>
+        onToggleHidden={(id) => {
+          clearSelection();
           setHiddenRowIds((previous) => {
             const next = new Set(previous);
             if (next.has(id)) next.delete(id);
             else if (next.size < rows.length - 1) next.add(id);
             return next;
-          })
-        }
+          });
+        }}
         onSetReference={(id) => {
+          clearSelection();
           setReferenceRowId(id);
           if (!id && colorMode === 'reference') setColorMode('consensus');
         }}
