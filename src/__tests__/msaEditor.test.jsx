@@ -26,6 +26,9 @@ describe('MsaEditor', () => {
     expect(html).toContain('REF');
     expect(html).toContain('Consensus');
     expect(html).toContain('Conservation');
+    expect(html).not.toContain('Alignment column');
+    expect(html).toContain('text-[14px] font-semibold');
+    expect(html).toContain('aria-label="Resize sequence names column"');
     expect(html).toContain('>-</tspan>');
     expect(html).toContain('text-anchor="middle"');
     expect(html).toContain('<tspan x="5">A</tspan>');

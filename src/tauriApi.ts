@@ -143,7 +143,7 @@ export async function createProject(args: any = {}) {
 
 /**
  * Run automatic annotation on a bare sequence (no project required), for the
- * New Sequence dialog's live feature preview. Returns read-only AnnotatedFeature
+ * New File dialog's live feature preview. Returns read-only AnnotatedFeature
  * (camelCase, 0-based inclusive).
  */
 export async function annotateSequenceText(sequence, circular = false, moleculeType = 'dna') {

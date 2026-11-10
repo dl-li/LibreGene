@@ -14,7 +14,6 @@ import { forceQuit } from '../tauriApi';
 import McpGuideDialog from '../dialogs/McpGuideDialog';
 import NewSequenceDialog from '../dialogs/NewSequenceDialog';
 import FastaSplitDialog from '../dialogs/FastaSplitDialog';
-import { NewMsaDialog } from '../msa/MsaDialogs';
 
 export default function AppDialogs({
   mcpGuideOpen,
@@ -24,8 +23,6 @@ export default function AppDialogs({
   newSeqOpen,
   setNewSeqOpen,
   onCreateProject,
-  newMsaOpen,
-  setNewMsaOpen,
   onCreateMsa,
   unsavedDialog,
   onUnsavedCancel,
@@ -57,8 +54,8 @@ export default function AppDialogs({
         open={newSeqOpen}
         onOpenChange={setNewSeqOpen}
         onConfirm={onCreateProject}
+        onCreateMsa={onCreateMsa}
       />
-      <NewMsaDialog open={newMsaOpen} onOpenChange={setNewMsaOpen} onConfirm={onCreateMsa} />
 
       {/* --- Unsaved Changes Dialog --- */}
       <Dialog

@@ -36,14 +36,13 @@ function CopyButton({ text }) {
   );
 }
 
-function Snippet({ label, hint, text }) {
+function Snippet({ label, text }) {
   return (
     <div className="min-w-0">
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-medium">{label}</div>
         <CopyButton text={text} />
       </div>
-      {hint && <div className="text-[11px] text-muted-foreground mb-1">{hint}</div>}
       <pre className="max-w-full text-[11px] leading-relaxed bg-muted rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-all">
         {text}
       </pre>
@@ -54,13 +53,14 @@ function Snippet({ label, hint, text }) {
 function agentPrompt(port, token, requireAuth) {
   const authLine = requireAuth
     ? `- Send this header on every request: Authorization: Bearer ${token || '<token from the MCP Server dialog>'}`
-    : '- No Authorization header is needed (token verification is currently disabled in LibreGene).';
-  return `Add LibreGene's MCP server to your configuration:
-- URL (Streamable HTTP): http://127.0.0.1:${port}/mcp
+    : '- No Authorization header is needed.';
+  return `Configure LibreGene as a remote MCP server using your client's official documentation:
+- Transport: Streamable HTTP
+- URL: http://127.0.0.1:${port}/mcp
 ${authLine}
-- The Host must stay 127.0.0.1:${port}
+- Required Host header: 127.0.0.1:${port}
 
-Configure it strictly following YOUR OWN official documentation for adding a remote (HTTP) MCP server — search the web for your client/framework's docs if needed; config formats differ between clients, so do not guess. Do NOT try to verify the connection yourself: the current conversation usually cannot use a newly configured MCP server. After updating the config, ask the user to restart you or start a new conversation, and verify there by calling list_projects.`;
+After saving the configuration, ask the user to restart you or start a new conversation. Then verify the connection by calling list_workspace.`;
 }
 
 export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpConfigChange }) {
@@ -104,9 +104,7 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
             MCP Server
           </DialogTitle>
           <DialogDescription>
-            Let an LLM agent operate the open plasmid via the Model Context Protocol (17 tools:
-            overview digests, sequence read/edit, feature & primer CRUD, primer design, ORF,
-            alignment, and more).
+            Let an LLM agent read and edit LibreGene projects via the Model Context Protocol.
           </DialogDescription>
         </DialogHeader>
 
@@ -123,7 +121,7 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
               </Label>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Loopback only (127.0.0.1:{port}) — never exposed to the network.
+              Available only on this computer (127.0.0.1).
             </p>
             <div className="flex items-center gap-2">
               <Label className="text-sm text-muted-foreground shrink-0">Port</Label>
@@ -176,8 +174,8 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 {requireAuth
-                  ? 'Required by the MCP server on every request. Regenerating invalidates the old token immediately — update your agent client config afterwards.'
-                  : 'Token verification is off — requests are accepted with or without a token (a sent token is simply ignored). The Host check stays on. Toggling never changes the token.'}
+                  ? 'Required on every request. Regenerating immediately invalidates the old token.'
+                  : 'Token verification is off; the Host check remains enabled.'}
               </p>
             </div>
           </div>
@@ -201,18 +199,10 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
               <div className="space-y-3 mt-3">
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {enabled
-                    ? 'The MCP server is running. Copy the prompt below and send it to your agent — it will configure the connection itself.'
-                    : 'The MCP server is currently disabled — tick Enable above first.'}
+                    ? 'Copy the prompt below and send it to your agent to configure the connection.'
+                    : 'Enable the server above, then copy the prompt below for your agent.'}
                 </p>
-                <Snippet
-                  label="Agent setup prompt"
-                  hint={
-                    requireAuth
-                      ? 'Embeds the current URL and access token. If you regenerate the token, copy and send the prompt again.'
-                      : 'Embeds the current URL. Token verification is off, so no token is included.'
-                  }
-                  text={agentPrompt(port, token, requireAuth)}
-                />
+                <Snippet label="Agent setup prompt" text={agentPrompt(port, token, requireAuth)} />
               </div>
             )}
           </div>

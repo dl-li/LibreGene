@@ -7,7 +7,6 @@ import {
   Info,
   LoaderCircle,
   Puzzle,
-  Rows3,
   Settings,
   X,
 } from 'lucide-react';
@@ -34,7 +33,6 @@ export default function ProjectSidebar({
   nativeTitleBar,
   handleOpenFile,
   setNewSeqOpen,
-  setNewMsaOpen,
   sidebarScroll,
   setSidebarScroll,
   sidebarContentRef,
@@ -105,12 +103,6 @@ export default function ProjectSidebar({
               <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
                 <FilePlus2 className="size-4" />
                 <span>New File…</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => setNewMsaOpen(true)} tooltip="New MSA">
-                <Rows3 className="size-4" />
-                <span>New MSA…</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

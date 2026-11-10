@@ -394,6 +394,10 @@ export default function MsaWorkspace({
 
   const handleSelection = useCallback(
     (rowIndex, col, dragging) => {
+      if (rowIndex == null) {
+        clearSelection();
+        return;
+      }
       if (!dragging || !selectionAnchorRef.current) {
         selectionAnchorRef.current = { row: rowIndex, col };
       }
@@ -565,6 +569,7 @@ export default function MsaWorkspace({
           colorMode={colorMode}
           selection={selection}
           onSelectionChange={handleSelection}
+          onOpenSequences={() => setSequencesOpen(true)}
           hidden={hidden}
         />
       )}

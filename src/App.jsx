@@ -32,7 +32,7 @@ import { useWheelContainment } from './hooks/useWheelContainment';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { FolderOpen, FilePlus2, Bot, Lock, Grid2X2 } from 'lucide-react';
+import { FolderOpen, FilePlus2, Bot, Lock } from 'lucide-react';
 import {
   getRecentFiles,
   addRecentFile,
@@ -150,7 +150,6 @@ export default function App() {
   const [mcpGuideOpen, setMcpGuideOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [newSeqOpen, setNewSeqOpen] = useState(false);
-  const [newMsaOpen, setNewMsaOpen] = useState(false);
   const [unsavedDialog, setUnsavedDialog] = useState({ open: false, pendingAction: null });
   const unsavedPendingRef = useRef(null);
   // Drag-drop: { paths } when the user must pick alignment-vs-open, and
@@ -419,7 +418,7 @@ export default function App() {
     [fastaSplit, refreshProjects, initialDataRef],
   );
 
-  // Create an in-memory project from the New Sequence dialog; hand the
+  // Create an in-memory project from the New File dialog; hand the
   // response to the new workspace (same pattern as handleOpenFile).
   const handleCreateProject = useCallback(
     async (payload) => {
@@ -786,7 +785,6 @@ export default function App() {
       nativeTitleBar={isTauri && !/Mac/i.test(navigator.platform)}
       handleOpenFile={handleOpenFile}
       setNewSeqOpen={setNewSeqOpen}
-      setNewMsaOpen={setNewMsaOpen}
       sidebarScroll={sidebarScroll}
       setSidebarScroll={setSidebarScroll}
       sidebarContentRef={sidebarContentRef}
@@ -922,11 +920,7 @@ export default function App() {
                     </Button>
                     <Button variant="outline" size="lg" onClick={() => setNewSeqOpen(true)}>
                       <FilePlus2 className="size-4" />
-                      New Sequence
-                    </Button>
-                    <Button variant="outline" size="lg" onClick={() => setNewMsaOpen(true)}>
-                      <Grid2X2 className="size-4" />
-                      New MSA
+                      New File
                     </Button>
                   </div>
                   <button
@@ -980,8 +974,6 @@ export default function App() {
           newSeqOpen={newSeqOpen}
           setNewSeqOpen={setNewSeqOpen}
           onCreateProject={handleCreateProject}
-          newMsaOpen={newMsaOpen}
-          setNewMsaOpen={setNewMsaOpen}
           onCreateMsa={handleCreateMsa}
           unsavedDialog={unsavedDialog}
           onUnsavedCancel={handleUnsavedCancel}

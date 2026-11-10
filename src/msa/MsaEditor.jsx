@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeConsensus, rowDisplaySequence } from './msaAnalysis';
+import { continuousWheelDelta } from '../editor/continuousScrolling';
 
 const CW = 10;
 const ROW_H = 24;
@@ -68,6 +69,8 @@ const SequenceLine = React.memo(function SequenceLine({
   hoverRow = -1,
   hoverCol = -1,
   onHover,
+  labelWidth = LABEL_W,
+  onOpenSequences,
 }) {
   const runs = useMemo(
     () => buildRuns(sequence, startCol, endCol, styleFor),
@@ -102,10 +105,11 @@ const SequenceLine = React.memo(function SequenceLine({
           stickyLabel ? 'sticky left-0 float-left' : 'absolute left-0'
         }`}
         style={{
-          width: LABEL_W,
+          width: labelWidth,
           backgroundColor: hoverRow >= 0 && hoverRow === rowIndex ? '#f1f5f9' : undefined,
         }}
         title={label}
+        onDoubleClick={onOpenSequences}
       >
         <span className="truncate font-medium text-foreground/80">{label}</span>
         {reference && (
@@ -115,8 +119,9 @@ const SequenceLine = React.memo(function SequenceLine({
         )}
       </div>
       <svg
-        className="absolute top-0 h-6 select-none overflow-visible font-mono text-[12px]"
-        style={{ left: LABEL_W + (stickyLabel ? startCol * CW : 0), width }}
+        data-msa-sequence
+        className="absolute top-0 h-6 select-none overflow-visible font-mono text-[14px] font-semibold"
+        style={{ left: labelWidth + (stickyLabel ? startCol * CW : 0), width }}
         onMouseDown={(event) => {
           if (!onSelect || event.button !== 0) return;
           event.preventDefault();
@@ -186,7 +191,15 @@ const SequenceLine = React.memo(function SequenceLine({
   );
 });
 
-function Ruler({ startCol, endCol, stickyLabel = false }) {
+function Ruler({
+  startCol,
+  endCol,
+  stickyLabel = false,
+  labelWidth = LABEL_W,
+  onLabelWidthChange,
+  onOpenSequences,
+}) {
+  const resizeStartRef = useRef(null);
   const ticks = [];
   for (let col = startCol; col <= endCol; col++) {
     if ((col + 1) % 10 === 0 || col === startCol) ticks.push(col);
@@ -194,17 +207,51 @@ function Ruler({ startCol, endCol, stickyLabel = false }) {
   return (
     <div className="relative h-6 border-b border-border/50 text-[10px] text-muted-foreground">
       <div
-        className={`top-0 z-20 flex h-6 items-center border-r border-border/60 bg-background px-2 ${
+        className={`top-0 z-20 flex h-6 items-center border-r border-border/60 bg-background ${
           stickyLabel ? 'sticky left-0 float-left' : 'absolute left-0'
         }`}
-        style={{ width: LABEL_W }}
+        style={{ width: labelWidth }}
+        title="Drag the right edge to resize; double-click to open Sequences"
+        onDoubleClick={onOpenSequences}
       >
-        Alignment column
+        <div
+          role="separator"
+          aria-label="Resize sequence names column"
+          aria-orientation="vertical"
+          aria-valuemin={72}
+          aria-valuemax={480}
+          aria-valuenow={labelWidth}
+          className="absolute -right-1 top-0 z-30 h-6 w-2 cursor-col-resize touch-none hover:bg-primary/40"
+          onDoubleClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            resizeStartRef.current = { x: event.clientX, width: labelWidth };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const start = resizeStartRef.current;
+            if (!start) return;
+            onLabelWidthChange?.(
+              Math.max(72, Math.min(480, start.width + event.clientX - start.x)),
+            );
+          }}
+          onPointerUp={(event) => {
+            resizeStartRef.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          }}
+          onLostPointerCapture={() => {
+            resizeStartRef.current = null;
+          }}
+        />
       </div>
       <svg
         className="absolute top-0 h-6"
         style={{
-          left: LABEL_W + (stickyLabel ? startCol * CW : 0),
+          left: labelWidth + (stickyLabel ? startCol * CW : 0),
           width: (endCol - startCol + 1) * CW,
         }}
       >
@@ -218,21 +265,29 @@ function Ruler({ startCol, endCol, stickyLabel = false }) {
   );
 }
 
-function ConservationLine({ values, startCol, endCol, stickyLabel = false }) {
+function ConservationLine({
+  values,
+  startCol,
+  endCol,
+  stickyLabel = false,
+  labelWidth = LABEL_W,
+  onOpenSequences,
+}) {
   return (
     <div className="relative h-6">
       <div
         className={`top-0 z-10 flex h-6 items-center border-r border-border/60 bg-background px-2 text-xs text-muted-foreground ${
           stickyLabel ? 'sticky left-0 float-left' : 'absolute left-0'
         }`}
-        style={{ width: LABEL_W }}
+        style={{ width: labelWidth }}
+        onDoubleClick={onOpenSequences}
       >
         Conservation
       </div>
       <svg
         className="absolute top-0 h-6"
         style={{
-          left: LABEL_W + (stickyLabel ? startCol * CW : 0),
+          left: labelWidth + (stickyLabel ? startCol * CW : 0),
           width: (endCol - startCol + 1) * CW,
         }}
       >
@@ -261,11 +316,13 @@ export default function MsaEditor({
   colorMode,
   selection,
   onSelectionChange,
+  onOpenSequences,
   hidden = false,
 }) {
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const [width, setWidth] = useState(1000);
+  const [labelWidth, setLabelWidth] = useState(LABEL_W);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [hover, setHover] = useState({ row: -1, col: -1 });
   const handleHover = useCallback((row, col) => {
@@ -296,6 +353,25 @@ export default function MsaEditor({
     setScroll({ top: 0, left: 0 });
     scrollRef.current?.scrollTo({ top: 0, left: 0 });
   }, [rows.length, aligned]);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (hidden || !element) return undefined;
+    const onWheel = (event) => {
+      const delta = continuousWheelDelta({
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        shiftKey: event.shiftKey,
+        scrollLeft: element.scrollLeft,
+        maxScrollLeft: Math.max(0, element.scrollWidth - element.clientWidth),
+      });
+      if (delta === null) return;
+      event.preventDefault();
+      element.scrollLeft += delta;
+    };
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [hidden]);
 
   const comparisonTarget =
     colorMode === 'reference' && referenceIndex >= 0
@@ -348,7 +424,7 @@ export default function MsaEditor({
     rows.length - 1,
     Math.ceil((scroll.top + (containerRef.current?.clientHeight || 700)) / ROW_H) + 4,
   );
-  const totalWidth = LABEL_W + columnCount * CW + 40;
+  const totalWidth = labelWidth + columnCount * CW + 40;
   const totalHeight = RULER_H + (rows.length + 2) * ROW_H + 20;
 
   return (
@@ -357,10 +433,22 @@ export default function MsaEditor({
         ref={scrollRef}
         className="h-full overflow-auto overscroll-contain"
         onScroll={handleScroll}
+        onMouseDown={(event) => {
+          if (event.button === 0 && !event.target.closest('[data-msa-sequence]')) {
+            onSelectionChange?.();
+          }
+        }}
       >
         <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
           <div className="sticky top-0 z-30 bg-background">
-            <Ruler startCol={visibleStartCol} endCol={visibleEndCol} stickyLabel />
+            <Ruler
+              startCol={visibleStartCol}
+              endCol={visibleEndCol}
+              stickyLabel
+              labelWidth={labelWidth}
+              onLabelWidthChange={setLabelWidth}
+              onOpenSequences={onOpenSequences}
+            />
           </div>
           {rows.slice(firstRow, lastRow + 1).map((row, offset) => {
             const rowIndex = firstRow + offset;
@@ -384,6 +472,8 @@ export default function MsaEditor({
                   hoverRow={hover.row}
                   hoverCol={hover.col}
                   onHover={handleHover}
+                  labelWidth={labelWidth}
+                  onOpenSequences={onOpenSequences}
                 />
               </div>
             );
@@ -402,6 +492,8 @@ export default function MsaEditor({
               stickyLabel
               hoverCol={hover.col}
               onHover={handleHover}
+              labelWidth={labelWidth}
+              onOpenSequences={onOpenSequences}
             />
           </div>
           <div
@@ -413,6 +505,8 @@ export default function MsaEditor({
               startCol={visibleStartCol}
               endCol={visibleEndCol}
               stickyLabel
+              labelWidth={labelWidth}
+              onOpenSequences={onOpenSequences}
             />
           </div>
         </div>
