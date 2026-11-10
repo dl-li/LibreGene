@@ -1,5 +1,3 @@
-import GelDialog from './GelDialog';
-
 const gelPlugin = {
   id: 'gel',
   name: 'Digest and Run Gel',
@@ -15,7 +13,7 @@ const gelPlugin = {
   // Entry point is the "Digest and Run Gel" item in the Diagrams menu
   // wired via SequenceEditor.onOpenGel, not the sidebar.
   sidebarItems: [],
-  dialog: GelDialog,
+  dialogLoader: () => import('./GelDialog'),
 };
 
 export default gelPlugin;

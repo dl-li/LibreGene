@@ -1,5 +1,3 @@
-import DotplotDialog from './DotplotDialog';
-
 const dotplotPlugin = {
   id: 'dotplot',
   name: 'Dotplot',
@@ -15,7 +13,7 @@ const dotplotPlugin = {
   // Entry point is the "Examine Dotplot" item in the Diagrams menu
   // wired via SequenceEditor.onOpenDotplot, not the sidebar.
   sidebarItems: [],
-  dialog: DotplotDialog,
+  dialogLoader: () => import('./DotplotDialog'),
 };
 
 export default dotplotPlugin;

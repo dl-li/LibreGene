@@ -39,6 +39,9 @@ const myPlugin = {
   dialogKey: 'myPlugin', // key into the pluginDialogs open-state map; null if
   // no dialog. May differ from id (e.g. snapgeneHistory uses 'snapshots').
   dialog: MyDialog, // React component, receives { open, onOpenChange, ... }
+  // Prefer dialogLoader for heavy dialogs: it is loaded on first open and
+  // stays mounted afterwards. dialog and dialogLoader are mutually exclusive.
+  dialogLoader: () => import('./MyDialog'),
   // Optional predicate gating every entry of the plugin; receives
   // { projectId, moleculeType, isTauri }.
   dialogVisible: ({ projectId, moleculeType, isTauri }) => true,

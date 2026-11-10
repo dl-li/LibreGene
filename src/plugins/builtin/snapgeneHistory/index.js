@@ -1,5 +1,3 @@
-import SnapshotsDialog from './SnapshotsDialog';
-
 const snapgeneHistoryPlugin = {
   id: 'snapgeneHistory',
   name: 'SnapGene History',
@@ -11,7 +9,7 @@ const snapgeneHistoryPlugin = {
   // Entry point is the "History" item in the Edit nav menu,
   // wired via SequenceEditor.onOpenSnapshots, not the sidebar.
   sidebarItems: [],
-  dialog: SnapshotsDialog,
+  dialogLoader: () => import('./SnapshotsDialog'),
   // The dialog only makes sense for projects opened from a .dna file and for
   // snapshot projects spawned from one (which carry the history subtree).
   dialogVisible: ({ projectId, isTauri }) =>

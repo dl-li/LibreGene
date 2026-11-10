@@ -1,5 +1,3 @@
-import RnaFoldDialog from './RnaFoldDialog';
-
 const rnaFoldPlugin = {
   id: 'rnaFold',
   name: 'RNA Folding',
@@ -12,7 +10,7 @@ const rnaFoldPlugin = {
   // Entry point is the "Folding" button in EditorNavMenu,
   // wired via SequenceEditor.onOpenRnaFold, not the sidebar.
   sidebarItems: [],
-  dialog: RnaFoldDialog,
+  dialogLoader: () => import('./RnaFoldDialog'),
 };
 
 export default rnaFoldPlugin;

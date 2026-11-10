@@ -1,5 +1,3 @@
-import AlignmentDialog from './AlignmentDialog';
-
 const alignmentPlugin = {
   id: 'alignment',
   name: 'Alignment',
@@ -10,7 +8,7 @@ const alignmentPlugin = {
   // nucleotide template with strand/GC semantics.
   dnaOnly: true,
   sidebarItems: [],
-  dialog: AlignmentDialog,
+  dialogLoader: () => import('./AlignmentDialog'),
 };
 
 export default alignmentPlugin;

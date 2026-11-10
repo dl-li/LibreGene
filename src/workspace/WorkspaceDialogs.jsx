@@ -1,3 +1,4 @@
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { plugins, pluginAvailable } from '../plugins';
 import AddAlignmentTextDialog from '../plugins/builtin/alignment/AddAlignmentTextDialog';
 import SequenceEditDialog from '../dialogs/SequenceEditDialog';
@@ -16,6 +17,25 @@ import {
 } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 import { isTauri } from '../tauriApi';
+
+const lazyDialogs = new Map();
+
+function PluginDialog({ plugin, open, ...props }) {
+  const [hasOpened, setHasOpened] = useState(open);
+  useEffect(() => {
+    if (open) setHasOpened(true);
+  }, [open]);
+  if (!hasOpened || (!plugin.dialog && !plugin.dialogLoader)) return null;
+  if (plugin.dialogLoader && !lazyDialogs.has(plugin.id)) {
+    lazyDialogs.set(plugin.id, lazy(plugin.dialogLoader));
+  }
+  const DialogComp = plugin.dialog || lazyDialogs.get(plugin.id);
+  return (
+    <Suspense fallback={null}>
+      <DialogComp open={open} {...props} />
+    </Suspense>
+  );
+}
 
 export default function WorkspaceDialogs({
   projectId,
@@ -132,11 +152,11 @@ export default function WorkspaceDialogs({
           pluginAvailable(plugin, { moleculeType, disabledPlugins, projectId, isTauri }),
         )
         .map((plugin) => {
-          const DialogComp = plugin.dialog;
-          if (!DialogComp) return null;
+          if (!plugin.dialog && !plugin.dialogLoader) return null;
           return (
-            <DialogComp
+            <PluginDialog
               key={plugin.id}
+              plugin={plugin}
               open={!!pluginDialogs[plugin.dialogKey]}
               onOpenChange={(open) =>
                 setPluginDialogs((prev) => ({

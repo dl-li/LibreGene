@@ -1,5 +1,3 @@
-import CodonOptimizationDialog from './CodonOptimizationDialog';
-
 const codonOptimizationPlugin = {
   id: 'codonOptimization',
   name: 'Codon Optimization',
@@ -11,7 +9,7 @@ const codonOptimizationPlugin = {
   dnaOnly: true,
   // Entry point is the editor Edit menu, not the sidebar.
   sidebarItems: [],
-  dialog: CodonOptimizationDialog,
+  dialogLoader: () => import('./CodonOptimizationDialog'),
 };
 
 export default codonOptimizationPlugin;
