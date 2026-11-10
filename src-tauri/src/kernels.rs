@@ -456,6 +456,21 @@ fn merge_recomputed_after_edit(live: &mut ProjectData, computed: ProjectData) ->
     true
 }
 
+fn commit_recomputed_project(
+    pm: &mut ProjectManager,
+    project_id: &str,
+    expected_revision: u64,
+    computed: ProjectData,
+) -> bool {
+    if pm.revision(project_id) != expected_revision {
+        return false;
+    }
+    let Some(live) = pm.get_project_mut_by_id(project_id) else {
+        return true;
+    };
+    merge_recomputed_after_edit(live, computed)
+}
+
 /// Clone the project, recompute enzymes/primers/translations/alignments
 /// off-lock, CAS write the computed fields back and broadcast. Shared by
 /// do_update_sequence and the MCP edit_sequence path (which writes the
@@ -467,43 +482,46 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
     source: Option<&str>,
     project_id: &str,
 ) -> Result<(), String> {
-    let (project_clone, expected_revision) = {
-        let pm = pm.read().await;
-        let revision = pm.revision(project_id);
-        let project = pm.get_project_by_id(project_id).map(|p| ProjectData {
-            // enzyme::recompute below rebuilds the whole enzyme list from the
-            // embedded database, so cloning the existing Vec<Enzyme> (the
-            // single heaviest field on large plasmids) is pure waste.
-            // primers are NOT skipped: primer::recompute reads the existing
-            // primer definitions to recompute their binding sites.
-            enzymes: Vec::new(),
-            name: p.name.clone(),
-            definition: p.definition.clone(),
-            keywords: p.keywords.clone(),
-            lab_host: p.lab_host.clone(),
-            sequence: p.sequence.clone(),
-            length: p.length,
-            topology: p.topology.clone(),
-            molecule_type: p.molecule_type.clone(),
-            project_kind: p.project_kind.clone(),
-            msa_rows: p.msa_rows.clone(),
-            msa_aligned: p.msa_aligned,
-            reference_row_id: p.reference_row_id.clone(),
-            features: p.features.clone(),
-            primers: p.primers.clone(),
-            alignments: p.alignments.clone(),
-            methylation_systems: p.methylation_systems.clone(),
-            methylation_overlap: p.methylation_overlap,
-            roi: p.roi,
-            trace_path: p.trace_path.clone(),
-            snapgene_history: p.snapgene_history.clone(),
-            text_colors_top: p.text_colors_top.clone(),
-            text_colors_bottom: p.text_colors_bottom.clone(),
-        });
-        (project, revision)
-    };
+    loop {
+        let (project_clone, expected_revision) = {
+            let pm = pm.read().await;
+            let revision = pm.revision(project_id);
+            let project = pm.get_project_by_id(project_id).map(|p| ProjectData {
+                // enzyme::recompute below rebuilds the whole enzyme list from the
+                // embedded database, so cloning the existing Vec<Enzyme> (the
+                // single heaviest field on large plasmids) is pure waste.
+                // primers are NOT skipped: primer::recompute reads the existing
+                // primer definitions to recompute their binding sites.
+                enzymes: Vec::new(),
+                name: p.name.clone(),
+                definition: p.definition.clone(),
+                keywords: p.keywords.clone(),
+                lab_host: p.lab_host.clone(),
+                sequence: p.sequence.clone(),
+                length: p.length,
+                topology: p.topology.clone(),
+                molecule_type: p.molecule_type.clone(),
+                project_kind: p.project_kind.clone(),
+                msa_rows: p.msa_rows.clone(),
+                msa_aligned: p.msa_aligned,
+                reference_row_id: p.reference_row_id.clone(),
+                features: p.features.clone(),
+                primers: p.primers.clone(),
+                alignments: p.alignments.clone(),
+                methylation_systems: p.methylation_systems.clone(),
+                methylation_overlap: p.methylation_overlap,
+                roi: p.roi,
+                trace_path: p.trace_path.clone(),
+                snapgene_history: p.snapgene_history.clone(),
+                text_colors_top: p.text_colors_top.clone(),
+                text_colors_bottom: p.text_colors_bottom.clone(),
+            });
+            (project, revision)
+        };
 
-    if let Some(mut p) = project_clone {
+        let Some(mut p) = project_clone else {
+            break;
+        };
         let computed = tokio::task::spawn_blocking(move || {
             enzyme::recompute(&mut p);
             primer::recompute(&mut p);
@@ -514,16 +532,14 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
         .await
         .map_err(|e| format!("task join error: {}", e))?;
 
-        // Write back ONLY the computed fields (CAS on the sequence) so
-        // concurrent edits made while spawn_blocking ran (e.g. a feature
-        // rename, a newer sequence edit) are not clobbered; this also leaves
-        // the global active project untouched (no open_project).
-        let mut pm = pm.write().await;
-        if pm.revision(project_id) != expected_revision {
-            return Ok(());
-        }
-        if let Some(p) = pm.get_project_mut_by_id(project_id) {
-            merge_recomputed_after_edit(p, computed);
+        // A concurrent edit invalidates only this attempt. Retry from the live
+        // snapshot so derived data eventually catches up with the latest edit.
+        let committed = {
+            let mut pm = pm.write().await;
+            commit_recomputed_project(&mut pm, project_id, expected_revision, computed)
+        };
+        if committed {
+            break;
         }
     }
 
@@ -2694,5 +2710,47 @@ mod tests {
         };
         assert!(!merge_recomputed_after_edit(&mut live, computed));
         assert!(live.enzymes.is_empty());
+    }
+
+    #[test]
+    fn recompute_commit_rejects_stale_revision_and_accepts_latest() {
+        let mut pm = ProjectManager::new();
+        pm.load(
+            "p1",
+            ProjectData {
+                sequence: "ACGTACGT".to_string(),
+                length: 8,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let stale_revision = pm.revision("p1");
+        let computed = ProjectData {
+            sequence: "ACGTACGT".to_string(),
+            length: 8,
+            enzymes: vec![libregene_core::models::Enzyme {
+                name: "EcoRI".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        pm.mark_dirty("p1");
+        assert!(!commit_recomputed_project(
+            &mut pm,
+            "p1",
+            stale_revision,
+            computed.clone()
+        ));
+        assert!(pm.get_project_by_id("p1").unwrap().enzymes.is_empty());
+
+        let latest_revision = pm.revision("p1");
+        assert!(commit_recomputed_project(
+            &mut pm,
+            "p1",
+            latest_revision,
+            computed
+        ));
+        assert_eq!(pm.get_project_by_id("p1").unwrap().enzymes.len(), 1);
     }
 }
