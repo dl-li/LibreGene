@@ -46,6 +46,7 @@ pub fn parse_fasta_all_with_molecule_type(
     path: &Path,
     molecule_type: &str,
 ) -> io::Result<Vec<ProjectData>> {
+    super::ensure_within_size_limit(path)?;
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -325,6 +326,19 @@ mod tests {
         assert!(records.is_empty());
         let first = parse_fasta(&path).unwrap();
         assert_eq!(first.sequence, "");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn multi_record_parser_enforces_input_size_limit() {
+        let path = write_temp("oversize.fa", "");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(super::super::MAX_INPUT_FILE_BYTES + 1)
+            .unwrap();
+        drop(file);
+
+        let error = parse_fasta_all_with_molecule_type(&path, "dna").unwrap_err();
+        assert!(error.to_string().contains("cap"));
         std::fs::remove_file(&path).ok();
     }
 
