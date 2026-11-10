@@ -56,24 +56,43 @@ export default function useProjectMutations({
   showAlignments,
   hiddenAlignIds,
 }) {
-  const forProject =
-    (command) =>
-    (...args) =>
-      command(projectIdRef.current, ...args);
-  const updateFeatureFtype = forProject(updateFeatureFtypeCommand);
-  const updateFeatureColor = forProject(updateFeatureColorCommand);
-  const updateFeatureName = forProject(updateFeatureNameCommand);
-  const updateFeatureStrand = forProject(updateFeatureStrandCommand);
-  const updateFeatureLocation = forProject(updateFeatureLocationCommand);
-  const addFeature = forProject(addFeatureCommand);
-  const deleteFeature = forProject(deleteFeatureCommand);
-  const addPrimer = forProject(addPrimerCommand);
-  const addPrimers = forProject(addPrimersCommand);
-  const deletePrimer = forProject(deletePrimerCommand);
-  const setTextColors = forProject(setTextColorsCommand);
-  const addAlignment = forProject(addAlignmentCommand);
-  const addAlignmentSeq = forProject(addAlignmentSeqCommand);
-  const removeAlignment = forProject(removeAlignmentCommand);
+  const {
+    updateFeatureFtype,
+    updateFeatureColor,
+    updateFeatureName,
+    updateFeatureStrand,
+    updateFeatureLocation,
+    addFeature,
+    deleteFeature,
+    addPrimer,
+    addPrimers,
+    deletePrimer,
+    setTextColors,
+    addAlignment,
+    addAlignmentSeq,
+    removeAlignment,
+  } = useMemo(() => {
+    const forProject =
+      (command) =>
+      (...args) =>
+        command(projectIdRef.current, ...args);
+    return {
+      updateFeatureFtype: forProject(updateFeatureFtypeCommand),
+      updateFeatureColor: forProject(updateFeatureColorCommand),
+      updateFeatureName: forProject(updateFeatureNameCommand),
+      updateFeatureStrand: forProject(updateFeatureStrandCommand),
+      updateFeatureLocation: forProject(updateFeatureLocationCommand),
+      addFeature: forProject(addFeatureCommand),
+      deleteFeature: forProject(deleteFeatureCommand),
+      addPrimer: forProject(addPrimerCommand),
+      addPrimers: forProject(addPrimersCommand),
+      deletePrimer: forProject(deletePrimerCommand),
+      setTextColors: forProject(setTextColorsCommand),
+      addAlignment: forProject(addAlignmentCommand),
+      addAlignmentSeq: forProject(addAlignmentSeqCommand),
+      removeAlignment: forProject(removeAlignmentCommand),
+    };
+  }, [projectIdRef]);
 
   const handleFeatureFtypeChange = useCallback(
     async (featureId, newFtype) => {
@@ -92,7 +111,15 @@ export default function useProjectMutations({
         console.error('update feature ftype error:', e);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      operationGenRef,
+      setFeatures,
+      setIsDirty,
+      updateFeatureFtype,
+    ],
   );
 
   const handleFeatureColorChange = useCallback(
@@ -112,7 +139,15 @@ export default function useProjectMutations({
         console.error('update feature color error:', e);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      operationGenRef,
+      setFeatures,
+      setIsDirty,
+      updateFeatureColor,
+    ],
   );
 
   // Sequence text color on [start, end] (0-based inclusive); '' clears.
@@ -138,7 +173,16 @@ export default function useProjectMutations({
         return false;
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      operationGenRef,
+      setIsDirty,
+      setTextColors,
+      setTextColorsBottom,
+      setTextColorsTop,
+    ],
   );
 
   const handleFeatureNameChange = useCallback(
@@ -158,7 +202,15 @@ export default function useProjectMutations({
         console.error('update feature name error:', e);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      operationGenRef,
+      setFeatures,
+      setIsDirty,
+      updateFeatureName,
+    ],
   );
 
   const handlePrimerChange = useCallback(
@@ -181,7 +233,17 @@ export default function useProjectMutations({
         throw e;
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      addPrimer,
+      agentLockedRef,
+      operationGenRef,
+      setAlignments,
+      setEnzymes,
+      setIsDirty,
+      setPrimers,
+    ],
   );
 
   const handleToggleTopology = useCallback(async () => {
@@ -205,7 +267,18 @@ export default function useProjectMutations({
     } catch (e) {
       console.error('topology toggle error:', e);
     }
-  }, [topologyLive, onProjectsSync]);
+  }, [
+    topologyLive,
+    onProjectsSync,
+    agentLockedRef,
+    operationGenRef,
+    projectIdRef,
+    setEnzymes,
+    setFeatures,
+    setIsDirty,
+    setPrimers,
+    setTopologyLive,
+  ]);
 
   // --- My Primers library actions ---
   const handleAddPrimerToMyPrimers = useCallback(
@@ -239,7 +312,7 @@ export default function useProjectMutations({
         if (data.projects) onProjectsSync(data.projects);
       }
     },
-    [onProjectsSync],
+    [onProjectsSync, operationGenRef, setAlignments, setEnzymes, setIsDirty, setPrimers],
   );
 
   const handleAddMyPrimerToFile = useCallback(
@@ -257,7 +330,7 @@ export default function useProjectMutations({
         console.error('add primer from My Primers error:', e);
       }
     },
-    [pushHistory, applyAddedPrimers],
+    [pushHistory, applyAddedPrimers, addPrimers, agentLockedRef, operationGenRef],
   );
 
   const handleAddAllBindingPrimers = useCallback(async () => {
@@ -280,7 +353,16 @@ export default function useProjectMutations({
     } catch (e) {
       console.error('add binding primers error:', e);
     }
-  }, [myPrimerBinding.results, myPrimers, primers, pushHistory, applyAddedPrimers]);
+  }, [
+    myPrimerBinding.results,
+    myPrimers,
+    primers,
+    pushHistory,
+    applyAddedPrimers,
+    addPrimers,
+    agentLockedRef,
+    operationGenRef,
+  ]);
 
   const handleMyEnzymesChange = useCallback(
     (list) => {
@@ -307,7 +389,16 @@ export default function useProjectMutations({
         if (data.projects) onProjectsSync(data.projects);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      addFeature,
+      agentLockedRef,
+      operationGenRef,
+      setEnzymes,
+      setFeatures,
+      setIsDirty,
+    ],
   );
 
   const handleFeatureStrandChange = useCallback(
@@ -327,7 +418,15 @@ export default function useProjectMutations({
         console.error('update feature strand error:', e);
       }
     },
-    [pushHistory],
+    [
+      pushHistory,
+      agentLockedRef,
+      operationGenRef,
+      setEnzymes,
+      setFeatures,
+      setIsDirty,
+      updateFeatureStrand,
+    ],
   );
 
   const handleFeatureLocationChange = useCallback(
@@ -344,7 +443,15 @@ export default function useProjectMutations({
         setIsDirty(true);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      operationGenRef,
+      setFeatures,
+      setIsDirty,
+      updateFeatureLocation,
+    ],
   );
 
   const handleDeleteFeature = useCallback(
@@ -364,7 +471,15 @@ export default function useProjectMutations({
         console.error('delete feature error:', e);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      deleteFeature,
+      operationGenRef,
+      setFeatures,
+      setIsDirty,
+    ],
   );
 
   const handleDeletePrimer = useCallback(
@@ -385,7 +500,16 @@ export default function useProjectMutations({
         console.error('delete primer error:', e);
       }
     },
-    [pushHistory, onProjectsSync],
+    [
+      pushHistory,
+      onProjectsSync,
+      agentLockedRef,
+      deletePrimer,
+      operationGenRef,
+      setAlignments,
+      setIsDirty,
+      setPrimers,
+    ],
   );
 
   const addAlignmentFiles = useCallback(
@@ -416,7 +540,15 @@ export default function useProjectMutations({
       }
       return { added, failed };
     },
-    [onProjectsSync, alignmentAlgorithm],
+    [
+      onProjectsSync,
+      alignmentAlgorithm,
+      addAlignment,
+      agentLockedRef,
+      operationGenRef,
+      setAlignments,
+      setIsDirty,
+    ],
   );
 
   const handleAddAlignment = useCallback(async () => {
@@ -431,7 +563,7 @@ export default function useProjectMutations({
       });
       throw new Error(lines.join('\n'));
     }
-  }, [addAlignmentFiles]);
+  }, [addAlignmentFiles, agentLockedRef]);
 
   const handleAddAlignmentText = useCallback(
     async (name, seq) => {
@@ -446,7 +578,15 @@ export default function useProjectMutations({
         setIsDirty(true);
       }
     },
-    [onProjectsSync, alignmentAlgorithm],
+    [
+      onProjectsSync,
+      alignmentAlgorithm,
+      addAlignmentSeq,
+      agentLockedRef,
+      operationGenRef,
+      setAlignments,
+      setIsDirty,
+    ],
   );
 
   const handleToggleAlignmentVisible = useCallback(
@@ -464,7 +604,7 @@ export default function useProjectMutations({
       // Hiding a track collapses its chromatogram band if it was expanded.
       setExpandedChromAlnId((cur) => (cur === alignmentId ? null : cur));
     },
-    [alignments],
+    [alignments, projectIdRef, setExpandedChromAlnId, setHiddenAlignIds],
   );
 
   const visibleAlignments = useMemo(
@@ -502,7 +642,17 @@ export default function useProjectMutations({
         console.error('remove alignment error:', e);
       }
     },
-    [onProjectsSync, alignments],
+    [
+      onProjectsSync,
+      alignments,
+      agentLockedRef,
+      operationGenRef,
+      projectIdRef,
+      removeAlignment,
+      setAlignments,
+      setHiddenAlignIds,
+      setIsDirty,
+    ],
   );
 
   return {

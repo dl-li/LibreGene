@@ -262,7 +262,17 @@ export default function PrimerAlignmentDialog({
           .catch(() => {});
       }
     }
-  }, [open, primer?.id, isNewPrimer]);
+  }, [
+    open,
+    primer?.id,
+    isNewPrimer,
+    alignmentData,
+    newPrimerSeq,
+    primer,
+    projectId,
+    seedLength,
+    tmParams,
+  ]);
 
   const cur = preview?.data?.current || data?.current;
   const alts = preview?.data?.alternatives || data?.alternatives || [];
@@ -352,7 +362,18 @@ export default function PrimerAlignmentDialog({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [editSeq, open, primer, seedLength, stripIUPAC, isNewPrimer, editName, tmParams]);
+  }, [
+    editSeq,
+    open,
+    primer,
+    seedLength,
+    stripIUPAC,
+    isNewPrimer,
+    editName,
+    tmParams,
+    newPrimerSeq,
+    projectId,
+  ]);
 
   const handleApply = useCallback(async () => {
     if (!hasChanges) {

@@ -290,13 +290,13 @@ export default function ProjectWorkspace({
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
-  }, [isDirty]);
+  }, [isDirty, isDirtyRef]);
   useEffect(() => {
     sequenceRef.current = sequence;
   }, [sequence]);
   useEffect(() => {
     projectIdRef.current = projectId;
-  }, [projectId]);
+  }, [projectId, projectIdRef]);
 
   // Initialize undo history from initialData, or fetch the project when absent
   useEffect(() => {
@@ -358,7 +358,24 @@ export default function ProjectWorkspace({
       cancelled = true;
     };
     // mount-only load; projectId prop changes come from Save As rekey (state preserved)
-  }, []);
+  }, [
+    baselineSnapshotRef,
+    editHistoryRef,
+    initialData,
+    projectIdRef,
+    setAlignments,
+    setEnzymes,
+    setFeatures,
+    setHiddenAlignIds,
+    setIsDirty,
+    setMoleculeType,
+    setPrimers,
+    setSequence,
+    setTextColorsBottom,
+    setTextColorsTop,
+    setTopologyLive,
+    setTracePath,
+  ]);
 
   // Listen for external mutations on this project (MCP tools)
   useEffect(() => {
@@ -415,7 +432,22 @@ export default function ProjectWorkspace({
       cancelled = true;
       if (listener) listener.close();
     };
-  }, []);
+  }, [
+    baselineSnapshotRef,
+    editHistoryRef,
+    projectIdRef,
+    setAlignments,
+    setEnzymes,
+    setFeatures,
+    setIsDirty,
+    setMoleculeType,
+    setPrimers,
+    setSequence,
+    setTextColorsBottom,
+    setTextColorsTop,
+    setTopologyLive,
+    setTracePath,
+  ]);
 
   // MCP mutations emit agent-mutation-focus after the data broadcast; when this
   // project is agent-locked, jump to and select the changed region.
@@ -445,7 +477,7 @@ export default function ProjectWorkspace({
       });
     });
     return () => listener.close();
-  }, []);
+  }, [agentLockedRef, projectIdRef, setRestoreState, undoVersionRef]);
 
   // Report dirty state up to App (sidebar dots + title bar)
   useEffect(() => {
@@ -524,10 +556,12 @@ export default function ProjectWorkspace({
     }
   }, [neededTracePaths]);
   const mainChromatogram = useMemo(() => {
+    void chromVersion;
     if (!tracePath) return null;
     return chromRawRef.current.get(tracePath) || null;
   }, [tracePath, chromVersion]);
   const alignmentChromatograms = useMemo(() => {
+    void chromVersion;
     // Alignment trace bands are opt-in (visual tidiness): only the track the
     // user expanded via its label carries a chromatogram, one at a time.
     const out = {};
@@ -542,9 +576,12 @@ export default function ProjectWorkspace({
     () => new Set(alignments.filter((al) => al.tracePath).map((al) => al.id)),
     [alignments],
   );
-  const toggleAlignmentChrom = useCallback((id) => {
-    setExpandedChromAlnId((cur) => (cur === id ? null : id));
-  }, []);
+  const toggleAlignmentChrom = useCallback(
+    (id) => {
+      setExpandedChromAlnId((cur) => (cur === id ? null : id));
+    },
+    [setExpandedChromAlnId],
+  );
 
   const [providerIndex, setProviderIndex] = useState(null);
   useEffect(() => {
@@ -661,21 +698,24 @@ export default function ProjectWorkspace({
   }, [mapViewOpen]);
 
   // Map view: clicking/dragging on the map restores the corresponding selection in the editor
-  const handleMapSelect = useCallback((selStart, selEnd) => {
-    setRestoreState({
-      version: ++undoVersionRef.current,
-      cursorIndex: selEnd + 1,
-      selStart,
-      selEnd,
-      selectionMode: 'text',
-      selectedPrimerIds: [],
-      isEnzymeSelection: false,
-      selectedEnzymeIds: [],
-      translationSel: null,
-      scrollToIndex: selStart,
-    });
-    setLiveSelection({ selStart, selEnd });
-  }, []);
+  const handleMapSelect = useCallback(
+    (selStart, selEnd) => {
+      setRestoreState({
+        version: ++undoVersionRef.current,
+        cursorIndex: selEnd + 1,
+        selStart,
+        selEnd,
+        selectionMode: 'text',
+        selectedPrimerIds: [],
+        isEnzymeSelection: false,
+        selectedEnzymeIds: [],
+        translationSel: null,
+        scrollToIndex: selStart,
+      });
+      setLiveSelection({ selStart, selEnd });
+    },
+    [setRestoreState, undoVersionRef],
+  );
 
   const handleMapClear = useCallback(() => {
     setRestoreState({
@@ -690,22 +730,25 @@ export default function ProjectWorkspace({
       translationSel: null,
     });
     setLiveSelection(null);
-  }, []);
+  }, [setRestoreState, undoVersionRef]);
 
   // --- Edit request from SequenceEditor: open the confirmation dialog ---
-  const handleEditRequest = useCallback((request) => {
-    if (agentLockedRef.current) return;
-    setEditDialog({
-      open: true,
-      mode: request.type,
-      cursorIndex: request.cursorIndex ?? null,
-      selStart: request.selStart ?? null,
-      selEnd: request.selEnd ?? null,
-      selectedText: request.selectedText ?? '',
-      initialText: request.clipboardText ?? '',
-      clipboardMeta: request.clipboardMeta ?? null,
-    });
-  }, []);
+  const handleEditRequest = useCallback(
+    (request) => {
+      if (agentLockedRef.current) return;
+      setEditDialog({
+        open: true,
+        mode: request.type,
+        cursorIndex: request.cursorIndex ?? null,
+        selStart: request.selStart ?? null,
+        selEnd: request.selEnd ?? null,
+        selectedText: request.selectedText ?? '',
+        initialText: request.clipboardText ?? '',
+        clipboardMeta: request.clipboardMeta ?? null,
+      });
+    },
+    [agentLockedRef, setEditDialog],
+  );
 
   const {
     handleFeatureFtypeChange,
@@ -796,12 +839,12 @@ export default function ProjectWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [myPrimersOpen, myPrimers, sequence, isDna]);
+  }, [myPrimersOpen, myPrimers, sequence, isDna, projectIdRef, setMyPrimerBinding]);
 
   // --- Edit dialog cancelled ---
   const handleEditCancel = useCallback(() => {
     setEditDialog((prev) => ({ ...prev, open: false }));
-  }, []);
+  }, [setEditDialog]);
 
   const finishSave = useCallback(
     (result, sourceId, gen, savedSnapshot) => {
@@ -828,7 +871,7 @@ export default function ProjectWorkspace({
       setIsDirty(dirty);
       return clean;
     },
-    [onRekey],
+    [onRekey, baselineSnapshotRef, editHistoryRef, isDirtyRef, projectIdRef, setIsDirty],
   );
 
   // --- Save As (defined before Save because Save may reference it) ---
@@ -855,7 +898,7 @@ export default function ProjectWorkspace({
       console.error('save as error:', e);
     }
     return false;
-  }, [finishSave, moleculeType, projectName]);
+  }, [finishSave, moleculeType, projectName, projectIdRef]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -882,7 +925,7 @@ export default function ProjectWorkspace({
       console.error('save exception:', e);
     }
     return false;
-  }, [finishSave, handleSaveAs, moleculeType]);
+  }, [finishSave, handleSaveAs, moleculeType, projectIdRef]);
 
   // Refetch the project's data after a mutation whose command response does not
   // carry the updated sequence/features (e.g. apply_codon_optimization); record
@@ -914,7 +957,18 @@ export default function ProjectWorkspace({
     } catch (e) {
       console.error('project refresh error:', e);
     }
-  }, []);
+  }, [
+    editHistoryRef,
+    projectIdRef,
+    setAlignments,
+    setEnzymes,
+    setFeatures,
+    setIsDirty,
+    setPrimers,
+    setSequence,
+    setTextColorsBottom,
+    setTextColorsTop,
+  ]);
 
   const handleSessionLogRollback = useCallback(
     async (entryId) => {
@@ -950,6 +1004,9 @@ export default function ProjectWorkspace({
     moleculeType,
     alignmentEnabled,
     addAlignmentFiles,
+    isDirtyRef,
+    setPluginDialogs,
+    setPrimerOverviewOpen,
   ]);
 
   // --- Keyboard shortcuts for the visible workspace: Ctrl+Z/Y/S/Shift+S ---

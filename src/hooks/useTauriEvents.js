@@ -49,7 +49,7 @@ export default function useTauriEvents({
       cancelled = true;
       listener.close();
     };
-  }, [refreshProjects, mergeAgentTabs]);
+  }, [refreshProjects, mergeAgentTabs, setActiveId, setBackendStatus, setProjects]);
 
   // Tray Quit with unsaved changes: backend shows this window and emits
   // quit-requested (payload = dirty project ids); confirm here before force-quit.
@@ -59,7 +59,7 @@ export default function useTauriEvents({
       setQuitRequest(dirtyIds);
     });
     return () => listener.close();
-  }, []);
+  }, [setQuitRequest]);
 
   // Main window only: open files handed over by the OS. Listen for runtime
   // "file-opened" events and drain the backend queue once on mount (cold
@@ -101,7 +101,7 @@ export default function useTauriEvents({
       }
     });
     return () => listener.close();
-  }, []);
+  }, [setAgentTabs]);
 
   useEffect(() => {
     if (!isTauri) return;

@@ -10,7 +10,6 @@ export default function useEnzymeGeometry({
   enzymeRowTracks,
   hiddenEnzKeys,
   lp,
-  charsPerLine,
   getSeqY,
   colVis,
   rowOf,
@@ -77,17 +76,7 @@ export default function useEnzymeGeometry({
       });
     }
     return entries;
-  }, [
-    visibleEnzymes,
-    enzymeRowTracks,
-    hiddenEnzKeys,
-    lp,
-    charsPerLine,
-    getSeqY,
-    colVis,
-    rowOf,
-    rowStarts,
-  ]);
+  }, [visibleEnzymes, enzymeRowTracks, hiddenEnzKeys, lp, getSeqY, colVis, rowOf, rowStarts]);
 
   // Batched enzyme lines
   const enzymeLinesPath = useMemo(() => {

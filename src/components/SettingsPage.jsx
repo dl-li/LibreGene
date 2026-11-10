@@ -235,7 +235,7 @@ export default function SettingsPage({
     if (!open) return;
     if (focusSection === 'plugins') setSection('plugins');
     else setSection('general');
-  }, [open]);
+  }, [open, focusSection]);
 
   const renderPluginRow = (p) => (
     <div key={p.id} className="flex items-start gap-2.5 py-2.5">

@@ -57,6 +57,8 @@ import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
 import { plugins, pluginAvailable } from './plugins';
 
+const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
+
 const ENZYME_FILTER_OPTIONS = [
   { value: 'all', label: 'All Enzymes' },
   { value: 'unique+twice', label: 'Highlighted Cutters' },
@@ -274,7 +276,6 @@ export default function EditorNavMenu({
   const hasDotplot = moleculeType !== 'protein' && !!onOpenDotplot;
   const hasGel = isDna && !!onOpenGel;
 
-  const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
   const SCOPE_WORDS = {
     all: 'anything',
     seq: 'sequences',

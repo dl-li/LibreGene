@@ -281,7 +281,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [mcpGuideOpen]);
+  }, [mcpGuideOpen, setMcpConfigState]);
 
   // --- beforeunload: warn on close with unsaved changes in any workspace ---
   const anyDirty = Object.values(dirtyById).some(Boolean);
@@ -368,7 +368,7 @@ export default function App() {
     await refreshProjects();
     if (failed.length > 0) setOpenError(failed);
     if (splitPending) setFastaSplit(splitPending);
-  }, [projects, refreshProjects, handleSwitchProject]);
+  }, [projects, refreshProjects, handleSwitchProject, initialDataRef]);
 
   // FastaSplitDialog choice: 'split' opens every record as its own project
   // (project id `<path>#record-<i>`), 'first' opens record 0 only, null = cancel.
@@ -416,7 +416,7 @@ export default function App() {
       await refreshProjects();
       if (failed.length > 0) setOpenError(failed);
     },
-    [fastaSplit, refreshProjects],
+    [fastaSplit, refreshProjects, initialDataRef],
   );
 
   // Create an in-memory project from the New Sequence dialog; hand the
@@ -435,7 +435,7 @@ export default function App() {
         return { ok: false, error: e?.message || String(e) };
       }
     },
-    [refreshProjects],
+    [refreshProjects, initialDataRef],
   );
 
   const handleCreateMsa = useCallback(
@@ -452,7 +452,7 @@ export default function App() {
         return { ok: false, error: e?.message || String(e) };
       }
     },
-    [refreshProjects],
+    [refreshProjects, initialDataRef],
   );
 
   const handleCreateMsaFromActive = useCallback(() => {
@@ -484,7 +484,7 @@ export default function App() {
         return { ok: false, error: e?.message || String(e) };
       }
     },
-    [refreshProjects],
+    [refreshProjects, initialDataRef],
   );
 
   // Open a path directly from the recent-files list (no native dialog).
@@ -508,7 +508,7 @@ export default function App() {
         setRecentFiles(removeRecentFile(path));
       }
     },
-    [projects, refreshProjects, handleSwitchProject],
+    [projects, refreshProjects, handleSwitchProject, initialDataRef],
   );
 
   const handleRemoveRecent = useCallback((path) => {
@@ -543,7 +543,7 @@ export default function App() {
         openingRef.current.delete(path);
       }
     },
-    [refreshProjects, handleSwitchProject],
+    [refreshProjects, handleSwitchProject, initialDataRef, projectsRef],
   );
 
   // Public close handler with dirty check
@@ -569,7 +569,7 @@ export default function App() {
       if (handlesRef.current[pending.targetId]?.isDirty()) return;
       doCloseProject(pending.targetId);
     }
-  }, [doCloseProject]);
+  }, [doCloseProject, handlesRef]);
 
   const handleUnsavedDiscard = useCallback(() => {
     const pending = unsavedPendingRef.current;
@@ -644,7 +644,7 @@ export default function App() {
         valid.forEach((p) => openExternalPath(p));
       }
     },
-    [sidebarTargetId, openExternalPath, activeAgentLocked],
+    [sidebarTargetId, openExternalPath, activeAgentLocked, handlesRef],
   );
 
   useTauriEvents({
@@ -669,7 +669,7 @@ export default function App() {
     if (result && result.failed.length > 0) {
       setDropResult({ added: result.added, failed: result.failed });
     }
-  }, [dropConfirm, sidebarTargetId]);
+  }, [dropConfirm, sidebarTargetId, handlesRef]);
 
   const handleDropOpenAsNew = useCallback(() => {
     const paths = dropConfirm?.paths || [];

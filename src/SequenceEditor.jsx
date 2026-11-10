@@ -10,7 +10,7 @@ import {
   amplimerGreen,
 } from './editorConstants';
 import { alignmentGapSegments, insertionBases } from './editor/alignmentLayout';
-import { matchedSeqOf, reverseComplement, truncatedLabel } from './editor/seqUtils';
+import { matchedSeqOf, reverseComplement } from './editor/seqUtils';
 import { HIGH_CONTRAST_TEXT_COLOR_PALETTE, TEXT_COLOR_PALETTE } from './editor/textColors';
 import { buildCDSData, isTranslatable } from './editor/translation';
 import useStreamLayout from './editor/useStreamLayout';
@@ -20,6 +20,7 @@ import useEnrichedPrimers from './editor/useEnrichedPrimers';
 import useTrackPacking from './editor/useTrackPacking';
 import useEnzymeGeometry from './editor/useEnzymeGeometry';
 import useEditorViewport, { useViewportMapping } from './editor/useEditorViewport';
+import useMemoCompare from './hooks/useMemoCompare';
 import { renderFeatures, renderFeatureLabels } from './editor/layers/features.jsx';
 import { renderPrimers } from './editor/layers/primers.jsx';
 import {
@@ -404,14 +405,30 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setIsTranslationDragging(false);
       clearCursorTimer();
     },
-    [primerDesignEnabled, topology, clearCursorTimer],
+    [
+      primerDesignEnabled,
+      topology,
+      clearCursorTimer,
+      designCapturedRef,
+      setCursorIndex,
+      setDesignPick,
+      setDesignPickError,
+      setIsEnzymeSelection,
+      setIsTranslationDragging,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+    ],
   );
 
   const cancelDesignPick = useCallback(() => {
     setDesignPick(null);
     setDesignPickError(null);
     designCapturedRef.current = null;
-  }, []);
+  }, [designCapturedRef, setDesignPick, setDesignPickError]);
 
   // Capture a settled selection (drag end, shift+click, or feature click) as a
   // primer-design segment; opens the dialog once enough segments are picked
@@ -449,7 +466,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setDesignPick({ mode: designPick.mode, segments });
       designCapturedRef.current = null;
     }
-  }, [designPick, isDragging, selStart, selEnd, selectionMode, features]);
+  }, [
+    designPick,
+    isDragging,
+    selStart,
+    selEnd,
+    selectionMode,
+    features,
+    designCapturedRef,
+    setCursorIndex,
+    setDesignDialog,
+    setDesignPick,
+    setDesignPickError,
+    setSelEnd,
+    setSelStart,
+    setSelectionMode,
+  ]);
 
   const pp = useMemo(() => {
     const base = {
@@ -560,10 +592,21 @@ const SequenceEditor = React.memo(function SequenceEditor({
       if (tmTimerRef.current) clearTimeout(tmTimerRef.current);
       tmTimerRef.current = setTimeout(run, 100 - elapsed);
     }
-  }, [isDragging, selStart, selEnd, cleanSeq, tmParams, isDna]);
+  }, [
+    isDragging,
+    selStart,
+    selEnd,
+    cleanSeq,
+    tmParams,
+    isDna,
+    setSelectionTm,
+    tmLastRunRef,
+    tmSeqRef,
+    tmTimerRef,
+  ]);
 
   // Clear any pending trailing Tm timer on unmount.
-  useEffect(() => () => clearTimeout(tmTimerRef.current), []);
+  useEffect(() => () => clearTimeout(tmTimerRef.current), [tmTimerRef]);
 
   const { enrichedPrimers, unmatchedPrimers, primerAlignmentCache } = useEnrichedPrimers({
     primers,
@@ -872,7 +915,30 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setSelEnd(null);
       resetCursorTimer();
     },
-    [clientToSeqIndex, resetCursorTimer, clearCursorTimer, cursorIndex],
+    [
+      clientToSeqIndex,
+      resetCursorTimer,
+      clearCursorTimer,
+      cursorIndex,
+      dragRef,
+      isPrimerDraggingRef,
+      lastEnzymeSelRef,
+      primerDimTimerRef,
+      primerDragRef,
+      setCursorIndex,
+      setIsDragging,
+      setIsEnzymeSelection,
+      setIsPrimerDragging,
+      setIsTranslationDragging,
+      setPrimerDimActive,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+      translationDragRef,
+    ],
   );
 
   const handleSvgMouseMove = useCallback(
@@ -903,14 +969,22 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       setHoveredCodon((prev) => (prev?.key === nextCodon?.key ? prev : nextCodon));
     },
-    [clientToCharIndex],
+    [
+      clientToCharIndex,
+      cdsFeatureDataRef,
+      hoveredIndexRef,
+      isDraggingRef,
+      setHoveredCodon,
+      setHoveredIndex,
+      translationDragRef,
+    ],
   );
 
   const handleSvgMouseLeave = useCallback(() => {
     hoveredIndexRef.current = null;
     setHoveredIndex(null);
     setHoveredCodon(null);
-  }, []);
+  }, [hoveredIndexRef, setHoveredCodon, setHoveredIndex]);
 
   const updateSeqDragSelection = useCallback(
     (clientX, clientY) => {
@@ -938,7 +1012,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setCursorIndex(idx);
       resetCursorTimer();
     },
-    [clientToSeqIndex, resetCursorTimer],
+    [
+      clientToSeqIndex,
+      resetCursorTimer,
+      dragRef,
+      setCursorIndex,
+      setIsDragging,
+      setSelEnd,
+      setSelStart,
+    ],
   );
 
   useEffect(() => {
@@ -989,7 +1071,21 @@ const SequenceEditor = React.memo(function SequenceEditor({
     };
     window.addEventListener('mouseup', onUp);
     return () => window.removeEventListener('mouseup', onUp);
-  }, [clearCursorTimer]);
+  }, [
+    clearCursorTimer,
+    dragRef,
+    enzymeDragRef,
+    isDraggingRef,
+    lastEnzymeSelRef,
+    setCursorIndex,
+    setIsDragging,
+    setIsEnzymeDragging,
+    setIsTranslationDragging,
+    setSelEnd,
+    setSelStart,
+    setSelectedEnzymeIds,
+    translationDragRef,
+  ]);
 
   // --- primer drag effect ---
   useEffect(() => {
@@ -1038,7 +1134,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [isPrimerDragging, enrichedPrimers]);
+  }, [
+    isPrimerDragging,
+    enrichedPrimers,
+    isPrimerDraggingRef,
+    primerDimTimerRef,
+    primerDragRef,
+    setIsPrimerDragging,
+    setPrimerDimActive,
+    setSelectedPrimerIds,
+    setSelectionMode,
+  ]);
 
   const {
     copySelection,
@@ -1111,7 +1217,21 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       setPrimerDimActive(false);
     },
-    [clearCursorTimer],
+    [
+      clearCursorTimer,
+      isPrimerDraggingRef,
+      primerDimTimerRef,
+      primerDragRef,
+      setCursorIndex,
+      setIsTranslationDragging,
+      setPrimerDimActive,
+      setSelEnd,
+      setSelStart,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+      translationDragRef,
+    ],
   );
 
   const openFeatureMenu = useCallback(
@@ -1183,6 +1303,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       blastEnabled,
       blastBusy,
       submitBlast,
+      cdsFeatureDataRef,
     ],
   );
 
@@ -1202,7 +1323,20 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setSelectedPrimerIds([p.id]);
       clearCursorTimer();
     },
-    [clearCursorTimer],
+    [
+      clearCursorTimer,
+      lastEnzymeSelRef,
+      setCursorIndex,
+      setIsEnzymeSelection,
+      setIsTranslationDragging,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+      translationDragRef,
+    ],
   );
 
   const primerMenuItems = useCallback(
@@ -1278,7 +1412,16 @@ const SequenceEditor = React.memo(function SequenceEditor({
       setSelectedEnzymeIds([entryId ?? enzyme.id]);
       clearCursorTimer();
     },
-    [cleanSeq, topology, clearCursorTimer],
+    [
+      cleanSeq,
+      topology,
+      clearCursorTimer,
+      setCursorIndex,
+      setIsEnzymeSelection,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+    ],
   );
 
   const handleOpenGel = useCallback(
@@ -1411,7 +1554,19 @@ const SequenceEditor = React.memo(function SequenceEditor({
       lastEnzymeSelRef.current = null;
       clearCursorTimer();
     },
-    [onSetTextColor, selStart, selEnd, clearCursorTimer],
+    [
+      onSetTextColor,
+      selStart,
+      selEnd,
+      clearCursorTimer,
+      lastEnzymeSelRef,
+      setCursorIndex,
+      setIsEnzymeSelection,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectionMode,
+    ],
   );
 
   // Generic right-click on the editor canvas: menu reflects the current selection.
@@ -1531,8 +1686,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
       handleTextColorChange,
       highContrastTextColors,
       selWraps,
-      selStart,
-      selEnd,
       background,
       backgroundOptions,
       onBackgroundChange,
@@ -1804,18 +1957,24 @@ const SequenceEditor = React.memo(function SequenceEditor({
     isDna,
     topology,
     hidden,
+    setCursorIndex,
+    setIsTranslationDragging,
+    setSelEnd,
+    setSelStart,
+    setTranslationSel,
+    translationDragRef,
   ]);
 
   useEffect(() => {
     isDraggingRef.current = isDragging;
-  }, [isDragging]);
+  }, [isDragging, isDraggingRef]);
   useEffect(
     () => () => {
       clearCursorTimer();
       clearTimeout(featureLeaveRef.current);
       clearTimeout(primerDimTimerRef.current);
     },
-    [clearCursorTimer],
+    [clearCursorTimer, primerDimTimerRef],
   );
 
   // Sync featureInfoFeature when features update (e.g., after ftype change)
@@ -1939,7 +2098,23 @@ const SequenceEditor = React.memo(function SequenceEditor({
       }
       scrollToSeqIndex(hit.start);
     },
-    [enzymes, clearCursorTimer, resetCursorTimer, scrollToSeqIndex],
+    [
+      enzymes,
+      clearCursorTimer,
+      resetCursorTimer,
+      scrollToSeqIndex,
+      lastEnzymeSelRef,
+      setCursorIndex,
+      setIsEnzymeSelection,
+      setIsTranslationDragging,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+      translationDragRef,
+    ],
   );
 
   const handleSearch = useCallback(
@@ -2019,7 +2194,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // without creating a TDZ by referencing this later-defined constant.
   useEffect(() => {
     cdsFeatureDataRef.current = cdsFeatureData;
-  }, [cdsFeatureData]);
+  }, [cdsFeatureData, cdsFeatureDataRef]);
 
   // --- translation (codon) drag effect ---
   // Placed after cdsFeatureData so the dependency array can reference it.
@@ -2062,7 +2237,17 @@ const SequenceEditor = React.memo(function SequenceEditor({
         return { featureId: drag.featureId, startCodon: drag.startCodon, endCodon: clamped };
       });
     },
-    [cdsFeatureData, charsPerLine, rowAtSvgY, colFromVis, rowStarts, rowCounts],
+    [
+      cdsFeatureData,
+      charsPerLine,
+      rowAtSvgY,
+      colFromVis,
+      rowStarts,
+      rowCounts,
+      setHoveredCodon,
+      setTranslationSel,
+      translationDragRef,
+    ],
   );
 
   useEffect(() => {
@@ -2139,7 +2324,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
       window.removeEventListener('mousemove', onMove);
       if (rafId !== null) window.cancelAnimationFrame(rafId);
     };
-  }, [scrollContainerRef, containerRef, continuous, updateSeqDragSelection, updateTranslationDrag]);
+  }, [
+    scrollContainerRef,
+    containerRef,
+    continuous,
+    updateSeqDragSelection,
+    updateTranslationDrag,
+    autoScrollRef,
+    dragRef,
+    enzymeDragRef,
+    isPrimerDraggingRef,
+    translationDragRef,
+  ]);
 
   const renderedFeatures = useMemo(
     () =>
@@ -2211,6 +2407,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
       hoveredCodon,
       openFeatureMenu,
       abutColors,
+      isDraggingRef,
+      isPrimerDraggingRef,
+      primerDimTimerRef,
+      primerDragRef,
+      setCursorIndex,
+      setHoveredCodon,
+      setIsTranslationDragging,
+      setPrimerDimActive,
+      setSelEnd,
+      setSelStart,
+      setSelectedPrimerIds,
+      translationDragRef,
     ],
   );
 
@@ -2277,11 +2485,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
       getSeqY,
       sp,
       clearCursorTimer,
-      truncatedLabel,
       lp,
-      cdsFeatureData,
-      charsPerLine,
-      startTranslationSelection,
       alignLaneInfo,
       openFeatureMenu,
       featureLabelsBelow,
@@ -2290,12 +2494,25 @@ const SequenceEditor = React.memo(function SequenceEditor({
       abutColors,
       rowCounts,
       colVis,
+      isDraggingRef,
+      isPrimerDraggingRef,
+      primerDimTimerRef,
+      primerDragRef,
+      setCursorIndex,
+      setIsTranslationDragging,
+      setPrimerDimActive,
+      setSelEnd,
+      setSelStart,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+      translationDragRef,
     ],
   );
 
   // Track-plugin lanes (e.g. the GC-content gradient band): each active
   // plugin renders all visible rows below the sequence.
-  const renderedTracks = useMemo(
+  const renderedTracks = useMemoCompare(
     () =>
       renderTrackLanes(
         {
@@ -2387,7 +2604,6 @@ const SequenceEditor = React.memo(function SequenceEditor({
       visiblePrimers,
       hoveredPrimer,
       alwaysExpandPrimers,
-      charsPerLine,
       pp,
       primerTracks,
       revPrimerFeatOffsets,
@@ -2402,7 +2618,26 @@ const SequenceEditor = React.memo(function SequenceEditor({
       rowStarts,
       rowCounts,
       colVis,
-      colRuns,
+      clearCursorTimer,
+      enrichedPrimers,
+      isDraggingRef,
+      isPrimerDraggingRef,
+      lastEnzymeSelRef,
+      lp,
+      primerDimTimerRef,
+      primerDragRef,
+      setCursorIndex,
+      setIsEnzymeSelection,
+      setIsPrimerDragging,
+      setIsTranslationDragging,
+      setPrimerDimActive,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectedPrimerIds,
+      setSelectionMode,
+      setTranslationSel,
+      translationDragRef,
     ],
   );
 
@@ -2440,7 +2675,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   const renderedEnzymes = useMemo(
     () => renderEnzymeLines({ enzymeLayout, enzymeLinesPath, lp }),
-    [enzymeLayout, enzymeLinesPath, lp.enzLineGap],
+    [enzymeLayout, enzymeLinesPath, lp],
   );
 
   const renderedEnzymeLabels = useMemo(
@@ -2480,14 +2715,31 @@ const SequenceEditor = React.memo(function SequenceEditor({
       enzymeLayout,
       enzymes,
       hoveredEnzyme,
-      bgColor,
       selectedEnzymeIds,
-      isEnzymeSelection,
       clearCursorTimer,
       cleanSeq,
       topology,
       openEnzymeMenu,
       openEnzymeDetail,
+      enzymeDragRef,
+      isDraggingRef,
+      isPrimerDraggingRef,
+      lastEnzymeSelRef,
+      primerDimTimerRef,
+      primerDragRef,
+      setCursorIndex,
+      setIsDragging,
+      setIsEnzymeDragging,
+      setIsEnzymeSelection,
+      setIsTranslationDragging,
+      setPrimerDimActive,
+      setSelEnd,
+      setSelStart,
+      setSelectedEnzymeIds,
+      setSelectedPrimerIds,
+      setTranslationSel,
+      totalNameCounts,
+      translationDragRef,
     ],
   );
 
@@ -2501,15 +2753,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         totalNameCounts,
         isEnzymeSelection,
       }),
-    [
-      hoveredEnzyme,
-      selectedEnzymeIds,
-      isEnzymeSelection,
-      enzymeLayout,
-      enzymes,
-      bgColor,
-      totalNameCounts,
-    ],
+    [hoveredEnzyme, selectedEnzymeIds, isEnzymeSelection, enzymeLayout, enzymes, totalNameCounts],
   );
 
   const renderedTooltips = useMemo(
@@ -2522,7 +2766,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         cleanSeq,
         dsBottomY: dsOn ? DS_BOTTOM_Y : 0,
       }),
-    [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, charsPerLine, isEnzymeDragging, dsOn],
+    [hoveredEnzyme, enzymeLayout, enzymes, cleanSeq, isEnzymeDragging, dsOn],
   );
 
   return (

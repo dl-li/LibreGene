@@ -342,6 +342,10 @@ export function useViewportMapping({
     continuous,
     colVis,
     absFromStream,
+    liveScrollLeftRef,
+    liveScrollTopRef,
+    setScrollX,
+    setScrollY,
   ]);
 
   // --- selection: coordinate conversion & event handlers ---
@@ -390,7 +394,7 @@ export function useViewportMapping({
       const idx = rowStarts[row] + col;
       return Math.max(0, Math.min(cleanSeq.length, idx));
     },
-    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, rowStarts],
+    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, rowStarts, svgRef],
   );
 
   // Returns which character the pointer is over (0-based char index), not the insertion point
@@ -414,7 +418,7 @@ export function useViewportMapping({
       const idx = rowStarts[row] + col;
       return Math.max(0, Math.min(cleanSeq.length - 1, idx));
     },
-    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, rowStarts, rowCounts],
+    [charsPerLine, rowAtSvgY, cleanSeq, colFromVis, rowStarts, svgRef, rowCounts],
   );
 
   // Filter enzymes to the visible row range (wrap) or stream-cell window
@@ -469,6 +473,7 @@ export function useViewportMapping({
     charsPerLine,
     streamOf,
     continuous,
+    ROW_BUF,
   ]);
 
   return {

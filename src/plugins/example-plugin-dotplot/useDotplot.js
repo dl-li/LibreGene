@@ -21,7 +21,6 @@ export default function useDotplot(sequence, windowSize) {
       setPending(false);
     };
     return () => {
-      requestRef.current++;
       worker.terminate();
       workerRef.current = null;
     };

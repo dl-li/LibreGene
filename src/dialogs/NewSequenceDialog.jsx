@@ -111,29 +111,30 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm }) {
       return;
     }
     const req = ++reqRef.current;
+    let cancelled = false;
     setLoading(true);
     setError('');
     const timer = setTimeout(() => {
       annotateSequenceText(effectiveSeq, topology === 'circular', molType)
         .then((list) => {
-          if (reqRef.current !== req) return;
+          if (cancelled || reqRef.current !== req) return;
           const arr = Array.isArray(list) ? list : [];
           arr.sort((a, b) => Number(a.fragment) - Number(b.fragment));
           setItems(arr);
           setSelected(new Set(arr.map((h, i) => (h.fragment ? -1 : i)).filter((i) => i >= 0)));
         })
         .catch((e) => {
-          if (reqRef.current !== req) return;
+          if (cancelled || reqRef.current !== req) return;
           setError(e?.message || String(e));
           setItems(EMPTY_ARRAY);
         })
         .finally(() => {
-          if (reqRef.current === req) setLoading(false);
+          if (!cancelled && reqRef.current === req) setLoading(false);
         });
     }, 500);
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      reqRef.current++;
     };
   }, [open, molType, effectiveSeq, topology, validation.valid]);
 

@@ -99,7 +99,18 @@ export default function useUndoHistory({
         console.error(`${operation} error:`, error);
       }
     },
-    [onProjectsSync, projectId],
+    [
+      onProjectsSync,
+      projectId,
+      operationGenRef,
+      setAlignments,
+      setEnzymes,
+      setFeatures,
+      setPrimers,
+      setSequence,
+      setTextColorsBottom,
+      setTextColorsTop,
+    ],
   );
 
   const handleUndo = useCallback(async () => {
@@ -108,7 +119,7 @@ export default function useUndoHistory({
     if (!snapshot) return;
     const gen = ++operationGenRef.current;
     await restoreHistorySnapshot(snapshot, gen, () => editHistoryRef.current.commitUndo(), 'undo');
-  }, [restoreHistorySnapshot]);
+  }, [restoreHistorySnapshot, agentLockedRef, operationGenRef]);
 
   const handleRedo = useCallback(async () => {
     if (agentLockedRef.current) return;
@@ -116,7 +127,7 @@ export default function useUndoHistory({
     if (!snapshot) return;
     const gen = ++operationGenRef.current;
     await restoreHistorySnapshot(snapshot, gen, () => editHistoryRef.current.commitRedo(), 'redo');
-  }, [restoreHistorySnapshot]);
+  }, [restoreHistorySnapshot, agentLockedRef, operationGenRef]);
 
   return {
     editHistoryRef,

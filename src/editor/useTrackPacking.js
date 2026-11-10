@@ -395,7 +395,16 @@ export default function useTrackPacking({
         featureRowTracks: fRowTracks,
         revPrimerFeatOffsets: revFeatOff,
       };
-    }, [features, enrichedPrimers, numRows, rowOf, rowStarts, rowCounts, lp, featureLabelsBelow]);
+    }, [
+      normFeatures,
+      enrichedPrimers,
+      numRows,
+      rowOf,
+      rowStarts,
+      rowCounts,
+      lp,
+      featureLabelsBelow,
+    ]);
 
   // --- adaptive row spacing (memoized with pre-indexed lookups) ---
   const enzymesByRow = useMemo(() => {
@@ -708,6 +717,8 @@ export default function useTrackPacking({
     continuous,
     viewportH,
     dsShift,
+    ALIGN_FEAT_GAP,
+    colVis,
   ]);
 
   const rowY = useMemo(() => {
@@ -753,7 +764,7 @@ export default function useTrackPacking({
         return !(er < vs || sr > ve);
       }),
     );
-  }, [processedFeatures, visibleRows, visibleCols, absFromStream, numRows, rowOf]);
+  }, [processedFeatures, visibleRows, visibleCols, absFromStream, numRows, rowOf, ROW_BUF]);
 
   // Solid segment coverage per `${row}:${track}` across all features. A
   // segmented feature's gap draws a faint connector line at its track,

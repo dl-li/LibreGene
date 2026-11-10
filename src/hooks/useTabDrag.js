@@ -68,7 +68,7 @@ export default function useTabDrag({ orderedProjectsRef, setProjectOrder }) {
       window.removeEventListener('pointerup', endDrag);
       window.removeEventListener('pointercancel', endDrag);
     };
-  }, []);
+  }, [orderedProjectsRef, setProjectOrder]);
 
   return { dragTabId, tabItemRefs, suppressTabClickRef, handleTabPointerDown };
 }
