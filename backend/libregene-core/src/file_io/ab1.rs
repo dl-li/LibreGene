@@ -88,10 +88,14 @@ struct TagEntry {
     data_offset: usize,
 }
 
-fn tag_entry(buf: &[u8], entry: &[u8]) -> Option<TagEntry> {
+fn tag_entry(buf: &[u8], entry: &[u8], entry_offset: usize) -> Option<TagEntry> {
     let data_size = u32::from_be_bytes([entry[16], entry[17], entry[18], entry[19]]) as usize;
-    let data_offset = u32::from_be_bytes([entry[20], entry[21], entry[22], entry[23]]) as usize;
-    if data_size > 4 && data_offset.checked_add(data_size)? > buf.len() {
+    let data_offset = if data_size <= 4 {
+        entry_offset + 20
+    } else {
+        u32::from_be_bytes([entry[20], entry[21], entry[22], entry[23]]) as usize
+    };
+    if data_offset.checked_add(data_size)? > buf.len() {
         return None;
     }
     Some(TagEntry {
@@ -135,23 +139,23 @@ pub fn extract_chromatogram(buf: &[u8]) -> io::Result<Chromatogram> {
         let Some(entry) = buf.get(e..e + DIR_ENTRY_LEN) else {
             break;
         };
-        let Some(tag) = tag_entry(buf, entry) else {
+        let Some(tag) = tag_entry(buf, entry, e) else {
             continue;
         };
         match &entry[0..4] {
             b"PLOC" if tag.tag_number == 1 && peaks.is_none() => {
-                    peaks = Some(read_short_array(buf, &tag));
-                }
+                peaks = Some(read_short_array(buf, &tag));
+            }
             b"FWO_" if tag.tag_number == 1 && tag.data_size >= 4 => {
-                    let off = if tag.data_size <= 4 {
-                        e + 20
-                    } else {
-                        tag.data_offset
-                    };
-                    if let Some(b) = buf.get(off..off + 4) {
-                        fwo = [b[0], b[1], b[2], b[3]];
-                    }
+                let off = if tag.data_size <= 4 {
+                    e + 20
+                } else {
+                    tag.data_offset
+                };
+                if let Some(b) = buf.get(off..off + 4) {
+                    fwo = [b[0], b[1], b[2], b[3]];
                 }
+            }
             b"DATA" => {
                 let slot = match tag.tag_number {
                     9 => Some(&mut processed[0]),
@@ -334,8 +338,7 @@ mod tests {
 
     /// Assemble a minimal ABIF: root tdir entry + contiguous directory +
     /// appended blobs. Entries are given as (name, number, elem_type,
-    /// elem_size, data bytes); inline 4-byte values (FWO_) are stored in the
-    /// offset field.
+    /// elem_size, data bytes); values up to 4 bytes are stored inline.
     fn build_abif_tags(tags: Vec<(&[u8; 4], u32, u16, u16, Vec<u8>)>) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"ABIF");
@@ -354,10 +357,7 @@ mod tests {
         );
         let mut blob_off = entries_offset + n * DIR_ENTRY_LEN;
         for (name, number, elem_type, elem_size, data) in &tags {
-            // Only FWO_ (exactly 4 bytes) rides inline in the offset field;
-            // every other tag goes to the blob region, as real files do.
-            let inline = *name == b"FWO_" && data.len() <= 4;
-            let offset = if inline {
+            let offset = if data.len() <= 4 {
                 let mut field = [0u8; 4];
                 field[..data.len()].copy_from_slice(data);
                 u32::from_be_bytes(field)
@@ -382,8 +382,8 @@ mod tests {
                 offset,
             );
         }
-        for (name, _, _, _, data) in &tags {
-            if data.len() > 4 || *name != b"FWO_" {
+        for (_, _, _, _, data) in &tags {
+            if data.len() > 4 {
                 buf.extend_from_slice(data);
             }
         }
@@ -411,6 +411,24 @@ mod tests {
         assert_eq!(chrom.trace_a, vec![50, 51, 52, 53]);
         assert_eq!(chrom.trace_t, vec![500, 501, 502, 503]);
         assert_eq!(chrom.trace_c, vec![9, 10, 11, 12]);
+    }
+
+    #[test]
+    fn test_chromatogram_reads_inline_short_arrays() {
+        let buf = build_abif_tags(vec![
+            (b"PLOC", 1, 4, 2, shorts(&[7])),
+            (b"DATA", 9, 4, 2, shorts(&[5])),
+            (b"DATA", 10, 4, 2, shorts(&[50])),
+            (b"DATA", 11, 4, 2, shorts(&[500])),
+            (b"DATA", 12, 4, 2, shorts(&[9])),
+            (b"FWO_", 1, 2, 1, b"GATC".to_vec()),
+        ]);
+        let chrom = extract_chromatogram(&buf).unwrap();
+        assert_eq!(chrom.peak_locations, vec![7]);
+        assert_eq!(chrom.trace_g, vec![5]);
+        assert_eq!(chrom.trace_a, vec![50]);
+        assert_eq!(chrom.trace_t, vec![500]);
+        assert_eq!(chrom.trace_c, vec![9]);
     }
 
     #[test]
