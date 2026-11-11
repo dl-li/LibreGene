@@ -27,6 +27,7 @@ import {
   Cog,
 } from 'lucide-react';
 import { T, useTranslation } from '@/i18n';
+import { PRIMER_TM_MODE_OPTIONS } from '@/tmParams';
 
 async function notify(message, options = {}) {
   const dialog = await import('@tauri-apps/plugin-dialog');
@@ -123,6 +124,8 @@ export default function SettingsPage({
   onAlignmentAlgorithmChange,
   tmParams,
   setTmParams,
+  primerTmMode = 'alignment',
+  onPrimerTmModeChange,
   caseDisplay = { dna: 'asis', rna: 'asis', protein: 'upper' },
   onCaseDisplayChange,
   highContrastTextColors = false,
@@ -518,6 +521,23 @@ export default function SettingsPage({
                   <span className="text-sm text-muted-foreground">
                     <T>{'bp'}</T>
                   </span>
+                </SettingRow>
+                <SettingRow
+                  label="Primer Tm display"
+                  hint="Choose which Tm is shown by default in every primer window"
+                >
+                  <Select value={primerTmMode} onValueChange={onPrimerTmModeChange}>
+                    <SelectTrigger className="w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRIMER_TM_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          <T>{option.label}</T>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </SettingRow>
                 <div className="py-3">
                   <div className="text-[13px] font-medium">

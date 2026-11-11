@@ -2,7 +2,12 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { plugins } from '../plugins';
 import { ENZYME_PROVIDER_VALUES } from '../enzymeProviders';
 import { isTauri, setMcpConfig, getMcpConfig } from '../tauriApi';
-import { readStoredTmParams, writeStoredTmParams } from '../tmParams';
+import {
+  readStoredPrimerTmMode,
+  readStoredTmParams,
+  writeStoredPrimerTmMode,
+  writeStoredTmParams,
+} from '../tmParams';
 
 // Generic per-plugin UI state derived from the registry: featuresMenuItem
 // declares a persisted boolean toggle, settingsField a persisted number.
@@ -261,6 +266,10 @@ export default function useSettings() {
   useEffect(() => {
     writeStoredTmParams(tmParams);
   }, [tmParams]);
+  const [primerTmMode, setPrimerTmMode] = useState(() => readStoredPrimerTmMode());
+  const onPrimerTmModeChange = useCallback((mode) => {
+    setPrimerTmMode(writeStoredPrimerTmMode(mode));
+  }, []);
   const [mcpConfig, setMcpConfigState] = useState(() => {
     try {
       return { ...MCP_CONFIG_DEFAULTS, ...(JSON.parse(localStorage.getItem('mcpConfig')) || {}) };
@@ -524,6 +533,8 @@ export default function useSettings() {
     onAlignmentAlgorithmChange,
     tmParams,
     setTmParams,
+    primerTmMode,
+    onPrimerTmModeChange,
     mcpConfig,
     setMcpConfigState,
     handleMcpConfigChange,

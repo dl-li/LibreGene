@@ -4,8 +4,7 @@ use libregene_core::models::{Primer, Segment};
 
 use crate::kernels::{
     do_add_primer_with_history, do_check_primers_binding, do_delete_primer,
-    do_design_primer_candidates,
-    merge_primer_updates, primer_definitions, primers_equal,
+    do_design_primer_candidates, merge_primer_updates, primer_definitions, primers_equal,
 };
 use crate::payload::{
     filter_project, sidebar_project_list, with_mutation_meta, with_projects_list, MutationField,
@@ -423,6 +422,9 @@ pub(crate) fn compute_primer_alignment_sync(
     }
 
     let mut results = Vec::new();
+    let full_primer_tm = round_tm(
+        libregene_core::primer::thermodynamics::compute_tm_with_params(primer_seq, tm_params),
+    );
 
     for c in &candidates {
         let tp = c.tp_3prime;
@@ -471,9 +473,28 @@ pub(crate) fn compute_primer_alignment_sync(
                     true,
                     tm_params,
                 );
+                let core_tm = libregene_core::primer::display::compute_matched_core_tm_from_alignment_with_params(
+                    primer_bytes,
+                    &template_region,
+                    &result,
+                    true,
+                    tm_params,
+                );
+                let alignment_tm = round_tm(sw_tm.tm);
+                let alignment_tm_available = matches!(
+                    sw_tm.scope,
+                    libregene_core::primer::display::TmScope::FullDuplex
+                );
+                let alignment_has_gaps = result
+                    .ops
+                    .iter()
+                    .any(|pair| pair.primer_pos.is_none() || pair.template_pos.is_none());
                 results.push(serde_json::json!({
-                    "tm": (sw_tm.tm * 10.0).round() / 10.0,
+                    "tm": alignment_tm,
                     "tmScope": sw_tm.scope,
+                    "alignmentTmAvailable": alignment_tm_available,
+                    "alignmentHasGaps": alignment_has_gaps,
+                    "tmOptions": tm_options_json(alignment_tm, core_tm, full_primer_tm),
                     "strand": -1,
                     "start": (result.template_start + win_start) as i64,
                     "end": (result.template_end + win_start) as i64,
@@ -504,9 +525,28 @@ pub(crate) fn compute_primer_alignment_sync(
                     false,
                     tm_params,
                 );
+                let core_tm = libregene_core::primer::display::compute_matched_core_tm_from_alignment_with_params(
+                    primer_bytes,
+                    &template_region,
+                    &result,
+                    false,
+                    tm_params,
+                );
+                let alignment_tm = round_tm(sw_tm.tm);
+                let alignment_tm_available = matches!(
+                    sw_tm.scope,
+                    libregene_core::primer::display::TmScope::FullDuplex
+                );
+                let alignment_has_gaps = result
+                    .ops
+                    .iter()
+                    .any(|pair| pair.primer_pos.is_none() || pair.template_pos.is_none());
                 results.push(serde_json::json!({
-                    "tm": (sw_tm.tm * 10.0).round() / 10.0,
+                    "tm": alignment_tm,
                     "tmScope": sw_tm.scope,
+                    "alignmentTmAvailable": alignment_tm_available,
+                    "alignmentHasGaps": alignment_has_gaps,
+                    "tmOptions": tm_options_json(alignment_tm, core_tm, full_primer_tm),
                     "strand": 1,
                     "start": (result.template_start + win_start) as i64,
                     "end": (result.template_end + win_start) as i64,
@@ -515,7 +555,7 @@ pub(crate) fn compute_primer_alignment_sync(
             })
         };
         if sw_ok.is_none() {
-            results.push(fallback_site_json(c, tp));
+            results.push(fallback_site_json(c, tp, full_primer_tm));
         }
     }
 
@@ -523,17 +563,37 @@ pub(crate) fn compute_primer_alignment_sync(
     Ok(serde_json::json!({ "current": current, "alternatives": results }))
 }
 
+fn round_tm(tm: f64) -> f64 {
+    (tm * 10.0).round() / 10.0
+}
+
+fn tm_options_json(alignment: f64, anneal_core: f64, full_primer: f64) -> serde_json::Value {
+    serde_json::json!({
+        "alignment": alignment,
+        "annealCore": round_tm(anneal_core),
+        "fullPrimer": round_tm(full_primer),
+    })
+}
+
 /// Coordinates for a candidate when no SW alignment is available. Forward
 /// footprints end at `tp_3prime`; reverse footprints start there.
-fn fallback_site_json(c: &BindingSiteCandidate, tp: usize) -> serde_json::Value {
+fn fallback_site_json(
+    c: &BindingSiteCandidate,
+    tp: usize,
+    full_primer_tm: f64,
+) -> serde_json::Value {
     let (start, end) = if c.is_rev {
         (tp as i64, (tp + c.footprint_len) as i64)
     } else {
         ((tp + 1 - c.footprint_len) as i64, tp as i64 + 1)
     };
+    let core_tm = round_tm(c.est_tm);
     serde_json::json!({
-        "tm": (c.est_tm * 10.0).round() / 10.0,
+        "tm": core_tm,
         "tmScope": "matchedCore",
+        "alignmentTmAvailable": false,
+        "alignmentHasGaps": false,
+        "tmOptions": tm_options_json(core_tm, core_tm, full_primer_tm),
         "strand": if c.is_rev { -1 } else { 1 },
         "start": start,
         "end": end,

@@ -302,6 +302,17 @@ fn continuous_core_tm(columns: &[DuplexColumn], params: &TmParams) -> f64 {
     thermodynamics::compute_tm_with_params(std::str::from_utf8(&core).unwrap_or_default(), params)
 }
 
+pub fn compute_matched_core_tm_from_alignment_with_params(
+    primer_seq: &[u8],
+    template_region: &[u8],
+    result: &AlignmentResult,
+    reverse_alignment: bool,
+    params: &TmParams,
+) -> f64 {
+    let columns = duplex_columns(primer_seq, template_region, result, reverse_alignment);
+    continuous_core_tm(&columns, params)
+}
+
 pub fn compute_tm_from_alignment_with_params(
     primer_seq: &[u8],
     template_region: &[u8],

@@ -44,3 +44,47 @@ export function writeStoredTmParams(params, storage = globalThis.localStorage) {
   }
   return normalized;
 }
+
+export const PRIMER_TM_MODE_DEFAULT = 'alignment';
+export const PRIMER_TM_MODE_OPTIONS = Object.freeze([
+  { value: 'annealCore', label: 'Based on 3′ continuous annealing region' },
+  { value: 'fullPrimer', label: 'Based on full duplex' },
+  { value: 'alignment', label: 'Based on alignment' },
+]);
+
+export function normalizePrimerTmMode(mode) {
+  return PRIMER_TM_MODE_OPTIONS.some((option) => option.value === mode)
+    ? mode
+    : PRIMER_TM_MODE_DEFAULT;
+}
+
+export function readStoredPrimerTmMode(storage = globalThis.localStorage) {
+  try {
+    return normalizePrimerTmMode(storage?.getItem('primerTmMode'));
+  } catch {
+    return PRIMER_TM_MODE_DEFAULT;
+  }
+}
+
+export function writeStoredPrimerTmMode(mode, storage = globalThis.localStorage) {
+  const normalized = normalizePrimerTmMode(mode);
+  try {
+    storage?.setItem('primerTmMode', normalized);
+  } catch {
+    // Keep the in-memory setting when storage is unavailable.
+  }
+  return normalized;
+}
+
+export function primerTmModeAvailable(site, mode) {
+  return normalizePrimerTmMode(mode) !== 'alignment' || site?.alignmentTmAvailable !== false;
+}
+
+export function primerTmModeForSite(site, mode) {
+  const normalized = normalizePrimerTmMode(mode);
+  return primerTmModeAvailable(site, normalized) ? normalized : 'annealCore';
+}
+
+export function primerTmForMode(site, mode) {
+  return site?.tmOptions?.[primerTmModeForSite(site, mode)] ?? site?.tm;
+}

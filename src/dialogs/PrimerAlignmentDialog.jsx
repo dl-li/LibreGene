@@ -9,6 +9,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Repeat,
   Trash2,
   AlertTriangle,
@@ -21,6 +28,12 @@ import {
 import { monoFont } from '../editorConstants';
 import { computePrimerAlignment } from '../tauriApi';
 import { writePlainClipboard } from '../clipboardAnnotations';
+import {
+  PRIMER_TM_MODE_OPTIONS,
+  primerTmForMode,
+  primerTmModeAvailable,
+  primerTmModeForSite,
+} from '../tmParams';
 import { T, useTranslation } from '@/i18n';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
@@ -124,9 +137,10 @@ export function AlignmentView({ data, primerColor: primerColorOverride }) {
   );
 }
 
-function OtherBindingSite({ alt }) {
+function OtherBindingSite({ alt, tmMode }) {
   const [expanded, setExpanded] = useState(false);
   const dir = alt.strand === -1 ? 'R' : 'F';
+  const tm = primerTmForMode(alt, tmMode);
   return (
     <div
       className={`rounded-lg border bg-card transition-colors ${
@@ -148,9 +162,9 @@ function OtherBindingSite({ alt }) {
         <span className="font-mono text-xs font-medium tabular-nums text-foreground/80">
           {alt.start + 1}..{alt.end}
         </span>
-        {alt.tm != null && (
+        {tm != null && (
           <span className="ml-auto pr-1 text-[11px] tabular-nums text-muted-foreground">
-            <T>{'Tm'}</T> <span className="font-medium text-orange-700">{alt.tm}°C</span>
+            <T>{'Tm'}</T> <span className="font-medium text-orange-700">{tm}°C</span>
           </span>
         )}
       </button>
@@ -171,7 +185,7 @@ function OtherBindingSite({ alt }) {
   );
 }
 
-export function OtherBindingSites({ sites }) {
+export function OtherBindingSites({ sites, tmMode = 'alignment' }) {
   return (
     <div className="max-h-[36vh] overflow-auto rounded-xl border border-orange-200/80 bg-orange-50/50 p-2">
       <div className="flex items-center justify-between px-1 pb-1.5 text-xs">
@@ -184,7 +198,11 @@ export function OtherBindingSites({ sites }) {
       </div>
       <div className="space-y-1.5">
         {sites.map((alt, i) => (
-          <OtherBindingSite key={`${alt.strand}:${alt.start}:${alt.end}:${i}`} alt={alt} />
+          <OtherBindingSite
+            key={`${alt.strand}:${alt.start}:${alt.end}:${i}`}
+            alt={alt}
+            tmMode={tmMode}
+          />
         ))}
       </div>
     </div>
@@ -229,6 +247,8 @@ export default function PrimerAlignmentDialog({
   onDeletePrimer,
   primers = [],
   tmParams = {},
+  primerTmMode = 'alignment',
+  onPrimerTmModeChange,
   projectId,
 }) {
   const { t } = useTranslation();
@@ -535,18 +555,32 @@ export default function PrimerAlignmentDialog({
 
         {/* Tm display */}
         {cur && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
               <T>{'Tm'}</T>
-              <span className="font-semibold tabular-nums">{cur.tm}°C</span>
+              <span className="font-semibold tabular-nums">
+                {primerTmForMode(cur, primerTmMode)}°C
+              </span>
             </span>
-            <span className="text-xs text-muted-foreground">
-              {cur.tmScope === 'fullDuplex' ? (
-                <T>{'Full duplex'}</T>
-              ) : (
-                <T>{'3′ matching region'}</T>
-              )}
-            </span>
+            <Select
+              value={primerTmModeForSite(cur, primerTmMode)}
+              onValueChange={onPrimerTmModeChange}
+            >
+              <SelectTrigger className="h-7 w-[260px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIMER_TM_MODE_OPTIONS.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    disabled={!primerTmModeAvailable(cur, option.value)}
+                  >
+                    <T>{option.label}</T>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {preview?.loading && (
               <span className="text-xs text-muted-foreground italic">
                 <T>{'Computing…'}</T>
@@ -587,7 +621,7 @@ export default function PrimerAlignmentDialog({
           )}
         </div>
 
-        {cur && alts.length > 0 && <OtherBindingSites sites={alts} />}
+        {cur && alts.length > 0 && <OtherBindingSites sites={alts} tmMode={primerTmMode} />}
 
         {/* Invalid character warning */}
         {isInvalid && (

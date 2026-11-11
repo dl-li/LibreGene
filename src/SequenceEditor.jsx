@@ -134,6 +134,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
   primerOverviewOpen = false,
   projectId,
   tmParams = {},
+  primerTmMode = 'alignment',
+  onPrimerTmModeChange,
   onSelectionChange,
   scrollContainerRef,
   onUndo,
@@ -3207,6 +3209,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
           onPrimerDelete={onPrimerDelete}
           primers={primers}
           tmParams={tmParams}
+          primerTmMode={primerTmMode}
+          onPrimerTmModeChange={onPrimerTmModeChange}
           projectId={projectId}
           designDialog={designDialog}
           setDesignDialog={setDesignDialog}

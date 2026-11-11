@@ -42,6 +42,13 @@ export interface PrimerBindingSite {
   templateEnd: number;
   tm: number;
   tmScope?: 'fullDuplex' | 'matchedCore';
+  alignmentTmAvailable?: boolean;
+  alignmentHasGaps?: boolean;
+  tmOptions?: {
+    alignment: number;
+    annealCore: number;
+    fullPrimer: number;
+  };
   gcContent: number;
   matchScore: number;
   has3PrimeMismatch?: boolean;

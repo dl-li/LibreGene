@@ -34,6 +34,8 @@ export default function EditorDialogs({
   onPrimerDelete,
   primers,
   tmParams,
+  primerTmMode,
+  onPrimerTmModeChange,
   projectId,
   designDialog,
   setDesignDialog,
@@ -89,6 +91,8 @@ export default function EditorDialogs({
         onDeletePrimer={onPrimerDelete}
         primers={primers}
         tmParams={tmParams}
+        primerTmMode={primerTmMode}
+        onPrimerTmModeChange={onPrimerTmModeChange}
         projectId={projectId}
       />
       <PrimerDesignDialog

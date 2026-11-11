@@ -51,7 +51,7 @@ function siteEnd(site) {
   return (site.templateEnd ?? site.end + 1) - 1;
 }
 function siteTm(site) {
-  return site.tm;
+  return site.tmOptions?.annealCore ?? site.tm;
 }
 
 function formatSite(site) {

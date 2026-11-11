@@ -102,6 +102,8 @@ export default function App() {
     onAlignmentAlgorithmChange,
     tmParams,
     setTmParams,
+    primerTmMode,
+    onPrimerTmModeChange,
     mcpConfig,
     setMcpConfigState,
     handleMcpConfigChange,
@@ -687,6 +689,8 @@ export default function App() {
       primerSeedLength,
       alignmentAlgorithm,
       tmParams,
+      primerTmMode,
+      onPrimerTmModeChange,
       caseDisplay,
       layoutParams,
       showFeatures,
@@ -738,6 +742,8 @@ export default function App() {
       primerSeedLength,
       alignmentAlgorithm,
       tmParams,
+      primerTmMode,
+      onPrimerTmModeChange,
       caseDisplay,
       layoutParams,
       showFeatures,
@@ -973,6 +979,8 @@ export default function App() {
           onAlignmentAlgorithmChange={onAlignmentAlgorithmChange}
           tmParams={tmParams}
           setTmParams={setTmParams}
+          primerTmMode={primerTmMode}
+          onPrimerTmModeChange={onPrimerTmModeChange}
           caseDisplay={caseDisplay}
           onCaseDisplayChange={onCaseDisplayChange}
           highContrastTextColors={highContrastTextColors}

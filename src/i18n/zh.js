@@ -132,6 +132,9 @@ export const zh = {
   'Methylation blocking': '甲基化阻断',
   'Sites overlapping these methylation systems are marked as blocked':
     '与这些甲基化系统重叠的位点将标记为受阻',
+  'Primer Tm display': '引物 Tm 显示方式',
+  'Choose which Tm is shown by default in every primer window':
+    '选择所有引物窗口默认显示的 Tm 口径',
   'Tm calculation conditions': 'Tm 计算条件',
   'Defaults: 50 mM Na⁺ and 250 nM primer; other salts are 0, following SnapGene/supplier conventions.':
     '兼容默认值：50 mM Na⁺、250 nM 引物，其余为 0。沿用 SnapGene/供应商约定，并非完整 PCR 缓冲液。',
@@ -428,8 +431,9 @@ export const zh = {
   'Create MSA': '创建 MSA',
   'Create Project': '创建项目',
   'Enter primer sequence…': '输入引物序列…',
-  'Full duplex': '完整双链',
-  '3′ matching region': '3′ 匹配区',
+  'Based on alignment': '根据比对结果',
+  'Based on 3′ continuous annealing region': '根据 3′ 连续退火区',
+  'Based on full duplex': '根据完整双链',
   'Name "{name}" is already used by another primer': '名称“{name}”已被其他引物使用',
   'Double-click to edit': '双击编辑',
   'Region to delete': '待删除区域',

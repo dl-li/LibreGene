@@ -36,4 +36,33 @@ describe('PrimerAlignmentDialog other binding sites', () => {
     expect(html).toContain('font-weight:bold');
     expect(html).toContain('background-color:#C2410C');
   });
+
+  it('shows the selected Tm mode for alternative sites', () => {
+    const withTm = [
+      {
+        ...sites[0],
+        tm: 64.8,
+        tmOptions: { alignment: 64.8, annealCore: 63.9, fullPrimer: 67.3 },
+      },
+    ];
+    const coreHtml = renderToString(<OtherBindingSites sites={withTm} tmMode="annealCore" />);
+    const fullHtml = renderToString(<OtherBindingSites sites={withTm} tmMode="fullPrimer" />);
+    expect(coreHtml.replaceAll('<!-- -->', '')).toContain('63.9°C');
+    expect(fullHtml.replaceAll('<!-- -->', '')).toContain('67.3°C');
+  });
+
+  it('falls back to the annealing core for gap-containing alternative sites', () => {
+    const withGap = [
+      {
+        ...sites[0],
+        tm: 59.6,
+        alignmentTmAvailable: false,
+        alignmentHasGaps: true,
+        tmOptions: { alignment: 59.6, annealCore: 59.6, fullPrimer: 63.9 },
+      },
+    ];
+    const html = renderToString(<OtherBindingSites sites={withGap} tmMode="alignment" />);
+    expect(html.replaceAll('<!-- -->', '')).toContain('59.6°C');
+    expect(html).not.toContain('63.9°C');
+  });
 });

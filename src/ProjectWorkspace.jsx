@@ -50,6 +50,8 @@ function ProjectWorkspace({
   primerSeedLength,
   alignmentAlgorithm,
   tmParams,
+  primerTmMode,
+  onPrimerTmModeChange,
   caseDisplay,
   layoutParams,
   showFeatures,
@@ -1090,6 +1092,8 @@ function ProjectWorkspace({
               primerOverviewOpen={primerOverviewOpen}
               projectId={projectId}
               tmParams={tmParams}
+              primerTmMode={primerTmMode}
+              onPrimerTmModeChange={onPrimerTmModeChange}
               caseDisplay={caseDisplay}
               onSelectionChange={handleSelectionChange}
               scrollContainerRef={mainScrollRef}
