@@ -249,35 +249,30 @@ input[type='radio']:not(:disabled) {
 }
 
 .nav-state-notice {
-  transform-origin: 50% 100%;
   will-change: opacity, transform;
-  animation: nav-state-notice-in 0.42s cubic-bezier(0.22, 1.35, 0.36, 1) both;
+  animation: nav-state-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .nav-state-notice[data-leaving='true'] {
-  animation: nav-state-notice-out 0.22s cubic-bezier(0.4, 0, 1, 1) both;
+  animation: nav-state-notice-out 0.18s cubic-bezier(0.4, 0, 1, 1) both;
 }
 @keyframes nav-state-notice-in {
-  0% {
+  from {
     opacity: 0;
-    transform: translateY(100%) scaleX(0.88);
+    transform: translateY(100%);
   }
-  65% {
+  to {
     opacity: 1;
-    transform: translateY(-8%) scaleX(1.015);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scaleX(1);
+    transform: translateY(0);
   }
 }
 @keyframes nav-state-notice-out {
   from {
     opacity: 1;
-    transform: translateY(0) scaleX(1);
+    transform: translateY(0);
   }
   to {
     opacity: 0;
-    transform: translateY(70%) scaleX(0.96);
+    transform: translateY(100%);
   }
 }
 
