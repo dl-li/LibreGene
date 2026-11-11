@@ -53,7 +53,7 @@ export default function NavStateNotice({ notice }) {
         aria-live="polite"
         aria-atomic="true"
         data-leaving={notice.leaving}
-        className="nav-state-notice flex h-8 w-[36rem] max-w-[85vw] items-start justify-center whitespace-nowrap rounded-b-none rounded-t-xl border border-b-0 border-teal-700 bg-teal-800 px-6 pb-3 text-white shadow-lg"
+        className="nav-state-notice flex h-8 min-w-44 max-w-[min(80vw,28rem)] items-start justify-center whitespace-nowrap rounded-b-none rounded-t-xl border border-b-0 border-teal-700 bg-teal-800 px-6 pb-3 text-white shadow-lg"
       >
         <span className="overflow-hidden text-ellipsis text-center text-[11px] font-medium leading-5">
           {notice.text}
