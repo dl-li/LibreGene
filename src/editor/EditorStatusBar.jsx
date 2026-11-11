@@ -1,5 +1,6 @@
 import { Bot, History, LockOpen } from 'lucide-react';
 import { DESIGN_MODES } from '../plugins/builtin/primerDesign';
+import { T } from '@/i18n';
 
 export default function EditorStatusBar({
   designPick,
@@ -16,23 +17,29 @@ export default function EditorStatusBar({
         {designPick ? (
           <>
             <span className="font-semibold text-teal-800">
-              {DESIGN_MODES[designPick.mode].prompts[designPick.segments.length]}
+              <T>{DESIGN_MODES[designPick.mode].prompts[designPick.segments.length]}</T>
             </span>
-            {designPickError && <span className="text-xs text-destructive">{designPickError}</span>}
+            {designPickError && (
+              <span className="text-xs text-destructive">
+                <T>{designPickError}</T>
+              </span>
+            )}
             <button
               type="button"
               onClick={cancelDesignPick}
               className="rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Cancel
+              <T>{'Cancel'}</T>
             </button>
           </>
         ) : (
           <>
             <Bot className="size-4 shrink-0 text-teal-600" />
-            <span className="font-semibold text-teal-800">Controlled by an MCP agent</span>
+            <span className="font-semibold text-teal-800">
+              <T>{'Controlled by an MCP agent'}</T>
+            </span>
             <span className="text-xs text-muted-foreground">
-              Viewing and selecting work as usual; editing is disabled
+              <T>{'Viewing and selecting work as usual; editing is disabled'}</T>
             </span>
             <button
               type="button"
@@ -40,7 +47,7 @@ export default function EditorStatusBar({
               className="inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <History className="size-3.5" />
-              Edit Log
+              <T>{'Edit Log'}</T>
             </button>
             <button
               type="button"
@@ -49,7 +56,7 @@ export default function EditorStatusBar({
             >
               <span className="inline-flex items-center gap-1.5">
                 <LockOpen className="size-3.5" />
-                Unlock
+                <T>{'Unlock'}</T>
               </span>
             </button>
           </>

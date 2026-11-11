@@ -12,6 +12,7 @@ import { LoaderCircle, ScanSearch, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { annotateFeatures } from '../tauriApi';
 import { locationString0based, locationString1based } from '../editorConstants';
+import { T, useTranslation } from '@/i18n';
 
 const EMPTY_ARRAY = [];
 
@@ -34,6 +35,7 @@ export default function DetectFeaturesDialog({
   features = EMPTY_ARRAY,
   onAddFeature,
 }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [items, setItems] = useState(EMPTY_ARRAY); // [{ hit, exists }]
@@ -145,23 +147,29 @@ export default function DetectFeaturesDialog({
       onOpenChange(false);
     } else {
       setAddError(
-        `Failed to add ${failures.length} of ${chosen.length} features: ${failures.join('; ')}`,
+        t('Failed to add {failed} of {total} features: {details}', {
+          failed: failures.length,
+          total: chosen.length,
+          details: failures.join('; '),
+        }),
       );
     }
-  }, [items, selected, adding, onAddFeature, onOpenChange]);
+  }, [items, selected, adding, onAddFeature, onOpenChange, t]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>Detect Common Features</DialogTitle>
+          <DialogTitle>
+            <T>{'Detect Common Features'}</T>
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-auto -mx-8 px-8">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
               <LoaderCircle className="size-4 animate-spin" />
-              Detecting common features…
+              <T>{'Detecting common features…'}</T>
             </div>
           ) : error ? (
             <div className="flex flex-col items-center gap-3 py-10">
@@ -170,13 +178,15 @@ export default function DetectFeaturesDialog({
                 <span>{error}</span>
               </div>
               <Button variant="outline" size="sm" onClick={runDetection}>
-                Retry
+                <T>{'Retry'}</T>
               </Button>
             </div>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
               <ScanSearch className="size-5 opacity-50" />
-              <span>No common features detected in this sequence.</span>
+              <span>
+                <T>{'No common features detected in this sequence.'}</T>
+              </span>
             </div>
           ) : (
             <table className="w-full border-collapse text-sm">
@@ -188,16 +198,28 @@ export default function DetectFeaturesDialog({
                       checked={allSelected}
                       onChange={toggleAll}
                       disabled={selectableCount === 0}
-                      aria-label="Select all"
+                      aria-label={t('Select all')}
                     />
                   </th>
                   <th className="w-6 py-2 pr-3" />
-                  <th className="py-2 pr-3 text-left font-semibold">Name</th>
-                  <th className="py-2 pr-3 text-left font-semibold">Type</th>
-                  <th className="py-2 pr-3 text-left font-semibold">Strand</th>
-                  <th className="py-2 pr-3 text-left font-semibold">Location</th>
-                  <th className="py-2 pr-3 text-left font-semibold">Identity</th>
-                  <th className="py-2 text-left font-semibold">Coverage</th>
+                  <th className="py-2 pr-3 text-left font-semibold">
+                    <T>{'Name'}</T>
+                  </th>
+                  <th className="py-2 pr-3 text-left font-semibold">
+                    <T>{'Type'}</T>
+                  </th>
+                  <th className="py-2 pr-3 text-left font-semibold">
+                    <T>{'Strand'}</T>
+                  </th>
+                  <th className="py-2 pr-3 text-left font-semibold">
+                    <T>{'Location'}</T>
+                  </th>
+                  <th className="py-2 pr-3 text-left font-semibold">
+                    <T>{'Identity'}</T>
+                  </th>
+                  <th className="py-2 text-left font-semibold">
+                    <T>{'Coverage'}</T>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -209,7 +231,7 @@ export default function DetectFeaturesDialog({
                         checked={selected.has(i)}
                         disabled={exists || adding}
                         onChange={() => toggle(i)}
-                        aria-label={`Select ${hit.name}`}
+                        aria-label={t('Select {name}', { name: hit.name })}
                       />
                     </td>
                     <td className="py-2 pr-3">
@@ -222,12 +244,12 @@ export default function DetectFeaturesDialog({
                       <span className="font-medium">{hit.name}</span>
                       {exists && (
                         <span className="ml-1.5 rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
-                          Added
+                          <T>{'Added'}</T>
                         </span>
                       )}
                       {!exists && hit.fragment && (
                         <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-px text-[10px] text-amber-800">
-                          fragment
+                          <T>{'fragment'}</T>
                         </span>
                       )}
                     </td>
@@ -262,11 +284,11 @@ export default function DetectFeaturesDialog({
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={adding}>
-            Cancel
+            <T>{'Cancel'}</T>
           </Button>
           <Button onClick={handleAdd} disabled={adding || loading || selected.size === 0}>
             {adding && <LoaderCircle className="size-4 animate-spin" />}
-            {adding ? 'Adding…' : `Add ${selected.size} Feature${selected.size === 1 ? '' : 's'}`}
+            {adding ? <T>{'Adding…'}</T> : t('Add {count} feature(s)', { count: selected.size })}
           </Button>
         </DialogFooter>
       </DialogContent>

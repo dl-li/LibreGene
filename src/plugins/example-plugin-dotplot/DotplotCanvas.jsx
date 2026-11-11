@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import useDotplot from './useDotplot';
+import { T, useTranslation } from './ui';
 import { tickStep, MAX_DOTS } from './dotplot';
 
 const MARGIN = { top: 8, right: 12, bottom: 52, left: 64 };
@@ -108,6 +109,7 @@ function drawStatic(canvas, seq, name, result) {
 }
 
 export default function DotplotCanvas({ seq, name, windowSize }) {
+  const { t } = useTranslation();
   const staticRef = useRef(null);
   const overlayRef = useRef(null);
   const hoverRef = useRef(null);
@@ -204,21 +206,28 @@ export default function DotplotCanvas({ seq, name, windowSize }) {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
         <span>
           {pending
-            ? 'Computing…'
+            ? t('Computing…')
             : dotCount === 0
-              ? 'No matches at this window size'
-              : `${dotCount.toLocaleString()} matching ${windowSize}-mers (${directCount.toLocaleString()} direct, ${revcompCount.toLocaleString()} rev-comp)`}
+              ? t('No matches at this window size')
+              : t('{count} matching {size}-mers ({direct} direct, {revcomp} rev-comp)', {
+                  count: dotCount.toLocaleString(),
+                  size: windowSize,
+                  direct: directCount.toLocaleString(),
+                  revcomp: revcompCount.toLocaleString(),
+                })}
         </span>
         <span className="flex items-center gap-3">
           <span className="flex items-center gap-1">
             <span className="size-1.5 rounded-full" style={{ backgroundColor: DIRECT_COLOR }} />
-            direct match
+            <T>{'direct match'}</T>
           </span>
           <span className="flex items-center gap-1">
             <span className="size-1.5 rounded-full" style={{ backgroundColor: REVCOMP_COLOR }} />
-            rev-comp
+            <T>{'rev-comp'}</T>
           </span>
-          {truncated && <span>Showing the first {MAX_DOTS.toLocaleString()} dots</span>}
+          {truncated && (
+            <span>{t('Showing the first {count} dots', { count: MAX_DOTS.toLocaleString() })}</span>
+          )}
         </span>
       </div>
     </div>

@@ -2,7 +2,50 @@
 // any React host without shadcn/Radix. Styling relies on Tailwind theme
 // tokens (bg-card, text-muted-foreground, ...) provided by the host app;
 // see manifest.json for the host contract.
-import { createContext, useContext, useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore } from 'react';
+
+const ZH = {
+  Close: '关闭',
+  'Window size: {size}': '窗口大小：{size}',
+  'The sequence must be at least {size} nt long.': '序列长度至少为 {size} nt。',
+  'Sequence 1': '序列 1',
+  'Computing…': '计算中…',
+  'No matches at this window size': '此窗口大小下没有匹配',
+  '{count} matching {size}-mers ({direct} direct, {revcomp} rev-comp)':
+    '{count} 个 {size}-mer 匹配（正向 {direct}，反向互补 {revcomp}）',
+  'direct match': '正向匹配',
+  'rev-comp': '反向互补',
+  'Showing the first {count} dots': '仅显示前 {count} 个点',
+};
+
+function subscribeLanguage(callback) {
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+  return () => observer.disconnect();
+}
+
+export function useTranslation() {
+  const lang = useSyncExternalStore(
+    subscribeLanguage,
+    () => document.documentElement.lang,
+    () => 'en',
+  );
+  const t = (text, values) => {
+    let translated = lang.startsWith('zh') ? ZH[text] || text : text;
+    if (values) {
+      translated = translated.replace(/\{(\w+)\}/g, (match, key) =>
+        Object.hasOwn(values, key) ? String(values[key]) : match,
+      );
+    }
+    return translated;
+  };
+  return { t };
+}
+
+export function T({ children }) {
+  const { t } = useTranslation();
+  return typeof children === 'string' ? t(children) : children;
+}
 
 function cx(...parts) {
   return parts.filter(Boolean).join(' ');
@@ -55,6 +98,7 @@ function useWheelContainment() {
 }
 
 export function DialogContent({ className, children }) {
+  const { t } = useTranslation();
   const onOpenChange = useContext(DialogCtx);
   const close = () => onOpenChange?.(false);
   const rootRef = useWheelContainment();
@@ -77,7 +121,7 @@ export function DialogContent({ className, children }) {
         <button
           type="button"
           onClick={close}
-          aria-label="Close"
+          aria-label={t('Close')}
           className="absolute right-4 top-4 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <svg

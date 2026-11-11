@@ -56,6 +56,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
 import { plugins, pluginAvailable } from './plugins';
+import { T, useTranslation } from '@/i18n';
 
 const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
 
@@ -82,6 +83,7 @@ const NAV_BUTTON_CLASS =
 // without onLeftClick both left and right click open the menu. Radix opens
 // the menu on left pointerdown by default — preventDefault() there opts out.
 function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const pressWasOpenRef = useRef(false);
   return (
@@ -111,7 +113,7 @@ function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children })
             <span
               role="button"
               tabIndex={-1}
-              aria-label={`Open ${label} menu`}
+              aria-label={t('Open {label} menu', { label: t(label) })}
               className={cn(
                 'group/caret absolute -inset-1 flex cursor-pointer items-center justify-center rounded-full text-teal-700 transition-opacity dark:text-teal-400',
                 open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
@@ -148,7 +150,9 @@ function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children })
               />
             </span>
           </span>
-          <span>{label}</span>
+          <span>
+            <T>{label}</T>
+          </span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="center" className={contentClassName}>
@@ -250,6 +254,7 @@ export default function EditorNavMenu({
   thickFeatureLines = false,
   onToggleThickFeatureLines,
 }) {
+  const { t } = useTranslation();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searchScope, setSearchScope] = useState('all');
@@ -406,23 +411,23 @@ export default function EditorNavMenu({
         {/* Edit: left or right click opens the menu */}
         <NavMenu icon={Pencil} label="Edit" contentClassName="min-w-52 overflow-visible">
           <DropdownMenuItem disabled={!canDirectSave} onSelect={onSave}>
-            <Save /> Save
+            <Save /> <T>{'Save'}</T>
             <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onSaveAs}>
-            <FileDown /> Save As…
+            <FileDown /> <T>{'Save As…'}</T>
             <DropdownMenuShortcut>⇧⌘S</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onCreateMsa}>
-            <Rows3 /> New MSA from Sequence
+            <Rows3 /> <T>{'New MSA from Sequence'}</T>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-            <Undo2 /> Undo
+            <Undo2 /> <T>{'Undo'}</T>
             <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-            <Redo2 /> Redo
+            <Redo2 /> <T>{'Redo'}</T>
             <DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -430,37 +435,37 @@ export default function EditorNavMenu({
             disabled={!hasSelection && !hasTranslationSelection}
             onSelect={onCopySense}
           >
-            <CopyPlus /> Copy (+) Strand
+            <CopyPlus /> <T>{'Copy (+) Strand'}</T>
           </DropdownMenuItem>
           {isDna && (
             <DropdownMenuItem
               disabled={!hasSelection && !hasTranslationSelection}
               onSelect={onCopyAntisense}
             >
-              <CopyMinus /> Copy (−) Strand
+              <CopyMinus /> <T>{'Copy (−) Strand'}</T>
             </DropdownMenuItem>
           )}
           {isDna && (
             <DropdownMenuItem disabled={!hasTranslationSelection} onSelect={onCopyTranslation}>
-              <CopyX /> Copy Translation
+              <CopyX /> <T>{'Copy Translation'}</T>
             </DropdownMenuItem>
           )}
           <DropdownMenuItem disabled={!canPaste} onSelect={onPaste}>
-            <ClipboardPaste /> Paste
+            <ClipboardPaste /> <T>{'Paste'}</T>
             <DropdownMenuShortcut>⌘V</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToUppercase}>
-            <CaseUpper /> To Uppercase
+            <CaseUpper /> <T>{'To Uppercase'}</T>
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!hasTextSelection} onSelect={onToLowercase}>
-            <CaseLower /> To Lowercase
+            <CaseLower /> <T>{'To Lowercase'}</T>
           </DropdownMenuItem>
           {isDna && onOpenCodonOptimization && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={onOpenCodonOptimization}>
-                <Dna /> Codon Optimization…
+                <Dna /> <T>{'Codon Optimization…'}</T>
               </DropdownMenuItem>
             </>
           )}
@@ -470,11 +475,11 @@ export default function EditorNavMenu({
               <DropdownMenuItem onSelect={onToggleTopology}>
                 {topology === 'circular' ? (
                   <>
-                    <Minus /> Linearize
+                    <Minus /> <T>{'Linearize'}</T>
                   </>
                 ) : (
                   <>
-                    <Circle /> Circularize
+                    <Circle /> <T>{'Circularize'}</T>
                   </>
                 )}
               </DropdownMenuItem>
@@ -482,14 +487,14 @@ export default function EditorNavMenu({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onOpenSessionEditLog}>
-            <History /> Session Edit Log…
+            <History /> <T>{'Session Edit Log…'}</T>
           </DropdownMenuItem>
           {/* SnapGene history snapshots (project from a .dna file) */}
           {onOpenSnapshots && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={onOpenSnapshots}>
-                <History /> History
+                <History /> <T>{'History'}</T>
               </DropdownMenuItem>
             </>
           )}
@@ -510,9 +515,11 @@ export default function EditorNavMenu({
               onViewModeChange?.(v);
             }}
           >
-            <DropdownMenuRadioItem value="wrap">Wrap (Vertical)</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="wrap">
+              <T>{'Wrap (Vertical)'}</T>
+            </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="continuous">
-              Continuous (Horizontal)
+              <T>{'Continuous (Horizontal)'}</T>
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
           {(hasTrackItems || hasStrandItems || hasExpandItems) && <DropdownMenuSeparator />}
@@ -525,7 +532,7 @@ export default function EditorNavMenu({
                 onToggleOrfs();
               }}
             >
-              Show ORFs
+              <T>{'Show ORFs'}</T>
             </DropdownMenuCheckboxItem>
           )}
           {viewTogglePlugins.map((p) => {
@@ -541,7 +548,7 @@ export default function EditorNavMenu({
             if (!legend?.length) {
               return (
                 <DropdownMenuCheckboxItem key={p.id} checked={checked} onCheckedChange={toggle}>
-                  {p.featuresMenuItem.label}
+                  <T>{p.featuresMenuItem.label}</T>
                 </DropdownMenuCheckboxItem>
               );
             }
@@ -551,7 +558,7 @@ export default function EditorNavMenu({
                   <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                     {checked && <Check className="h-4 w-4" />}
                   </span>
-                  {p.featuresMenuItem.label}
+                  <T>{p.featuresMenuItem.label}</T>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   {legend.map((entry) => (
@@ -563,7 +570,7 @@ export default function EditorNavMenu({
                         className="h-3 w-3 rounded-sm border border-black/20"
                         style={{ backgroundColor: entry.color }}
                       />
-                      {entry.label}
+                      <T>{entry.label}</T>
                     </div>
                   ))}
                 </DropdownMenuSubContent>
@@ -580,7 +587,7 @@ export default function EditorNavMenu({
                 onToggleDoubleStrand();
               }}
             >
-              Show Both Strands
+              <T>{'Show Both Strands'}</T>
             </DropdownMenuCheckboxItem>
           )}
           {onToggleTextColor && (
@@ -591,7 +598,7 @@ export default function EditorNavMenu({
                 onToggleTextColor();
               }}
             >
-              Show Text Color
+              <T>{'Show Text Color'}</T>
             </DropdownMenuCheckboxItem>
           )}
           {hasExpandItems && (
@@ -605,7 +612,7 @@ export default function EditorNavMenu({
                     onToggleAlwaysExpandFeatures();
                   }}
                 >
-                  Expand All Features
+                  <T>{'Expand All Features'}</T>
                 </DropdownMenuCheckboxItem>
               )}
               {isDna && onToggleAlwaysExpandPrimers && (
@@ -616,7 +623,7 @@ export default function EditorNavMenu({
                     onToggleAlwaysExpandPrimers();
                   }}
                 >
-                  Expand All Primers
+                  <T>{'Expand All Primers'}</T>
                 </DropdownMenuCheckboxItem>
               )}
               {onFeatureLabelsBelowChange && (
@@ -628,7 +635,7 @@ export default function EditorNavMenu({
                     onFeatureLabelsBelowChange(v === true);
                   }}
                 >
-                  Feature Labels Below
+                  <T>{'Feature Labels Below'}</T>
                 </DropdownMenuCheckboxItem>
               )}
               {onToggleThickFeatureLines && (
@@ -639,7 +646,7 @@ export default function EditorNavMenu({
                     onToggleThickFeatureLines();
                   }}
                 >
-                  Thick Feature Lines
+                  <T>{'Thick Feature Lines'}</T>
                 </DropdownMenuCheckboxItem>
               )}
             </>
@@ -654,7 +661,7 @@ export default function EditorNavMenu({
           contentClassName="min-w-52 overflow-visible"
         >
           <DropdownMenuCheckboxItem checked={showFeatures} onCheckedChange={onToggleFeatures}>
-            Show Features
+            <T>{'Show Features'}</T>
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           {onToggleAlwaysExpandFeatures && (
@@ -665,7 +672,7 @@ export default function EditorNavMenu({
                 onToggleAlwaysExpandFeatures();
               }}
             >
-              Expand All Features
+              <T>{'Expand All Features'}</T>
             </DropdownMenuCheckboxItem>
           )}
           {onFeatureLabelsBelowChange && (
@@ -677,16 +684,16 @@ export default function EditorNavMenu({
                 onFeatureLabelsBelowChange(v === true);
               }}
             >
-              Feature Labels Below
+              <T>{'Feature Labels Below'}</T>
             </DropdownMenuCheckboxItem>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onCreateFeature}>
-            <Plus /> Create Feature
+            <Plus /> <T>{'Create Feature'}</T>
             <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onOpenDetectFeatures} disabled={!onOpenDetectFeatures}>
-            <ScanSearch /> Detect Common Features
+            <ScanSearch /> <T>{'Detect Common Features'}</T>
           </DropdownMenuItem>
         </NavMenu>
 
@@ -699,7 +706,7 @@ export default function EditorNavMenu({
             contentClassName="min-w-52 overflow-visible"
           >
             <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
-              Show Primers
+              <T>{'Show Primers'}</T>
             </DropdownMenuCheckboxItem>
             {onToggleAlwaysExpandPrimers && (
               <DropdownMenuCheckboxItem
@@ -709,57 +716,61 @@ export default function EditorNavMenu({
                   onToggleAlwaysExpandPrimers();
                 }}
               >
-                Expand All Primers
+                <T>{'Expand All Primers'}</T>
               </DropdownMenuCheckboxItem>
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onCreatePrimer}>
-              <Plus /> Create Primer
+              <Plus /> <T>{'Create Primer'}</T>
               <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onOpenPrimerOverview}>
-              <ArrowDownWideNarrow /> Primer Overview
+              <ArrowDownWideNarrow /> <T>{'Primer Overview'}</T>
             </DropdownMenuItem>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>My Primer Collection</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>
+                <T>{'My Primer Collection'}</T>
+              </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-48">
                 <DropdownMenuItem onSelect={onOpenMyPrimers}>
-                  <ListChecks /> My Primer Collection…
+                  <ListChecks /> <T>{'My Primer Collection…'}</T>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={!hasSelectedPrimer}
                   onSelect={onAddCurrentPrimerToMyPrimers}
                 >
-                  <Plus /> Add Current Primer
+                  <Plus /> <T>{'Add Current Primer'}</T>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!hasPrimers} onSelect={onAddAllPrimersToMyPrimers}>
-                  <CopyPlus /> Add All from This File
+                  <CopyPlus /> <T>{'Add All from This File'}</T>
                 </DropdownMenuItem>
                 <DropdownMenuCheckboxItem
                   checked={autoAddPrimers}
                   onCheckedChange={onToggleAutoAddPrimers}
                 >
-                  Auto-add from Opened Files
+                  <T>{'Auto-add from Opened Files'}</T>
                 </DropdownMenuCheckboxItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             {primerDesignEnabled && (
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger inset>Primer Design</DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger inset>
+                  <T>{'Primer Design'}</T>
+                </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-44">
                   <DropdownMenuItem onSelect={() => onPrimerDesign?.('amplify')}>
-                    Amplify Fragment
+                    <T>{'Amplify Fragment'}</T>
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => onPrimerDesign?.('oepcr')}>
-                    OE-PCR
+                    <T>{'OE-PCR'}</T>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={topology !== 'circular'}
                     onSelect={() => onPrimerDesign?.('mutagenesis')}
                   >
-                    PCR Mutagenesis
+                    <T>{'PCR Mutagenesis'}</T>
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -776,16 +787,20 @@ export default function EditorNavMenu({
             contentClassName="min-w-52 overflow-visible"
           >
             <DropdownMenuCheckboxItem checked={showEnzymes} onCheckedChange={onToggleEnzymes}>
-              Show Enzyme Sites
+              <T>{'Show Enzyme Sites'}</T>
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>Enzyme Set</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>
+                <T>{'Enzyme Set'}</T>
+              </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
                   {myEnzymes.length > 0 && (
                     <>
-                      <DropdownMenuRadioItem value="myEnzymes">My Enzymes</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="myEnzymes">
+                        <T>{'My Enzymes'}</T>
+                      </DropdownMenuRadioItem>
                       <DropdownMenuSeparator />
                     </>
                   )}
@@ -797,22 +812,33 @@ export default function EditorNavMenu({
                     >
                       {opt.value === 'unique' ? (
                         <span>
-                          <strong>Unique</strong> Cutters
+                          <strong>
+                            <T>{'Unique'}</T>
+                          </strong>{' '}
+                          <T>{'Cutters'}</T>
                         </span>
                       ) : opt.value === 'unique6' ? (
                         <span>
-                          <strong>Unique</strong> 6 bp
+                          <strong>
+                            <T>{'Unique'}</T>
+                          </strong>{' '}
+                          <T>{'6 bp'}</T>
                         </span>
                       ) : opt.value === 'twice' ? (
                         <span>
-                          Twice-cutter<sup>²</sup>
+                          <T>{'Twice-cutter'}</T>
+                          <sup>²</sup>
                         </span>
                       ) : opt.value === 'unique+twice' ? (
                         <span>
-                          <strong>Unique</strong> + Twice-cutter<sup>²</sup>
+                          <strong>
+                            <T>{'Unique'}</T>
+                          </strong>{' '}
+                          <T>{'+ Twice-cutter'}</T>
+                          <sup>²</sup>
                         </span>
                       ) : (
-                        opt.label
+                        <T>{opt.label}</T>
                       )}
                     </DropdownMenuRadioItem>
                   ))}
@@ -820,7 +846,9 @@ export default function EditorNavMenu({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger inset>Provider</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger inset>
+                <T>{'Provider'}</T>
+              </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup
                   value={enzymeProvider}
@@ -828,23 +856,23 @@ export default function EditorNavMenu({
                 >
                   {ENZYME_PROVIDER_OPTIONS.map((opt) => (
                     <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                      {opt.label}
+                      {<T>{opt.label}</T>}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuItem onSelect={onOpenMyEnzymes}>
-              <Scissors /> My Enzymes…
+              <Scissors /> <T>{'My Enzymes…'}</T>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onOpenEnzymeDatabase}>
-              <Database /> Enzyme Database…
+              <Database /> <T>{'Enzyme Database…'}</T>
             </DropdownMenuItem>
             {hasGel && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => onOpenGel()}>
-                  <Rows3 /> Digest and Run Gel
+                  <Rows3 /> <T>{'Digest and Run Gel'}</T>
                 </DropdownMenuItem>
               </>
             )}
@@ -873,7 +901,7 @@ export default function EditorNavMenu({
             contentClassName="min-w-56 overflow-visible"
           >
             <DropdownMenuCheckboxItem checked={showAlignments} onCheckedChange={onToggleAlignments}>
-              Show Alignments
+              <T>{'Show Alignments'}</T>
             </DropdownMenuCheckboxItem>
             {alignments.length > 0 && <DropdownMenuSeparator />}
             {alignments.map((a) => (
@@ -890,13 +918,13 @@ export default function EditorNavMenu({
             ))}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onAddAlignmentFile}>
-              <FileUp /> Add from File…
+              <FileUp /> <T>{'Add from File…'}</T>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onAddAlignmentText}>
-              <Type /> Add from Text…
+              <Type /> <T>{'Add from Text…'}</T>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onManageAlignments}>
-              <ListChecks /> Manage Alignments…
+              <ListChecks /> <T>{'Manage Alignments…'}</T>
             </DropdownMenuItem>
           </NavMenu>
         )}
@@ -914,7 +942,7 @@ export default function EditorNavMenu({
                 <DropdownMenuRadioGroup value={background} onValueChange={onBackgroundChange}>
                   {backgroundOptions.map((o) => (
                     <DropdownMenuRadioItem key={o.value} value={o.value}>
-                      {o.label}
+                      <T>{o.label}</T>
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -923,22 +951,22 @@ export default function EditorNavMenu({
             )}
             {onOpenMapView && (
               <DropdownMenuItem onSelect={onOpenMapView}>
-                <MapIcon /> Examine Map
+                <MapIcon /> <T>{'Examine Map'}</T>
               </DropdownMenuItem>
             )}
             {hasFolding && (
               <DropdownMenuItem onSelect={onOpenRnaFold}>
-                <AudioWaveform /> Examine Secondary Structure
+                <AudioWaveform /> <T>{'Examine Secondary Structure'}</T>
               </DropdownMenuItem>
             )}
             {hasDotplot && (
               <DropdownMenuItem onSelect={onOpenDotplot}>
-                <Grid2x2 /> Examine Dotplot
+                <Grid2x2 /> <T>{'Examine Dotplot'}</T>
               </DropdownMenuItem>
             )}
             {hasGel && (
               <DropdownMenuItem onSelect={onOpenGel}>
-                <Rows3 /> Digest and Run Gel
+                <Rows3 /> <T>{'Digest and Run Gel'}</T>
               </DropdownMenuItem>
             )}
           </NavMenu>
@@ -969,21 +997,25 @@ export default function EditorNavMenu({
             value={query}
             onChange={onQueryChange}
             onKeyDown={onSearchKeyDown}
-            placeholder={`Search ${SCOPE_WORDS[searchScope]} (Tab to switch)`}
+            placeholder={t('Search {scope} (Tab to switch)', {
+              scope: t(SCOPE_WORDS[searchScope]),
+            })}
             className="min-w-0 flex-1 rounded-full bg-muted/60 px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             style={{ border: 'none' }}
             tabIndex={searchOpen ? 0 : -1}
           />
           {query && (
             <span className="mr-0.5 flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
-              {shortNucQuery
-                ? 'Enter at least 3 bases'
-                : navTotal > 0
-                  ? `${navIndex + 1}/${navTotal}`
-                  : '0/0'}
+              {shortNucQuery ? (
+                <T>{'Enter at least 3 bases'}</T>
+              ) : navTotal > 0 ? (
+                `${navIndex + 1}/${navTotal}`
+              ) : (
+                '0/0'
+              )}
               <button
                 type="button"
-                aria-label="Previous match"
+                aria-label={t('Previous match')}
                 onClick={() => onSearch?.(query, 'prev', searchScope)}
                 className="rounded-full p-1 transition-colors hover:bg-accent hover:text-foreground"
               >
@@ -991,7 +1023,7 @@ export default function EditorNavMenu({
               </button>
               <button
                 type="button"
-                aria-label="Next match"
+                aria-label={t('Next match')}
                 onClick={() => onSearch?.(query, 'next', searchScope)}
                 className="rounded-full p-1 transition-colors hover:bg-accent hover:text-foreground"
               >
@@ -1001,7 +1033,7 @@ export default function EditorNavMenu({
           )}
           <button
             type="button"
-            aria-label="Close search"
+            aria-label={t('Close search')}
             onClick={toggleSearch}
             className="flex items-center justify-center rounded-full bg-accent p-2 text-foreground outline-none transition-all duration-150 hover:text-foreground active:scale-90"
           >

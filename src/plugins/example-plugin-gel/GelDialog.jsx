@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, InlineNotice } from './ui';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  InlineNotice,
+  T,
+  useTranslation,
+} from './ui';
 import {
   LADDER_PRESETS,
   DEFAULT_LADDER_ID,
@@ -44,7 +52,7 @@ function Section({ title, children }) {
   return (
     <section className="rounded-xl border border-border/60 bg-muted/30 p-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
+        <T>{title}</T>
       </h3>
       {children}
     </section>
@@ -87,12 +95,13 @@ function EnzymeName({ g, plain }) {
 }
 
 function EnzymeBadge({ g, active, disabled, onClick }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      title={`${g.recSeq} — ${g.pairCount} cut${g.pairCount === 1 ? '' : 's'}${g.blocked ? ' (methylation blocked)' : ''}`}
+      title={`${g.recSeq} — ${t('{count} cut(s)', { count: g.pairCount })}${g.blocked ? t(' (methylation blocked)') : ''}`}
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
         active
           ? 'border-blue-800 bg-blue-800 text-white'
@@ -120,13 +129,15 @@ function EnzymeCategory({ title, open, onToggle, list, selected, onToggleEnzyme 
         >
           ›
         </span>
-        {title}
+        <T>{title}</T>
         <span className="ml-auto text-muted-foreground">{list.length}</span>
       </button>
       {open && (
         <div className="flex max-h-36 flex-wrap content-start gap-1 overflow-y-auto border-t border-border/40 p-1.5">
           {list.length === 0 && (
-            <p className="px-1 py-0.5 text-xs text-muted-foreground">None for this plasmid</p>
+            <p className="px-1 py-0.5 text-xs text-muted-foreground">
+              <T>{'None for this plasmid'}</T>
+            </p>
           )}
           {list.map((g) => (
             <EnzymeBadge
@@ -154,6 +165,7 @@ export default function GelDialog({
   dialogState,
   enzymeFilter,
 }) {
+  const { t: tr } = useTranslation();
   const [groupFilter, setGroupFilter] = useState(() => readEditorEnzymeFilter(enzymeFilter));
   const [selected, setSelected] = useState([]);
   const [openCats, setOpenCats] = useState({ group: true, single: false, double: false });
@@ -224,7 +236,7 @@ export default function GelDialog({
 
   const lanes = useMemo(() => {
     const samples = [
-      { key: 'uncut', label: 'uncut', kind: 'digest', names: [] },
+      { key: 'uncut', label: tr('uncut'), kind: 'digest', names: [] },
       ...selected.map((n) => ({ key: `e:${n}`, label: n, kind: 'digest', names: [n] })),
     ];
     if (selected.length >= 2)
@@ -232,7 +244,7 @@ export default function GelDialog({
     while (samples.length < SAMPLE_LANES)
       samples.push({ key: `empty-${samples.length}`, label: '', kind: 'empty' });
     return [{ key: 'mw', label: 'MW', kind: 'ladder' }, ...samples.slice(0, SAMPLE_LANES)];
-  }, [selected]);
+  }, [selected, tr]);
 
   const laneBands = useMemo(() => {
     const map = new Map();
@@ -317,7 +329,7 @@ export default function GelDialog({
       >
         <DialogHeader className="shrink-0">
           <DialogTitle>
-            Digest and Run Gel
+            <T>{'Digest and Run Gel'}</T>
             {fileName ? (
               <span className="ml-2 font-normal text-muted-foreground">{fileName}</span>
             ) : null}
@@ -325,17 +337,17 @@ export default function GelDialog({
         </DialogHeader>
         <div className="flex min-h-0 flex-1 gap-4">
           <div className="min-w-0 flex-1 space-y-3 overflow-y-auto pr-1">
-            <Section title="Enzymes">
+            <Section title={tr('Enzymes')}>
               <div className="space-y-2">
                 <select
                   className={selectClass}
                   value={groupFilter}
                   onChange={(e) => setGroupFilter(e.target.value)}
-                  aria-label="Enzyme group"
+                  aria-label={tr('Enzyme group')}
                 >
                   {groupOptions.map((o) => (
                     <option key={o.value} value={o.value}>
-                      {o.label}
+                      <T>{o.label}</T>
                     </option>
                   ))}
                 </select>
@@ -354,7 +366,11 @@ export default function GelDialog({
                           key={name}
                           type="button"
                           onClick={() => toggleEnzyme(name)}
-                          title={g ? `${g.recSeq} — click to remove` : 'Click to remove'}
+                          title={
+                            g
+                              ? tr('{site} — click to remove', { site: g.recSeq })
+                              : tr('Click to remove')
+                          }
                           className="inline-flex items-center gap-1 rounded-full bg-blue-800 px-2 py-0.5 text-xs text-white transition-colors hover:bg-blue-800/80"
                         >
                           {g ? <EnzymeName g={g} plain /> : name}
@@ -363,7 +379,7 @@ export default function GelDialog({
                       );
                     })
                   ) : (
-                    <span>No enzymes selected — pick from the badges below</span>
+                    <span>{tr('No enzymes selected — pick from the badges below')}</span>
                   )}
                 </div>
                 <div className="space-y-1.5">
@@ -376,7 +392,7 @@ export default function GelDialog({
                     onToggleEnzyme={toggleEnzyme}
                   />
                   <EnzymeCategory
-                    title="Single cutters"
+                    title={tr('Single cutters')}
                     open={openCats.single}
                     onToggle={() => setOpenCats((s) => ({ ...s, single: !s.single }))}
                     list={cats.single}
@@ -384,7 +400,7 @@ export default function GelDialog({
                     onToggleEnzyme={toggleEnzyme}
                   />
                   <EnzymeCategory
-                    title="Double cutters"
+                    title={tr('Double cutters')}
                     open={openCats.double}
                     onToggle={() => setOpenCats((s) => ({ ...s, double: !s.double }))}
                     list={cats.double}
@@ -394,7 +410,7 @@ export default function GelDialog({
                 </div>
                 <div>
                   <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                    <span>Cutting efficiency</span>
+                    <span>{tr('Cutting efficiency')}</span>
                     <span className="tabular-nums">{efficiency}%</span>
                   </div>
                   <input
@@ -408,12 +424,12 @@ export default function GelDialog({
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {selected.length}/{MAX_ENZYMES} selected
+                  {tr('{selected}/{max} selected', { selected: selected.length, max: MAX_ENZYMES })}
                 </p>
               </div>
             </Section>
 
-            <Section title="Ladder">
+            <Section title={tr('Ladder')}>
               <div className="space-y-1.5">
                 {LADDER_PRESETS.map((p) => (
                   <label
@@ -446,12 +462,12 @@ export default function GelDialog({
                 />
                 {ladder.error && <InlineNotice tone="error">{ladder.error}</InlineNotice>}
                 <p className="text-xs text-muted-foreground">
-                  Sizes in bp; wrap a size in *asterisks* for the brightest band.
+                  <T>{'Sizes in bp; wrap a size in *asterisks* for the brightest band.'}</T>
                 </p>
               </div>
             </Section>
 
-            <Section title="Gel">
+            <Section title={tr('Gel')}>
               <div className="space-y-2.5">
                 <div className="flex gap-1 rounded-lg bg-muted p-0.5">
                   {[
@@ -468,13 +484,13 @@ export default function GelDialog({
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      {o.label}
+                      <T>{o.label}</T>
                     </button>
                   ))}
                 </div>
                 <div>
                   <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                    <span>Concentration</span>
+                    <span>{tr('Concentration')}</span>
                     <span className="tabular-nums">{conc.toFixed(1)}%</span>
                   </div>
                   {gelType === 'agarose' ? (
@@ -500,7 +516,7 @@ export default function GelDialog({
                   )}
                 </div>
                 <div>
-                  <div className="mb-1 text-xs text-muted-foreground">Run time</div>
+                  <div className="mb-1 text-xs text-muted-foreground">{tr('Run time')}</div>
                   <input
                     type="range"
                     min={0}
@@ -520,14 +536,14 @@ export default function GelDialog({
             className="min-w-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-[#141414]"
           >
             {length === 0 ? (
-              <p className="p-6 text-sm text-muted-foreground">No sequence loaded.</p>
+              <p className="p-6 text-sm text-muted-foreground">{tr('No sequence loaded.')}</p>
             ) : (
               <svg
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="xMidYMin meet"
                 className="h-full w-full"
                 role="img"
-                aria-label="Simulated gel"
+                aria-label={tr('Simulated gel')}
               >
                 <defs>
                   {[
@@ -552,12 +568,12 @@ export default function GelDialog({
                   const cx = LABEL_W + i * LANE_W + LANE_W / 2;
                   const isEmpty = lane.kind === 'empty';
                   const nameLines =
-                    lane.kind === 'digest' ? (lane.names.length ? lane.names : ['uncut']) : [];
+                    lane.kind === 'digest' ? (lane.names.length ? lane.names : [tr('uncut')]) : [];
                   return (
                     <g key={lane.key}>
                       {lane.kind === 'ladder' ? (
                         <text x={cx} y={22} fontSize={14} textAnchor="middle" fill="#a3a3a3">
-                          Ladder
+                          <T>{'Ladder'}</T>
                         </text>
                       ) : (
                         <>
@@ -623,7 +639,7 @@ export default function GelDialog({
                             filter={`url(#${blurId})`}
                           >
                             <title>
-                              {`${b.size} bp${b.topo === 'supercoiled' ? ' (supercoiled)' : b.topo === 'nicked' ? ' (nicked circle)' : ''}`}
+                              {`${b.size} bp${b.topo === 'supercoiled' ? tr(' (supercoiled)') : b.topo === 'nicked' ? tr(' (nicked circle)') : ''}`}
                             </title>
                           </rect>
                         );

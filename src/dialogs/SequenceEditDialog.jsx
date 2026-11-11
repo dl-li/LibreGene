@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { InlineNotice } from '@/components/ui/notice';
 import { Repeat } from 'lucide-react';
 import { metaMatchesText, revCompClipboardMeta } from '../clipboardAnnotations';
+import { T, useTranslation } from '@/i18n';
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {
@@ -94,6 +95,7 @@ export default function SequenceEditDialog({
   moleculeType = 'dna',
   clipboardMeta = null,
 }) {
+  const { t } = useTranslation();
   // Length unit: base pairs (DNA), nucleotides (ss-RNA), amino acids (protein).
   const isProtein = moleculeType === 'protein';
   const unit = moleculeType === 'dna' ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
@@ -186,7 +188,9 @@ export default function SequenceEditDialog({
     >
       <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>{MODE_TITLE[mode] || 'Edit Sequence'}</DialogTitle>
+          <DialogTitle>
+            <T>{MODE_TITLE[mode] || 'Edit Sequence'}</T>
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
@@ -194,7 +198,9 @@ export default function SequenceEditDialog({
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {mode === 'insert' && cursorIndex !== null && (
               <>
-                <span>Cursor</span>
+                <span>
+                  <T>{'Cursor'}</T>
+                </span>
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
                   {cursorIndex + 1}
                 </code>
@@ -202,7 +208,9 @@ export default function SequenceEditDialog({
             )}
             {(mode === 'delete' || mode === 'replace') && selStart !== null && selEnd !== null && (
               <>
-                <span>Selection</span>
+                <span>
+                  <T>{'Selection'}</T>
+                </span>
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
                   {selStart + 1} – {selEnd + 1}
                 </code>
@@ -217,7 +225,11 @@ export default function SequenceEditDialog({
           {(mode === 'delete' || mode === 'replace') && selectedText && (
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                {mode === 'delete' ? 'Region to delete' : 'Region to replace (old)'}
+                {mode === 'delete' ? (
+                  <T>{'Region to delete'}</T>
+                ) : (
+                  <T>{'Region to replace (old)'}</T>
+                )}
               </label>
               <div className="max-h-[120px] overflow-auto select-all break-all rounded-lg border border-border/70 bg-muted/50 p-2.5 font-mono text-xs leading-relaxed">
                 {selectedText}
@@ -229,14 +241,16 @@ export default function SequenceEditDialog({
           {(mode === 'insert' || mode === 'replace') && (
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                {mode === 'insert' ? 'Sequence to insert' : 'New sequence'}
+                {mode === 'insert' ? <T>{'Sequence to insert'}</T> : <T>{'New sequence'}</T>}
               </label>
               <textarea
                 ref={inputRef}
                 value={inputText}
                 onChange={(e) => setInputText(filterLetters(e.target.value))}
                 onKeyDown={handleKeyDown}
-                placeholder={isProtein ? 'Enter amino acid sequence…' : 'Enter DNA / RNA sequence…'}
+                placeholder={
+                  isProtein ? t('Enter amino acid sequence…') : t('Enter DNA / RNA sequence…')
+                }
                 rows={4}
                 spellCheck={false}
                 className="font-mono text-sm w-full rounded-lg border border-input bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
@@ -248,7 +262,7 @@ export default function SequenceEditDialog({
           <div className="flex flex-wrap gap-1.5 text-xs">
             {mode === 'insert' && (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                Insert
+                <T>{'Insert'}</T>
                 <span className="font-semibold tabular-nums">
                   +{insertLen} {unit}
                 </span>
@@ -256,7 +270,7 @@ export default function SequenceEditDialog({
             )}
             {mode === 'delete' && (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
-                Delete
+                <T>{'Delete'}</T>
                 <span className="font-semibold tabular-nums">
                   −{deleteLen} {unit}
                 </span>
@@ -265,13 +279,13 @@ export default function SequenceEditDialog({
             {mode === 'replace' && (
               <>
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
-                  Delete
+                  <T>{'Delete'}</T>
                   <span className="font-semibold tabular-nums">
                     −{deleteLen} {unit}
                   </span>
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                  Insert
+                  <T>{'Insert'}</T>
                   <span className="font-semibold tabular-nums">
                     +{insertLen} {unit}
                   </span>
@@ -279,7 +293,7 @@ export default function SequenceEditDialog({
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${netChange > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : netChange < 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-border bg-muted text-muted-foreground'}`}
                 >
-                  Net
+                  <T>{'Net'}</T>
                   <span className="font-semibold tabular-nums">
                     {netChange > 0 ? '+' : ''}
                     {netChange} {unit}
@@ -295,8 +309,8 @@ export default function SequenceEditDialog({
               <div className="flex items-center justify-between gap-2">
                 <span>
                   {moleculeType === 'dna'
-                    ? `DNA sequences use T, not U — found ${wrongCount} U${wrongCount !== 1 ? 's' : ''}.`
-                    : `RNA sequences use U, not T — found ${wrongCount} T${wrongCount !== 1 ? 's' : ''}.`}
+                    ? t('DNA sequences use T, not U — found {count} U.', { count: wrongCount })
+                    : t('RNA sequences use U, not T — found {count} T.', { count: wrongCount })}
                 </span>
                 <Button variant="outline" size="sm" className="shrink-0" onClick={convertWrongBase}>
                   {wrongBase[0]} → {wrongBase[1]}
@@ -316,19 +330,21 @@ export default function SequenceEditDialog({
                     onCheckedChange={(v) => setPasteAnnotations(!!v)}
                   />
                   <label htmlFor="paste-annotations" className="cursor-pointer select-none">
-                    Paste annotations
-                    {metaRcMatch ? ' (reverse-complemented)' : ''}:{' '}
+                    <T>{'Paste annotations'}</T>
+                    {metaRcMatch ? <T>{' (reverse-complemented)'}</T> : ''}:{' '}
                     {(clipboardMeta.features?.length ?? 0) > 0 &&
-                      `${clipboardMeta.features.length} feature${clipboardMeta.features.length !== 1 ? 's' : ''}`}
+                      t('{count} feature(s)', { count: clipboardMeta.features.length })}
                     {(clipboardMeta.features?.length ?? 0) > 0 &&
                       (clipboardMeta.primers?.length ?? 0) > 0 &&
                       ', '}
                     {(clipboardMeta.primers?.length ?? 0) > 0 &&
-                      `${clipboardMeta.primers.length} primer${clipboardMeta.primers.length !== 1 ? 's' : ''}`}
+                      t('{count} primer(s)', { count: clipboardMeta.primers.length })}
                   </label>
                 </>
               ) : (
-                <span className="italic">Annotations won't be pasted (sequence modified)</span>
+                <span className="italic">
+                  <T>{"Annotations won't be pasted (sequence modified)"}</T>
+                </span>
               )}
             </div>
           )}
@@ -345,12 +361,12 @@ export default function SequenceEditDialog({
                 className="mr-auto"
               >
                 <Repeat className="size-3.5" />
-                Reverse Complement
+                <T>{'Reverse Complement'}</T>
               </Button>
             )}
           <DialogClose asChild>
             <Button variant="outline" onClick={onCancel}>
-              Cancel
+              <T>{'Cancel'}</T>
             </Button>
           </DialogClose>
           <Button
@@ -358,9 +374,9 @@ export default function SequenceEditDialog({
             disabled={!canConfirm}
             onClick={handleConfirm}
           >
-            {mode === 'insert' && 'Confirm Insertion'}
-            {mode === 'delete' && 'Confirm Deletion'}
-            {mode === 'replace' && 'Apply'}
+            {mode === 'insert' && <T>{'Confirm Insertion'}</T>}
+            {mode === 'delete' && <T>{'Confirm Deletion'}</T>}
+            {mode === 'replace' && <T>{'Apply'}</T>}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -9,6 +9,7 @@ import {
 import { LoaderCircle } from 'lucide-react';
 import FornaView from './FornaView';
 import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from './useRnaFold';
+import { T } from '@/i18n';
 
 export default function RnaFoldDialog({
   open,
@@ -27,13 +28,18 @@ export default function RnaFoldDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>RNA Secondary Structure{fileName ? ` — ${fileName}` : ''}</DialogTitle>
+          <DialogTitle>
+            <T>{'RNA Secondary Structure'}</T>
+            {fileName ? ` — ${fileName}` : ''}
+          </DialogTitle>
         </DialogHeader>
 
         {busy && (
           <div className="flex items-center gap-2 py-12 justify-center text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" />
-            <span className="text-sm">Folding {sequence?.length ?? 0} nt…</span>
+            <span className="text-sm">
+              <T>{'Folding'}</T> {sequence?.length ?? 0} <T>{'nt…'}</T>
+            </span>
           </div>
         )}
         {error && <p className="py-8 text-center text-sm text-destructive">{error}</p>}
@@ -42,11 +48,13 @@ export default function RnaFoldDialog({
           <>
             <div className="flex gap-6 pb-3 text-sm">
               <span>
-                MFE <span className="font-mono font-semibold">{result.mfe.toFixed(2)}</span>{' '}
-                kcal/mol
+                <T>{'MFE'}</T>{' '}
+                <span className="font-mono font-semibold">{result.mfe.toFixed(2)}</span>{' '}
+                <T>{'kcal/mol'}</T>
               </span>
               <span className="text-muted-foreground">
-                {pairCount} base pairs / {sequence.length} nt · Turner 2004 (RibossFold)
+                {pairCount} <T>{'base pairs /'}</T> {sequence.length}{' '}
+                <T>{'nt · Turner 2004 (RibossFold)'}</T>
               </span>
             </div>
             <div className="flex-1 overflow-auto -mx-8 px-8">
@@ -54,8 +62,8 @@ export default function RnaFoldDialog({
                 <FornaView sequence={sequence} structure={result.structure} />
               ) : (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  Sequence too long for interactive layout ({sequence.length} nt &gt;{' '}
-                  {MAX_INTERACTIVE_NT} nt).
+                  <T>{'Sequence too long for interactive layout ('}</T>
+                  {sequence.length} <T>{'nt >'}</T> {MAX_INTERACTIVE_NT} <T>{'nt).'}</T>
                 </p>
               )}
               <div className="mt-4 select-all whitespace-pre-wrap break-all font-mono text-[11px] leading-5">
@@ -92,7 +100,9 @@ export default function RnaFoldDialog({
                 }`}
               />
             </span>
-            <span>Show as Background</span>
+            <span>
+              <T>{'Show as Background'}</T>
+            </span>
           </button>
         </DialogFooter>
       </DialogContent>

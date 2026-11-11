@@ -6,6 +6,7 @@ import {
   circularDragSelection,
   createCircularDrag,
 } from './circularSelection';
+import { T, useTranslation } from '@/i18n';
 
 // Keep both ends of a long name, replace the middle with an ellipsis so the
 // text never exceeds maxWidth.
@@ -519,7 +520,7 @@ export function CircularMap({
         fill="#555"
         pointerEvents="none"
       >
-        {length} bp
+        {length} <T>{'bp'}</T>
       </text>
     </svg>
   );
@@ -818,6 +819,7 @@ export default function MapView({
   watermark = false,
   onToggleWatermark,
 }) {
+  const { t } = useTranslation();
   const [forceView, setForceView] = useState(null); // null = follow topology
   const view = forceView ?? topology;
   const unit = moleculeType === 'dna' ? 'bp' : moleculeType === 'protein' ? 'aa' : 'nt';
@@ -857,11 +859,13 @@ export default function MapView({
         </div>
         <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted-foreground">
           <span>
-            {sel
-              ? `${sel.start + 1} .. ${sel.end + 1} = ${rangeLen(sel.start, sel.end, sequenceLength)} ${unit}`
-              : view === 'circular'
-                ? 'Circular'
-                : 'Linear'}
+            {sel ? (
+              `${sel.start + 1} .. ${sel.end + 1} = ${rangeLen(sel.start, sel.end, sequenceLength)} ${unit}`
+            ) : view === 'circular' ? (
+              <T>{'Circular'}</T>
+            ) : (
+              <T>{'Linear'}</T>
+            )}
           </span>
           <div className="flex items-center gap-4">
             <button
@@ -869,7 +873,7 @@ export default function MapView({
               aria-checked={watermark}
               onClick={() => onToggleWatermark?.()}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              title="Show the map as a watermark behind the sequence editor"
+              title={t('Show the map as a watermark behind the sequence editor')}
             >
               <span
                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
@@ -882,16 +886,22 @@ export default function MapView({
                   }`}
                 />
               </span>
-              <span>Show as Background</span>
+              <span>
+                <T>{'Show as Background'}</T>
+              </span>
             </button>
             <button
               role="switch"
               aria-checked={view === 'linear'}
               onClick={() => setForceView(view === 'circular' ? 'linear' : 'circular')}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              title={view === 'circular' ? 'Switch to linear view' : 'Switch to circular view'}
+              title={
+                view === 'circular' ? t('Switch to linear view') : t('Switch to circular view')
+              }
             >
-              <span>Circular</span>
+              <span>
+                <T>{'Circular'}</T>
+              </span>
               <span
                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
                   view === 'linear' ? 'bg-primary' : 'bg-input'
@@ -903,7 +913,9 @@ export default function MapView({
                   }`}
                 />
               </span>
-              <span>Linear</span>
+              <span>
+                <T>{'Linear'}</T>
+              </span>
             </button>
           </div>
         </div>

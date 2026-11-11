@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Cog,
 } from 'lucide-react';
+import { T, useTranslation } from '@/i18n';
 
 async function notify(message, options = {}) {
   const dialog = await import('@tauri-apps/plugin-dialog');
@@ -42,8 +43,14 @@ function SettingRow({ label, hint, children }) {
   return (
     <div className="flex items-center justify-between gap-6 py-3">
       <div className="min-w-0">
-        <div className="text-[13px] font-medium">{label}</div>
-        {hint && <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{hint}</div>}
+        <div className="text-[13px] font-medium">
+          <T>{label}</T>
+        </div>
+        {hint && (
+          <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            {typeof hint === 'string' ? <T>{hint}</T> : hint}
+          </div>
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">{children}</div>
     </div>
@@ -126,6 +133,7 @@ export default function SettingsPage({
   onTogglePlugin,
   focusSection,
 }) {
+  const { t } = useTranslation();
   const [section, setSection] = useState('general');
   const [showBuiltinPlugins, setShowBuiltinPlugins] = useState(false);
   const [busy, setBusy] = useState('');
@@ -134,12 +142,12 @@ export default function SettingsPage({
     setBusy('default');
     try {
       const res = await setDefaultFileAssociations();
-      await notify(res?.message || 'Done', {
-        title: 'Default app',
+      await notify(res?.message || t('Done'), {
+        title: t('Default app'),
         kind: res?.ok ? 'info' : 'warning',
       });
     } catch (e) {
-      await notify(e, { title: 'Default app', kind: 'error' });
+      await notify(e, { title: t('Default app'), kind: 'error' });
     } finally {
       setBusy('');
     }
@@ -150,10 +158,12 @@ export default function SettingsPage({
     try {
       const path = await exportUserSettings();
       if (path) {
-        await notify(`Settings and data exported to:\n${path}`, { title: 'Export complete' });
+        await notify(t('Settings and data exported to:\n{path}', { path }), {
+          title: t('Export complete'),
+        });
       }
     } catch (e) {
-      await notify(e, { title: 'Export failed', kind: 'error' });
+      await notify(e, { title: t('Export failed'), kind: 'error' });
     } finally {
       setBusy('');
     }
@@ -166,12 +176,12 @@ export default function SettingsPage({
       if (!entries) return;
       const dialog = await import('@tauri-apps/plugin-dialog');
       const yes = await dialog.ask(
-        'This overwrites your current settings and data (My Primers, enzyme groups, all preferences) and reloads the app. Continue?',
-        { title: 'Import settings & data', kind: 'warning' },
+        t('Import replaces current settings and data, then reloads the app. Continue?'),
+        { title: t('Import settings & data'), kind: 'warning' },
       );
       if (yes) applySettingsImport(entries);
     } catch (e) {
-      await notify(e, { title: 'Import failed', kind: 'error' });
+      await notify(e, { title: t('Import failed'), kind: 'error' });
     } finally {
       setBusy('');
     }
@@ -247,17 +257,19 @@ export default function SettingsPage({
       />
       <div className="flex min-w-0 flex-col">
         <Label htmlFor={`st-plugin-${p.id}`} className="cursor-pointer text-[13px] font-medium">
-          {p.name}
+          <T>{p.name}</T>
           {p.version && (
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">v{p.version}</span>
           )}
           {p.author && (
-            <span className="ml-1.5 text-xs font-normal text-muted-foreground">by {p.author}</span>
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+              <T>{'by'}</T> {p.author}
+            </span>
           )}
         </Label>
         {p.description && (
           <span className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            {p.description}
+            <T>{p.description}</T>
           </span>
         )}
       </div>
@@ -269,7 +281,9 @@ export default function SettingsPage({
       <DialogContent className="flex h-[min(36rem,85vh)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
         {/* ── Section nav ── */}
         <div className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-muted/40">
-          <DialogTitle className="px-4 pb-2 pt-4">Settings</DialogTitle>
+          <DialogTitle className="px-4 pb-2 pt-4">
+            <T>{'Settings'}</T>
+          </DialogTitle>
           <nav className="flex flex-col gap-0.5 p-2">
             {sections.map((s) => (
               <button
@@ -284,7 +298,7 @@ export default function SettingsPage({
                 )}
               >
                 <s.icon className="size-3.5 shrink-0" />
-                {s.label}
+                <T>{s.label}</T>
               </button>
             ))}
           </nav>
@@ -293,15 +307,19 @@ export default function SettingsPage({
         {/* ── Section content ── */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="border-b border-border/60 px-5 pb-3 pt-4">
-            <h2 className="text-sm font-semibold">{activeSection.label}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">{activeSection.description}</p>
+            <h2 className="text-sm font-semibold">
+              <T>{activeSection.label}</T>
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              <T>{activeSection.description}</T>
+            </p>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
             {activeSection.id === 'general' && (
               <div className="divide-y divide-border/60">
                 <SettingRow
                   label="Default app for sequence files"
-                  hint="Register LibreGene as the default app for .gbk, .dna, .fasta, .ab1 and all other supported formats"
+                  hint="Set LibreGene as the default app for supported sequence formats"
                 >
                   <Button
                     variant="outline"
@@ -309,12 +327,12 @@ export default function SettingsPage({
                     disabled={!!busy}
                     onClick={handleSetDefaultApp}
                   >
-                    {busy === 'default' ? 'Setting…' : 'Set as default'}
+                    {busy === 'default' ? <T>{'Setting…'}</T> : <T>{'Set as default'}</T>}
                   </Button>
                 </SettingRow>
                 <SettingRow
                   label="Settings & data"
-                  hint="All preferences, My Primers, My Enzymes and other stored data, as a single JSON file"
+                  hint="Preferences, My Primers and My Enzymes in one JSON file"
                 >
                   <Button
                     variant="outline"
@@ -322,7 +340,7 @@ export default function SettingsPage({
                     disabled={!!busy}
                     onClick={handleImportSettings}
                   >
-                    {busy === 'import' ? 'Importing…' : 'Import…'}
+                    {busy === 'import' ? <T>{'Importing…'}</T> : <T>{'Import…'}</T>}
                   </Button>
                   <Button
                     variant="outline"
@@ -330,7 +348,7 @@ export default function SettingsPage({
                     disabled={!!busy}
                     onClick={handleExportSettings}
                   >
-                    {busy === 'export' ? 'Exporting…' : 'Export…'}
+                    {busy === 'export' ? <T>{'Exporting…'}</T> : <T>{'Export…'}</T>}
                   </Button>
                 </SettingRow>
               </div>
@@ -358,7 +376,7 @@ export default function SettingsPage({
                       <SelectContent>
                         {CASE_DISPLAY_OPTIONS.map((o) => (
                           <SelectItem key={o.value} value={o.value}>
-                            {o.label}
+                            <T>{o.label}</T>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -369,11 +387,11 @@ export default function SettingsPage({
                   label="High contrast text colors"
                   hint={
                     <>
-                      Display palette-based text colors vividly and use matching presets
+                      <T>{'Display palette-based text colors vividly and use matching presets'}</T>
                       {!showTextColor && (
                         <span className="mt-1 flex items-center gap-1 text-amber-600 dark:text-amber-500">
                           <AlertTriangle className="size-3.5 shrink-0" />
-                          “Show Text Color” is currently off
+                          <T>{'“Show Text Color” is currently off'}</T>
                         </span>
                       )}
                     </>
@@ -395,8 +413,12 @@ export default function SettingsPage({
                   return (
                     <SettingRow
                       key={p.id}
-                      label={`${p.name} — ${field.label}`}
-                      hint={field.description}
+                      label={
+                        <>
+                          <T>{p.name}</T> — <T>{field.label}</T>
+                        </>
+                      }
+                      hint={<T>{field.description}</T>}
                     >
                       <NumberField
                         min={field.min}
@@ -405,7 +427,9 @@ export default function SettingsPage({
                         onCommit={(v) => setting?.onChange?.(v)}
                       />
                       {field.unit && (
-                        <span className="text-sm text-muted-foreground">{field.unit}</span>
+                        <span className="text-sm text-muted-foreground">
+                          <T>{field.unit}</T>
+                        </span>
                       )}
                     </SettingRow>
                   );
@@ -421,12 +445,16 @@ export default function SettingsPage({
                 >
                   <span className="text-xs text-muted-foreground">&gt;</span>
                   <NumberField min={1} value={maxEnzymeSites} onCommit={onMaxEnzymeSitesChange} />
-                  <span className="text-sm text-muted-foreground">sites</span>
+                  <span className="text-sm text-muted-foreground">
+                    <T>{'sites'}</T>
+                  </span>
                 </SettingRow>
                 <div className="py-3">
-                  <div className="text-[13px] font-medium">Methylation blocking</div>
+                  <div className="text-[13px] font-medium">
+                    <T>{'Methylation blocking'}</T>
+                  </div>
                   <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                    Sites overlapping these methylation systems are marked as blocked
+                    <T>{'Sites overlapping these methylation systems are marked as blocked'}</T>
                   </div>
                   <div className="mt-2.5 divide-y divide-border/60 rounded-md border border-border/60 px-3">
                     {METHYLATION_SYSTEMS.map((sys) => (
@@ -438,7 +466,9 @@ export default function SettingsPage({
                           >
                             {sys.label}
                           </Label>
-                          <div className="text-[11px] text-muted-foreground">{sys.hint}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            <T>{sys.hint}</T>
+                          </div>
                         </div>
                         <Checkbox
                           id={`st-meth-${sys.key}`}
@@ -466,7 +496,9 @@ export default function SettingsPage({
                     value={methylationOverlap}
                     onCommit={setMethylationOverlap}
                   />
-                  <span className="text-sm text-muted-foreground">bp</span>
+                  <span className="text-sm text-muted-foreground">
+                    <T>{'bp'}</T>
+                  </span>
                 </SettingRow>
               </div>
             )}
@@ -483,18 +515,27 @@ export default function SettingsPage({
                     value={primerSeedLength}
                     onCommit={setPrimerSeedLength}
                   />
-                  <span className="text-sm text-muted-foreground">bp</span>
+                  <span className="text-sm text-muted-foreground">
+                    <T>{'bp'}</T>
+                  </span>
                 </SettingRow>
                 <div className="py-3">
-                  <div className="text-[13px] font-medium">Tm calculation conditions</div>
+                  <div className="text-[13px] font-medium">
+                    <T>{'Tm calculation conditions'}</T>
+                  </div>
                   <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Compatibility defaults: 50 mM Na⁺, 250 nM primer, no Mg²⁺, dNTPs, or Tris-HCl.
-                    These are SnapGene/supplier conventions, not a complete PCR buffer.
+                    <T>
+                      {
+                        'Defaults: 50 mM Na⁺ and 250 nM primer; other salts are 0, following SnapGene/supplier conventions.'
+                      }
+                    </T>
                   </div>
                   <div className="mt-2.5 divide-y divide-border/60 rounded-md border border-border/60 px-3">
                     {TM_FIELDS.map(({ key, label, unit, mult, step, min, max }) => (
                       <div key={key} className="flex items-center justify-between gap-4 py-2">
-                        <span className="text-[13px]">{label}</span>
+                        <span className="text-[13px]">
+                          <T>{label}</T>
+                        </span>
                         <div className="flex items-center gap-1.5">
                           <Input
                             className={NUM_INPUT}
@@ -523,7 +564,7 @@ export default function SettingsPage({
               <div className="divide-y divide-border/60">
                 <SettingRow
                   label="Algorithm"
-                  hint="BLAST chains multiple colinear hits, so split or multi-hit reads align in full; Smith-Waterman returns a single local block plus at most one flank"
+                  hint="BLAST supports split and multi-hit reads; Smith-Waterman returns one local alignment"
                 >
                   <Select
                     value={alignmentAlgorithm}
@@ -533,8 +574,12 @@ export default function SettingsPage({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="blast">BLAST</SelectItem>
-                      <SelectItem value="smith-waterman">Smith-Waterman</SelectItem>
+                      <SelectItem value="blast">
+                        <T>{'BLAST'}</T>
+                      </SelectItem>
+                      <SelectItem value="smith-waterman">
+                        <T>{'Smith-Waterman'}</T>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </SettingRow>
@@ -558,7 +603,8 @@ export default function SettingsPage({
                       ) : (
                         <ChevronRight className="size-3.5" />
                       )}
-                      Built-in plugins ({builtinPlugins.length})
+                      <T>{'Built-in plugins ('}</T>
+                      {builtinPlugins.length})
                     </button>
                     {showBuiltinPlugins && (
                       <div className="divide-y divide-border/60">
@@ -568,7 +614,9 @@ export default function SettingsPage({
                   </div>
                 )}
                 {plugins.length === 0 && (
-                  <div className="py-2 text-sm text-muted-foreground">No plugins installed</div>
+                  <div className="py-2 text-sm text-muted-foreground">
+                    <T>{'No plugins installed'}</T>
+                  </div>
                 )}
               </div>
             )}

@@ -11,8 +11,10 @@ import { X, Copy, Check, FileDown, Plus, FileUp, Trash2 } from 'lucide-react';
 import { parseEnzymeText, exportEnzymeText } from '../myEnzymes';
 import { saveTextDialog, writeTextFile } from '../tauriApi';
 import { writePlainClipboard } from '../clipboardAnnotations';
+import { T, useTranslation } from '@/i18n';
 
 export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onChange }) {
+  const { t } = useTranslation();
   const [importText, setImportText] = useState('');
   const [singleName, setSingleName] = useState('');
   const [copied, setCopied] = useState(false);
@@ -57,13 +59,16 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl max-h-[80vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>My Enzymes ({enzymes.length})</DialogTitle>
+          <DialogTitle>
+            <T>{'My Enzymes ('}</T>
+            {enzymes.length})
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-auto -mx-8 px-8">
           {enzymes.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              No enzymes in your set yet. Add names below (e.g. EcoRI, BamHI, NotI).
+              <T>{'No enzymes in your set yet. Add names below (e.g. EcoRI, BamHI, NotI).'}</T>
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5 pb-4">
@@ -75,7 +80,7 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
                   {name}
                   <button
                     type="button"
-                    title="Remove"
+                    title={t('Remove')}
                     onClick={() => onChange?.(enzymes.filter((e) => e !== name))}
                     className="rounded p-px text-muted-foreground transition-colors hover:text-destructive"
                   >
@@ -88,7 +93,7 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
 
           <div className="border-t border-border/60 pt-3">
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Add enzyme
+              <T>{'Add enzyme'}</T>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -107,18 +112,20 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
                 onClick={handleAddSingle}
                 disabled={!singleName.trim()}
               >
-                <Plus className="size-3.5" /> Add
+                <Plus className="size-3.5" /> <T>{'Add'}</T>
               </Button>
             </div>
 
             <div className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Import from text
+              <T>{'Import from text'}</T>
             </div>
             <div className="flex items-start gap-2">
               <textarea
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}
-                placeholder={'Paste enzyme names, comma separated:\nAfeI, AgeI, ApaI, AscI, AseI'}
+                placeholder={t(
+                  'Paste enzyme names, comma separated:\nAfeI, AgeI, ApaI, AscI, AseI',
+                )}
                 spellCheck={false}
                 rows={3}
                 className="min-w-0 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/50"
@@ -129,7 +136,7 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
                 onClick={handleImport}
                 disabled={!importText.trim()}
               >
-                <FileUp className="size-3.5" /> Import
+                <FileUp className="size-3.5" /> <T>{'Import'}</T>
               </Button>
             </div>
           </div>
@@ -144,7 +151,7 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
                 className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => onChange?.([])}
               >
-                <Trash2 className="size-3.5" /> Clear All
+                <Trash2 className="size-3.5" /> <T>{'Clear All'}</T>
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={handleCopy} disabled={!enzymes.length}>
@@ -153,10 +160,10 @@ export default function MyEnzymesDialog({ open, onOpenChange, enzymes = [], onCh
               ) : (
                 <Copy className="size-3.5" />
               )}
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? <T>{'Copied'}</T> : <T>{'Copy'}</T>}
             </Button>
             <Button variant="outline" size="sm" onClick={handleSave} disabled={!enzymes.length}>
-              <FileDown className="size-3.5" /> Export
+              <FileDown className="size-3.5" /> <T>{'Export'}</T>
             </Button>
           </div>
         </DialogFooter>

@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { monoFont, splitEnzymeName } from '../editorConstants';
 import { getRelatedEnzymes } from '../enzymeRelated';
 import { PROVIDER_LABEL, PROVIDER_ORDER, findProviderEntry } from '../enzymeProviders';
+import { T, useTranslation } from '@/i18n';
 
 const CUT_TYPE_LABEL = { blunt: 'Blunt', '5overhang': "5' Overhang", '3overhang': "3' Overhang" };
 
@@ -11,7 +12,9 @@ function Field({ label, children }) {
   if (!children) return null;
   return (
     <div className="flex gap-2 py-0.5 text-sm">
-      <span className="w-36 shrink-0 text-muted-foreground">{label}</span>
+      <span className="w-36 shrink-0 text-muted-foreground">
+        <T>{label}</T>
+      </span>
       <span className="min-w-0">{children}</span>
     </div>
   );
@@ -48,6 +51,7 @@ function MonoChip({ children }) {
 }
 
 function NameList({ items }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (!items?.length) return <span className="text-muted-foreground/50">—</span>;
   const collapsible = items.length > 3;
@@ -62,7 +66,7 @@ function NameList({ items }) {
           className="shrink-0 text-xs text-blue-700 hover:underline"
           onClick={() => setOpen((v) => !v)}
         >
-          {open ? 'less' : `show all ${items.length}`}
+          {open ? <T>{'less'}</T> : t('show all {count}', { count: items.length })}
         </button>
       )}
     </span>
@@ -85,6 +89,7 @@ export default function EnzymeDetailDialog({
   plasmidLength = 0,
   currentProvider = 'all',
 }) {
+  const { t } = useTranslation();
   const entry = useMemo(
     () => (record ? findProviderEntry(providerIndex, record.name) : null),
     [record, providerIndex],
@@ -129,7 +134,7 @@ export default function EnzymeDetailDialog({
             <EnzymeName name={record.name} className="text-lg" />
             {aliases.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground">
-                Aliases: {aliases.join(', ')}
+                <T>{'Aliases:'}</T> {aliases.join(', ')}
               </span>
             )}
           </DialogTitle>
@@ -143,13 +148,13 @@ export default function EnzymeDetailDialog({
             <MonoChip>{record.elucidate || '—'}</MonoChip>
           </Field>
           <Field label="Cut Type">
-            {CUT_TYPE_LABEL[record.cutType] || record.cutType || '—'}
+            <T>{CUT_TYPE_LABEL[record.cutType] || record.cutType || '—'}</T>
             {record.overhangLen != null &&
               record.overhangLen !== 0 &&
               ` (${Math.abs(record.overhangLen)} nt)`}
           </Field>
           {cutSites !== null && (
-            <Field label={`Cut Sites (${cutSites.length})`}>
+            <Field label={t('Cut Sites ({count})', { count: cutSites.length })}>
               {cutSites.length ? (
                 <span className="flex flex-wrap gap-1">
                   {cutSites.map((ci) => (
@@ -157,7 +162,7 @@ export default function EnzymeDetailDialog({
                   ))}
                 </span>
               ) : (
-                'Does not cut the current plasmid'
+                <T>{'Does not cut the current plasmid'}</T>
               )}
             </Field>
           )}
@@ -175,7 +180,9 @@ export default function EnzymeDetailDialog({
 
         <div className="mt-4 space-y-2">
           {providerKeys.length === 0 && (
-            <div className="text-sm text-muted-foreground">No provider data for this enzyme.</div>
+            <div className="text-sm text-muted-foreground">
+              <T>{'No provider data for this enzyme.'}</T>
+            </div>
           )}
           {providerKeys.map((key) => {
             const variants = entry.providers[key]?.variants || [];
@@ -220,7 +227,9 @@ export default function EnzymeDetailDialog({
                     )}
                     {(p.buffers || []).length > 0 && (
                       <div className="flex gap-2 py-0.5 text-sm">
-                        <span className="w-36 shrink-0 text-muted-foreground">Buffers</span>
+                        <span className="w-36 shrink-0 text-muted-foreground">
+                          <T>{'Buffers'}</T>
+                        </span>
                         <span className="min-w-0 flex-1">
                           {p.buffers.map((b) => (
                             <div key={b.name} className="flex justify-between gap-4">

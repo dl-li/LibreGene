@@ -1,7 +1,9 @@
 import { X } from 'lucide-react';
 import { InlineNotice } from './ui/notice';
+import { useTranslation } from '@/i18n';
 
 export default function WorkspaceError({ error, onDismiss }) {
+  const { t } = useTranslation();
   if (!error) return null;
   return (
     <div role="alert" className="relative z-40 px-3 pt-2">
@@ -10,8 +12,8 @@ export default function WorkspaceError({ error, onDismiss }) {
       </InlineNotice>
       <button
         type="button"
-        aria-label="Dismiss error"
-        title="Dismiss"
+        aria-label={t('Dismiss error')}
+        title={t('Dismiss')}
         onClick={onDismiss}
         className="absolute right-5 top-1/2 -translate-y-1/2 rounded p-1 text-red-700 hover:bg-red-100"
       >

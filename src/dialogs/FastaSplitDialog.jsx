@@ -10,10 +10,12 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { fileNameOf } from '../recentFiles';
+import { T, useTranslation } from '@/i18n';
 
 // Shown when a multi-record FASTA is opened: split records, open the first,
 // or open the collection as an MSA.
 export default function FastaSplitDialog({ target, onChoice }) {
+  const { t } = useTranslation();
   const records = target?.records || [];
   return (
     <Dialog
@@ -28,19 +30,23 @@ export default function FastaSplitDialog({ target, onChoice }) {
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
               <Scissors className="size-4" />
             </span>
-            Multi-Record FASTA
+            <T>{'Multi-Record FASTA'}</T>
           </DialogTitle>
           <DialogDescription>
-            <span className="font-mono">{fileNameOf(target?.path || '')}</span> contains{' '}
-            {records.length} sequence records. Split them into separate projects?
+            {t('{name} contains {count} sequence records. Choose how to open them.', {
+              name: fileNameOf(target?.path || ''),
+              count: records.length,
+            })}
           </DialogDescription>
         </DialogHeader>
         <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
           {records.map((r, i) => (
             <li key={i} className="flex justify-between gap-2 py-1">
-              <span className="truncate font-mono">{r.name || `Record ${i + 1}`}</span>
+              <span className="truncate font-mono">
+                {r.name || t('Record {number}', { number: i + 1 })}
+              </span>
               <span className="shrink-0">
-                {r.length} {r.moleculeType === 'protein' ? 'aa' : 'bp'}
+                {r.length} {r.moleculeType === 'protein' ? <T>{'aa'}</T> : <T>{'bp'}</T>}
               </span>
             </li>
           ))}
@@ -48,16 +54,18 @@ export default function FastaSplitDialog({ target, onChoice }) {
         <DialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:space-x-0">
           <DialogClose asChild>
             <Button variant="outline" onClick={() => onChoice(null)}>
-              Cancel
+              <T>{'Cancel'}</T>
             </Button>
           </DialogClose>
           <Button variant="outline" onClick={() => onChoice('first')}>
-            Open First Only
+            <T>{'Open First Only'}</T>
           </Button>
           <Button variant="outline" onClick={() => onChoice('msa')}>
-            Open as Alignment
+            <T>{'Open as Alignment'}</T>
           </Button>
-          <Button onClick={() => onChoice('split')}>Split All Records</Button>
+          <Button onClick={() => onChoice('split')}>
+            <T>{'Split All Records'}</T>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

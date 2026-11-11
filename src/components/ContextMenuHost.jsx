@@ -4,6 +4,7 @@ import { CONTEXT_MENU_EVENT } from '@/contextMenu';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useWheelContainment } from '@/hooks/useWheelContainment';
+import { T } from '@/i18n';
 
 // 开发调试用：每个菜单末尾固定附带 Reload
 const RELOAD_ITEM = { icon: RotateCw, label: 'Reload', danger: true, reload: true };
@@ -59,7 +60,9 @@ function SubMenuItem({ item, renderLeaf }) {
     >
       <button type="button" disabled={item.disabled} className={itemClass(item)}>
         {item.icon && <item.icon />}
-        <span>{item.label}</span>
+        <span>
+          <T>{item.label}</T>
+        </span>
         <ChevronRight className="ml-auto" />
       </button>
       {open && (
@@ -210,17 +213,21 @@ export default function ContextMenuHost() {
           <div className="mx-4 max-w-sm rounded-xl border bg-card p-5 shadow-2xl">
             <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
               <TriangleAlert className="size-4 text-amber-500" />
-              Reload the app?
+              <T>{'Reload the app?'}</T>
             </div>
             <div className="mb-4 text-xs text-muted-foreground">
-              Unsaved changes will be lost. Make sure you have saved your work before reloading.
+              <T>
+                {
+                  'Unsaved changes will be lost. Make sure you have saved your work before reloading.'
+                }
+              </T>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setConfirmReload(false)}>
-                Cancel
+                <T>{'Cancel'}</T>
               </Button>
               <Button variant="destructive" size="sm" onClick={() => window.location.reload()}>
-                Reload
+                <T>{'Reload'}</T>
               </Button>
             </div>
           </div>

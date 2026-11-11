@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Copy, Check } from 'lucide-react';
 import { writePlainClipboard } from '../clipboardAnnotations';
 import { isDefaultTmParams } from '../tmParams';
+import { T, useTranslation } from '@/i18n';
 
 const DIR_COLORS = { fwd: '#166534', rev: '#4A148C' };
 const MAX_SEQ_DISPLAY = 30;
@@ -88,27 +89,43 @@ export default function PrimerOverviewDialog({
   tmParams,
   onEditPrimer,
 }) {
+  const { t } = useTranslation();
   const useCompatibilityDefaults = isDefaultTmParams(tmParams);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[80vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>Primer Overview ({primers.length})</DialogTitle>
+          <DialogTitle>
+            <T>{'Primer Overview ('}</T>
+            {primers.length})
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-auto -mx-8 px-8">
           <table className="w-full border-collapse text-sm">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
               <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="text-left font-semibold py-2 pr-3">Name</th>
-                <th className="text-left font-semibold py-2 pr-3">Sequence</th>
-                <th className="text-left font-semibold py-2 pr-3">Length</th>
-                <th className="text-left font-semibold py-2 pr-3 whitespace-nowrap">
-                  Primary Site
+                <th className="text-left font-semibold py-2 pr-3">
+                  <T>{'Name'}</T>
                 </th>
-                <th className="text-left font-semibold py-2 pr-3">Dir</th>
-                <th className="text-left font-semibold py-2 pr-3">Initial-cycle Tm</th>
-                <th className="text-left font-semibold py-2">Other Sites</th>
+                <th className="text-left font-semibold py-2 pr-3">
+                  <T>{'Sequence'}</T>
+                </th>
+                <th className="text-left font-semibold py-2 pr-3">
+                  <T>{'Length'}</T>
+                </th>
+                <th className="text-left font-semibold py-2 pr-3 whitespace-nowrap">
+                  <T>{'Primary Site'}</T>
+                </th>
+                <th className="text-left font-semibold py-2 pr-3">
+                  <T>{'Dir'}</T>
+                </th>
+                <th className="text-left font-semibold py-2 pr-3">
+                  <T>{'Initial-cycle Tm'}</T>
+                </th>
+                <th className="text-left font-semibold py-2">
+                  <T>{'Other Sites'}</T>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -125,7 +142,7 @@ export default function PrimerOverviewDialog({
                     key={p.id}
                     className="border-b border-border/30 hover:bg-muted/50 cursor-pointer transition-colors"
                     onDoubleClick={() => onEditPrimer?.(p)}
-                    title="Double-click to edit"
+                    title={t('Double-click to edit')}
                   >
                     <td className="py-2.5 pr-3 whitespace-nowrap">
                       <CopyCell text={p.name} />
@@ -134,7 +151,7 @@ export default function PrimerOverviewDialog({
                       <CopyCell text={p.primerSeq || ''} mono />
                     </td>
                     <td className="py-2.5 pr-3 font-mono text-xs tabular-nums text-muted-foreground">
-                      {(p.primerSeq || '').length} bp
+                      {(p.primerSeq || '').length} <T>{'bp'}</T>
                     </td>
                     <td
                       className="py-2.5 pr-3 font-mono text-xs whitespace-nowrap"
@@ -178,7 +195,7 @@ export default function PrimerOverviewDialog({
               {primers.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                    No primers found
+                    <T>{'No primers found'}</T>
                   </td>
                 </tr>
               )}
@@ -187,7 +204,7 @@ export default function PrimerOverviewDialog({
         </div>
 
         <div className="pt-2 text-[11px] text-muted-foreground/60 text-center">
-          Double-click a row for details
+          <T>{'Double-click a row for details'}</T>
         </div>
       </DialogContent>
     </Dialog>

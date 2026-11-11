@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeConsensus, rowDisplaySequence } from './msaAnalysis';
 import { continuousWheelDelta } from '../editor/continuousScrolling';
+import { T, useTranslation } from '@/i18n';
 
 const CW = 10;
 const ROW_H = 24;
@@ -114,7 +115,7 @@ const SequenceLine = React.memo(function SequenceLine({
         <span className="truncate font-medium text-foreground/80">{label}</span>
         {reference && (
           <span className="shrink-0 rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">
-            REF
+            <T>{'REF'}</T>
           </span>
         )}
       </div>
@@ -199,6 +200,7 @@ function Ruler({
   onLabelWidthChange,
   onOpenSequences,
 }) {
+  const { t } = useTranslation();
   const resizeStartRef = useRef(null);
   const ticks = [];
   for (let col = startCol; col <= endCol; col++) {
@@ -211,12 +213,12 @@ function Ruler({
           stickyLabel ? 'sticky left-0 float-left' : 'absolute left-0'
         }`}
         style={{ width: labelWidth }}
-        title="Drag the right edge to resize; double-click to open Sequences"
+        title={t('Drag the right edge to resize; double-click to open Sequences')}
         onDoubleClick={onOpenSequences}
       >
         <div
           role="separator"
-          aria-label="Resize sequence names column"
+          aria-label={t('Resize sequence names column')}
           aria-orientation="vertical"
           aria-valuemin={72}
           aria-valuemax={480}
@@ -282,7 +284,7 @@ function ConservationLine({
         style={{ width: labelWidth }}
         onDoubleClick={onOpenSequences}
       >
-        Conservation
+        <T>{'Conservation'}</T>
       </div>
       <svg
         className="absolute top-0 h-6"

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, Check } from 'lucide-react';
 import { designPrimerCandidates } from '../../../tauriApi';
+import { T, useTranslation } from '@/i18n';
 
 const DEFAULTS = {
   amplify: { targetTm: 60, name: 'Amplicon' },
@@ -114,7 +115,9 @@ const numInputCls =
 function Field({ label, className = '', children }) {
   return (
     <label className={`flex flex-col gap-1 ${className}`}>
-      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      <span className="text-[11px] font-medium text-muted-foreground">
+        <T>{label}</T>
+      </span>
       {children}
     </label>
   );
@@ -130,6 +133,7 @@ function PrimerDesignDialogInner({
   tmParams,
   onPrimerChange,
 }) {
+  const { t } = useTranslation();
   const [params, setParams] = useState(() => {
     const d = { ...DEFAULTS[mode] };
     if (mode === 'amplify' && segments?.[0]?.name) d.name = segments[0].name;
@@ -197,14 +201,14 @@ function PrimerDesignDialogInner({
         console.error('primer design error:', e);
         if (genRef.current === gen) {
           setGroups([]);
-          setError(`Failed to generate candidates: ${e?.message || e}`);
+          setError(t('Failed to generate candidates: {error}', { error: e?.message || e }));
         }
       } finally {
         if (genRef.current === gen) setLoading(false);
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [open, projectId, mode, segments, sequence, params, tmParams]);
+  }, [open, projectId, mode, segments, sequence, params, tmParams, t]);
 
   const allSelected = groups.length > 0 && groups.every((_, i) => selections[i]);
 
@@ -247,13 +251,17 @@ function PrimerDesignDialogInner({
         onOpenChange(false);
       } else {
         setError(
-          `Failed to add ${failures.length} of ${groups.length} primers: ${failures.join('; ')}`,
+          t('Failed to add {failed} of {total} primers: {details}', {
+            failed: failures.length,
+            total: groups.length,
+            details: failures.join('; '),
+          }),
         );
       }
     } finally {
       setBusy(false);
     }
-  }, [allSelected, busy, groups, selections, onPrimerChange, onOpenChange]);
+  }, [allSelected, busy, groups, selections, onPrimerChange, onOpenChange, t]);
 
   const segLabel = !segments?.length
     ? ''
@@ -276,9 +284,13 @@ function PrimerDesignDialogInner({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="px-6 pt-5">
-          <DialogTitle>{modeTitle}</DialogTitle>
+          <DialogTitle>
+            <T>{modeTitle}</T>
+          </DialogTitle>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{modeDesc}</span>
+            <span>
+              <T>{modeDesc}</T>
+            </span>
             {segLabel && (
               <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground/80">
                 {segLabel}
@@ -394,7 +406,7 @@ function PrimerDesignDialogInner({
 
           {loading && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" /> Computing candidates…
+              <LoaderCircle className="size-3.5 animate-spin" /> <T>{'Computing candidates…'}</T>
             </div>
           )}
           {error && <div className="text-xs text-destructive">{error}</div>}
@@ -419,7 +431,7 @@ function PrimerDesignDialogInner({
                       {chosen && <Check className="size-3.5 text-teal-700" />}
                     </div>
                     <span className="text-[11px] text-muted-foreground">
-                      {g.type === 'fwd' ? 'Forward' : 'Reverse'}
+                      {g.type === 'fwd' ? <T>{'Forward'}</T> : <T>{'Reverse'}</T>}
                     </span>
                   </div>
                   {isCollapsed ? (
@@ -433,7 +445,7 @@ function PrimerDesignDialogInner({
                         <span>{chosen.seq.slice(chosen.tailLen)}</span>
                       </span>
                       <span className="text-xs tabular-nums whitespace-nowrap text-muted-foreground">
-                        {chosen.seq.length} nt
+                        {chosen.seq.length} <T>{'nt'}</T>
                       </span>
                       <span
                         className={`text-xs tabular-nums whitespace-nowrap ${Math.abs(chosen.tm - targetTmNum) <= 1 ? 'font-semibold text-teal-700' : 'text-muted-foreground'}`}
@@ -443,13 +455,13 @@ function PrimerDesignDialogInner({
                       <span
                         className={`text-xs tabular-nums whitespace-nowrap ${chosen.gc >= 40 && chosen.gc <= 60 ? 'font-semibold text-teal-700' : 'text-muted-foreground'}`}
                       >
-                        GC {chosen.gc.toFixed(1)}%
+                        <T>{'GC'}</T> {chosen.gc.toFixed(1)}%
                       </span>
                       <button
                         className="ml-auto text-xs font-medium text-teal-700 hover:underline"
                         onClick={() => setExpanded((prev) => ({ ...prev, [gi]: true }))}
                       >
-                        Change
+                        <T>{'Change'}</T>
                       </button>
                     </div>
                   ) : (
@@ -458,10 +470,18 @@ function PrimerDesignDialogInner({
                         <thead>
                           <tr className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
                             <th className="w-6 px-1 pb-1"></th>
-                            <th className="px-1.5 pb-1 text-left">Sequence (5'→3')</th>
-                            <th className="px-1.5 pb-1 text-right">Len</th>
-                            <th className="px-1.5 pb-1 text-right">Tm °C</th>
-                            <th className="px-1.5 pb-1 text-right">GC%</th>
+                            <th className="px-1.5 pb-1 text-left">
+                              <T>{"Sequence (5'→3')"}</T>
+                            </th>
+                            <th className="px-1.5 pb-1 text-right">
+                              <T>{'Len'}</T>
+                            </th>
+                            <th className="px-1.5 pb-1 text-right">
+                              <T>{'Tm °C'}</T>
+                            </th>
+                            <th className="px-1.5 pb-1 text-right">
+                              <T>{'GC%'}</T>
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -522,11 +542,11 @@ function PrimerDesignDialogInner({
 
         <div className="flex items-center justify-between border-t border-border/60 bg-muted/30 px-6 py-3">
           <span className="text-[11px] text-muted-foreground/70">
-            Initial-cycle Tm: 3′ annealing region only
+            <T>{'Initial-cycle Tm: 3′ annealing region only'}</T>
           </span>
           <Button size="sm" onClick={handleConfirm} disabled={!allSelected || busy || loading}>
             {busy && <LoaderCircle className="size-4 animate-spin" />}
-            Add {groups.length > 0 ? groups.length : ''} Primers
+            <T>{'Add'}</T> {groups.length > 0 ? groups.length : ''} <T>{'Primers'}</T>
           </Button>
         </div>
       </DialogContent>

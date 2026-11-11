@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
+import { useTranslation } from '@/i18n';
 import {
   cw,
   startX,
@@ -244,6 +245,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   // edge (main window only); continuous-mode label clamping stays clear of it.
   leftViewportInset = 0,
 }) {
+  const { t } = useTranslation();
   const isDna = moleculeType === 'dna';
   const continuous = viewMode === 'continuous';
   // The double-strand block (ruler + complement strand) hangs below the top
@@ -1186,14 +1188,14 @@ const SequenceEditor = React.memo(function SequenceEditor({
         .catch(async (err) => {
           try {
             const { message } = await import('@tauri-apps/plugin-dialog');
-            message(String(err), { title: 'BLAST Search', kind: 'error' });
+            message(String(err), { title: t('BLAST Search'), kind: 'error' });
           } catch {
             console.error('BLAST submit error:', err);
           }
         })
         .finally(() => setBlastBusy(false));
     },
-    [blastBusy, moleculeType],
+    [blastBusy, moleculeType, t],
   );
 
   // Select a feature as a text selection spanning its full extent (same as left-click)

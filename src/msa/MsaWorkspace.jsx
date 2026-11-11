@@ -45,6 +45,7 @@ import {
   detectMsaMoleculeType,
   selectionToFasta,
 } from './msaAnalysis';
+import { T, useTranslation } from '@/i18n';
 
 function snapshotOf(data) {
   return {
@@ -79,6 +80,7 @@ function MsaWorkspace({
   onRekey,
   leftViewportInset = 0,
 }) {
+  const { t } = useTranslation();
   const [rows, setRows] = useState(initialData?.msaRows || []);
   const [moleculeType, setMoleculeType] = useState(initialData?.moleculeType || 'dna');
   const [aligned, setAligned] = useState(initialData?.msaAligned || false);
@@ -139,7 +141,7 @@ function MsaWorkspace({
       .then((data) => {
         if (cancelled) return;
         if (!data || data.error) {
-          setError(data?.error || 'Failed to load MSA');
+          setError(data?.error || t('Failed to load MSA'));
           return;
         }
         const snapshot = snapshotOf(data);
@@ -158,7 +160,7 @@ function MsaWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [projectId, initialData, applySnapshot]);
+  }, [projectId, initialData, applySnapshot, t]);
 
   useEffect(() => {
     onDirtyChange(projectId, dirty);
@@ -189,11 +191,14 @@ function MsaWorkspace({
     [agentLocked, applySnapshot, onProjectsSync, updateDirty],
   );
 
-  const runAndReport = useCallback(async (operation) => {
-    const result = await operation();
-    if (!result?.ok) setError(result?.error || 'Operation failed');
-    return result;
-  }, []);
+  const runAndReport = useCallback(
+    async (operation) => {
+      const result = await operation();
+      if (!result?.ok) setError(result?.error || t('Operation failed'));
+      return result;
+    },
+    [t],
+  );
 
   const handleAlign = useCallback(async () => {
     if (busy || agentLocked) return;
@@ -202,7 +207,7 @@ function MsaWorkspace({
     try {
       const data = await alignMsa(projectIdRef.current);
       if (!data || data.error) {
-        setError(data?.error || 'Alignment failed');
+        setError(data?.error || t('Alignment failed'));
         return;
       }
       const next = {
@@ -212,13 +217,13 @@ function MsaWorkspace({
       applySnapshot(next);
       updateDirty(next);
       if (data.projects) onProjectsSync(data.projects);
-      setNotice('Aligned with MUSCLE 5.3');
+      setNotice(t('Aligned with MUSCLE 5.3'));
     } catch (alignError) {
       setError(alignError?.message || String(alignError));
     } finally {
       setBusy(false);
     }
-  }, [busy, agentLocked, referenceRowId, applySnapshot, onProjectsSync, updateDirty]);
+  }, [busy, agentLocked, referenceRowId, applySnapshot, onProjectsSync, updateDirty, t]);
 
   const restoreHistory = useCallback(
     async (direction) => {
@@ -278,15 +283,15 @@ function MsaWorkspace({
     try {
       const result = await saveFile(projectIdRef.current, path);
       if (result && !result.error) {
-        setNotice('Saved aligned FASTA');
+        setNotice(t('Saved aligned FASTA'));
         return finishSave(result, projectIdRef.current);
       }
-      setError(result?.error || 'Save failed');
+      setError(result?.error || t('Save failed'));
     } catch (saveError) {
       setError(saveError?.message || String(saveError));
     }
     return false;
-  }, [finishSave, projectName]);
+  }, [finishSave, projectName, t]);
 
   const handleSave = useCallback(async () => {
     if (!isTauri) return false;
@@ -294,15 +299,15 @@ function MsaWorkspace({
     try {
       const result = await saveFile(projectIdRef.current, projectIdRef.current);
       if (result && !result.error) {
-        setNotice('Saved aligned FASTA');
+        setNotice(t('Saved aligned FASTA'));
         return finishSave(result, projectIdRef.current);
       }
-      setError(result?.error || 'Save failed');
+      setError(result?.error || t('Save failed'));
     } catch (saveError) {
       setError(saveError?.message || String(saveError));
     }
     return false;
-  }, [finishSave, handleSaveAs]);
+  }, [finishSave, handleSaveAs, t]);
 
   const handleExport = useCallback(async () => {
     const rawName = projectName || 'alignment';
@@ -312,11 +317,11 @@ function MsaWorkspace({
     try {
       const result = await exportMsaFasta(projectIdRef.current, path, true);
       if (result?.error) setError(result.error);
-      else setNotice('Exported unaligned FASTA');
+      else setNotice(t('Exported unaligned FASTA'));
     } catch (exportError) {
       setError(exportError?.message || String(exportError));
     }
-  }, [projectName]);
+  }, [projectName, t]);
 
   useEffect(() => {
     registerHandle(projectId, {
@@ -399,8 +404,8 @@ function MsaWorkspace({
     const text = selectionToFasta(visibleRows, aligned, selection);
     if (!text) return;
     await navigator.clipboard.writeText(text);
-    setNotice('Selection copied as FASTA');
-  }, [selection, visibleRows, aligned]);
+    setNotice(t('Selection copied as FASTA'));
+  }, [selection, visibleRows, aligned, t]);
 
   const openSequences = useCallback(() => setSequencesOpen(true), []);
 
@@ -416,13 +421,13 @@ function MsaWorkspace({
           ) : (
             <AlignLeft className="size-4" />
           )}
-          {aligned ? 'Realign' : 'Align'}
+          {aligned ? <T>{'Realign'}</T> : <T>{'Align'}</T>}
         </Button>
         <Button size="sm" variant="outline" onClick={() => setAddOpen(true)} disabled={agentLocked}>
-          <FilePlus2 className="size-4" /> Add
+          <FilePlus2 className="size-4" /> <T>{'Add'}</T>
         </Button>
         <Button size="sm" variant="outline" onClick={() => setSequencesOpen(true)}>
-          <Rows3 className="size-4" /> Sequences
+          <Rows3 className="size-4" /> <T>{'Sequences'}</T>
         </Button>
         <Button
           size="sm"
@@ -430,7 +435,7 @@ function MsaWorkspace({
           onClick={() => setStatsOpen(true)}
           disabled={visibleRows.length < 2}
         >
-          <Sigma className="size-4" /> Statistics
+          <Sigma className="size-4" /> <T>{'Statistics'}</T>
         </Button>
         <div className="mx-1 h-5 w-px bg-border" />
         <Select
@@ -443,9 +448,15 @@ function MsaWorkspace({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="dna">DNA</SelectItem>
-            <SelectItem value="rna">RNA</SelectItem>
-            <SelectItem value="protein">Protein</SelectItem>
+            <SelectItem value="dna">
+              <T>{'DNA'}</T>
+            </SelectItem>
+            <SelectItem value="rna">
+              <T>{'RNA'}</T>
+            </SelectItem>
+            <SelectItem value="protein">
+              <T>{'Protein'}</T>
+            </SelectItem>
           </SelectContent>
         </Select>
         <Select value={colorMode} onValueChange={setColorMode}>
@@ -453,11 +464,17 @@ function MsaWorkspace({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="base">Residue colors</SelectItem>
-            <SelectItem value="black">Black residues</SelectItem>
-            <SelectItem value="consensus">vs Consensus</SelectItem>
+            <SelectItem value="base">
+              <T>{'Residue colors'}</T>
+            </SelectItem>
+            <SelectItem value="black">
+              <T>{'Black residues'}</T>
+            </SelectItem>
+            <SelectItem value="consensus">
+              <T>{'vs Consensus'}</T>
+            </SelectItem>
             <SelectItem value="reference" disabled={!referenceRowId}>
-              vs Reference
+              <T>{'vs Reference'}</T>
             </SelectItem>
           </SelectContent>
         </Select>
@@ -466,7 +483,7 @@ function MsaWorkspace({
             size="icon"
             variant="ghost"
             className="size-8"
-            title="Undo"
+            title={t('Undo')}
             disabled={!canUndo || busy}
             onClick={handleUndo}
           >
@@ -476,7 +493,7 @@ function MsaWorkspace({
             size="icon"
             variant="ghost"
             className="size-8"
-            title="Redo"
+            title={t('Redo')}
             disabled={!canRedo || busy}
             onClick={handleRedo}
           >
@@ -486,7 +503,7 @@ function MsaWorkspace({
             size="icon"
             variant="ghost"
             className="size-8"
-            title="Copy selection as FASTA"
+            title={t('Copy selection as FASTA')}
             disabled={!selection}
             onClick={copySelection}
           >
@@ -494,7 +511,7 @@ function MsaWorkspace({
           </Button>
           <div className="flex items-center">
             <Button size="sm" variant="outline" className="rounded-r-none" onClick={handleSave}>
-              <Save className="size-4" /> Save
+              <Save className="size-4" /> <T>{'Save'}</T>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -502,15 +519,17 @@ function MsaWorkspace({
                   size="sm"
                   variant="outline"
                   className="w-8 rounded-l-none border-l-0 px-0"
-                  title="Save options"
+                  title={t('Save options')}
                 >
                   <ChevronDown className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={handleSaveAs}>Save As…</DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleSaveAs}>
+                  <T>{'Save As…'}</T>
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleExport}>
-                  <Download /> Export Ungapped FASTA
+                  <Download /> <T>{'Export Ungapped FASTA'}</T>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -520,15 +539,18 @@ function MsaWorkspace({
 
       {!aligned && !loading && (
         <div className="border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-          Sequences are not aligned. Add at least two sequences and choose Align; saving now
-          preserves the ungapped collection.
+          <T>
+            {
+              'Sequences are not aligned. Add at least two sequences and choose Align. Saving preserves the ungapped collection.'
+            }
+          </T>
         </div>
       )}
       {error && (
         <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
           <span>{error}</span>
           <button onClick={() => setError('')} className="ml-3 underline">
-            Dismiss
+            <T>{'Dismiss'}</T>
           </button>
         </div>
       )}
@@ -537,13 +559,13 @@ function MsaWorkspace({
           className="border-b border-teal-200 bg-teal-50 px-3 py-1 text-left text-xs text-teal-800"
           onClick={() => setNotice('')}
         >
-          {notice}
+          <T>{notice}</T>
         </button>
       )}
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          <LoaderCircle className="mr-2 size-4 animate-spin" /> Loading MSA…
+          <LoaderCircle className="mr-2 size-4 animate-spin" /> <T>{'Loading MSA…'}</T>
         </div>
       ) : (
         <MsaEditor
@@ -561,14 +583,19 @@ function MsaWorkspace({
 
       <div className="flex items-center gap-4 border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
         <span>
-          {rows.length} sequences{hiddenRowIds.size ? ` (${hiddenRowIds.size} hidden)` : ''}
+          {t('{count} sequences', { count: rows.length })}
+          {hiddenRowIds.size ? t(' ({count} hidden)', { count: hiddenRowIds.size }) : ''}
         </span>
-        <span>{columnCount} columns</span>
         <span>
-          Average pairwise identity:{' '}
+          {columnCount} <T>{'columns'}</T>
+        </span>
+        <span>
+          <T>{'Average pairwise identity:'}</T>{' '}
           {averageIdentity == null ? '—' : `${(averageIdentity * 100).toFixed(1)}%`}
         </span>
-        <span className="ml-auto">MUSCLE 5.3 · gap-excluded identity</span>
+        <span className="ml-auto">
+          <T>{'MUSCLE 5.3 · gap-excluded identity'}</T>
+        </span>
       </div>
 
       <AddSequencesDialog

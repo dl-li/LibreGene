@@ -1,7 +1,9 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { BASE_HILITE_BG } from '../editor/alignmentLayout';
+import { useTranslation } from '@/i18n';
 
 export default function ContinuousAlignmentNavigator({ show, shift, alignNavRef }) {
+  const { t } = useTranslation();
   if (!show) return null;
   return (
     <div
@@ -14,7 +16,7 @@ export default function ContinuousAlignmentNavigator({ show, shift, alignNavRef 
     >
       <button
         type="button"
-        title="Previous alignment marker"
+        title={t('Previous alignment marker')}
         onClick={() => alignNavRef.current?.(-1)}
         className="rounded-l-full py-2 pl-2.5 pr-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
       >
@@ -23,7 +25,7 @@ export default function ContinuousAlignmentNavigator({ show, shift, alignNavRef 
       <div className="my-auto h-3.5 w-px bg-border/70" />
       <button
         type="button"
-        title="Next alignment marker"
+        title={t('Next alignment marker')}
         onClick={() => alignNavRef.current?.(1)}
         className="rounded-r-full py-2 pl-1.5 pr-2.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--align-hilite-soft)] hover:text-foreground active:bg-[var(--align-hilite)]"
       >

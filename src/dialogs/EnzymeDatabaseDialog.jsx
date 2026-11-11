@@ -25,6 +25,7 @@ import {
   findProviderEntry,
   hasProvider,
 } from '../enzymeProviders';
+import { T, useTranslation } from '@/i18n';
 
 const CUT_TYPE_LABEL = { blunt: 'Blunt', '5overhang': "5' Overhang", '3overhang': "3' Overhang" };
 
@@ -36,6 +37,7 @@ export default function EnzymeDatabaseDialog({
   projectEnzymes = null,
   plasmidLength = 0,
 }) {
+  const { t } = useTranslation();
   const [records, setRecords] = useState(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -109,7 +111,10 @@ export default function EnzymeDatabaseDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-5xl max-h-[80vh] flex flex-col px-8">
           <DialogHeader>
-            <DialogTitle>Enzyme Database ({records ? records.length : '…'})</DialogTitle>
+            <DialogTitle>
+              <T>{'Enzyme Database ('}</T>
+              {records ? records.length : '…'})
+            </DialogTitle>
           </DialogHeader>
 
           <div className="flex gap-2 pb-2">
@@ -118,7 +123,7 @@ export default function EnzymeDatabaseDialog({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter by name, recognition site…"
+                placeholder={t('Filter by name, recognition site…')}
                 spellCheck={false}
                 className="h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-3 text-sm shadow-xs outline-none transition-shadow placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/50"
               />
@@ -130,7 +135,7 @@ export default function EnzymeDatabaseDialog({
               <SelectContent>
                 {ENZYME_PROVIDER_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    <T>{opt.label}</T>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -142,21 +147,39 @@ export default function EnzymeDatabaseDialog({
               <div className="py-8 text-center text-sm text-destructive">{error}</div>
             ) : !records ? (
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin" /> Loading enzyme database…
+                <LoaderCircle className="size-4 animate-spin" /> <T>{'Loading enzyme database…'}</T>
               </div>
             ) : (
               <table className="w-full border-collapse text-sm">
                 <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
                   <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
-                    <th className="text-left font-semibold py-2 pr-3">Name</th>
-                    <th className="text-left font-semibold py-2 pr-3">Recognition</th>
-                    <th className="text-left font-semibold py-2 pr-3">Cut</th>
-                    <th className="text-left font-semibold py-2 pr-3">Cut Type</th>
-                    <th className="text-left font-semibold py-2 pr-3">Overhang</th>
-                    <th className="text-left font-semibold py-2 pr-3">bp</th>
-                    <th className="text-left font-semibold py-2 pr-3">Pal.</th>
-                    <th className="text-left font-semibold py-2 pr-3">Cut ×2</th>
-                    <th className="text-left font-semibold py-2">Methyl.</th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Name'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Recognition'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Cut'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Cut Type'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Overhang'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'bp'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Pal.'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Cut ×2'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2">
+                      <T>{'Methyl.'}</T>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,7 +188,7 @@ export default function EnzymeDatabaseDialog({
                       key={e.name}
                       className="border-b border-border/30 hover:bg-muted/50 cursor-pointer transition-colors"
                       onDoubleClick={() => setDetailRecord(e)}
-                      title="Double-click for provider details"
+                      title={t('Double-click for provider details')}
                     >
                       <td className="py-2 pr-3 whitespace-nowrap font-medium">{e.name}</td>
                       <td
@@ -180,7 +203,9 @@ export default function EnzymeDatabaseDialog({
                       >
                         {e.elucidate || '—'}
                       </td>
-                      <td className="py-2 pr-3 whitespace-nowrap text-xs">{cutTypeLabel(e)}</td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-xs">
+                        <T>{cutTypeLabel(e)}</T>
+                      </td>
                       <td className="py-2 pr-3 whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground">
                         {e.overhangLen != null && e.overhangLen !== 0 ? e.overhangLen : '—'}
                       </td>
@@ -188,16 +213,20 @@ export default function EnzymeDatabaseDialog({
                         {(e.site || '').length}
                       </td>
                       <td className="py-2 pr-3 whitespace-nowrap text-xs text-muted-foreground">
-                        {e.isPalindromic ? 'Yes' : 'No'}
+                        {e.isPalindromic ? <T>{'Yes'}</T> : <T>{'No'}</T>}
                       </td>
                       <td className="py-2 pr-3 whitespace-nowrap text-xs text-muted-foreground">
-                        {e.isCutTwice ? 'Yes' : '—'}
+                        {e.isCutTwice ? <T>{'Yes'}</T> : '—'}
                       </td>
                       <td className="py-2 whitespace-nowrap text-xs">
                         {e.methylation === 'sensitive' ? (
-                          <span className="text-amber-700">Sensitive</span>
+                          <span className="text-amber-700">
+                            <T>{'Sensitive'}</T>
+                          </span>
                         ) : e.methylationDependent ? (
-                          <span className="text-teal-700">Required</span>
+                          <span className="text-teal-700">
+                            <T>{'Required'}</T>
+                          </span>
                         ) : (
                           <span className="text-muted-foreground/50">—</span>
                         )}
@@ -207,7 +236,8 @@ export default function EnzymeDatabaseDialog({
                   {filtered.length === 0 && (
                     <tr>
                       <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
-                        No enzymes match “{query}”
+                        <T>{'No enzymes match “'}</T>
+                        {query}”
                       </td>
                     </tr>
                   )}
@@ -220,11 +250,14 @@ export default function EnzymeDatabaseDialog({
             <div className="flex w-full items-center gap-2">
               <div className="mr-auto text-xs text-muted-foreground">
                 {query
-                  ? `${filtered.length} of ${records ? records.length : 0} enzymes`
-                  : `${records ? records.length : 0} enzymes`}
+                  ? t('{shown} of {total} enzymes', {
+                      shown: filtered.length,
+                      total: records ? records.length : 0,
+                    })
+                  : t('{count} enzymes', { count: records ? records.length : 0 })}
               </div>
               <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-                Close
+                <T>{'Close'}</T>
               </Button>
             </div>
           </DialogFooter>

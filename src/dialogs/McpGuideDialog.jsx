@@ -16,15 +16,17 @@ import { Bot, Check, ChevronDown, ChevronRight, Copy, RefreshCw } from 'lucide-r
 import { useEffect, useState } from 'react';
 import { getMcpToken, regenerateMcpToken } from '@/tauriApi';
 import { writePlainClipboard } from '../clipboardAnnotations';
+import { T, useTranslation } from '@/i18n';
 
 function CopyButton({ text }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   return (
     <Button
       variant="ghost"
       size="icon"
       className="size-6 shrink-0"
-      title="Copy"
+      title={t('Copy')}
       onClick={() => {
         writePlainClipboard(text).catch(() => {});
         setCopied(true);
@@ -50,20 +52,27 @@ function Snippet({ label, text }) {
   );
 }
 
-function agentPrompt(port, token, requireAuth) {
+export function agentPrompt(port, token, requireAuth, t) {
   const authLine = requireAuth
-    ? `- Send this header on every request: Authorization: Bearer ${token || '<token from the MCP Server dialog>'}`
-    : '- No Authorization header is needed.';
-  return `Configure LibreGene as a remote MCP server using your client's official documentation:
-- Transport: Streamable HTTP
-- URL: http://127.0.0.1:${port}/mcp
-${authLine}
-- Required Host header: 127.0.0.1:${port}
-
-After saving the configuration, ask the user to restart you or start a new conversation. Then verify the connection by calling list_workspace.`;
+    ? t('- Send this header on every request: Authorization: Bearer {token}', {
+        token: token || '<token from the MCP Server dialog>',
+      })
+    : t('- No Authorization header is needed.');
+  return [
+    t("Configure LibreGene as a remote MCP server using your client's official documentation:"),
+    '- Transport: Streamable HTTP',
+    `- URL: http://127.0.0.1:${port}/mcp`,
+    authLine,
+    t('- Required Host header: {host}', { host: `127.0.0.1:${port}` }),
+    '',
+    t(
+      'After saving the configuration, ask the user to restart you or start a new conversation. Then verify the connection by calling list_workspace.',
+    ),
+  ].join('\n');
 }
 
 export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpConfigChange }) {
+  const { t } = useTranslation();
   const [guideOpen, setGuideOpen] = useState(false);
   const [token, setToken] = useState('');
   useEffect(() => {
@@ -101,10 +110,12 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bot className="size-4 text-muted-foreground" />
-            MCP Server
+            <T>{'MCP Server'}</T>
           </DialogTitle>
           <DialogDescription>
-            Let an LLM agent read and edit LibreGene projects via the Model Context Protocol.
+            <T>
+              {'Let an LLM agent read and edit LibreGene projects via the Model Context Protocol.'}
+            </T>
           </DialogDescription>
         </DialogHeader>
 
@@ -117,14 +128,16 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                 onCheckedChange={(v) => onMcpConfigChange?.({ ...mcpConfig, enabled: Boolean(v) })}
               />
               <Label htmlFor="mcp-guide-enabled" className="cursor-pointer text-sm font-normal">
-                Enable MCP server
+                <T>{'Enable MCP server'}</T>
               </Label>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Available only on this computer (127.0.0.1).
+              <T>{'Available only on this computer (127.0.0.1).'}</T>
             </p>
             <div className="flex items-center gap-2">
-              <Label className="text-sm text-muted-foreground shrink-0">Port</Label>
+              <Label className="text-sm text-muted-foreground shrink-0">
+                <T>{'Port'}</T>
+              </Label>
               <Input
                 className="w-20 h-8 px-2 py-0 text-sm text-right font-mono"
                 type="number"
@@ -153,11 +166,13 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                   htmlFor="mcp-guide-require-auth"
                   className="cursor-pointer text-sm font-normal"
                 >
-                  Require access token
+                  <T>{'Require access token'}</T>
                 </Label>
               </div>
               <div className="flex items-center gap-2">
-                <Label className="text-sm text-muted-foreground shrink-0">Access token</Label>
+                <Label className="text-sm text-muted-foreground shrink-0">
+                  <T>{'Access token'}</T>
+                </Label>
                 <code className="flex-1 min-w-0 truncate text-[11px] font-mono bg-muted rounded px-2 py-1 select-all">
                   {token || '…'}
                 </code>
@@ -166,16 +181,22 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
                   variant="ghost"
                   size="icon"
                   className="size-6 shrink-0"
-                  title="Regenerate token"
+                  title={t('Regenerate token')}
                   onClick={handleRegenerate}
                 >
                   <RefreshCw className="size-3.5" />
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                {requireAuth
-                  ? 'Required on every request. Regenerating immediately invalidates the old token.'
-                  : 'Token verification is off; the Host check remains enabled.'}
+                {requireAuth ? (
+                  <T>
+                    {
+                      'Required on every request. Regenerating immediately invalidates the old token.'
+                    }
+                  </T>
+                ) : (
+                  <T>{'Token verification is off; the Host check remains enabled.'}</T>
+                )}
               </p>
             </div>
           </div>
@@ -193,16 +214,25 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
               ) : (
                 <ChevronRight className="size-3.5" />
               )}
-              How to connect your agent
+              <T>{'How to connect your agent'}</T>
             </button>
             {guideOpen && (
               <div className="space-y-3 mt-3">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  {enabled
-                    ? 'Copy the prompt below and send it to your agent to configure the connection.'
-                    : 'Enable the server above, then copy the prompt below for your agent.'}
+                  {enabled ? (
+                    <T>
+                      {
+                        'Copy the prompt below and send it to your agent to configure the connection.'
+                      }
+                    </T>
+                  ) : (
+                    <T>{'Enable the server above, then copy the prompt below for your agent.'}</T>
+                  )}
                 </p>
-                <Snippet label="Agent setup prompt" text={agentPrompt(port, token, requireAuth)} />
+                <Snippet
+                  label={t('Agent setup prompt')}
+                  text={agentPrompt(port, token, requireAuth, t)}
+                />
               </div>
             )}
           </div>
@@ -210,7 +240,9 @@ export default function McpGuideDialog({ open, onOpenChange, mcpConfig, onMcpCon
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Close</Button>
+            <Button variant="outline">
+              <T>{'Close'}</T>
+            </Button>
           </DialogClose>
         </DialogFooter>
       </DialogContent>

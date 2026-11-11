@@ -24,6 +24,7 @@ import {
   previewCodonOptimization,
   applyCodonOptimization,
 } from '../../../tauriApi';
+import { T, useTranslation } from '@/i18n';
 
 const SPECIES_LABELS = {
   b_subtilis: 'Bacillus subtilis',
@@ -44,19 +45,19 @@ const METHODS = [
     value: 'match_codon_usage',
     label: 'Match codon usage (recommended)',
     description:
-      'Matches the target species’ codon-frequency distribution, so synonymous choice stays naturally diverse.',
+      'Match the target species’ codon frequencies while retaining synonymous diversity.',
   },
   {
     value: 'use_best_codon',
     label: 'Use best codon',
     description:
-      'Uses the most frequent codon for every amino acid (CAI → 1); homopolymer runs and repeats are auto-repaired.',
+      'Use the most frequent codon for each amino acid and repair homopolymers and repeats.',
   },
   {
     value: 'harmonize_rca',
     label: 'Harmonize RCA (rare ↔ rare)',
     description:
-      'Keeps each codon’s relative codon adaptation close to the original sequence; requires choosing the original species.',
+      'Match the original sequence’s relative codon adaptation; requires the original species.',
   },
 ];
 
@@ -93,6 +94,7 @@ export default function CodonOptimizationDialog({
   features = [],
   onProjectChanged,
 }) {
+  const { t } = useTranslation();
   const [speciesList, setSpeciesList] = useState(BUILTIN_SPECIES);
   const [featureId, setFeatureId] = useState('');
   const [species, setSpecies] = useState('e_coli');
@@ -148,7 +150,7 @@ export default function CodonOptimizationDialog({
 
   const buildParams = () => {
     if (!featureId) {
-      setError('Select a CDS or mRNA feature first.');
+      setError(t('Select a CDS or mRNA feature first.'));
       return null;
     }
     const params = {
@@ -162,12 +164,15 @@ export default function CodonOptimizationDialog({
     if (species === CUSTOM_SPECIES) {
       const { rows, badLines } = parseKazusaTable(customText);
       if (!rows.length) {
-        setError('Paste a Kazusa "triplet amino acid frequency" table into the text area first.');
+        setError(t('Paste a Kazusa codon-frequency table first.'));
         return null;
       }
       if (badLines.length) {
         setError(
-          `Skipped ${badLines.length} unparseable line(s): ${badLines.slice(0, 5).join(', ')}${badLines.length > 5 ? ', …' : ''}`,
+          t('Skipped {count} unparseable line(s): {lines}', {
+            count: badLines.length,
+            lines: badLines.slice(0, 5).join(', ') + (badLines.length > 5 ? ', …' : ''),
+          }),
         );
         return null;
       }
@@ -225,12 +230,16 @@ export default function CodonOptimizationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>Codon Optimization</DialogTitle>
+          <DialogTitle>
+            <T>{'Codon Optimization'}</T>
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-auto -mx-8 px-8 space-y-4">
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">CDS / mRNA feature</Label>
+            <Label className="text-xs font-medium text-muted-foreground">
+              <T>{'CDS / mRNA feature'}</T>
+            </Label>
             {hasFeatures ? (
               <Select
                 value={featureId || undefined}
@@ -241,7 +250,7 @@ export default function CodonOptimizationDialog({
                 disabled={busy || applying}
               >
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select a feature…" />
+                  <SelectValue placeholder={t('Select a feature…')} />
                 </SelectTrigger>
                 <SelectContent>
                   {codingFeatures.map((f) => (
@@ -253,13 +262,15 @@ export default function CodonOptimizationDialog({
               </Select>
             ) : (
               <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-                No CDS or mRNA features in this project.
+                <T>{'No CDS or mRNA features in this project.'}</T>
               </div>
             )}
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Target species</Label>
+            <Label className="text-xs font-medium text-muted-foreground">
+              <T>{'Target species'}</T>
+            </Label>
             <Select
               value={species}
               onValueChange={(v) => {
@@ -277,7 +288,9 @@ export default function CodonOptimizationDialog({
                     {speciesLabel(key)} ({key})
                   </SelectItem>
                 ))}
-                <SelectItem value={CUSTOM_SPECIES}>Custom (Kazusa table)</SelectItem>
+                <SelectItem value={CUSTOM_SPECIES}>
+                  <T>{'Custom (Kazusa table)'}</T>
+                </SelectItem>
               </SelectContent>
             </Select>
             {species === CUSTOM_SPECIES && (
@@ -290,21 +303,26 @@ export default function CodonOptimizationDialog({
                   }}
                   disabled={busy || applying}
                   spellCheck={false}
-                  placeholder={
-                    'Paste Kazusa "triplet amino acid frequency" rows, e.g.\nUUU F 0.58 (  3456)\nUUC F 0.44 (  2591)\n…'
-                  }
+                  placeholder={t(
+                    'Paste Kazusa codon-frequency rows, e.g.\nUUU F 0.58 (  3456)\nUUC F 0.44 (  2591)\n…',
+                  )}
                   className="h-28 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/50"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Format: <span className="font-mono">codon · amino acid · frequency</span> — rows
-                  with a U are converted to T automatically.
+                  <T>{'Format:'}</T>{' '}
+                  <span className="font-mono">
+                    <T>{'codon · amino acid · frequency'}</T>
+                  </span>{' '}
+                  <T>{'— rows with a U are converted to T automatically.'}</T>
                 </p>
               </div>
             )}
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Method</Label>
+            <Label className="text-xs font-medium text-muted-foreground">
+              <T>{'Method'}</T>
+            </Label>
             <Select
               value={method}
               onValueChange={(v) => {
@@ -319,16 +337,18 @@ export default function CodonOptimizationDialog({
               <SelectContent>
                 {METHODS.map((m) => (
                   <SelectItem key={m.value} value={m.value}>
-                    {m.label}
+                    <T>{m.label}</T>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">{currentMethod?.description}</p>
+            <p className="text-[11px] text-muted-foreground">
+              <T>{currentMethod?.description}</T>
+            </p>
             {method === 'harmonize_rca' && (
               <div className="space-y-1.5 pt-1">
                 <Label className="text-xs font-medium text-muted-foreground">
-                  Original species (source of the current codons)
+                  <T>{'Original species (source of the current codons)'}</T>
                 </Label>
                 <Select
                   value={originalSpecies || undefined}
@@ -339,7 +359,7 @@ export default function CodonOptimizationDialog({
                   disabled={busy || applying}
                 >
                   <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Select the original species…" />
+                    <SelectValue placeholder={t('Select the original species…')} />
                   </SelectTrigger>
                   <SelectContent>
                     {BUILTIN_SPECIES.map((key) => (
@@ -355,7 +375,7 @@ export default function CodonOptimizationDialog({
 
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-muted-foreground">
-              Avoid restriction sites (comma-separated, IUPAC allowed)
+              <T>{'Avoid restriction sites (comma-separated, IUPAC allowed)'}</T>
             </Label>
             <Input
               value={avoidSites}
@@ -364,7 +384,7 @@ export default function CodonOptimizationDialog({
                 invalidate();
               }}
               disabled={busy || applying}
-              placeholder="e.g. GAATTC, GGATCC"
+              placeholder={t('e.g. GAATTC, GGATCC')}
               className="h-9"
             />
           </div>
@@ -376,11 +396,11 @@ export default function CodonOptimizationDialog({
               ) : (
                 <Sparkles className="size-4" />
               )}
-              Preview
+              <T>{'Preview'}</T>
             </Button>
             {preview && !busy && (
               <span className="text-[11px] text-muted-foreground">
-                Previewed with {speciesLabel(preview.species)}
+                <T>{'Previewed with'}</T> {speciesLabel(preview.species)}
               </span>
             )}
           </div>
@@ -388,7 +408,8 @@ export default function CodonOptimizationDialog({
           {preview && !busy && (
             <div className="space-y-3 rounded-md border border-border/60 p-3">
               <div className="text-xs font-medium text-muted-foreground">
-                Translation ({preview.codonCount} codons)
+                <T>{'Translation ('}</T>
+                {preview.codonCount} <T>{'codons)'}</T>
               </div>
               <div
                 className="max-h-32 overflow-auto break-all rounded-md border border-border/40 bg-muted/40 p-2.5 text-xs leading-5"
@@ -400,7 +421,7 @@ export default function CodonOptimizationDialog({
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <div className="rounded-md border border-border/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    CAI
+                    <T>{'CAI'}</T>
                   </div>
                   <div className="font-mono text-sm tabular-nums">
                     {preview.caiBefore.toFixed(3)} <span className="text-muted-foreground">→</span>{' '}
@@ -409,7 +430,7 @@ export default function CodonOptimizationDialog({
                 </div>
                 <div className="rounded-md border border-border/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    GC
+                    <T>{'GC'}</T>
                   </div>
                   <div className="font-mono text-sm tabular-nums">
                     {(preview.gcBefore * 100).toFixed(1)}%{' '}
@@ -419,7 +440,7 @@ export default function CodonOptimizationDialog({
                 </div>
                 <div className="rounded-md border border-border/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Repairs
+                    <T>{'Repairs'}</T>
                   </div>
                   <div className="font-mono text-sm tabular-nums">
                     {(preview.repairs || []).length}
@@ -427,7 +448,7 @@ export default function CodonOptimizationDialog({
                 </div>
                 <div className="rounded-md border border-border/40 p-2">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Unresolved
+                    <T>{'Unresolved'}</T>
                   </div>
                   <div className="font-mono text-sm tabular-nums">{unresolved.length}</div>
                 </div>
@@ -440,7 +461,7 @@ export default function CodonOptimizationDialog({
                       key={reason}
                       className="rounded-full border border-border/50 bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground"
                     >
-                      {n}× {REASON_LABELS[reason] || reason}
+                      {n}× <T>{REASON_LABELS[reason] || reason}</T>
                     </span>
                   ))}
                 </div>
@@ -449,7 +470,7 @@ export default function CodonOptimizationDialog({
               {unresolved.length > 0 && (
                 <InlineNotice tone="warning" className="items-start">
                   <span>
-                    {unresolved.length} violation(s) could not be repaired:{' '}
+                    {unresolved.length} <T>{'violation(s) could not be repaired:'}</T>{' '}
                     {unresolved.slice(0, 6).join('; ')}
                     {unresolved.length > 6 ? ', …' : ''}
                   </span>
@@ -464,7 +485,7 @@ export default function CodonOptimizationDialog({
         <DialogFooter className="mt-1">
           <div className="flex w-full items-center gap-2">
             <span className="mr-auto text-[11px] text-muted-foreground/60">
-              Equal-length synonymous substitution — feature coordinates are unchanged.
+              <T>{'Equal-length synonymous substitution — feature coordinates are unchanged.'}</T>
             </span>
             <Button
               variant="outline"
@@ -472,11 +493,11 @@ export default function CodonOptimizationDialog({
               onClick={() => onOpenChange(false)}
               disabled={applying}
             >
-              Cancel
+              <T>{'Cancel'}</T>
             </Button>
             <Button size="sm" onClick={handleApply} disabled={!canApply}>
               {applying ? <LoaderCircle className="size-4 animate-spin" /> : null}
-              Apply changes
+              <T>{'Apply changes'}</T>
             </Button>
           </div>
         </DialogFooter>

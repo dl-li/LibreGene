@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { monoFont } from '../editorConstants';
+import { T } from '@/i18n';
 
 // ---------------------------------------------------------------------------
 // WarningBadge — floating indicator in bottom-right corner for various
@@ -69,7 +70,9 @@ function WarningBadge({ warnings }) {
             <>
               <div className="flex items-center gap-1.5 mb-1">
                 <AlertTriangle className="size-3.5 shrink-0" />
-                <span className="font-semibold">Unmatched Primers</span>
+                <span className="font-semibold">
+                  <T>{'Unmatched Primers'}</T>
+                </span>
               </div>
               <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
                 {primerWarnings.map((w) => (
@@ -85,7 +88,9 @@ function WarningBadge({ warnings }) {
               {primerWarnings.length > 0 && <div style={{ height: 6 }} />}
               <div className="flex items-center gap-1.5 mb-1">
                 <AlertTriangle className="size-3.5 shrink-0" />
-                <span className="font-semibold">Check Translation:</span>
+                <span className="font-semibold">
+                  <T>{'Check Translation:'}</T>
+                </span>
               </div>
               <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc' }}>
                 {[...cdsLenWarnings, ...cdsTransWarnings].map((w) => (

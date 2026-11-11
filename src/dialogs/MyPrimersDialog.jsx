@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, LoaderCircle, ArrowRight, Check, ArrowRightLeft } from 'lucide-react';
+import { T, useTranslation } from '@/i18n';
 
 const DIR_COLORS = { fwd: '#166534', rev: '#4A148C' };
 
@@ -28,6 +29,7 @@ export default function MyPrimersDialog({
   onAddAllBinding,
   onDelete,
 }) {
+  const { t } = useTranslation();
   const inFile = useMemo(
     () => new Set((currentPrimers || []).map((p) => String(p.primerSeq || '').toUpperCase())),
     [currentPrimers],
@@ -81,7 +83,10 @@ export default function MyPrimersDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col px-8">
         <DialogHeader>
-          <DialogTitle>My Primer Collection ({myPrimers.length})</DialogTitle>
+          <DialogTitle>
+            <T>{'My Primer Collection ('}</T>
+            {myPrimers.length})
+          </DialogTitle>
         </DialogHeader>
 
         {myPrimers.length === 0 ? (
@@ -89,10 +94,15 @@ export default function MyPrimersDialog({
             <div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
               <ArrowRightLeft className="size-5" />
             </div>
-            <div className="text-sm font-medium">Your primer library is empty</div>
+            <div className="text-sm font-medium">
+              <T>{'Your primer library is empty'}</T>
+            </div>
             <div className="max-w-md text-xs leading-relaxed text-muted-foreground">
-              Add primers from the Primers → My Primer Collection menu: “Add Current Primer” or “Add
-              All from This File”, or turn on “Auto-add from Opened Files”.
+              <T>
+                {
+                  'Add current or all primers from Primers → My Primer Collection, or enable auto-add.'
+                }
+              </T>
             </div>
           </div>
         ) : (
@@ -101,10 +111,18 @@ export default function MyPrimersDialog({
               <table className="w-full border-collapse text-sm">
                 <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
                   <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
-                    <th className="text-left font-semibold py-2 pr-3">Name</th>
-                    <th className="text-left font-semibold py-2 pr-3">Sequence</th>
-                    <th className="text-left font-semibold py-2 pr-3">Binding</th>
-                    <th className="text-left font-semibold py-2 pr-3">Tm</th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Name'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Sequence'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Binding'}</T>
+                    </th>
+                    <th className="text-left font-semibold py-2 pr-3">
+                      <T>{'Tm'}</T>
+                    </th>
                     <th className="text-left font-semibold py-2 pr-3"></th>
                     <th className="text-right font-semibold py-2"></th>
                   </tr>
@@ -125,7 +143,7 @@ export default function MyPrimersDialog({
                               <span className="text-sm font-medium">{n}</span>
                               {isDupName(n) && (
                                 <span className="ml-1 rounded bg-amber-100 px-1 py-px text-[10px] leading-tight text-amber-700">
-                                  Dup
+                                  <T>{'Dup'}</T>
                                 </span>
                               )}
                             </span>
@@ -140,14 +158,18 @@ export default function MyPrimersDialog({
                       </td>
                       <td className="py-2.5 pr-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
                         {truncateSeq(p.seq)}
-                        <span className="ml-1.5 text-muted-foreground/60">({p.seq.length} bp)</span>
+                        <span className="ml-1.5 text-muted-foreground/60">
+                          ({p.seq.length} <T>{'bp)'}</T>
+                        </span>
                       </td>
                       <td className="py-2.5 pr-3 whitespace-nowrap">
                         {binding.loading ? (
-                          <span className="text-xs text-muted-foreground/60">Checking…</span>
+                          <span className="text-xs text-muted-foreground/60">
+                            <T>{'Checking…'}</T>
+                          </span>
                         ) : p.inFile ? (
                           <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
-                            <Check className="size-3.5" /> In file
+                            <Check className="size-3.5" /> <T>{'In file'}</T>
                           </span>
                         ) : p.binds && p.site ? (
                           <span className="font-mono text-xs" style={{ color: DIR_COLORS[p.type] }}>
@@ -155,7 +177,9 @@ export default function MyPrimersDialog({
                             {p.site.templateEnd}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground/60">No binding</span>
+                          <span className="text-xs text-muted-foreground/60">
+                            <T>{'No binding'}</T>
+                          </span>
                         )}
                       </td>
                       <td className="py-2.5 pr-3 font-mono text-xs tabular-nums">
@@ -170,14 +194,14 @@ export default function MyPrimersDialog({
                             onClick={() => handleAddOne(p)}
                             className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700"
                           >
-                            <Plus className="size-3" /> Add
+                            <Plus className="size-3" /> <T>{'Add'}</T>
                           </button>
                         )}
                       </td>
                       <td className="py-2.5 text-right">
                         <button
                           type="button"
-                          title="Remove from My Primers"
+                          title={t('Remove from My Primers')}
                           onClick={() => onDelete?.(p.id)}
                           className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                         >
@@ -191,7 +215,7 @@ export default function MyPrimersDialog({
               {binding.loading && (
                 <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                   <LoaderCircle className="size-3.5 animate-spin" />
-                  Checking binding against current sequence…
+                  <T>{'Checking binding against current sequence…'}</T>
                 </div>
               )}
             </div>
@@ -199,9 +223,11 @@ export default function MyPrimersDialog({
             <DialogFooter className="mt-1">
               <div className="flex w-full items-center gap-2">
                 <div className="mr-auto text-xs text-muted-foreground">
-                  {bindingCount > 0
-                    ? `${bindingCount} primer${bindingCount > 1 ? 's' : ''} can bind to the current sequence`
-                    : 'No binding primers to add'}
+                  {bindingCount > 0 ? (
+                    t('{count} primer(s) can bind to the current sequence', { count: bindingCount })
+                  ) : (
+                    <T>{'No binding primers to add'}</T>
+                  )}
                 </div>
                 <Button
                   size="sm"
@@ -209,7 +235,7 @@ export default function MyPrimersDialog({
                   onClick={onAddAllBinding}
                 >
                   <ArrowRight className="size-3.5" />
-                  Add All Binding Primers
+                  <T>{'Add All Binding Primers'}</T>
                 </Button>
               </div>
             </DialogFooter>

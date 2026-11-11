@@ -25,6 +25,7 @@ import { CircularMap, LinearMap } from '../MapView';
 import FornaView from '../plugins/builtin/rnaFold/FornaView';
 import useRnaFold, { countPairs, MAX_INTERACTIVE_NT } from '../plugins/builtin/rnaFold/useRnaFold';
 import { detectMsaMoleculeType, parseFastaRecords } from '../msa/msaAnalysis';
+import { T, useTranslation } from '@/i18n';
 
 const EMPTY_ARRAY = [];
 const NOOP = () => {};
@@ -59,6 +60,7 @@ function validateSequence(molType, seq) {
  * or start an MSA from one sequence. Both callbacks resolve with `{ ok, error? }`.
  */
 export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCreateMsa }) {
+  const { t } = useTranslation();
   const [fileType, setFileType] = useState('sequence');
   const [molType, setMolType] = useState('dna');
   const [name, setName] = useState('Untitled');
@@ -181,9 +183,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
   const handleConfirm = useCallback(async () => {
     if (submitting || (isMsa ? !msaRecords.length : !validation.valid || !effectiveSeq)) return;
     if (isMsa && msaRecords.length !== 1) {
-      setSubmitError(
-        'Paste exactly one sequence. You can add more sequences after creating the MSA.',
-      );
+      setSubmitError(t('Paste exactly one sequence. Add more after creating the MSA.'));
       return;
     }
     setSubmitting(true);
@@ -214,7 +214,9 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
       if (res && res.ok) {
         onOpenChange(false);
       } else {
-        setSubmitError(res?.error || `Failed to create ${isMsa ? 'MSA' : 'project'}`);
+        setSubmitError(
+          res?.error || t('Failed to create {kind}', { kind: isMsa ? 'MSA' : t('project') }),
+        );
       }
     } catch (e) {
       setSubmitError(e?.message || String(e));
@@ -235,6 +237,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
     molType,
     topology,
     onOpenChange,
+    t,
   ]);
 
   const selectSegment = (group, value) => {
@@ -263,7 +266,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
             : 'text-muted-foreground hover:text-foreground',
         )}
       >
-        {label}
+        <T>{label}</T>
       </button>
     );
   };
@@ -274,16 +277,24 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
         className={cn('max-h-[85vh] flex flex-col px-8', isMsa ? 'sm:max-w-2xl' : 'sm:max-w-4xl')}
       >
         <DialogHeader>
-          <DialogTitle>New File</DialogTitle>
+          <DialogTitle>
+            <T>{'New File'}</T>
+          </DialogTitle>
           <DialogDescription>
-            {isMsa
-              ? 'Start with one sequence. Annotations are not imported; add other sequences next.'
-              : 'Create a sequence project or start a multiple sequence alignment.'}
+            {isMsa ? (
+              <T>
+                {'Start with one sequence. Annotations are not imported; add other sequences next.'}
+              </T>
+            ) : (
+              <T>{'Create a sequence project or start a multiple sequence alignment.'}</T>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div>
-          <Label className="text-xs text-muted-foreground">File type</Label>
+          <Label className="text-xs text-muted-foreground">
+            <T>{'File type'}</T>
+          </Label>
           <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
             {segBtn('sequence', 'Sequence', 'file')}
             {segBtn('msa', 'Multiple Sequence Alignment', 'file')}
@@ -298,7 +309,9 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
         >
           <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-1">
             <div>
-              <Label className="text-xs text-muted-foreground">Molecule type</Label>
+              <Label className="text-xs text-muted-foreground">
+                <T>{'Molecule type'}</T>
+              </Label>
               <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/40 p-1">
                 {segBtn('dna', 'DNA', 'mol')}
                 {segBtn('rna', 'RNA', 'mol')}
@@ -307,19 +320,21 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
             </div>
             <div>
               <Label htmlFor="new-file-name" className="text-xs text-muted-foreground">
-                Name
+                <T>{'Name'}</T>
               </Label>
               <Input
                 id="new-file-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="mt-1.5"
-                placeholder={isMsa ? 'Untitled MSA' : 'Untitled'}
+                placeholder={isMsa ? t('Untitled MSA') : t('Untitled')}
               />
             </div>
             {!isMsa && molType === 'dna' && (
               <div>
-                <Label className="text-xs text-muted-foreground">Topology</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <T>{'Topology'}</T>
+                </Label>
                 <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
                   {segBtn('circular', 'Circular', 'topo')}
                   {segBtn('linear', 'Linear', 'topo')}
@@ -328,7 +343,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
             )}
             <div className="flex min-h-0 flex-1 flex-col">
               <Label htmlFor="new-file-input" className="text-xs text-muted-foreground">
-                {isMsa ? 'Sequence or FASTA' : 'Sequence (FASTA or plain text)'}
+                {isMsa ? <T>{'Sequence or FASTA'}</T> : <T>{'Sequence (FASTA or plain text)'}</T>}
               </Label>
               <textarea
                 id="new-file-input"
@@ -350,11 +365,11 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                           : 'font-medium text-red-600'
                       }
                     >
-                      {msaRecords.length} sequence{msaRecords.length === 1 ? '' : 's'}
+                      {t('{count} sequence(s)', { count: msaRecords.length })}
                     </span>
                     {msaRecords.length !== 1 && (
                       <span className="text-muted-foreground">
-                        Exactly one sequence is required
+                        <T>{'Exactly one sequence is required'}</T>
                       </span>
                     )}
                   </>
@@ -368,15 +383,19 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                       {validation.valid
                         ? `${effectiveSeq.length} ${unit}`
                         : validation.invalidChars.length
-                          ? `Invalid characters: ${validation.invalidChars.join(', ')}`
-                          : 'Enter a sequence'}
+                          ? t('Invalid characters: {chars}', {
+                              chars: validation.invalidChars.join(', '),
+                            })
+                          : t('Enter a sequence')}
                     </span>
                     {!validation.valid && validation.invalidChars.length > 0 && (
                       <span className="text-muted-foreground">
-                        Allowed:{' '}
-                        {molType === 'protein'
-                          ? 'A–Z (* only as trailing stop)'
-                          : 'ACGTURYSWKMBDHVN'}
+                        <T>{'Allowed:'}</T>{' '}
+                        {molType === 'protein' ? (
+                          <T>{'A–Z (* only as trailing stop)'}</T>
+                        ) : (
+                          <T>{'ACGTURYSWKMBDHVN'}</T>
+                        )}
                       </span>
                     )}
                   </>
@@ -389,7 +408,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
             <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-muted/20">
               <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {isRna ? 'RNA Folding' : 'Detected Features'}
+                  {isRna ? <T>{'RNA Folding'}</T> : <T>{'Detected Features'}</T>}
                 </span>
                 {!isRna && (
                   <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
@@ -409,7 +428,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                         )}
                       >
                         <Icon className="size-3" />
-                        {label}
+                        <T>{label}</T>
                       </button>
                     ))}
                   </div>
@@ -420,7 +439,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                   fold.busy ? (
                     <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
                       <LoaderCircle className="size-4 animate-spin" />
-                      Folding {effectiveSeq.length} nt…
+                      <T>{'Folding'}</T> {effectiveSeq.length} <T>{'nt…'}</T>
                     </div>
                   ) : fold.error ? (
                     <div className="flex items-center justify-center gap-2 py-12 text-sm text-red-600">
@@ -430,20 +449,23 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                   ) : !fold.result ? (
                     <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
                       <ScanSearch className="size-5 opacity-50" />
-                      <span>Enter a sequence to fold</span>
+                      <span>
+                        <T>{'Enter a sequence to fold'}</T>
+                      </span>
                     </div>
                   ) : (
                     <div className="flex min-h-full flex-col p-3">
                       <div className="flex flex-wrap gap-x-4 gap-y-1 pb-2 text-xs">
                         <span>
-                          MFE{' '}
+                          <T>{'MFE'}</T>{' '}
                           <span className="font-mono font-semibold">
                             {fold.result.mfe.toFixed(2)}
                           </span>{' '}
-                          kcal/mol
+                          <T>{'kcal/mol'}</T>
                         </span>
                         <span className="text-muted-foreground">
-                          {countPairs(fold.result.structure)} base pairs / {effectiveSeq.length} nt
+                          {countPairs(fold.result.structure)} <T>{'base pairs /'}</T>{' '}
+                          {effectiveSeq.length} <T>{'nt'}</T>
                         </span>
                       </div>
                       {effectiveSeq.length <= MAX_INTERACTIVE_NT ? (
@@ -454,8 +476,8 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                         />
                       ) : (
                         <p className="py-4 text-center text-xs text-muted-foreground">
-                          Sequence too long for interactive layout ({effectiveSeq.length} nt &gt;{' '}
-                          {MAX_INTERACTIVE_NT} nt).
+                          <T>{'Sequence too long for interactive layout ('}</T>
+                          {effectiveSeq.length} <T>{'nt >'}</T> {MAX_INTERACTIVE_NT} <T>{'nt).'}</T>
                         </p>
                       )}
                     </div>
@@ -463,7 +485,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                 ) : loading ? (
                   <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
                     <LoaderCircle className="size-4 animate-spin" />
-                    Detecting common features…
+                    <T>{'Detecting common features…'}</T>
                   </div>
                 ) : error ? (
                   <div className="flex items-center justify-center gap-2 py-12 text-sm text-red-600">
@@ -473,7 +495,9 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                 ) : items.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
                     <ScanSearch className="size-5 opacity-50" />
-                    <span>No common features detected</span>
+                    <span>
+                      <T>{'No common features detected'}</T>
+                    </span>
                   </div>
                 ) : viewMode === 'map' ? (
                   <div className="flex min-h-full items-center justify-center p-3">
@@ -505,11 +529,21 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                     <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted">
                       <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
                         <th className="w-8 py-2 pl-3 pr-3" />
-                        <th className="py-2 pr-3 text-left font-semibold">Name</th>
-                        <th className="py-2 pr-3 text-left font-semibold">Type</th>
-                        <th className="py-2 pr-3 text-left font-semibold">Strand</th>
-                        <th className="py-2 pr-3 text-left font-semibold">Location</th>
-                        <th className="py-2 text-left font-semibold">Identity</th>
+                        <th className="py-2 pr-3 text-left font-semibold">
+                          <T>{'Name'}</T>
+                        </th>
+                        <th className="py-2 pr-3 text-left font-semibold">
+                          <T>{'Type'}</T>
+                        </th>
+                        <th className="py-2 pr-3 text-left font-semibold">
+                          <T>{'Strand'}</T>
+                        </th>
+                        <th className="py-2 pr-3 text-left font-semibold">
+                          <T>{'Location'}</T>
+                        </th>
+                        <th className="py-2 text-left font-semibold">
+                          <T>{'Identity'}</T>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -521,7 +555,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                               checked={selected.has(i)}
                               disabled={submitting}
                               onChange={() => toggle(i)}
-                              aria-label={`Select ${hit.name}`}
+                              aria-label={t('Select {name}', { name: hit.name })}
                             />
                           </td>
                           <td className="py-2 pr-3 whitespace-nowrap">
@@ -532,7 +566,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
                             <span className="font-medium">{hit.name}</span>
                             {hit.fragment && (
                               <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-px text-[10px] text-amber-800">
-                                fragment
+                                <T>{'fragment'}</T>
                               </span>
                             )}
                           </td>
@@ -567,7 +601,7 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Cancel
+            <T>{'Cancel'}</T>
           </Button>
           <Button
             onClick={handleConfirm}
@@ -576,7 +610,13 @@ export default function NewSequenceDialog({ open, onOpenChange, onConfirm, onCre
             }
           >
             {submitting && <LoaderCircle className="size-4 animate-spin" />}
-            {submitting ? 'Creating…' : isMsa ? 'Create MSA' : 'Create Project'}
+            {submitting ? (
+              <T>{'Creating…'}</T>
+            ) : isMsa ? (
+              <T>{'Create MSA'}</T>
+            ) : (
+              <T>{'Create Project'}</T>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -10,6 +10,7 @@ import { InlineNotice } from '@/components/ui/notice';
 import { ExternalLink, History, LoaderCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getSnapgeneHistory } from '../../../tauriApi';
+import { T } from '@/i18n';
 
 // Operation accent colors, following GenePad's history panel grouping.
 const OPERATION_TONES = {
@@ -119,18 +120,17 @@ export default function SnapshotsDialog({ open, onOpenChange, projectId, onOpenS
         <DialogHeader className="pb-2">
           <DialogTitle className="flex items-center gap-2 text-base">
             <History className="size-4" />
-            SnapGene History
+            <T>{'SnapGene History'}</T>
           </DialogTitle>
           <DialogDescription>
-            Snapshots recorded in the .dna file. Click one to open it as a new project, then use
-            Save As to keep a copy.
+            <T>{'Open a snapshot as a new project, then use Save As to keep a copy.'}</T>
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
               <LoaderCircle className="size-4 animate-spin" />
-              Reading history…
+              <T>{'Reading history…'}</T>
             </div>
           ) : error ? (
             <InlineNotice tone="error" className="my-2">
@@ -138,7 +138,7 @@ export default function SnapshotsDialog({ open, onOpenChange, projectId, onOpenS
             </InlineNotice>
           ) : !entries || entries.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
-              This file has no recorded history.
+              <T>{'This file has no recorded history.'}</T>
             </div>
           ) : (
             <ul className="relative flex flex-col gap-0.5 py-1">
@@ -171,13 +171,13 @@ export default function SnapshotsDialog({ open, onOpenChange, projectId, onOpenS
                         i === 0 ? 'font-semibold' : 'font-medium',
                       )}
                     >
-                      {i === 0 ? 'Current' : entry.name || entry.operation}
+                      {i === 0 ? <T>{'Current'}</T> : entry.name || entry.operation}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {entry.seqLen.toLocaleString()} bp
+                      {entry.seqLen.toLocaleString()} <T>{'bp'}</T>
                     </span>
                     <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-                      {entry.circular ? 'circ.' : 'lin.'}
+                      {entry.circular ? <T>{'circ.'}</T> : <T>{'lin.'}</T>}
                     </span>
                     <span className="w-16 shrink-0 truncate text-right text-xs text-muted-foreground">
                       {edgeLabel(entry, i)}

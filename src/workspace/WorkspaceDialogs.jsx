@@ -17,6 +17,7 @@ import {
 } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 import { isTauri } from '../tauriApi';
+import { T, useTranslation } from '@/i18n';
 
 const lazyDialogs = new Map();
 
@@ -91,6 +92,7 @@ export default function WorkspaceDialogs({
   handleRemoveAlignment,
   refreshProject,
 }) {
+  const { t } = useTranslation();
   return (
     <>
       {isDna && (
@@ -218,15 +220,18 @@ export default function WorkspaceDialogs({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Primer?</DialogTitle>
+            <DialogTitle>
+              <T>{'Delete Primer?'}</T>
+            </DialogTitle>
             <DialogDescription>
-              Primer "{primers.find((p) => p.id === primerDeleteConfirm)?.name}" will be removed
-              from this file. You can undo this with Ctrl+Z.
+              {t('Delete primer "{name}"? You can undo this with Ctrl+Z.', {
+                name: primers.find((p) => p.id === primerDeleteConfirm)?.name,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" onClick={() => setPrimerDeleteConfirm(null)}>
-              Cancel
+              <T>{'Cancel'}</T>
             </Button>
             <Button
               variant="destructive"
@@ -236,7 +241,7 @@ export default function WorkspaceDialogs({
                 await handleDeletePrimer(id);
               }}
             >
-              Delete
+              <T>{'Delete'}</T>
             </Button>
           </DialogFooter>
         </DialogContent>

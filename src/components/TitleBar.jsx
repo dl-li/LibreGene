@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '@/tauriApi';
+import { T } from '@/i18n';
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
@@ -19,7 +20,7 @@ export default function TitleBar({ title, dirty = false }) {
       <div className="pointer-events-none absolute inset-x-0 flex justify-center">
         <span className="max-w-[45%] truncate text-[13px] font-medium leading-10 text-foreground/75">
           {dirty ? '\u2022 ' : ''}
-          {title || 'LibreGene'}
+          {title || <T>{'LibreGene'}</T>}
         </span>
       </div>
     </header>

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Star } from 'lucide-react';
 import { isTauri, openUrl } from '../tauriApi';
+import { T } from '@/i18n';
 
 const REPO_URL = 'https://github.com/dl-li/LibreGene';
 const AUTHOR_URL = 'https://github.com/dl-li';
@@ -27,46 +28,60 @@ export default function AboutDialog({ open, onOpenChange }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="sr-only">About LibreGene</DialogTitle>
+          <DialogTitle className="sr-only">
+            <T>{'About LibreGene'}</T>
+          </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col items-center gap-1.5 py-1 text-center">
           <img src="/icon.png" alt="LibreGene" className="size-14" />
-          <h2 className="text-base font-semibold tracking-tight">LibreGene</h2>
+          <h2 className="text-base font-semibold tracking-tight">
+            <T>{'LibreGene'}</T>
+          </h2>
           <p className="font-mono text-xs text-muted-foreground">{version ? `v${version}` : '…'}</p>
-          <p className="text-sm text-muted-foreground">A free, open-source plasmid editor.</p>
+          <p className="text-sm text-muted-foreground">
+            <T>{'A free, open-source plasmid editor.'}</T>
+          </p>
         </div>
         <div className="space-y-1.5 rounded-md border border-border/60 px-3 py-2.5 text-xs">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Developer</span>
+            <span className="text-muted-foreground">
+              <T>{'Developer'}</T>
+            </span>
             <button
               type="button"
               onClick={() => openUrl(AUTHOR_URL).catch(() => {})}
               className="font-medium text-foreground hover:underline"
             >
-              dl-li
+              <T>{'dl-li'}</T>
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Repository</span>
+            <span className="text-muted-foreground">
+              <T>{'Repository'}</T>
+            </span>
             <button
               type="button"
               onClick={() => openUrl(REPO_URL).catch(() => {})}
               className="font-mono text-foreground hover:underline"
             >
-              dl-li/LibreGene
+              <T>{'dl-li/LibreGene'}</T>
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">License</span>
-            <span className="font-medium">GPL-3.0</span>
+            <span className="text-muted-foreground">
+              <T>{'License'}</T>
+            </span>
+            <span className="font-medium">
+              <T>{'GPL-3.0'}</T>
+            </span>
           </div>
         </div>
         <p className="text-center text-xs leading-relaxed text-muted-foreground">
-          Enjoying LibreGene? A star on GitHub means a lot.
+          <T>{'Enjoying LibreGene? A star on GitHub means a lot.'}</T>
         </p>
         <Button onClick={() => openUrl(REPO_URL).catch(() => {})} className="w-full">
           <Star className="size-4" />
-          Star on GitHub
+          <T>{'Star on GitHub'}</T>
         </Button>
       </DialogContent>
     </Dialog>

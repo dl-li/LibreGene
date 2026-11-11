@@ -9,6 +9,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { T, useTranslation } from '@/i18n';
+import { localizeSessionText } from '@/i18n/sessionText';
 
 const FILTERS = [
   { value: 'all', label: 'All' },
@@ -31,6 +33,7 @@ export default function SessionEditLogDialog({
   onRollback,
   agentLocked = false,
 }) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState('all');
   const [pendingId, setPendingId] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -67,10 +70,12 @@ export default function SessionEditLogDialog({
       <DialogContent className="flex max-h-[78vh] flex-col gap-4 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <History className="size-4" /> Session Edit Log
+            <History className="size-4" /> <T>{'Session Edit Log'}</T>
           </DialogTitle>
           <DialogDescription>
-            Changes from this session. Saved entries stay visible but cannot be rolled back.
+            <T>
+              {'Changes from this session. Saved entries stay visible but cannot be rolled back.'}
+            </T>
           </DialogDescription>
         </DialogHeader>
 
@@ -93,7 +98,7 @@ export default function SessionEditLogDialog({
                   filter === item.value && 'bg-background text-foreground shadow-sm',
                 )}
               >
-                {item.label} ({count})
+                <T>{item.label}</T> ({count})
               </button>
             );
           })}
@@ -103,7 +108,11 @@ export default function SessionEditLogDialog({
           {visibleEntries.length === 0 ? (
             <div className="flex h-40 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
               <History className="size-6 opacity-50" />
-              {entries.length ? 'No changes match this filter.' : 'No edits in this session.'}
+              {entries.length ? (
+                <T>{'No changes match this filter.'}</T>
+              ) : (
+                <T>{'No edits in this session.'}</T>
+              )}
             </div>
           ) : (
             <ol className="space-y-2">
@@ -134,22 +143,26 @@ export default function SessionEditLogDialog({
                             )}
                           >
                             {entry.origin === 'agent' ? <Bot /> : <User />}
-                            {entry.origin === 'agent' ? 'Agent · MCP' : 'User'}
+                            {entry.origin === 'agent' ? <T>{'Agent · MCP'}</T> : <T>{'User'}</T>}
                           </span>
                           {entry.saved && (
                             <span className="rounded-full bg-muted px-2 py-0.5 font-medium">
-                              Saved
+                              <T>{'Saved'}</T>
                             </span>
                           )}
                           <time title={new Date(entry.timestamp).toLocaleString()}>
                             {timeLabel(entry.timestamp)}
                           </time>
                         </div>
-                        <p className="text-sm font-medium leading-5">{entry.summary}</p>
+                        <p className="text-sm font-medium leading-5">
+                          {localizeSessionText(t, entry.summary)}
+                        </p>
                         {entry.details.length > 1 && (
                           <ul className="mt-1 space-y-0.5 text-xs leading-5 text-muted-foreground">
                             {entry.details.slice(1).map((detail, index) => (
-                              <li key={`${entry.id}-${index}`}>· {detail}</li>
+                              <li key={`${entry.id}-${index}`}>
+                                · {localizeSessionText(t, detail)}
+                              </li>
                             ))}
                           </ul>
                         )}
@@ -162,7 +175,7 @@ export default function SessionEditLogDialog({
                           className="shrink-0"
                           disabled={agentLocked || busyId !== null}
                           title={
-                            agentLocked ? 'Unlock the agent tab to roll back changes' : undefined
+                            agentLocked ? t('Unlock the agent tab to roll back changes') : undefined
                           }
                           onClick={() => {
                             if (isLatest) rollback(entry);
@@ -172,15 +185,24 @@ export default function SessionEditLogDialog({
                             }
                           }}
                         >
-                          <Undo2 /> {busy ? 'Rolling back…' : isLatest ? 'Undo' : 'Roll back'}
+                          <Undo2 />{' '}
+                          {busy ? (
+                            <T>{'Rolling back…'}</T>
+                          ) : isLatest ? (
+                            <T>{'Undo'}</T>
+                          ) : (
+                            <T>{'Roll back'}</T>
+                          )}
                         </Button>
                       )}
                     </div>
                     {isPending && (
                       <div className="mt-3 rounded-md bg-amber-500/10 p-3 text-xs">
                         <p className="leading-5 text-foreground/80">
-                          Restore the state before this change? This also rolls back {newerCount}{' '}
-                          newer {newerCount === 1 ? 'change' : 'changes'}.
+                          {t(
+                            'Restore the state before this change? This also rolls back {count} newer change(s).',
+                            { count: newerCount },
+                          )}
                         </p>
                         <div className="mt-2 flex justify-end gap-2">
                           <Button
@@ -189,7 +211,7 @@ export default function SessionEditLogDialog({
                             size="sm"
                             onClick={() => setPendingId(null)}
                           >
-                            Cancel
+                            <T>{'Cancel'}</T>
                           </Button>
                           <Button
                             type="button"
@@ -197,7 +219,8 @@ export default function SessionEditLogDialog({
                             disabled={agentLocked || busy}
                             onClick={() => rollback(entry)}
                           >
-                            <Undo2 /> {busy ? 'Rolling back…' : 'Confirm rollback'}
+                            <Undo2 />{' '}
+                            {busy ? <T>{'Rolling back…'}</T> : <T>{'Confirm rollback'}</T>}
                           </Button>
                         </div>
                       </div>
@@ -211,7 +234,9 @@ export default function SessionEditLogDialog({
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
-          Session only · never written to the sequence file · cleared when the project closes
+          <T>
+            {'Session only · never written to the sequence file · cleared when the project closes'}
+          </T>
         </div>
       </DialogContent>
     </Dialog>

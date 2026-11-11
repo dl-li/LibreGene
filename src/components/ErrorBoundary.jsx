@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { CircleAlert, RotateCcw, RefreshCw } from 'lucide-react';
+import { T } from '@/i18n';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -21,10 +22,10 @@ export default class ErrorBoundary extends React.Component {
           </div>
           <div className="space-y-1.5">
             <h2 className="text-base font-semibold tracking-tight text-foreground">
-              Something went wrong
+              <T>{'Something went wrong'}</T>
             </h2>
             <p className="text-sm text-muted-foreground">
-              The editor hit an unexpected error. Your files on disk are not affected.
+              <T>{'The editor hit an unexpected error. Your files on disk are not affected.'}</T>
             </p>
           </div>
           <pre className="max-w-lg whitespace-pre-wrap break-all rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-left font-mono text-xs text-red-700">
@@ -37,11 +38,11 @@ export default class ErrorBoundary extends React.Component {
               onClick={() => this.setState({ hasError: false, error: null })}
             >
               <RotateCcw className="size-3.5" />
-              Try again
+              <T>{'Try again'}</T>
             </Button>
             <Button size="sm" onClick={() => window.location.reload()}>
               <RefreshCw className="size-3.5" />
-              Reload
+              <T>{'Reload'}</T>
             </Button>
           </div>
         </div>

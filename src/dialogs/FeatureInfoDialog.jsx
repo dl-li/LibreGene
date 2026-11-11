@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/notice';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { monoFont, locationString1based, locationStringTo0based } from '../editorConstants';
+import { T, useTranslation } from '@/i18n';
 
 /* ---------- HTML tag stripping ---------- */
 function stripHtml(str) {
@@ -211,7 +212,7 @@ function StrandSegmented({ value, onSelect }) {
               : 'text-muted-foreground hover:text-foreground')
           }
         >
-          {STRAND_LABEL[s]}
+          <T>{STRAND_LABEL[s]}</T>
         </button>
       ))}
     </div>
@@ -255,6 +256,7 @@ export default function FeatureInfoDialog({
   features,
   moleculeType = 'dna',
 }) {
+  const { t } = useTranslation();
   // Protein projects annotate amino-acid features; DNA list is nucleotide-centric.
   const isProtein = moleculeType === 'protein';
   const ftypeOptions = isProtein ? PROTEIN_FTYPE_OPTIONS : FTYPE_OPTIONS;
@@ -339,7 +341,7 @@ export default function FeatureInfoDialog({
   const handleCreateApply = async () => {
     const trimmedLoc = createLoc.trim();
     if (!trimmedLoc) {
-      setCreateLocError('Please enter a location');
+      setCreateLocError(t('Please enter a location'));
       return;
     }
     if (!onFeatureAdd) return;
@@ -424,12 +426,16 @@ export default function FeatureInfoDialog({
       >
         <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>New Feature</DialogTitle>
+            <DialogTitle>
+              <T>{'New Feature'}</T>
+            </DialogTitle>
           </DialogHeader>
 
           <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3.5">
             {/* Name */}
-            <span className={LABEL_CLS}>Name</span>
+            <span className={LABEL_CLS}>
+              <T>{'Name'}</T>
+            </span>
             <div className="flex items-center gap-3 min-w-0">
               <input
                 value={createName}
@@ -452,7 +458,9 @@ export default function FeatureInfoDialog({
             </div>
 
             {/* Type */}
-            <span className={LABEL_CLS}>Type</span>
+            <span className={LABEL_CLS}>
+              <T>{'Type'}</T>
+            </span>
             <div>
               <FtypeSelect
                 value={createFtype}
@@ -462,7 +470,9 @@ export default function FeatureInfoDialog({
             </div>
 
             {/* Location */}
-            <span className={LABEL_CLS}>Location</span>
+            <span className={LABEL_CLS}>
+              <T>{'Location'}</T>
+            </span>
             <div className="min-w-0">
               <input
                 value={createLoc}
@@ -476,8 +486,10 @@ export default function FeatureInfoDialog({
                 }}
                 autoFocus
                 className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
-                placeholder="1-based inclusive, e.g. 1..100"
-                title="1-based inclusive, e.g. 1..100, join(1..100,200..300), complement(50..80)"
+                placeholder={t('1-based inclusive, e.g. 1..100')}
+                title={t(
+                  '1-based inclusive, e.g. 1..100, join(1..100,200..300), complement(50..80)',
+                )}
               />
               {createLocError && (
                 <div className="mt-1 font-mono text-[11px] text-red-600">{createLocError}</div>
@@ -485,7 +497,9 @@ export default function FeatureInfoDialog({
             </div>
 
             {/* Strand */}
-            <span className={LABEL_CLS}>Strand</span>
+            <span className={LABEL_CLS}>
+              <T>{'Strand'}</T>
+            </span>
             <div>
               <StrandSegmented value={createStrandDir} onSelect={handleStrandSelect} />
             </div>
@@ -497,7 +511,7 @@ export default function FeatureInfoDialog({
           {/* Name conflict warning */}
           {nameConflict && (
             <InlineNotice tone="warning">
-              Name "{createName}" is already used by another feature
+              {t('Name "{name}" is already used by another feature', { name: createName })}
             </InlineNotice>
           )}
 
@@ -505,10 +519,10 @@ export default function FeatureInfoDialog({
           <DialogFooter className="mt-1">
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={handleCancel}>
-                Cancel
+                <T>{'Cancel'}</T>
               </Button>
               <Button size="sm" onClick={handleCreateApply} disabled={!createLoc.trim()}>
-                Create Feature
+                <T>{'Create Feature'}</T>
               </Button>
             </div>
           </DialogFooter>
@@ -535,12 +549,16 @@ export default function FeatureInfoDialog({
     >
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Feature</DialogTitle>
+          <DialogTitle>
+            <T>{'Feature'}</T>
+          </DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3.5">
           {/* Name */}
-          <span className={LABEL_CLS}>Name</span>
+          <span className={LABEL_CLS}>
+            <T>{'Name'}</T>
+          </span>
           <div className="flex items-center gap-3 min-w-0">
             <input
               value={nameInput}
@@ -571,7 +589,9 @@ export default function FeatureInfoDialog({
           </div>
 
           {/* Type */}
-          <span className={LABEL_CLS}>Type</span>
+          <span className={LABEL_CLS}>
+            <T>{'Type'}</T>
+          </span>
           <div>
             {editingFtype ? (
               <FtypeSelect
@@ -592,7 +612,7 @@ export default function FeatureInfoDialog({
               <button
                 type="button"
                 className="rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
-                title="Click to change type"
+                title={t('Click to change type')}
                 onClick={() => {
                   setEditingLoc(false);
                   setEditingFtype(true);
@@ -604,7 +624,9 @@ export default function FeatureInfoDialog({
           </div>
 
           {/* Location */}
-          <span className={LABEL_CLS}>Location</span>
+          <span className={LABEL_CLS}>
+            <T>{'Location'}</T>
+          </span>
           <div className="min-w-0">
             {editingLoc ? (
               <div className="flex items-center gap-2">
@@ -623,7 +645,7 @@ export default function FeatureInfoDialog({
                     }
                   }}
                   autoFocus
-                  placeholder="1-based inclusive"
+                  placeholder={t('1-based inclusive')}
                   className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[13px] font-semibold outline-none transition-shadow focus:border-ring focus:ring-[3px] focus:ring-ring/40"
                 />
                 <Button
@@ -632,7 +654,7 @@ export default function FeatureInfoDialog({
                   onClick={() => submitLocation(locInput)}
                   disabled={!!locError}
                 >
-                  Apply
+                  <T>{'Apply'}</T>
                 </Button>
                 <Button
                   size="sm"
@@ -643,14 +665,14 @@ export default function FeatureInfoDialog({
                     setLocError('');
                   }}
                 >
-                  Cancel
+                  <T>{'Cancel'}</T>
                 </Button>
               </div>
             ) : (
               <button
                 type="button"
                 className="max-w-full truncate rounded-md bg-muted px-2 py-1 font-mono text-[13px] font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-ring/40"
-                title="Click to edit location (1-based inclusive)"
+                title={t('Click to edit location (1-based inclusive)')}
                 onClick={() => {
                   setEditingFtype(false);
                   setLocInput(locLabel);
@@ -667,7 +689,9 @@ export default function FeatureInfoDialog({
           </div>
 
           {/* Strand */}
-          <span className={LABEL_CLS}>Strand</span>
+          <span className={LABEL_CLS}>
+            <T>{'Strand'}</T>
+          </span>
           <div>
             <StrandSegmented
               value={feature.strand === '-' ? '-' : feature.strand === '+' ? '+' : 'both'}
@@ -686,7 +710,7 @@ export default function FeatureInfoDialog({
             <ChevronRight
               className={`size-3.5 transition-transform duration-150 ${qualifiersOpen ? 'rotate-90' : ''}`}
             />
-            Qualifiers
+            <T>{'Qualifiers'}</T>
             {qualifierLines.length > 0 && (
               <span className="rounded-full bg-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-accent-foreground">
                 {qualifierLines.length}
@@ -711,7 +735,9 @@ export default function FeatureInfoDialog({
                 </div>
               ))}
               {qualifierLines.length === 0 && (
-                <div className="text-sm text-muted-foreground italic">No qualifiers</div>
+                <div className="text-sm text-muted-foreground italic">
+                  <T>{'No qualifiers'}</T>
+                </div>
               )}
             </div>
           )}
@@ -730,13 +756,13 @@ export default function FeatureInfoDialog({
               }}
             >
               <Trash2 className="size-3.5" />
-              Delete
+              <T>{'Delete'}</T>
             </Button>
             <Button variant="outline" size="sm" onClick={handleCancel}>
-              Cancel
+              <T>{'Cancel'}</T>
             </Button>
             <Button size="sm" onClick={handleApply} disabled={editingLoc}>
-              Apply
+              <T>{'Apply'}</T>
             </Button>
           </div>
         </DialogFooter>

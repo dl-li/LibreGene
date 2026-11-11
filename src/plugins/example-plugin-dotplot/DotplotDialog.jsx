@@ -1,12 +1,21 @@
 import { useMemo, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, Label, InlineNotice } from './ui';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  Label,
+  InlineNotice,
+  useTranslation,
+} from './ui';
 import DotplotCanvas from './DotplotCanvas';
 import { normalizeSequence, MIN_WINDOW, MAX_WINDOW, DEFAULT_WINDOW } from './dotplot';
 
 export default function DotplotDialog({ open, onOpenChange, sequence, fileName }) {
+  const { t } = useTranslation();
   const [windowSize, setWindowSize] = useState(DEFAULT_WINDOW);
   const seq = useMemo(() => normalizeSequence(sequence || ''), [sequence]);
-  const name = fileName || 'Sequence 1';
+  const name = fileName || t('Sequence 1');
   const tooShort = seq.length > 0 && seq.length < windowSize;
 
   return (
@@ -19,7 +28,7 @@ export default function DotplotDialog({ open, onOpenChange, sequence, fileName }
           <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <Label htmlFor="dotplot-window" className="shrink-0 text-xs font-medium">
-                Window size: {windowSize}
+                {t('Window size: {size}', { size: windowSize })}
               </Label>
               <input
                 id="dotplot-window"
@@ -34,7 +43,7 @@ export default function DotplotDialog({ open, onOpenChange, sequence, fileName }
           </div>
           {tooShort && (
             <InlineNotice tone="error">
-              The sequence must be at least {windowSize} nt long for a window size of {windowSize}.
+              {t('The sequence must be at least {size} nt long.', { size: windowSize })}
             </InlineNotice>
           )}
           {!tooShort && seq.length > 0 && (

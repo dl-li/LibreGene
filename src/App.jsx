@@ -32,7 +32,8 @@ import { useWheelContainment } from './hooks/useWheelContainment';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { FolderOpen, FilePlus2, Bot, Lock } from 'lucide-react';
+import { FolderOpen, FilePlus2, Bot, Lock, Languages } from 'lucide-react';
+import { useTranslation } from './i18n';
 import {
   getRecentFiles,
   addRecentFile,
@@ -43,6 +44,7 @@ import {
 } from './recentFiles';
 import { getMyPrimers } from './myPrimers';
 import { getMyEnzymes } from './myEnzymes';
+import { T } from '@/i18n';
 
 function isOpenedProjectData(data) {
   return !!data && (data.projectKind === 'msa' ? data.msaRows?.length > 0 : !!data.sequence);
@@ -53,6 +55,7 @@ function isMsaFastaPath(path) {
 }
 
 export default function App() {
+  const { t, locale, setLocale } = useTranslation();
   const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
   const [myPrimers, setMyPrimers] = useState(() => getMyPrimers());
   const [myEnzymes, setMyEnzymes] = useState(() => getMyEnzymes());
@@ -358,7 +361,7 @@ export default function App() {
           initialDataRef.current[data.id || p] = data;
           setRecentFiles(addRecentFile(p));
         } else {
-          failed.push({ path: p, error: data?.error || 'Not a readable sequence file' });
+          failed.push({ path: p, error: data?.error || t('Not a readable sequence file') });
         }
       } catch (e) {
         failed.push({ path: p, error: e?.message || String(e) });
@@ -367,7 +370,7 @@ export default function App() {
     await refreshProjects();
     if (failed.length > 0) setOpenError(failed);
     if (splitPending) setFastaSplit(splitPending);
-  }, [projects, refreshProjects, handleSwitchProject, initialDataRef]);
+  }, [projects, refreshProjects, handleSwitchProject, initialDataRef, t]);
 
   // FastaSplitDialog choice: 'split' opens every record as its own project
   // (project id `<path>#record-<i>`), 'first' opens record 0 only, null = cancel.
@@ -383,7 +386,7 @@ export default function App() {
             initialDataRef.current[data.id || target.path] = data;
             setRecentFiles(addRecentFile(target.path));
           } else {
-            setOpenError([{ path: target.path, error: data?.error || 'Failed to open MSA' }]);
+            setOpenError([{ path: target.path, error: data?.error || t('Failed to open MSA') }]);
           }
         } catch (e) {
           setOpenError([{ path: target.path, error: e?.message || String(e) }]);
@@ -402,7 +405,7 @@ export default function App() {
           } else {
             failed.push({
               path: `${fileNameOf(target.path)} (record ${i + 1})`,
-              error: data?.error || 'Not a readable sequence file',
+              error: data?.error || t('Not a readable sequence file'),
             });
           }
         } catch (e) {
@@ -415,7 +418,7 @@ export default function App() {
       await refreshProjects();
       if (failed.length > 0) setOpenError(failed);
     },
-    [fastaSplit, refreshProjects, initialDataRef],
+    [fastaSplit, refreshProjects, initialDataRef, t],
   );
 
   // Create an in-memory project from the New File dialog; hand the
@@ -429,12 +432,12 @@ export default function App() {
           await refreshProjects();
           return { ok: true };
         }
-        return { ok: false, error: data?.error || 'Failed to create project' };
+        return { ok: false, error: data?.error || t('Failed to create project') };
       } catch (e) {
         return { ok: false, error: e?.message || String(e) };
       }
     },
-    [refreshProjects, initialDataRef],
+    [refreshProjects, initialDataRef, t],
   );
 
   const handleCreateMsa = useCallback(
@@ -446,26 +449,26 @@ export default function App() {
           await refreshProjects();
           return { ok: true };
         }
-        return { ok: false, error: data?.error || 'Failed to create MSA' };
+        return { ok: false, error: data?.error || t('Failed to create MSA') };
       } catch (e) {
         return { ok: false, error: e?.message || String(e) };
       }
     },
-    [refreshProjects, initialDataRef],
+    [refreshProjects, initialDataRef, t],
   );
 
   const handleCreateMsaFromActive = useCallback(() => {
     const source = projects.find((project) => project.id === activeId);
     const handle = activeId ? handlesRef.current[activeId] : null;
     const sequence = handle?.getSequence?.();
-    if (!source || !sequence) return { ok: false, error: 'No active sequence' };
+    if (!source || !sequence) return { ok: false, error: t('No active sequence') };
     const base = fileName(source).replace(/\.[^.]+$/, '');
     return handleCreateMsa({
       name: `${base} MSA`,
       sequence,
       moleculeType: source.moleculeType,
     });
-  }, [activeId, projects, handlesRef, handleCreateMsa]);
+  }, [activeId, projects, handlesRef, handleCreateMsa, t]);
 
   // Open a SnapGene history snapshot as a new in-memory project (Snapshots
   // dialog); the workspace mounts for the new id like handleCreateProject.
@@ -478,12 +481,12 @@ export default function App() {
           await refreshProjects();
           return { ok: true };
         }
-        return { ok: false, error: data?.error || 'Failed to open snapshot' };
+        return { ok: false, error: data?.error || t('Failed to open snapshot') };
       } catch (e) {
         return { ok: false, error: e?.message || String(e) };
       }
     },
-    [refreshProjects, initialDataRef],
+    [refreshProjects, initialDataRef, t],
   );
 
   // Open a path directly from the recent-files list (no native dialog).
@@ -828,7 +831,9 @@ export default function App() {
           {activeAgentUnlocked && (
             <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-md border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
               <Bot className="size-3.5 text-teal-500" />
-              <span>Agent tab — unlocked</span>
+              <span>
+                <T>{'Agent tab — unlocked'}</T>
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -836,7 +841,7 @@ export default function App() {
                 onClick={() => handleSetAgentLocked(activeId, true)}
               >
                 <Lock className="size-3" />
-                Lock
+                <T>{'Lock'}</T>
               </Button>
             </div>
           )}
@@ -885,9 +890,11 @@ export default function App() {
                     <img src="/icon.png" alt="LibreGene" className="size-14" />
                   </div>
                   <div className="space-y-1.5">
-                    <h1 className="text-lg font-semibold tracking-tight">LibreGene</h1>
+                    <h1 className="text-lg font-semibold tracking-tight">
+                      <T>{'LibreGene'}</T>
+                    </h1>
                     <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
-                      Open a sequence file to start viewing and editing your plasmid.
+                      {t('Open a sequence file to start viewing and editing your plasmid.')}
                     </p>
                   </div>
                   <div className="flex max-w-md flex-wrap items-center justify-center gap-1.5">
@@ -916,20 +923,30 @@ export default function App() {
                   <div className="mt-1 flex items-center gap-2">
                     <Button onClick={handleOpenFile} size="lg">
                       <FolderOpen className="size-4" />
-                      Open File
+                      {t('Open File')}
                     </Button>
                     <Button variant="outline" size="lg" onClick={() => setNewSeqOpen(true)}>
                       <FilePlus2 className="size-4" />
-                      New File
+                      {t('New File')}
                     </Button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+                    aria-label={t('Switch language')}
+                    title={t('Switch language')}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Languages className="size-3.5" />
+                    {locale === 'zh' ? '中文 / English' : 'English / 中文'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setMcpGuideOpen(true)}
                     className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   >
                     <Bot className="size-3.5" />
-                    Connect an LLM agent via MCP
+                    {t('Connect an LLM agent via MCP')}
                   </button>
                 </div>
               </main>

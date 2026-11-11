@@ -36,6 +36,7 @@ import { readHiddenAlnNames } from './workspace/hiddenAlignments';
 import { createProjectSnapshot, projectSnapshotsEqual } from './workspace/projectSnapshot';
 import { applyProjectMutation } from './workspace/projectMutation';
 import WorkspaceError from './components/WorkspaceError';
+import { useTranslation } from './i18n';
 
 function ProjectWorkspace({
   projectId,
@@ -101,6 +102,7 @@ function ProjectWorkspace({
   onOpenSnapshot,
   onCreateMsa,
 }) {
+  const { t } = useTranslation();
   const {
     sequence,
     setSequence,
@@ -177,11 +179,14 @@ function ProjectWorkspace({
   const [liveSelection, setLiveSelection] = useState(null);
   const [operationError, setOperationError] = useState('');
   const dismissError = useCallback(() => setOperationError(''), []);
-  const reportError = useCallback((context, error) => {
-    const detail = error?.message || String(error || 'Unknown error');
-    console.error(context, error);
-    setOperationError(`${context} ${detail}`);
-  }, []);
+  const reportError = useCallback(
+    (context, error) => {
+      const detail = error?.message || String(error || t('Unknown error'));
+      console.error(context, error);
+      setOperationError(`${t(context)} ${detail}`);
+    },
+    [t],
+  );
   useEffect(() => setOperationError(''), [projectId]);
   // Primer id pending delete confirmation (Backspace on selection / context menu)
   const [primerDeleteConfirm, setPrimerDeleteConfirm] = useState(null);

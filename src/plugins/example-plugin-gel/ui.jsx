@@ -2,7 +2,78 @@
 // any React host without shadcn/Radix. Styling relies on Tailwind theme
 // tokens (bg-card, text-muted-foreground, ...) provided by the host app;
 // see manifest.json for the host contract.
-import { createContext, useContext, useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore } from 'react';
+
+const ZH = {
+  Close: '关闭',
+  'Digest and Run Gel': '酶切与凝胶电泳',
+  Enzymes: '酶',
+  'Enzyme group': '酶分组',
+  'Single cutters': '单切酶',
+  'Double cutters': '双切酶',
+  Ladder: 'Marker',
+  Gel: '凝胶',
+  'Simulated gel': '模拟凝胶',
+  Agarose: '琼脂糖',
+  'None for this plasmid': '此质粒中无匹配项',
+  '{count} cut(s)': '{count} 个切点',
+  ' (methylation blocked)': '（甲基化阻断）',
+  '{site} — click to remove': '{site} — 点击移除',
+  'Click to remove': '点击移除',
+  'No enzymes selected — pick from the badges below': '未选择酶，请从下方标签中选择',
+  'Cutting efficiency': '酶切效率',
+  '{selected}/{max} selected': '已选 {selected}/{max}',
+  'Sizes in bp; wrap a size in *asterisks* for the brightest band.':
+    '单位为 bp；用 *星号* 包裹数值可将该条带设为最亮。',
+  Concentration: '浓度',
+  'Run time': '电泳时间',
+  'No sequence loaded.': '未加载序列。',
+  uncut: '未酶切',
+  ' (supercoiled)': '（超螺旋）',
+  ' (nicked circle)': '（切口环状）',
+  'All Enzymes': '全部酶',
+  'Unique + Twice-cutter': '单切 + 双切酶',
+  'Unique Cutters': '单切酶',
+  'Unique 6 bp': '6 bp 单切酶',
+  'Twice-cutter': '双切酶',
+  'My Enzymes': '我的酶',
+  Blunt: '平末端',
+  "5' Overhang": "5' 突出端",
+  "3' Overhang": "3' 突出端",
+  '4 bp Recognition': '4 bp 识别序列',
+  '5 bp Recognition': '5 bp 识别序列',
+  '6 bp Recognition': '6 bp 识别序列',
+  '≥8 bp Recognition': '≥8 bp 识别序列',
+};
+
+function subscribeLanguage(callback) {
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+  return () => observer.disconnect();
+}
+
+export function useTranslation() {
+  const lang = useSyncExternalStore(
+    subscribeLanguage,
+    () => document.documentElement.lang,
+    () => 'en',
+  );
+  const t = (text, values) => {
+    let translated = lang.startsWith('zh') ? ZH[text] || text : text;
+    if (values) {
+      translated = translated.replace(/\{(\w+)\}/g, (match, key) =>
+        Object.hasOwn(values, key) ? String(values[key]) : match,
+      );
+    }
+    return translated;
+  };
+  return { t };
+}
+
+export function T({ children }) {
+  const { t } = useTranslation();
+  return typeof children === 'string' ? t(children) : children;
+}
 
 function cx(...parts) {
   return parts.filter(Boolean).join(' ');
@@ -55,6 +126,7 @@ function useWheelContainment() {
 }
 
 export function DialogContent({ className, style, children }) {
+  const { t } = useTranslation();
   const onOpenChange = useContext(DialogCtx);
   const close = () => onOpenChange?.(false);
   const rootRef = useWheelContainment();
@@ -78,7 +150,7 @@ export function DialogContent({ className, style, children }) {
         <button
           type="button"
           onClick={close}
-          aria-label="Close"
+          aria-label={t('Close')}
           className="absolute right-4 top-4 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <svg

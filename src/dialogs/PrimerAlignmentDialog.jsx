@@ -21,6 +21,7 @@ import {
 import { monoFont } from '../editorConstants';
 import { computePrimerAlignment } from '../tauriApi';
 import { writePlainClipboard } from '../clipboardAnnotations';
+import { T, useTranslation } from '@/i18n';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
 /* Reverse complement (preserves case, supports IUPAC degenerate bases) */
@@ -149,7 +150,7 @@ function OtherBindingSite({ alt }) {
         </span>
         {alt.tm != null && (
           <span className="ml-auto pr-1 text-[11px] tabular-nums text-muted-foreground">
-            Tm <span className="font-medium text-orange-700">{alt.tm}°C</span>
+            <T>{'Tm'}</T> <span className="font-medium text-orange-700">{alt.tm}°C</span>
           </span>
         )}
       </button>
@@ -161,7 +162,7 @@ function OtherBindingSite({ alt }) {
             </div>
           ) : (
             <div className="text-xs text-muted-foreground">
-              Alignment unavailable for this site.
+              <T>{'Alignment unavailable for this site.'}</T>
             </div>
           )}
         </div>
@@ -174,7 +175,9 @@ export function OtherBindingSites({ sites }) {
   return (
     <div className="max-h-[36vh] overflow-auto rounded-xl border border-orange-200/80 bg-orange-50/50 p-2">
       <div className="flex items-center justify-between px-1 pb-1.5 text-xs">
-        <span className="font-medium text-orange-800">Other binding sites</span>
+        <span className="font-medium text-orange-800">
+          <T>{'Other binding sites'}</T>
+        </span>
         <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-orange-700">
           {sites.length}
         </span>
@@ -189,6 +192,7 @@ export function OtherBindingSites({ sites }) {
 }
 
 function CopyBtn({ text }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
     writePlainClipboard(text).then(() => {
@@ -204,7 +208,7 @@ function CopyBtn({ text }) {
         handleCopy();
       }}
       className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      title="Copy"
+      title={t('Copy')}
     >
       {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
     </button>
@@ -227,6 +231,7 @@ export default function PrimerAlignmentDialog({
   tmParams = {},
   projectId,
 }) {
+  const { t } = useTranslation();
   const [editSeq, setEditSeq] = useState('');
   const [editName, setEditName] = useState('');
   const [data, setData] = useState(null);
@@ -467,12 +472,16 @@ export default function PrimerAlignmentDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Primer</DialogTitle>
+          <DialogTitle>
+            <T>{'Primer'}</T>
+          </DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3">
           {/* Name */}
-          <span className={LABEL_CLS}>Name</span>
+          <span className={LABEL_CLS}>
+            <T>{'Name'}</T>
+          </span>
           <div className="flex items-center gap-1 min-w-0">
             <input
               value={editName}
@@ -490,7 +499,9 @@ export default function PrimerAlignmentDialog({
           </div>
 
           {/* Sequence */}
-          <span className={LABEL_CLS}>Sequence</span>
+          <span className={LABEL_CLS}>
+            <T>{'Sequence'}</T>
+          </span>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">5'</span>
             <input
@@ -504,7 +515,7 @@ export default function PrimerAlignmentDialog({
                   : 'border-input focus:border-ring focus:ring-ring/40')
               }
               spellCheck={false}
-              placeholder="Enter primer sequence…"
+              placeholder={t('Enter primer sequence…')}
             />
             <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">3'</span>
             <CopyBtn text={editSeq} />
@@ -515,7 +526,7 @@ export default function PrimerAlignmentDialog({
                 setPrimerType((t) => (t === 'fwd' ? 'rev' : 'fwd'));
               }}
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title="Reverse complement"
+              title={t('Reverse complement')}
             >
               <Repeat className="size-4" />
             </button>
@@ -526,14 +537,20 @@ export default function PrimerAlignmentDialog({
         {cur && (
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-              Tm
+              <T>{'Tm'}</T>
               <span className="font-semibold tabular-nums">{cur.tm}°C</span>
             </span>
             <span className="text-xs text-muted-foreground">
-              {cur.tmScope === 'fullDuplex' ? 'Full duplex' : '3′ matching region'}
+              {cur.tmScope === 'fullDuplex' ? (
+                <T>{'Full duplex'}</T>
+              ) : (
+                <T>{'3′ matching region'}</T>
+              )}
             </span>
             {preview?.loading && (
-              <span className="text-xs text-muted-foreground italic">Computing…</span>
+              <span className="text-xs text-muted-foreground italic">
+                <T>{'Computing…'}</T>
+              </span>
             )}
           </div>
         )}
@@ -547,19 +564,25 @@ export default function PrimerAlignmentDialog({
             </div>
           )}
           {!cur && preview?.loading && (
-            <div className="text-sm text-muted-foreground italic">Computing alignment…</div>
+            <div className="text-sm text-muted-foreground italic">
+              <T>{'Computing alignment…'}</T>
+            </div>
           )}
           {!cur && !preview?.loading && preview?.data && !preview.data.current && (
-            <div className="text-sm text-red-600 font-mono">No candidate binding sites found.</div>
+            <div className="text-sm text-red-600 font-mono">
+              <T>{'No candidate binding sites found.'}</T>
+            </div>
           )}
           {!cur && !preview && !data && (
             <div className="text-sm text-muted-foreground italic">
-              Type a DNA sequence to see alignment preview.
+              <T>{'Type a DNA sequence to see alignment preview.'}</T>
             </div>
           )}
           {preview?.loading && cur && (
             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-[1px]">
-              <div className="text-xs text-muted-foreground italic">Updating…</div>
+              <div className="text-xs text-muted-foreground italic">
+                <T>{'Updating…'}</T>
+              </div>
             </div>
           )}
         </div>
@@ -570,7 +593,8 @@ export default function PrimerAlignmentDialog({
         {isInvalid && (
           <InlineNotice tone="warning">
             <span>
-              Invalid character(s): <span className="font-mono">{invalidChars.join(', ')}</span>
+              <T>{'Invalid character(s):'}</T>{' '}
+              <span className="font-mono">{invalidChars.join(', ')}</span>
             </span>
           </InlineNotice>
         )}
@@ -578,7 +602,7 @@ export default function PrimerAlignmentDialog({
         {/* Name conflict */}
         {nameConflict && (
           <InlineNotice tone="error">
-            Name "{editName}" is already used by another primer
+            {t('Name "{name}" is already used by another primer', { name: editName })}
           </InlineNotice>
         )}
 
@@ -596,11 +620,11 @@ export default function PrimerAlignmentDialog({
                 }}
               >
                 <Trash2 className="size-3.5" />
-                Delete
+                <T>{'Delete'}</T>
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={handleClose}>
-              Cancel
+              <T>{'Cancel'}</T>
             </Button>
             {hasChanges && (
               <Button
@@ -612,7 +636,7 @@ export default function PrimerAlignmentDialog({
                 }}
               >
                 <RotateCcw className="size-3.5" />
-                Reset
+                <T>{'Reset'}</T>
               </Button>
             )}
             {hasChanges && (
@@ -621,7 +645,7 @@ export default function PrimerAlignmentDialog({
                 onClick={handleApply}
                 disabled={editSeq.length < 6 || isInvalid || nameConflict}
               >
-                {isNewPrimer ? 'Create Primer' : 'Apply'}
+                {isNewPrimer ? <T>{'Create Primer'}</T> : <T>{'Apply'}</T>}
               </Button>
             )}
           </div>
@@ -636,17 +660,17 @@ export default function PrimerAlignmentDialog({
             >
               <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
                 <AlertTriangle className="size-4 text-amber-500" />
-                Discard changes?
+                <T>{'Discard changes?'}</T>
               </div>
               <div className="mb-4 text-xs text-muted-foreground">
-                Primer sequence has been modified but not applied. Discard changes?
+                <T>{'The primer has unapplied changes. Discard them?'}</T>
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" size="sm" onClick={() => setConfirmClose(false)}>
-                  Cancel
+                  <T>{'Cancel'}</T>
                 </Button>
                 <Button variant="destructive" size="sm" onClick={handleConfirmDiscard}>
-                  Discard
+                  <T>{'Discard'}</T>
                 </Button>
               </div>
             </div>

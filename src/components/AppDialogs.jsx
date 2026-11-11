@@ -14,6 +14,7 @@ import { forceQuit } from '../tauriApi';
 import McpGuideDialog from '../dialogs/McpGuideDialog';
 import NewSequenceDialog from '../dialogs/NewSequenceDialog';
 import FastaSplitDialog from '../dialogs/FastaSplitDialog';
+import { T, useTranslation } from '@/i18n';
 
 export default function AppDialogs({
   mcpGuideOpen,
@@ -41,6 +42,7 @@ export default function AppDialogs({
   quitRequest,
   setQuitRequest,
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <McpGuideDialog
@@ -70,16 +72,16 @@ export default function AppDialogs({
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
                 <AlertTriangle className="size-4" />
               </span>
-              Unsaved Changes
+              <T>{'Unsaved Changes'}</T>
             </DialogTitle>
             <DialogDescription>
-              This project has unsaved changes. Save before continuing?
+              <T>{'This project has unsaved changes. Save before continuing?'}</T>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-2">
             <DialogClose asChild>
               <Button variant="outline" onClick={onUnsavedCancel}>
-                Cancel
+                <T>{'Cancel'}</T>
               </Button>
             </DialogClose>
             <Button
@@ -87,9 +89,11 @@ export default function AppDialogs({
               className="text-destructive hover:text-destructive"
               onClick={onUnsavedDiscard}
             >
-              Don't Save
+              <T>{"Don't Save"}</T>
             </Button>
-            <Button onClick={onUnsavedSave}>Save</Button>
+            <Button onClick={onUnsavedSave}>
+              <T>{'Save'}</T>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -103,11 +107,15 @@ export default function AppDialogs({
       >
         <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>Add as Alignment?</DialogTitle>
+            <DialogTitle>
+              <T>{'Add as Alignment?'}</T>
+            </DialogTitle>
             <DialogDescription>
-              Add {dropConfirm?.paths.length === 1 ? 'this file' : 'these files'} to the current
-              project as {dropConfirm?.paths.length === 1 ? 'an alignment' : 'alignments'}, or open
-              as new {dropConfirm?.paths.length === 1 ? 'project' : 'projects'}?
+              {t(
+                dropConfirm?.paths.length === 1
+                  ? 'Add this file to the current project as an alignment, or open it as a new project?'
+                  : 'Add these files to the current project as alignments, or open them as new projects?',
+              )}
             </DialogDescription>
           </DialogHeader>
           <ul className="max-h-40 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs font-mono text-muted-foreground">
@@ -119,12 +127,16 @@ export default function AppDialogs({
           </ul>
           <DialogFooter className="gap-2 sm:gap-2">
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline">
+                <T>{'Cancel'}</T>
+              </Button>
             </DialogClose>
             <Button variant="outline" onClick={onDropOpenAsNew}>
-              Open as New File
+              <T>{'Open as New File'}</T>
             </Button>
-            <Button onClick={onDropAddAsAlignment}>Add as Alignment</Button>
+            <Button onClick={onDropAddAsAlignment}>
+              <T>{'Add as Alignment'}</T>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -142,12 +154,17 @@ export default function AppDialogs({
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
                 <AlertTriangle className="size-4" />
               </span>
-              Some Alignments Failed
+              <T>{'Some Alignments Failed'}</T>
             </DialogTitle>
             <DialogDescription>
-              {dropResult?.added > 0
-                ? `${dropResult.added} added, ${dropResult.failed.length} failed:`
-                : 'No alignments could be added:'}
+              {dropResult?.added > 0 ? (
+                t('{added} added; {failed} failed:', {
+                  added: dropResult.added,
+                  failed: dropResult.failed.length,
+                })
+              ) : (
+                <T>{'No alignments could be added:'}</T>
+              )}
             </DialogDescription>
           </DialogHeader>
           <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
@@ -160,7 +177,9 @@ export default function AppDialogs({
           </ul>
           <DialogFooter>
             <DialogClose asChild>
-              <Button>OK</Button>
+              <Button>
+                <T>{'OK'}</T>
+              </Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
@@ -178,7 +197,11 @@ export default function AppDialogs({
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
                 <AlertTriangle className="size-4" />
               </span>
-              {openError?.length > 1 ? 'Some Files Failed to Open' : 'Failed to Open File'}
+              {openError?.length > 1 ? (
+                <T>{'Some Files Failed to Open'}</T>
+              ) : (
+                <T>{'Failed to Open File'}</T>
+              )}
             </DialogTitle>
           </DialogHeader>
           <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
@@ -191,7 +214,9 @@ export default function AppDialogs({
           </ul>
           <DialogFooter>
             <DialogClose asChild>
-              <Button>OK</Button>
+              <Button>
+                <T>{'OK'}</T>
+              </Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
@@ -211,9 +236,11 @@ export default function AppDialogs({
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
                 <AlertTriangle className="size-4" />
               </span>
-              Quit LibreGene?
+              <T>{'Quit LibreGene?'}</T>
             </DialogTitle>
-            <DialogDescription>Unsaved changes will be lost:</DialogDescription>
+            <DialogDescription>
+              <T>{'Unsaved changes will be lost:'}</T>
+            </DialogDescription>
           </DialogHeader>
           <ul className="max-h-48 overflow-auto rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
             {(quitRequest || []).map((id) => (
@@ -224,10 +251,12 @@ export default function AppDialogs({
           </ul>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline">
+                <T>{'Cancel'}</T>
+              </Button>
             </DialogClose>
             <Button variant="destructive" onClick={() => forceQuit().catch(() => {})}>
-              Quit Anyway
+              <T>{'Quit Anyway'}</T>
             </Button>
           </DialogFooter>
         </DialogContent>

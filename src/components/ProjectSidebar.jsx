@@ -27,6 +27,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { getFileIcon } from '../fileIcons';
 import { fileNameOf } from '../recentFiles';
+import { T, useTranslation } from '@/i18n';
 
 export default function ProjectSidebar({
   sidebarWheelRef,
@@ -59,6 +60,7 @@ export default function ProjectSidebar({
   openSettings,
   setAboutOpen,
 }) {
+  const { t } = useTranslation();
   return (
     <Sidebar
       ref={sidebarWheelRef}
@@ -85,24 +87,30 @@ export default function ProjectSidebar({
         </div>
         <div className="flex min-w-0 flex-col whitespace-nowrap group-data-[state=collapsed]:hidden">
           <span className="text-[13px] font-semibold leading-tight tracking-tight text-foreground">
-            LibreGene
+            <T>{'LibreGene'}</T>
           </span>
-          <span className="text-[10px] leading-tight text-muted-foreground">Plasmid Editor</span>
+          <span className="text-[10px] leading-tight text-muted-foreground">
+            <T>{'Plasmid Editor'}</T>
+          </span>
         </div>
       </SidebarHeader>
       <SidebarGroup>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={handleOpenFile} tooltip="Open File">
+              <SidebarMenuButton onClick={handleOpenFile} tooltip={t('Open File')}>
                 <FolderOpen className="size-4" />
-                <span>Open File…</span>
+                <span>
+                  <T>{'Open File…'}</T>
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip="New File">
+              <SidebarMenuButton onClick={() => setNewSeqOpen(true)} tooltip={t('New File')}>
                 <FilePlus2 className="size-4" />
-                <span>New File…</span>
+                <span>
+                  <T>{'New File…'}</T>
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -138,7 +146,7 @@ export default function ProjectSidebar({
                   <SidebarGroupLabel className="cursor-pointer select-none hover:text-sidebar-foreground">
                     <Clock className="mr-1.5 size-3" />
                     <span className="uppercase tracking-wider text-[10px] font-semibold">
-                      Recent
+                      <T>{'Recent'}</T>
                     </span>
                     <ChevronDown
                       className={`ml-auto size-3.5 shrink-0 transition-transform duration-200 ${recentOpen ? 'rotate-0' : '-rotate-90'}`}
@@ -163,12 +171,12 @@ export default function ProjectSidebar({
                             </SidebarMenuButton>
                             <button
                               type="button"
-                              aria-label="Remove from recent"
+                              aria-label={t('Remove from recent')}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleRemoveRecent(p);
                               }}
-                              title="Remove from recent"
+                              title={t('Remove from recent')}
                               className="absolute right-2 top-1/2 hidden -translate-y-1/2 size-4 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent-foreground/10 hover:text-foreground group-hover/menu-item:flex"
                             >
                               <X className="size-3" />
@@ -185,7 +193,9 @@ export default function ProjectSidebar({
           {projects.length > 0 && (
             <SidebarGroup className="pt-0">
               <SidebarGroupLabel>
-                <span className="uppercase tracking-wider text-[10px] font-semibold">Opened</span>
+                <span className="uppercase tracking-wider text-[10px] font-semibold">
+                  <T>{'Opened'}</T>
+                </span>
                 <span className="ml-1.5 rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium tabular-nums text-sidebar-accent-foreground">
                   {projects.length}
                 </span>
@@ -242,7 +252,7 @@ export default function ProjectSidebar({
                             e.stopPropagation();
                             handleCloseProject(p.id);
                           }}
-                          title="Close"
+                          title={t('Close')}
                         >
                           <X className="size-3" />
                         </button>
@@ -266,11 +276,13 @@ export default function ProjectSidebar({
                       onClick={() =>
                         handlesRef.current[sidebarTargetId]?.openPluginDialog(item.dialogKey)
                       }
-                      tooltip={item.tooltip}
+                      tooltip={t(item.tooltip)}
                       className="text-muted-foreground hover:text-foreground"
                     >
                       <item.icon className="size-4" />
-                      <span>{item.label}</span>
+                      <span>
+                        <T>{item.label}</T>
+                      </span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )),
@@ -278,41 +290,49 @@ export default function ProjectSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => setMcpGuideOpen(true)}
-                  tooltip="MCP Server (LLM agent)"
+                  tooltip={t('MCP Server (LLM agent)')}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Bot className="size-4" />
-                  <span>MCP Server</span>
+                  <span>
+                    <T>{'MCP Server'}</T>
+                  </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => openSettings('plugins')}
-                  tooltip="Manage plugins"
+                  tooltip={t('Manage plugins')}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Puzzle className="size-4" />
-                  <span>Plugins</span>
+                  <span>
+                    <T>{'Plugins'}</T>
+                  </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => openSettings()}
-                  tooltip="Settings"
+                  tooltip={t('Settings')}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Settings className="size-4" />
-                  <span>Settings</span>
+                  <span>
+                    <T>{'Settings'}</T>
+                  </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => setAboutOpen(true)}
-                  tooltip="About LibreGene"
+                  tooltip={t('About LibreGene')}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Info className="size-4" />
-                  <span>About</span>
+                  <span>
+                    <T>{'About'}</T>
+                  </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
