@@ -185,7 +185,7 @@ function OtherBindingSite({ alt, tmMode }) {
   );
 }
 
-export function OtherBindingSites({ sites, tmMode = 'alignment' }) {
+export function OtherBindingSites({ sites, tmMode = 'annealCore' }) {
   return (
     <div className="max-h-[36vh] overflow-auto rounded-xl border border-orange-200/80 bg-orange-50/50 p-2">
       <div className="flex items-center justify-between px-1 pb-1.5 text-xs">
@@ -247,7 +247,7 @@ export default function PrimerAlignmentDialog({
   onDeletePrimer,
   primers = [],
   tmParams = {},
-  primerTmMode = 'alignment',
+  primerTmMode = 'annealCore',
   onPrimerTmModeChange,
   projectId,
 }) {
@@ -575,6 +575,7 @@ export default function PrimerAlignmentDialog({
                     key={option.value}
                     value={option.value}
                     disabled={!primerTmModeAvailable(cur, option.value)}
+                    title={option.description ? t(option.description) : undefined}
                   >
                     <T>{option.label}</T>
                   </SelectItem>

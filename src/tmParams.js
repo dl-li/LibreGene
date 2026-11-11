@@ -45,11 +45,23 @@ export function writeStoredTmParams(params, storage = globalThis.localStorage) {
   return normalized;
 }
 
-export const PRIMER_TM_MODE_DEFAULT = 'alignment';
+export const PRIMER_TM_MODE_DEFAULT = 'annealCore';
 export const PRIMER_TM_MODE_OPTIONS = Object.freeze([
-  { value: 'annealCore', label: 'Based on 3′ continuous annealing region' },
-  { value: 'fullPrimer', label: 'Based on full duplex' },
-  { value: 'alignment', label: 'Based on alignment' },
+  {
+    value: 'annealCore',
+    label: 'Based on 3′ continuous annealing region',
+    description: 'Recommended for initial-cycle PCR annealing',
+  },
+  {
+    value: 'fullPrimer',
+    label: 'Based on full duplex',
+    description: 'Entire primer treated as a perfect duplex',
+  },
+  {
+    value: 'alignment',
+    label: 'Based on alignment',
+    description: 'Local duplex with mismatch and dangling-end corrections',
+  },
 ]);
 
 export function normalizePrimerTmMode(mode) {

@@ -44,9 +44,9 @@ describe('Tm parameter conventions', () => {
 });
 
 describe('Primer Tm display mode', () => {
-  it('defaults to alignment and rejects unknown modes', () => {
-    expect(normalizePrimerTmMode(undefined)).toBe('alignment');
-    expect(normalizePrimerTmMode('invalid')).toBe('alignment');
+  it('defaults to the annealing core and rejects unknown modes', () => {
+    expect(normalizePrimerTmMode(undefined)).toBe('annealCore');
+    expect(normalizePrimerTmMode('invalid')).toBe('annealCore');
     expect(normalizePrimerTmMode('annealCore')).toBe('annealCore');
     expect(normalizePrimerTmMode('fullPrimer')).toBe('fullPrimer');
   });
@@ -60,7 +60,7 @@ describe('Primer Tm display mode', () => {
     expect(writeStoredPrimerTmMode('fullPrimer', storage)).toBe('fullPrimer');
     expect(readStoredPrimerTmMode(storage)).toBe('fullPrimer');
     writeStoredPrimerTmMode('invalid', storage);
-    expect(readStoredPrimerTmMode(storage)).toBe('alignment');
+    expect(readStoredPrimerTmMode(storage)).toBe('annealCore');
   });
 
   it('selects the requested Tm and supports legacy results', () => {

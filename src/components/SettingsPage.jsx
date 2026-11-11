@@ -124,7 +124,7 @@ export default function SettingsPage({
   onAlignmentAlgorithmChange,
   tmParams,
   setTmParams,
-  primerTmMode = 'alignment',
+  primerTmMode = 'annealCore',
   onPrimerTmModeChange,
   caseDisplay = { dna: 'asis', rna: 'asis', protein: 'upper' },
   onCaseDisplayChange,
@@ -532,7 +532,11 @@ export default function SettingsPage({
                     </SelectTrigger>
                     <SelectContent>
                       {PRIMER_TM_MODE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          title={option.description ? t(option.description) : undefined}
+                        >
                           <T>{option.label}</T>
                         </SelectItem>
                       ))}

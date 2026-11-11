@@ -134,7 +134,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   primerOverviewOpen = false,
   projectId,
   tmParams = {},
-  primerTmMode = 'alignment',
+  primerTmMode = 'annealCore',
   onPrimerTmModeChange,
   onSelectionChange,
   scrollContainerRef,
