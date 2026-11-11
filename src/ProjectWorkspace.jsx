@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SequenceEditor from './SequenceEditor';
 import {
   getProjectById,
@@ -34,8 +34,10 @@ import { plugins, pluginAvailable } from './plugins';
 import { EMPTY_ARRAY } from './workspace/constants';
 import { readHiddenAlnNames } from './workspace/hiddenAlignments';
 import { createProjectSnapshot, projectSnapshotsEqual } from './workspace/projectSnapshot';
+import { applyProjectMutation } from './workspace/projectMutation';
+import WorkspaceError from './components/WorkspaceError';
 
-export default function ProjectWorkspace({
+function ProjectWorkspace({
   projectId,
   projectName,
   hidden,
@@ -173,11 +175,23 @@ export default function ProjectWorkspace({
   });
   const [enzymeHoverCuts, setEnzymeHoverCuts] = useState(null);
   const [liveSelection, setLiveSelection] = useState(null);
+  const [operationError, setOperationError] = useState('');
+  const dismissError = useCallback(() => setOperationError(''), []);
+  const reportError = useCallback((context, error) => {
+    const detail = error?.message || String(error || 'Unknown error');
+    console.error(context, error);
+    setOperationError(`${context} ${detail}`);
+  }, []);
+  useEffect(() => setOperationError(''), [projectId]);
   // Primer id pending delete confirmation (Backspace on selection / context menu)
   const [primerDeleteConfirm, setPrimerDeleteConfirm] = useState(null);
   const [sessionLogOpen, setSessionLogOpen] = useState(false);
-  const { entries: sessionLogEntries, rollback: rollbackSessionLogEntry } =
-    useSessionEditLog(projectId);
+  const {
+    entries: sessionLogEntries,
+    canUndo: backendCanUndo,
+    canRedo: backendCanRedo,
+    rollback: rollbackSessionLogEntry,
+  } = useSessionEditLog(projectId);
   const alignmentCacheRef = useRef({});
   const sequenceRef = useRef(sequence);
   const currentSnapshotRef = useRef(null);
@@ -189,6 +203,7 @@ export default function ProjectWorkspace({
     textColorsBottom,
   });
   const operationGenRef = useRef(0);
+  const latestRevisionRef = useRef(initialData?.revision || 0);
   const mainScrollRef = useRef(null);
   // The editor's inner container div (the horizontal scroll host in
   // continuous mode); SequenceEditor merges it with its own containerRef.
@@ -221,7 +236,6 @@ export default function ProjectWorkspace({
   const lastSelectionRef = useRef(null);
 
   const {
-    editHistoryRef,
     canUndo,
     canRedo,
     restoreState,
@@ -231,7 +245,6 @@ export default function ProjectWorkspace({
     setIsDirty,
     isDirtyRef,
     baselineSnapshotRef,
-    pushHistory,
     handleUndo,
     handleRedo,
   } = useUndoHistory({
@@ -239,7 +252,11 @@ export default function ProjectWorkspace({
     agentLockedRef,
     operationGenRef,
     projectId,
+    latestRevisionRef,
+    backendCanUndo,
+    backendCanRedo,
     onProjectsSync,
+    onError: reportError,
     sequence,
     features,
     primers,
@@ -258,12 +275,11 @@ export default function ProjectWorkspace({
     agentLockedRef,
     operationGenRef,
     projectIdRef,
-    editHistoryRef,
+    latestRevisionRef,
     setRestoreState,
     undoVersionRef,
     sequence,
     features,
-    primers,
     alignments,
     textColorsTop,
     textColorsBottom,
@@ -277,6 +293,7 @@ export default function ProjectWorkspace({
     setTextColorsBottom,
     setIsDirty,
     onProjectsSync,
+    onError: reportError,
     isDna,
   });
 
@@ -296,21 +313,11 @@ export default function ProjectWorkspace({
   }, [sequence]);
   useEffect(() => {
     projectIdRef.current = projectId;
-  }, [projectId, projectIdRef]);
+  }, [projectId, projectIdRef, reportError]);
 
-  // Initialize undo history from initialData, or fetch the project when absent
+  // Initialize the save baseline from initialData, or fetch the project when absent
   useEffect(() => {
     if (initialData && initialData.sequence) {
-      editHistoryRef.current.reset({
-        sequence: initialData.sequence,
-        features: initialData.features || EMPTY_ARRAY,
-        primers: initialData.primers || EMPTY_ARRAY,
-        textColorsTop: initialData.textColorsTop || EMPTY_ARRAY,
-        textColorsBottom: initialData.textColorsBottom || EMPTY_ARRAY,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
-      });
       baselineSnapshotRef.current = createProjectSnapshot(initialData);
       setIsDirty(initialData.dirty === true);
       return;
@@ -337,16 +344,7 @@ export default function ProjectWorkspace({
           setTracePath(data.tracePath || null);
           setTextColorsTop(data.textColorsTop || EMPTY_ARRAY);
           setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
-          editHistoryRef.current.reset({
-            sequence: data.sequence,
-            features: data.features || EMPTY_ARRAY,
-            primers: data.primers || EMPTY_ARRAY,
-            textColorsTop: data.textColorsTop || EMPTY_ARRAY,
-            textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
-            cursorIndex: null,
-            selStart: null,
-            selEnd: null,
-          });
+          latestRevisionRef.current = data.revision || 0;
           baselineSnapshotRef.current = createProjectSnapshot(data);
           setIsDirty(data.dirty === true);
         }
@@ -360,7 +358,6 @@ export default function ProjectWorkspace({
     // mount-only load; projectId prop changes come from Save As rekey (state preserved)
   }, [
     baselineSnapshotRef,
-    editHistoryRef,
     initialData,
     projectIdRef,
     setAlignments,
@@ -403,29 +400,23 @@ export default function ProjectWorkspace({
           data = msg.projectData[id];
         }
         if (!data) return;
-        operationGenRef.current += 1;
-        setSequence(data.sequence);
-        setFeatures(data.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(data.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        setMoleculeType(data.moleculeType || 'dna');
-        setTopologyLive(data.topology || 'circular');
-        setTracePath(data.tracePath || null);
-        setTextColorsTop(data.textColorsTop || EMPTY_ARRAY);
-        setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
-        editHistoryRef.current.reset({
-          sequence: data.sequence,
-          features: data.features || EMPTY_ARRAY,
-          primers: data.primers || EMPTY_ARRAY,
-          textColorsTop: data.textColorsTop || EMPTY_ARRAY,
-          textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
+        const applied = applyProjectMutation(data, {
+          latestRevisionRef,
+          setSequence,
+          setFeatures,
+          setEnzymes,
+          setPrimers,
+          setAlignments,
+          setMoleculeType,
+          setTopologyLive,
+          setTracePath,
+          setTextColorsTop,
+          setTextColorsBottom,
+          setIsDirty,
         });
+        if (!applied) return;
+        operationGenRef.current += 1;
         if (data.dirty === false) baselineSnapshotRef.current = createProjectSnapshot(data);
-        setIsDirty(data.dirty === true);
       });
     })();
     return () => {
@@ -434,8 +425,8 @@ export default function ProjectWorkspace({
     };
   }, [
     baselineSnapshotRef,
-    editHistoryRef,
     projectIdRef,
+    latestRevisionRef,
     setAlignments,
     setEnzymes,
     setFeatures,
@@ -550,11 +541,11 @@ export default function ProjectWorkspace({
           setChromVersion((v) => v + 1);
         })
         .catch((e) => {
-          console.error('chromatogram load error:', e);
+          reportError('chromatogram load error:', e);
           chromRawRef.current.delete(path);
         });
     }
-  }, [neededTracePaths]);
+  }, [neededTracePaths, reportError]);
   const mainChromatogram = useMemo(() => {
     void chromVersion;
     if (!tracePath) return null;
@@ -778,8 +769,9 @@ export default function ProjectWorkspace({
     agentLockedRef,
     operationGenRef,
     projectIdRef,
-    pushHistory,
+    latestRevisionRef,
     setIsDirty,
+    setSequence,
     setFeatures,
     setPrimers,
     setEnzymes,
@@ -787,6 +779,8 @@ export default function ProjectWorkspace({
     setTextColorsTop,
     setTextColorsBottom,
     setTopologyLive,
+    setMoleculeType,
+    setTracePath,
     topologyLive,
     setExpandedChromAlnId,
     setHiddenAlignIds,
@@ -797,6 +791,7 @@ export default function ProjectWorkspace({
     onMyPrimersChange,
     onMyEnzymesChange,
     onProjectsSync,
+    onError: reportError,
     alignmentAlgorithm,
     alignmentEnabled,
     showAlignments,
@@ -848,6 +843,7 @@ export default function ProjectWorkspace({
 
   const finishSave = useCallback(
     (result, sourceId, gen, savedSnapshot) => {
+      dismissError();
       if (result.rekeyedFrom === sourceId) {
         projectIdRef.current = result.projectId;
         onRekey(sourceId, result.projectId);
@@ -857,21 +853,13 @@ export default function ProjectWorkspace({
         result.currentRevision === result.savedRevision &&
         projectSnapshotsEqual(currentSnapshotRef.current, savedSnapshot);
       const clean = result.dirty === false && unchanged;
-      if (clean) {
-        baselineSnapshotRef.current = savedSnapshot;
-        editHistoryRef.current.reset({
-          ...savedSnapshot,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
-        });
-      }
+      if (clean) baselineSnapshotRef.current = savedSnapshot;
       const dirty = !clean;
       isDirtyRef.current = dirty;
       setIsDirty(dirty);
       return clean;
     },
-    [onRekey, baselineSnapshotRef, editHistoryRef, isDirtyRef, projectIdRef, setIsDirty],
+    [onRekey, baselineSnapshotRef, isDirtyRef, projectIdRef, setIsDirty, dismissError],
   );
 
   // --- Save As (defined before Save because Save may reference it) ---
@@ -893,12 +881,12 @@ export default function ProjectWorkspace({
     try {
       const result = await saveFile(pid, path);
       if (result && !result.error) return finishSave(result, pid, gen, savedSnapshot);
-      console.error('save as error:', result?.error);
+      reportError('save as error:', result?.error);
     } catch (e) {
-      console.error('save as error:', e);
+      reportError('save as error:', e);
     }
     return false;
-  }, [finishSave, moleculeType, projectName, projectIdRef]);
+  }, [finishSave, moleculeType, projectName, projectIdRef, reportError]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -920,46 +908,36 @@ export default function ProjectWorkspace({
     try {
       const result = await saveFile(filePath, filePath);
       if (result && !result.error) return finishSave(result, filePath, gen, savedSnapshot);
-      console.error('save error:', result?.error);
+      reportError('save error:', result?.error);
     } catch (e) {
-      console.error('save exception:', e);
+      reportError('save exception:', e);
     }
     return false;
-  }, [finishSave, handleSaveAs, moleculeType, projectIdRef]);
+  }, [finishSave, handleSaveAs, moleculeType, projectIdRef, reportError]);
 
-  // Refetch the project's data after a mutation whose command response does not
-  // carry the updated sequence/features (e.g. apply_codon_optimization); record
-  // the new state in undo history and mark the project dirty so Ctrl+Z can
-  // revert the optimization.
+  // Refetch after a mutation whose command response does not carry updated data.
   const refreshProject = useCallback(async () => {
     try {
       const data = await getProjectById(projectIdRef.current, 'all');
       if (data && !data.error && data.sequence) {
-        editHistoryRef.current.push({
-          sequence: data.sequence,
-          features: data.features || EMPTY_ARRAY,
-          primers: data.primers || EMPTY_ARRAY,
-          textColorsTop: data.textColorsTop || EMPTY_ARRAY,
-          textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
-          cursorIndex: null,
-          selStart: null,
-          selEnd: null,
+        applyProjectMutation(data, {
+          latestRevisionRef,
+          setSequence,
+          setFeatures,
+          setEnzymes,
+          setPrimers,
+          setAlignments,
+          setTextColorsTop,
+          setTextColorsBottom,
+          setIsDirty,
         });
-        setSequence(data.sequence);
-        setFeatures(data.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(data.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        setTextColorsTop(data.textColorsTop || EMPTY_ARRAY);
-        setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
-        setIsDirty(data.dirty === true);
       }
     } catch (e) {
-      console.error('project refresh error:', e);
+      reportError('project refresh error:', e);
     }
   }, [
-    editHistoryRef,
     projectIdRef,
+    latestRevisionRef,
     setAlignments,
     setEnzymes,
     setFeatures,
@@ -968,6 +946,7 @@ export default function ProjectWorkspace({
     setSequence,
     setTextColorsBottom,
     setTextColorsTop,
+    reportError,
   ]);
 
   const handleSessionLogRollback = useCallback(
@@ -1066,6 +1045,7 @@ export default function ProjectWorkspace({
   // Hidden workspaces stay mounted (CSS-only) so editor state/scroll/undo survive switching
   return (
     <div className={hidden ? 'hidden' : 'relative flex flex-1 min-h-0 min-w-0'}>
+      <WorkspaceError error={operationError} onDismiss={dismissError} />
       {hasProject ? (
         <>
           <main
@@ -1342,3 +1322,5 @@ export default function ProjectWorkspace({
     </div>
   );
 }
+
+export default memo(ProjectWorkspace);

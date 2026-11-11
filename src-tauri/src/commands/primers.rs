@@ -3,10 +3,14 @@ use tauri::{AppHandle, State};
 use libregene_core::models::{Primer, Segment};
 
 use crate::kernels::{
-    do_add_primer, do_check_primers_binding, do_delete_primer, do_design_primer_candidates,
+    do_add_primer_with_history, do_check_primers_binding, do_delete_primer,
+    do_design_primer_candidates,
     merge_primer_updates, primer_definitions, primers_equal,
 };
-use crate::payload::{filter_project, ProjectParams};
+use crate::payload::{
+    filter_project, sidebar_project_list, with_mutation_meta, with_projects_list, MutationField,
+    ProjectParams,
+};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -39,14 +43,16 @@ pub(crate) async fn add_primer(
     app_handle: AppHandle,
     project_id: String,
     primer: Primer,
+    record_history: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    do_add_primer(
+    do_add_primer_with_history(
         &app_handle,
         &state.pm,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         primer,
+        record_history.unwrap_or(true),
     )
     .await
 }
@@ -168,19 +174,24 @@ pub(crate) async fn add_primers(
     )
     .await;
 
-    let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    let result = {
+        let pm = state.pm.read().await;
+        let data = match pm.get_project_by_id(&project_id) {
+            Some(p) => {
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                filter_project(p, &params)
+            }
+            None => serde_json::json!({"error": "Project not found"}),
+        };
+        with_mutation_meta(data, &pm, &project_id, &[MutationField::Primers])
+    };
+    let (projects, active_id) = sidebar_project_list(&state.pm, &state.agent_tabs).await;
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
 #[tauri::command]

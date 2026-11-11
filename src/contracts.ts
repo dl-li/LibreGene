@@ -168,9 +168,45 @@ export interface ProjectListResponse {
   error?: string;
 }
 
-export interface ProjectMutationResponse extends ProjectData {
+export type MutationField =
+  | 'sequence'
+  | 'features'
+  | 'primers'
+  | 'enzymes'
+  | 'alignments'
+  | 'textColorsTop'
+  | 'textColorsBottom'
+  | 'moleculeType'
+  | 'topology'
+  | 'tracePath'
+  | 'msaRows'
+  | 'msaAligned'
+  | 'referenceRowId';
+
+export interface MutationMetadata {
+  projectId: string;
+  revision: number;
+  dirty: boolean;
+  changedFields: MutationField[];
+}
+
+export interface ProjectMutationResponse extends ProjectData, Partial<MutationMetadata> {
   projects?: ProjectSummary[];
   activeId?: string | null;
+}
+
+export interface CreateProjectArgs {
+  name: string;
+  sequence: string;
+  moleculeType: MoleculeType;
+  topology: Topology;
+  features?: Array<Pick<Feature, 'name' | 'ftype' | 'color' | 'strand' | 'segments'>>;
+}
+
+export interface CreateMsaArgs {
+  name: string;
+  sequence: string;
+  moleculeType?: MoleculeType;
 }
 
 export interface ProjectSnapshot {
@@ -200,6 +236,14 @@ export interface SessionEditEntry {
 export interface SessionEditLogResponse {
   projectId: string;
   entries: SessionEditEntry[];
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface HistoryRestoreResponse extends ProjectMutationResponse {
+  entries: SessionEditEntry[];
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export interface TmParams {

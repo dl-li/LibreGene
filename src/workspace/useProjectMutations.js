@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import {
   updateFeatureFtype as updateFeatureFtypeCommand,
   updateFeatureColor as updateFeatureColorCommand,
@@ -21,6 +21,7 @@ import { addMyPrimers, removeMyPrimer, libraryToPrimers } from '../myPrimers';
 import { setMyEnzymes } from '../myEnzymes';
 import { writeHiddenAlnNames } from './hiddenAlignments';
 import { EMPTY_ARRAY } from './constants';
+import { applyProjectMutation } from './projectMutation';
 
 export function requirePrimerMutationData(data) {
   if (data?.error) throw new Error(data.error);
@@ -32,8 +33,9 @@ export default function useProjectMutations({
   agentLockedRef,
   operationGenRef,
   projectIdRef,
-  pushHistory,
+  latestRevisionRef,
   setIsDirty,
+  setSequence,
   setFeatures,
   setPrimers,
   setEnzymes,
@@ -41,6 +43,8 @@ export default function useProjectMutations({
   setTextColorsTop,
   setTextColorsBottom,
   setTopologyLive,
+  setMoleculeType,
+  setTracePath,
   topologyLive,
   setExpandedChromAlnId,
   setHiddenAlignIds,
@@ -51,11 +55,14 @@ export default function useProjectMutations({
   onMyPrimersChange,
   onMyEnzymesChange,
   onProjectsSync,
+  onError,
   alignmentAlgorithm,
   alignmentEnabled,
   showAlignments,
   hiddenAlignIds,
 }) {
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
   const {
     updateFeatureFtype,
     updateFeatureColor,
@@ -94,6 +101,44 @@ export default function useProjectMutations({
     };
   }, [projectIdRef]);
 
+  const applyMutation = useCallback(
+    (data) =>
+      applyProjectMutation(
+        data,
+        {
+          latestRevisionRef,
+          setSequence,
+          setFeatures,
+          setPrimers,
+          setEnzymes,
+          setAlignments,
+          setTextColorsTop,
+          setTextColorsBottom,
+          setTopologyLive,
+          setMoleculeType,
+          setTracePath,
+          setIsDirty,
+          onProjectsSync,
+        },
+        { defaultDirty: true, onError: onErrorRef.current },
+      ),
+    [
+      latestRevisionRef,
+      setSequence,
+      setFeatures,
+      setPrimers,
+      setEnzymes,
+      setAlignments,
+      setTextColorsTop,
+      setTextColorsBottom,
+      setTopologyLive,
+      setMoleculeType,
+      setTracePath,
+      setIsDirty,
+      onProjectsSync,
+    ],
+  );
+
   const handleFeatureFtypeChange = useCallback(
     async (featureId, newFtype) => {
       if (agentLockedRef.current) return;
@@ -101,25 +146,12 @@ export default function useProjectMutations({
       try {
         const data = await updateFeatureFtype(featureId, newFtype);
         if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
+        applyMutation(data);
       } catch (e) {
-        console.error('update feature ftype error:', e);
+        onErrorRef.current('update feature ftype error:', e);
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      operationGenRef,
-      setFeatures,
-      setIsDirty,
-      updateFeatureFtype,
-    ],
+    [applyMutation, agentLockedRef, operationGenRef, updateFeatureFtype],
   );
 
   const handleFeatureColorChange = useCallback(
@@ -129,25 +161,12 @@ export default function useProjectMutations({
       try {
         const data = await updateFeatureColor(featureId, newColor);
         if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
+        applyMutation(data);
       } catch (e) {
-        console.error('update feature color error:', e);
+        onErrorRef.current('update feature color error:', e);
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      operationGenRef,
-      setFeatures,
-      setIsDirty,
-      updateFeatureColor,
-    ],
+    [applyMutation, agentLockedRef, operationGenRef, updateFeatureColor],
   );
 
   // Sequence text color on [start, end] (0-based inclusive); '' clears.
@@ -159,30 +178,13 @@ export default function useProjectMutations({
         const data = await setTextColors(strand, start, end, color);
         if (operationGenRef.current !== gen) return false;
         if (!data || !data.textColorsTop) return false;
-        pushHistory({
-          textColorsTop: data.textColorsTop,
-          textColorsBottom: data.textColorsBottom || EMPTY_ARRAY,
-        });
-        setTextColorsTop(data.textColorsTop);
-        setTextColorsBottom(data.textColorsBottom || EMPTY_ARRAY);
-        if (data.projects) onProjectsSync(data.projects);
-        setIsDirty(true);
-        return true;
+        return applyMutation(data);
       } catch (e) {
-        console.error('set text colors error:', e);
+        onErrorRef.current('set text colors error:', e);
         return false;
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      operationGenRef,
-      setIsDirty,
-      setTextColors,
-      setTextColorsBottom,
-      setTextColorsTop,
-    ],
+    [applyMutation, agentLockedRef, operationGenRef, setTextColors],
   );
 
   const handleFeatureNameChange = useCallback(
@@ -192,25 +194,12 @@ export default function useProjectMutations({
       try {
         const data = await updateFeatureName(featureId, newName);
         if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
+        applyMutation(data);
       } catch (e) {
-        console.error('update feature name error:', e);
+        onErrorRef.current('update feature name error:', e);
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      operationGenRef,
-      setFeatures,
-      setIsDirty,
-      updateFeatureName,
-    ],
+    [applyMutation, agentLockedRef, operationGenRef, updateFeatureName],
   );
 
   const handlePrimerChange = useCallback(
@@ -218,32 +207,15 @@ export default function useProjectMutations({
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
       try {
-        const data = requirePrimerMutationData(await addPrimer(primerData));
+        const data = requirePrimerMutationData(await addPrimer(primerData, recordHistory));
         if (operationGenRef.current !== gen) return;
-        // Batch callers record history once via recordHistory on their last
-        // call only — the response carries the full post-batch list.
-        if (recordHistory) pushHistory({ primers: data.primers });
-        setPrimers(data.primers);
-        if (data.alignments) setAlignments(data.alignments);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setIsDirty(true);
-        if (data.projects) onProjectsSync(data.projects);
+        applyMutation(data);
       } catch (e) {
-        console.error('add primer error:', e);
+        onErrorRef.current('add primer error:', e);
         throw e;
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      addPrimer,
-      agentLockedRef,
-      operationGenRef,
-      setAlignments,
-      setEnzymes,
-      setIsDirty,
-      setPrimers,
-    ],
+    [addPrimer, applyMutation, agentLockedRef, operationGenRef],
   );
 
   const handleToggleTopology = useCallback(async () => {
@@ -253,32 +225,11 @@ export default function useProjectMutations({
     try {
       const data = await setTopology(next, projectIdRef.current);
       if (operationGenRef.current !== gen) return;
-      if (data && !data.error) {
-        // Enzymes/primer binding sites/feature translations are
-        // topology-dependent; the response carries the recomputed values.
-        if (data.features) setFeatures(data.features);
-        if (data.primers) setPrimers(data.primers);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setTopologyLive(data.topology || next);
-        setIsDirty(true);
-        // Topology itself flows down from App's project list.
-        if (data.projects) onProjectsSync(data.projects);
-      }
+      applyMutation(data);
     } catch (e) {
-      console.error('topology toggle error:', e);
+      onErrorRef.current('topology toggle error:', e);
     }
-  }, [
-    topologyLive,
-    onProjectsSync,
-    agentLockedRef,
-    operationGenRef,
-    projectIdRef,
-    setEnzymes,
-    setFeatures,
-    setIsDirty,
-    setPrimers,
-    setTopologyLive,
-  ]);
+  }, [topologyLive, applyMutation, agentLockedRef, operationGenRef, projectIdRef]);
 
   // --- My Primers library actions ---
   const handleAddPrimerToMyPrimers = useCallback(
@@ -304,15 +255,9 @@ export default function useProjectMutations({
   const applyAddedPrimers = useCallback(
     (data, gen) => {
       if (operationGenRef.current !== gen) return;
-      if (data && data.primers) {
-        setPrimers(data.primers);
-        if (data.alignments) setAlignments(data.alignments);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setIsDirty(true);
-        if (data.projects) onProjectsSync(data.projects);
-      }
+      applyMutation(data);
     },
-    [onProjectsSync, operationGenRef, setAlignments, setEnzymes, setIsDirty, setPrimers],
+    [operationGenRef, applyMutation],
   );
 
   const handleAddMyPrimerToFile = useCallback(
@@ -322,15 +267,12 @@ export default function useProjectMutations({
       const gen = ++operationGenRef.current;
       try {
         const data = await addPrimers(libraryToPrimers([entry]));
-        if (data && data.primers && operationGenRef.current === gen) {
-          pushHistory({ primers: data.primers });
-        }
         applyAddedPrimers(data, gen);
       } catch (e) {
-        console.error('add primer from My Primers error:', e);
+        onErrorRef.current('add primer from My Primers error:', e);
       }
     },
-    [pushHistory, applyAddedPrimers, addPrimers, agentLockedRef, operationGenRef],
+    [applyAddedPrimers, addPrimers, agentLockedRef, operationGenRef],
   );
 
   const handleAddAllBindingPrimers = useCallback(async () => {
@@ -346,18 +288,14 @@ export default function useProjectMutations({
     const gen = ++operationGenRef.current;
     try {
       const data = await addPrimers(libraryToPrimers(toAdd));
-      if (data && data.primers && operationGenRef.current === gen) {
-        pushHistory({ primers: data.primers });
-      }
       applyAddedPrimers(data, gen);
     } catch (e) {
-      console.error('add binding primers error:', e);
+      onErrorRef.current('add binding primers error:', e);
     }
   }, [
     myPrimerBinding.results,
     myPrimers,
     primers,
-    pushHistory,
     applyAddedPrimers,
     addPrimers,
     agentLockedRef,
@@ -379,26 +317,11 @@ export default function useProjectMutations({
       // errors propagate so the dialog can display them; batch callers record
       // history once via recordHistory on their last call only — the response
       // carries the full post-batch list
-      const data = await addFeature(feature, locationStr);
+      const data = await addFeature(feature, locationStr, recordHistory);
       if (operationGenRef.current !== gen) return;
-      if (data && data.features) {
-        if (recordHistory) pushHistory({ features: data.features });
-        setFeatures(data.features);
-        if (data.enzymes) setEnzymes(data.enzymes);
-        setIsDirty(true);
-        if (data.projects) onProjectsSync(data.projects);
-      }
+      applyMutation(data);
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      addFeature,
-      agentLockedRef,
-      operationGenRef,
-      setEnzymes,
-      setFeatures,
-      setIsDirty,
-    ],
+    [addFeature, applyMutation, agentLockedRef, operationGenRef],
   );
 
   const handleFeatureStrandChange = useCallback(
@@ -408,25 +331,12 @@ export default function useProjectMutations({
       try {
         const data = await updateFeatureStrand(featureId, strand);
         if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.enzymes) setEnzymes(data.enzymes);
-          setIsDirty(true);
-        }
+        applyMutation(data);
       } catch (e) {
-        console.error('update feature strand error:', e);
+        onErrorRef.current('update feature strand error:', e);
       }
     },
-    [
-      pushHistory,
-      agentLockedRef,
-      operationGenRef,
-      setEnzymes,
-      setFeatures,
-      setIsDirty,
-      updateFeatureStrand,
-    ],
+    [applyMutation, agentLockedRef, operationGenRef, updateFeatureStrand],
   );
 
   const handleFeatureLocationChange = useCallback(
@@ -436,22 +346,9 @@ export default function useProjectMutations({
       // errors propagate so the dialog can display them
       const data = await updateFeatureLocation(featureId, locationStr);
       if (operationGenRef.current !== gen) return;
-      if (data && data.features) {
-        pushHistory({ features: data.features });
-        setFeatures(data.features);
-        if (data.projects) onProjectsSync(data.projects);
-        setIsDirty(true);
-      }
+      applyMutation(data);
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      operationGenRef,
-      setFeatures,
-      setIsDirty,
-      updateFeatureLocation,
-    ],
+    [applyMutation, agentLockedRef, operationGenRef, updateFeatureLocation],
   );
 
   const handleDeleteFeature = useCallback(
@@ -461,25 +358,12 @@ export default function useProjectMutations({
       try {
         const data = await deleteFeature(featureId);
         if (operationGenRef.current !== gen) return;
-        if (data && data.features) {
-          pushHistory({ features: data.features });
-          setFeatures(data.features);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
+        applyMutation(data);
       } catch (e) {
-        console.error('delete feature error:', e);
+        onErrorRef.current('delete feature error:', e);
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      deleteFeature,
-      operationGenRef,
-      setFeatures,
-      setIsDirty,
-    ],
+    [applyMutation, agentLockedRef, deleteFeature, operationGenRef],
   );
 
   const handleDeletePrimer = useCallback(
@@ -489,27 +373,12 @@ export default function useProjectMutations({
       try {
         const data = await deletePrimer(primerId);
         if (operationGenRef.current !== gen) return;
-        if (data && data.primers) {
-          pushHistory({ primers: data.primers });
-          setPrimers(data.primers);
-          if (data.alignments) setAlignments(data.alignments);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
-        }
+        applyMutation(data);
       } catch (e) {
-        console.error('delete primer error:', e);
+        onErrorRef.current('delete primer error:', e);
       }
     },
-    [
-      pushHistory,
-      onProjectsSync,
-      agentLockedRef,
-      deletePrimer,
-      operationGenRef,
-      setAlignments,
-      setIsDirty,
-      setPrimers,
-    ],
+    [applyMutation, agentLockedRef, deletePrimer, operationGenRef],
   );
 
   const addAlignmentFiles = useCallback(
@@ -533,22 +402,10 @@ export default function useProjectMutations({
           failed.push({ path, error: String(e?.message || e) });
         }
       }
-      if (lastData) {
-        if (lastData.alignments) setAlignments(lastData.alignments);
-        if (lastData.projects) onProjectsSync(lastData.projects);
-        setIsDirty(true);
-      }
+      if (lastData) applyMutation(lastData);
       return { added, failed };
     },
-    [
-      onProjectsSync,
-      alignmentAlgorithm,
-      addAlignment,
-      agentLockedRef,
-      operationGenRef,
-      setAlignments,
-      setIsDirty,
-    ],
+    [alignmentAlgorithm, addAlignment, applyMutation, agentLockedRef, operationGenRef],
   );
 
   const handleAddAlignment = useCallback(async () => {
@@ -572,21 +429,9 @@ export default function useProjectMutations({
       const data = await addAlignmentSeq(name, seq, alignmentAlgorithm);
       if (operationGenRef.current !== gen) return;
       if (data && data.error) throw new Error(data.error);
-      if (data) {
-        if (data.alignments) setAlignments(data.alignments);
-        if (data.projects) onProjectsSync(data.projects);
-        setIsDirty(true);
-      }
+      applyMutation(data);
     },
-    [
-      onProjectsSync,
-      alignmentAlgorithm,
-      addAlignmentSeq,
-      agentLockedRef,
-      operationGenRef,
-      setAlignments,
-      setIsDirty,
-    ],
+    [alignmentAlgorithm, addAlignmentSeq, applyMutation, agentLockedRef, operationGenRef],
   );
 
   const handleToggleAlignmentVisible = useCallback(
@@ -622,10 +467,7 @@ export default function useProjectMutations({
       try {
         const data = await removeAlignment(alignmentId);
         if (operationGenRef.current !== gen) return;
-        if (data && data.alignments) {
-          setAlignments(data.alignments);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(true);
+        if (applyMutation(data)) {
           const removedName = alignments.find((a) => a.id === alignmentId)?.name;
           setHiddenAlignIds((prev) => {
             const next = prev.filter((x) => x !== alignmentId);
@@ -639,19 +481,17 @@ export default function useProjectMutations({
           });
         }
       } catch (e) {
-        console.error('remove alignment error:', e);
+        onErrorRef.current('remove alignment error:', e);
       }
     },
     [
-      onProjectsSync,
       alignments,
+      applyMutation,
       agentLockedRef,
       operationGenRef,
       projectIdRef,
       removeAlignment,
-      setAlignments,
       setHiddenAlignIds,
-      setIsDirty,
     ],
   );
 

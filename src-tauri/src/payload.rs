@@ -23,6 +23,23 @@ pub(crate) struct ProjectParams {
 
 pub(crate) const DEFAULT_CPL: i64 = 60;
 
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MutationField {
+    Sequence,
+    Features,
+    Primers,
+    Enzymes,
+    Alignments,
+    TextColorsTop,
+    TextColorsBottom,
+    MoleculeType,
+    Topology,
+    MsaRows,
+    MsaAligned,
+    ReferenceRowId,
+}
+
 /// Resolve the single window's active project.
 pub(crate) async fn resolve_project_id(state: &State<'_, AppState>) -> Result<String, String> {
     let pm = state.pm.read().await;
@@ -157,6 +174,22 @@ pub(crate) fn with_project_meta(
     data
 }
 
+pub(crate) fn with_mutation_meta(
+    mut data: serde_json::Value,
+    pm: &ProjectManager,
+    project_id: &str,
+    changed_fields: &[MutationField],
+) -> serde_json::Value {
+    data = with_project_meta(data, pm, project_id);
+    if let Some(map) = data.as_object_mut() {
+        map.insert(
+            "changedFields".to_string(),
+            serde_json::to_value(changed_fields).unwrap_or_default(),
+        );
+    }
+    data
+}
+
 /// Build a lightweight mutation response for feature edits: the calling window
 /// only needs the updated feature list and the sidebar project list. Avoids
 /// serializing the full project (~1.5MB, mostly the enzyme list) on every Apply.
@@ -171,7 +204,7 @@ pub(crate) async fn feature_mutation_response(
             Some(p) => serde_json::json!({ "features": &p.features }),
             None => serde_json::json!({"error": "Project not found"}),
         };
-        with_project_meta(data, &pm, project_id)
+        with_mutation_meta(data, &pm, project_id, &[MutationField::Features])
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     with_projects_list(data, &projects, active_id.as_deref())
@@ -195,7 +228,7 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
     };
 
     let enzymes: Vec<&libregene_core::models::Enzyme> = if filter == "all" {
-        let all: Vec<_> = project.enzymes.iter().collect();
+        let all: Vec<_> = project.derived.enzymes.iter().collect();
         if let Some((idx_s, idx_e)) = row_window {
             all.into_iter()
                 .filter(|e| e.cut_index >= idx_s && e.cut_index <= idx_e)
@@ -205,7 +238,7 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
         }
     } else {
         let mut seen: HashMap<&str, Vec<&libregene_core::models::Enzyme>> = HashMap::new();
-        for e in &project.enzymes {
+        for e in &project.derived.enzymes {
             seen.entry(&e.name).or_default().push(e);
         }
         let mut unique: Vec<&libregene_core::models::Enzyme> = seen
@@ -239,7 +272,7 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
         "tracePath": &project.trace_path,
         "textColorsTop": &project.text_colors_top,
         "textColorsBottom": &project.text_colors_bottom,
-        "enzymeCount": project.enzymes.len(),
+        "enzymeCount": project.derived.enzymes.len(),
         "enzymeFilter": filter,
         "enzymes": &enzymes,
     })
@@ -302,10 +335,7 @@ fn project_data_payload(
             continue;
         }
         if let Some(project) = pm.get_project_by_id(&id) {
-            let mut data = filter_project(project, &params);
-            if let Some(map) = data.as_object_mut() {
-                map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(&id)));
-            }
+            let data = with_project_meta(filter_project(project, &params), pm, &id);
             result.insert(id, data);
         }
     }
@@ -338,11 +368,8 @@ async fn broadcast_project_arcs_impl<R: Runtime>(
                         row_end: None,
                         cpl: None,
                     };
-                    let mut filtered = filter_project(project, &params);
-                    if let Some(map) = filtered.as_object_mut() {
-                        map.insert("dirty".to_string(), serde_json::json!(pm.is_dirty(active)));
-                    }
-                    payload["data"] = filtered;
+                    payload["data"] =
+                        with_project_meta(filter_project(project, &params), &pm, active);
                 }
             }
         }
@@ -403,5 +430,36 @@ mod tests {
         assert_eq!(payload.len(), 1);
         assert_eq!(payload["a"]["sequence"], "AAAA");
         assert!(!payload.contains_key("b"));
+    }
+}
+
+#[cfg(test)]
+mod mutation_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn mutation_response_carries_revision_dirty_and_changed_fields() {
+        let mut pm = ProjectManager::new();
+        pm.load(
+            "p",
+            ProjectData {
+                sequence: "AAAA".to_string(),
+                length: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        pm.mark_dirty("p");
+        let revision = pm.revision("p");
+        let value = with_mutation_meta(
+            serde_json::json!({"primers": []}),
+            &pm,
+            "p",
+            &[MutationField::Primers],
+        );
+        assert_eq!(value["projectId"], "p");
+        assert_eq!(value["revision"], revision);
+        assert_eq!(value["dirty"], true);
+        assert_eq!(value["changedFields"], serde_json::json!(["primers"]));
     }
 }

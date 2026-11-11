@@ -338,7 +338,7 @@ pub fn project_digest(
             }
             Some((s, e)) => {
                 let in_region: Vec<&Enzyme> = project
-                    .enzymes
+                    .derived.enzymes
                     .iter()
                     .filter(|en| enzyme_in_region(en, s, e, circular))
                     .collect();

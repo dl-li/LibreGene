@@ -56,7 +56,10 @@ impl ProjectManager {
         }
         self.projects.insert(id.to_string(), project);
         self.bump_revision(id);
-        self.bump_template_revision(id);
+        let template_revision = self.bump_template_revision(id);
+        if let Some(project) = self.projects.get_mut(id) {
+            project.derived.template_revision = template_revision;
+        }
         self.active = Some(id.to_string());
         Ok(())
     }
@@ -73,7 +76,10 @@ impl ProjectManager {
         }
         self.projects.insert(id.clone(), project);
         self.bump_revision(&id);
-        self.bump_template_revision(&id);
+        let template_revision = self.bump_template_revision(&id);
+        if let Some(project) = self.projects.get_mut(&id) {
+            project.derived.template_revision = template_revision;
+        }
         self.active = Some(id);
         Ok(())
     }
@@ -156,11 +162,23 @@ impl ProjectManager {
         self.next_template_revision += 1;
         let revision = self.next_template_revision;
         self.template_revisions.insert(id.to_string(), revision);
+        if let Some(project) = self.projects.get_mut(id) {
+            project.derived.template_revision = 0;
+        }
         revision
     }
 
     pub fn template_revision(&self, id: &str) -> u64 {
         self.template_revisions.get(id).copied().unwrap_or(0)
+    }
+
+    pub fn derived_is_current(&self, id: &str) -> bool {
+        let revision = self.template_revision(id);
+        revision > 0
+            && self
+                .projects
+                .get(id)
+                .is_some_and(|project| project.derived.template_revision == revision)
     }
 
     /// Mark a project as having unsaved changes.
@@ -342,5 +360,25 @@ mod tests {
         assert!(pm.revision("p") > before);
         assert!(!pm.remove_alignment("p", "missing"));
         assert!(pm.get_project_by_id("p").unwrap().alignments.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod derived_cache_tests {
+    use super::*;
+
+    #[test]
+    fn derived_cache_tracks_template_revision_independently() {
+        let mut pm = ProjectManager::new();
+        pm.load("p", ProjectData::default()).unwrap();
+        assert!(pm.derived_is_current("p"));
+
+        let revision = pm.bump_template_revision("p");
+        assert!(!pm.derived_is_current("p"));
+        pm.get_project_mut_by_id("p")
+            .unwrap()
+            .derived
+            .template_revision = revision;
+        assert!(pm.derived_is_current("p"));
     }
 }

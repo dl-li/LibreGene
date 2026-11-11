@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 
 use libregene_core::models::Feature;
 
-use crate::kernels::{do_add_features, do_delete_feature, do_update_feature};
+use crate::kernels::{do_add_features_with_history, do_delete_feature, do_update_feature};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,7 @@ pub(crate) async fn add_feature(
     app_handle: AppHandle,
     feature: Feature,
     location_str: Option<String>,
+    record_history: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     // If location_str is provided, parse and validate it (0-based inclusive,
     // the App-wide convention, e.g. "99..199", "join(0..99,199..299)")
@@ -47,13 +48,14 @@ pub(crate) async fn add_feature(
         resolved.strand = strand;
     }
 
-    do_add_features(
+    do_add_features_with_history(
         &app_handle,
         &state.pm,
         &state.agent_tabs,
         Some(webview_window.label()),
         &project_id,
         vec![resolved],
+        record_history.unwrap_or(true),
     )
     .await
 }

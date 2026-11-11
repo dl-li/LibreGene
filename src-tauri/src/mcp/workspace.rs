@@ -302,12 +302,18 @@ fn enzyme_fragments(
     let len = project.length;
     let circular = project.topology == "circular";
     let db = libregene_core::enzyme::search::get_db();
-    let project_names: Vec<&str> = project.enzymes.iter().map(|e| e.name.as_str()).collect();
+    let project_names: Vec<&str> = project
+        .derived
+        .enzymes
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
 
     let mut per_enzyme: Vec<(String, Vec<i64>)> = Vec::new();
     let mut unknown: Vec<serde_json::Value> = Vec::new();
     for name in names {
         let sites: Vec<&libregene_core::models::Enzyme> = project
+            .derived
             .enzymes
             .iter()
             .filter(|e| e.name.eq_ignore_ascii_case(name))

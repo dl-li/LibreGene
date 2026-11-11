@@ -1,20 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { createEditHistory } from '../editHistory';
-import { updateSequence } from '../tauriApi';
-import { EMPTY_ARRAY } from './constants';
-import { createProjectSnapshot, snapshotIsDirty } from './projectSnapshot';
+import { useState, useRef, useCallback } from 'react';
+import { redoProjectEdit, undoProjectEdit } from '../tauriApi';
+import { createProjectSnapshot } from './projectSnapshot';
+import { applyProjectMutation } from './projectMutation';
 
 export default function useUndoHistory({
   initialData,
   agentLockedRef,
   operationGenRef,
   projectId,
-  onProjectsSync,
-  sequence,
-  features,
-  primers,
-  textColorsTop,
-  textColorsBottom,
+  latestRevisionRef,
+  backendCanUndo,
+  backendCanRedo,
+  onError,
   setSequence,
   setFeatures,
   setEnzymes,
@@ -22,13 +19,8 @@ export default function useUndoHistory({
   setAlignments,
   setTextColorsTop,
   setTextColorsBottom,
+  onProjectsSync,
 }) {
-  // --- Sequence editing state ---
-  const editHistoryRef = useRef(createEditHistory());
-  const [historyVersion, setHistoryVersion] = useState(0);
-  useEffect(() => editHistoryRef.current.subscribe(() => setHistoryVersion((v) => v + 1)), []);
-  const canUndo = historyVersion >= 0 && editHistoryRef.current.canUndo();
-  const canRedo = historyVersion >= 0 && editHistoryRef.current.canRedo();
   const [restoreState, setRestoreState] = useState({
     version: 0,
     cursorIndex: null,
@@ -41,98 +33,67 @@ export default function useUndoHistory({
   const isDirtyRef = useRef(false);
   const baselineSnapshotRef = useRef(createProjectSnapshot(initialData));
 
-  // Record a post-mutation snapshot in undo history. Entries are always the
-  // state AFTER a mutation (sequence edits follow the same convention), so
-  // undo returns the previous entry — the pre-mutation state — and redo
-  // restores the mutation. Snapshots always carry primers so undo/redo can
-  // restore them on both sides (UI state + backend via update_sequence).
-  const pushHistory = useCallback(
-    (overrides = {}) => {
-      editHistoryRef.current.push({
-        sequence,
-        features: features || EMPTY_ARRAY,
-        primers: primers || EMPTY_ARRAY,
-        textColorsTop: textColorsTop || EMPTY_ARRAY,
-        textColorsBottom: textColorsBottom || EMPTY_ARRAY,
-        cursorIndex: null,
-        selStart: null,
-        selEnd: null,
-        ...overrides,
-      });
-    },
-    [sequence, features, primers, textColorsTop, textColorsBottom],
-  );
-
-  const restoreHistorySnapshot = useCallback(
-    async (snapshot, gen, commit, operation) => {
+  const restoreHistory = useCallback(
+    async (direction) => {
+      if (agentLockedRef.current) return;
+      if (direction === 'undo' ? !backendCanUndo : !backendCanRedo) return;
+      const gen = ++operationGenRef.current;
       try {
-        const data = await updateSequence(
-          projectId,
-          snapshot.sequence,
-          snapshot.features,
-          snapshot.primers,
-          snapshot.textColorsTop,
-          snapshot.textColorsBottom,
-        );
+        const command = direction === 'undo' ? undoProjectEdit : redoProjectEdit;
+        const data = await command(projectId);
         if (operationGenRef.current !== gen) return;
         if (!data || data.error) {
-          console.error(`${operation} error:`, data?.error || 'unknown');
+          onError(`${direction} failed`, data?.error || 'Unknown error');
           return;
         }
-        if (!commit()) return;
-        setSequence(data.sequence);
-        setFeatures(data.features || snapshot.features || EMPTY_ARRAY);
-        setEnzymes(data.enzymes || EMPTY_ARRAY);
-        setPrimers(data.primers || snapshot.primers || EMPTY_ARRAY);
-        setAlignments(data.alignments || EMPTY_ARRAY);
-        setTextColorsTop(data.textColorsTop || snapshot.textColorsTop || EMPTY_ARRAY);
-        setTextColorsBottom(data.textColorsBottom || snapshot.textColorsBottom || EMPTY_ARRAY);
+        applyProjectMutation(data, {
+          latestRevisionRef,
+          setSequence,
+          setFeatures,
+          setEnzymes,
+          setPrimers,
+          setAlignments,
+          setTextColorsTop,
+          setTextColorsBottom,
+          setIsDirty,
+          onProjectsSync,
+        });
         setRestoreState({
           version: ++undoVersionRef.current,
-          cursorIndex: snapshot.cursorIndex,
-          selStart: snapshot.selStart,
-          selEnd: snapshot.selEnd,
+          cursorIndex: null,
+          selStart: null,
+          selEnd: null,
+          translationSel: null,
         });
-        if (data.projects) onProjectsSync(data.projects);
-        setIsDirty(snapshotIsDirty(snapshot, baselineSnapshotRef.current, projectId, data.dirty));
       } catch (error) {
-        console.error(`${operation} error:`, error);
+        onError(`${direction} failed`, error);
       }
     },
     [
-      onProjectsSync,
-      projectId,
+      agentLockedRef,
+      backendCanUndo,
+      backendCanRedo,
       operationGenRef,
-      setAlignments,
-      setEnzymes,
-      setFeatures,
-      setPrimers,
+      projectId,
+      onError,
+      latestRevisionRef,
       setSequence,
-      setTextColorsBottom,
+      setFeatures,
+      setEnzymes,
+      setPrimers,
+      setAlignments,
       setTextColorsTop,
+      setTextColorsBottom,
+      onProjectsSync,
     ],
   );
 
-  const handleUndo = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const snapshot = editHistoryRef.current.peekUndo();
-    if (!snapshot) return;
-    const gen = ++operationGenRef.current;
-    await restoreHistorySnapshot(snapshot, gen, () => editHistoryRef.current.commitUndo(), 'undo');
-  }, [restoreHistorySnapshot, agentLockedRef, operationGenRef]);
-
-  const handleRedo = useCallback(async () => {
-    if (agentLockedRef.current) return;
-    const snapshot = editHistoryRef.current.peekRedo();
-    if (!snapshot) return;
-    const gen = ++operationGenRef.current;
-    await restoreHistorySnapshot(snapshot, gen, () => editHistoryRef.current.commitRedo(), 'redo');
-  }, [restoreHistorySnapshot, agentLockedRef, operationGenRef]);
+  const handleUndo = useCallback(() => restoreHistory('undo'), [restoreHistory]);
+  const handleRedo = useCallback(() => restoreHistory('redo'), [restoreHistory]);
 
   return {
-    editHistoryRef,
-    canUndo,
-    canRedo,
+    canUndo: backendCanUndo,
+    canRedo: backendCanRedo,
     restoreState,
     setRestoreState,
     undoVersionRef,
@@ -140,7 +101,6 @@ export default function useUndoHistory({
     setIsDirty,
     isDirtyRef,
     baselineSnapshotRef,
-    pushHistory,
     handleUndo,
     handleRedo,
   };

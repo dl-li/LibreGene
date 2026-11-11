@@ -47,4 +47,16 @@ const below = rowY.map(() => 30);
 results.push(benchmark('binary visible row lookup: 10000 positions', 20, () => {
   for (let i = 0; i < 10000; i++) visibleRowRange(rowY, above, below, i * 13, 900);
 }));
-console.log(JSON.stringify({ sequenceLength, features: features.length, primers: primers.length, alignments: alignments.length, results }, null, 2));
+const budgets = new Map([
+  ['stream layout: 100 kb + 50 alignments', 100],
+  ['feature row index: 1000 features', 50],
+  ['primer row index: 200 primers', 50],
+  ['visible feature lookup: all rows', 100],
+  ['binary visible row lookup: 10000 positions', 100],
+]);
+const failures = results.filter((result) => result.meanMs > budgets.get(result.name));
+console.log(JSON.stringify({ sequenceLength, features: features.length, primers: primers.length, alignments: alignments.length, budgetsMs: Object.fromEntries(budgets), results }, null, 2));
+if (failures.length) {
+  console.error(`Performance budget exceeded: ${failures.map((result) => result.name).join(', ')}`);
+  process.exitCode = 1;
+}

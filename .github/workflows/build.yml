@@ -45,6 +45,9 @@ jobs:
       - name: Frontend tests
         run: npm test
 
+      - name: Layout performance budgets
+        run: npm run benchmark:layout
+
       - name: Frontend build (Vite)
         run: npm run build
 

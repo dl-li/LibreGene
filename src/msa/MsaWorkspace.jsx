@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
   ChevronDown,
@@ -34,8 +34,11 @@ import {
   saveFile,
   saveFileDialog,
   updateMsa,
+  undoProjectEdit,
+  redoProjectEdit,
 } from '../tauriApi';
 import MsaEditor from './MsaEditor';
+import useSessionEditLog from '../workspace/useSessionEditLog';
 import { AddSequencesDialog, MsaSequencesDialog, PairwiseStatsDialog } from './MsaDialogs';
 import {
   computeAveragePairwiseIdentity,
@@ -64,7 +67,7 @@ function isMsaPath(path) {
   return /\.msa\.fasta?$/i.test(path || '');
 }
 
-export default function MsaWorkspace({
+function MsaWorkspace({
   projectId,
   projectName,
   initialData,
@@ -85,7 +88,6 @@ export default function MsaWorkspace({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [dirty, setDirty] = useState(initialData?.dirty ?? projectId.startsWith('untitled-'));
-  const [historyVersion, setHistoryVersion] = useState(0);
   const [colorMode, setColorMode] = useState('base');
   const [selection, setSelection] = useState(null);
   const [hiddenRowIds, setHiddenRowIds] = useState(() => new Set());
@@ -95,7 +97,7 @@ export default function MsaWorkspace({
   const projectIdRef = useRef(projectId);
   const dirtyRef = useRef(dirty);
   const baselineRef = useRef(snapshotKey(snapshotOf(initialData || {})));
-  const historyRef = useRef({ stack: [snapshotOf(initialData || {})], index: 0 });
+  const { canUndo, canRedo } = useSessionEditLog(projectId);
   const selectionAnchorRef = useRef(null);
   const currentSnapshotRef = useRef(null);
   currentSnapshotRef.current = { rows, moleculeType, aligned, referenceRowId };
@@ -142,12 +144,10 @@ export default function MsaWorkspace({
         }
         const snapshot = snapshotOf(data);
         applySnapshot(snapshot);
-        historyRef.current = { stack: [snapshot], index: 0 };
         baselineRef.current = snapshotKey(snapshot);
         const nextDirty = data.dirty === true || projectId.startsWith('untitled-');
         dirtyRef.current = nextDirty;
         setDirty(nextDirty);
-        setHistoryVersion((version) => version + 1);
       })
       .catch((loadError) => {
         if (!cancelled) setError(loadError?.message || String(loadError));
@@ -165,7 +165,7 @@ export default function MsaWorkspace({
   }, [projectId, dirty, onDirtyChange]);
 
   const commit = useCallback(
-    async (snapshot, historyMode = 'push') => {
+    async (snapshot) => {
       if (agentLocked) return { ok: false, error: 'Project is locked by an agent' };
       try {
         const data = await updateMsa(
@@ -178,14 +178,6 @@ export default function MsaWorkspace({
         if (!data || data.error) return { ok: false, error: data?.error || 'MSA update failed' };
         const next = snapshotOf(data);
         applySnapshot(next);
-        if (historyMode === 'push') {
-          const history = historyRef.current;
-          history.stack = history.stack.slice(0, history.index + 1);
-          history.stack.push(next);
-          if (history.stack.length > 50) history.stack.shift();
-          history.index = history.stack.length - 1;
-        }
-        setHistoryVersion((version) => version + 1);
         updateDirty(next);
         if (data.projects) onProjectsSync(data.projects);
         setError('');
@@ -218,12 +210,6 @@ export default function MsaWorkspace({
         referenceRowId: referenceRowId || data.referenceRowId || null,
       };
       applySnapshot(next);
-      const history = historyRef.current;
-      history.stack = history.stack.slice(0, history.index + 1);
-      history.stack.push(next);
-      if (history.stack.length > 50) history.stack.shift();
-      history.index = history.stack.length - 1;
-      setHistoryVersion((version) => version + 1);
       updateDirty(next);
       if (data.projects) onProjectsSync(data.projects);
       setNotice('Aligned with MUSCLE 5.3');
@@ -234,31 +220,32 @@ export default function MsaWorkspace({
     }
   }, [busy, agentLocked, referenceRowId, applySnapshot, onProjectsSync, updateDirty]);
 
-  const handleUndo = useCallback(async () => {
-    const history = historyRef.current;
-    if (busy || history.index <= 0) return;
-    const targetIndex = history.index - 1;
-    const result = await commit(history.stack[targetIndex], 'none');
-    if (result.ok) {
-      history.index = targetIndex;
-      setHistoryVersion((version) => version + 1);
-    } else {
-      setError(result.error);
-    }
-  }, [busy, commit]);
-
-  const handleRedo = useCallback(async () => {
-    const history = historyRef.current;
-    if (busy || history.index >= history.stack.length - 1) return;
-    const targetIndex = history.index + 1;
-    const result = await commit(history.stack[targetIndex], 'none');
-    if (result.ok) {
-      history.index = targetIndex;
-      setHistoryVersion((version) => version + 1);
-    } else {
-      setError(result.error);
-    }
-  }, [busy, commit]);
+  const restoreHistory = useCallback(
+    async (direction) => {
+      if (busy || agentLocked) return;
+      setBusy(true);
+      setError('');
+      try {
+        const command = direction === 'undo' ? undoProjectEdit : redoProjectEdit;
+        const data = await command(projectIdRef.current);
+        if (!data || data.error) {
+          setError(data?.error || `${direction} failed`);
+          return;
+        }
+        const next = snapshotOf(data);
+        applySnapshot(next);
+        updateDirty(next);
+        if (data.projects) onProjectsSync(data.projects);
+      } catch (historyError) {
+        setError(historyError?.message || String(historyError));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, agentLocked, applySnapshot, onProjectsSync, updateDirty],
+  );
+  const handleUndo = useCallback(() => restoreHistory('undo'), [restoreHistory]);
+  const handleRedo = useCallback(() => restoreHistory('redo'), [restoreHistory]);
 
   const finishSave = useCallback(
     (result, sourceId) => {
@@ -415,9 +402,7 @@ export default function MsaWorkspace({
     setNotice('Selection copied as FASTA');
   }, [selection, visibleRows, aligned]);
 
-  const history = historyRef.current;
-  const canUndo = historyVersion >= 0 && history.index > 0;
-  const canRedo = historyVersion >= 0 && history.index < history.stack.length - 1;
+  const openSequences = useCallback(() => setSequencesOpen(true), []);
 
   return (
     <main
@@ -569,7 +554,7 @@ export default function MsaWorkspace({
           colorMode={colorMode}
           selection={selection}
           onSelectionChange={handleSelection}
-          onOpenSequences={() => setSequencesOpen(true)}
+          onOpenSequences={openSequences}
           hidden={hidden}
         />
       )}
@@ -639,3 +624,5 @@ export default function MsaWorkspace({
     </main>
   );
 }
+
+export default memo(MsaWorkspace);

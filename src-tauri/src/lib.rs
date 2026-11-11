@@ -129,6 +129,8 @@ pub fn run() {
             commands::projects::read_text_file,
             commands::session_log::get_session_edit_log,
             commands::session_log::rollback_session_edit,
+            commands::session_log::undo_project_edit,
+            commands::session_log::redo_project_edit,
             commands::default_app::set_default_file_associations,
             commands::seqedit::update_sequence,
             commands::seqedit::set_text_colors,

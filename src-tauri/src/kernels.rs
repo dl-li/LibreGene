@@ -16,8 +16,8 @@ use libregene_core::project::ProjectManager;
 
 use crate::payload::{
     broadcast_project_arcs, broadcast_project_change_arcs, feature_mutation_response,
-    filter_project, prune_orphan_bindings, sidebar_project_list, with_project_meta,
-    with_projects_list, ProjectParams,
+    filter_project, prune_orphan_bindings, sidebar_project_list, with_mutation_meta,
+    with_projects_list, MutationField, ProjectParams,
 };
 use crate::state::{
     normalize_project_path, validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS,
@@ -429,7 +429,7 @@ fn merge_recomputed_after_edit(live: &mut ProjectData, computed: ProjectData) ->
     if live.sequence != computed.sequence {
         return false;
     }
-    live.enzymes = computed.enzymes;
+    live.derived.enzymes = computed.derived.enzymes;
     for cp in computed.primers {
         if let Some(pr) = live.primers.iter_mut().find(|pr| pr.id == cp.id) {
             *pr = cp;
@@ -465,10 +465,15 @@ fn commit_recomputed_project(
     if pm.revision(project_id) != expected_revision {
         return false;
     }
+    let template_revision = pm.template_revision(project_id);
     let Some(live) = pm.get_project_mut_by_id(project_id) else {
         return true;
     };
-    merge_recomputed_after_edit(live, computed)
+    let merged = merge_recomputed_after_edit(live, computed);
+    if merged {
+        live.derived.template_revision = template_revision;
+    }
+    merged
 }
 
 /// Clone the project, recompute enzymes/primers/translations/alignments
@@ -492,7 +497,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
                 // single heaviest field on large plasmids) is pure waste.
                 // primers are NOT skipped: primer::recompute reads the existing
                 // primer definitions to recompute their binding sites.
-                enzymes: Vec::new(),
+                derived: Default::default(),
                 name: p.name.clone(),
                 definition: p.definition.clone(),
                 keywords: p.keywords.clone(),
@@ -599,7 +604,20 @@ async fn update_sequence_inner<R: Runtime>(
             .get_project_by_id(&project_id)
             .map(|p| filter_project(p, &params))
             .unwrap_or(serde_json::json!({"error": "Project not found after update"}));
-        with_project_meta(data, &pm, &project_id)
+        with_mutation_meta(
+            data,
+            &pm,
+            &project_id,
+            &[
+                MutationField::Sequence,
+                MutationField::Features,
+                MutationField::Primers,
+                MutationField::Enzymes,
+                MutationField::Alignments,
+                MutationField::TextColorsTop,
+                MutationField::TextColorsBottom,
+            ],
+        )
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
@@ -747,6 +765,20 @@ pub(crate) async fn do_add_features<R: Runtime>(
     project_id: &str,
     features: Vec<Feature>,
 ) -> Result<serde_json::Value, String> {
+    do_add_features_with_history(app_handle, pm, agent_tabs, source, project_id, features, true)
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn do_add_features_with_history<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    features: Vec<Feature>,
+    record_history: bool,
+) -> Result<serde_json::Value, String> {
     // Merge inside the write lock: cloning the feature list under a read
     // lock and overwriting it in a later write lock would silently drop
     // concurrent feature additions/removals landing between the two locks.
@@ -764,6 +796,11 @@ pub(crate) async fn do_add_features<R: Runtime>(
         pm.mark_dirty(project_id);
     }
 
+    let source = if record_history {
+        source
+    } else {
+        Some(crate::session_log::SKIP_SESSION_HISTORY_SOURCE)
+    };
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
     Ok(feature_mutation_response(pm, agent_tabs, project_id).await)
@@ -799,12 +836,17 @@ pub(crate) async fn do_delete_feature<R: Runtime>(
 
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
+    let data = {
+        let pm = pm.read().await;
+        with_mutation_meta(
+            serde_json::json!({ "features": feats }),
+            &pm,
+            project_id,
+            &[MutationField::Features],
+        )
+    };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
-    Ok(with_projects_list(
-        serde_json::json!({ "features": feats }),
-        &projects,
-        active_id.as_deref(),
-    ))
+    Ok(with_projects_list(data, &projects, active_id.as_deref()))
 }
 
 /// Apply `apply` to the feature `feature_id`, mark dirty and broadcast.
@@ -905,13 +947,22 @@ pub(crate) async fn do_set_text_colors<R: Runtime>(
 
     let data = {
         let pm = pm.read().await;
-        match pm.get_project_by_id(project_id) {
+        let data = match pm.get_project_by_id(project_id) {
             Some(p) => serde_json::json!({
                 "textColorsTop": &p.text_colors_top,
                 "textColorsBottom": &p.text_colors_bottom,
             }),
             None => serde_json::json!({"error": "Project not found"}),
-        }
+        };
+        with_mutation_meta(
+            data,
+            &pm,
+            project_id,
+            &[
+                MutationField::TextColorsTop,
+                MutationField::TextColorsBottom,
+            ],
+        )
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     Ok(with_projects_list(data, &projects, active_id.as_deref()))
@@ -957,6 +1008,19 @@ pub(crate) async fn do_add_primer<R: Runtime>(
     source: Option<&str>,
     project_id: &str,
     primer: Primer,
+) -> Result<serde_json::Value, String> {
+    do_add_primer_with_history(app_handle, pm, agent_tabs, source, project_id, primer, true).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn do_add_primer_with_history<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    primer: Primer,
+    record_history: bool,
 ) -> Result<serde_json::Value, String> {
     // Snapshot → merge → recompute (off-lock) → write-back. The write-back
     // only lands when the primers list is unchanged since the snapshot;
@@ -1033,21 +1097,31 @@ pub(crate) async fn do_add_primer<R: Runtime>(
         }
     }
 
+    let source = if record_history {
+        source
+    } else {
+        Some(crate::session_log::SKIP_SESSION_HISTORY_SOURCE)
+    };
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    let pm = pm.read().await;
-    match pm.get_project_by_id(project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    let result = {
+        let pm = pm.read().await;
+        let data = match pm.get_project_by_id(project_id) {
+            Some(p) => {
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                filter_project(p, &params)
+            }
+            None => serde_json::json!({"error": "Project not found"}),
+        };
+        with_mutation_meta(data, &pm, project_id, &[MutationField::Primers])
+    };
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
 pub(crate) async fn do_delete_primer<R: Runtime>(
@@ -1080,12 +1154,17 @@ pub(crate) async fn do_delete_primer<R: Runtime>(
 
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
+    let data = {
+        let pm = pm.read().await;
+        with_mutation_meta(
+            serde_json::json!({ "primers": primers }),
+            &pm,
+            project_id,
+            &[MutationField::Primers],
+        )
+    };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
-    Ok(with_projects_list(
-        serde_json::json!({ "primers": primers }),
-        &projects,
-        active_id.as_deref(),
-    ))
+    Ok(with_projects_list(data, &projects, active_id.as_deref()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1132,7 +1211,7 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
         let mut pm = pm.write().await;
         if pm.revision(project_id) == expected_revision {
             if let Some(p) = pm.get_project_mut_by_id(project_id) {
-                p.enzymes = computed.enzymes;
+                p.derived.enzymes = computed.derived.enzymes;
             }
         } else {
             should_broadcast = false;
@@ -1151,9 +1230,11 @@ pub(crate) async fn do_set_methylation<R: Runtime>(
             row_end: None,
             cpl: None,
         };
-        pm.get_project_by_id(project_id)
+        let data = pm
+            .get_project_by_id(project_id)
             .map(|p| filter_project(p, &params))
-            .unwrap_or(serde_json::json!({"error": "Project not found after methylation"}))
+            .unwrap_or(serde_json::json!({"error": "Project not found after methylation"}));
+        with_mutation_meta(data, &pm, project_id, &[MutationField::Enzymes])
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
@@ -1200,9 +1281,21 @@ pub(crate) async fn do_set_topology<R: Runtime>(
             row_end: None,
             cpl: None,
         };
-        pm.get_project_by_id(project_id)
+        let data = pm
+            .get_project_by_id(project_id)
             .map(|p| filter_project(p, &params))
-            .unwrap_or(serde_json::json!({"error": "Project not found after topology change"}))
+            .unwrap_or(serde_json::json!({"error": "Project not found after topology change"}));
+        with_mutation_meta(
+            data,
+            &pm,
+            project_id,
+            &[
+                MutationField::Topology,
+                MutationField::Features,
+                MutationField::Primers,
+                MutationField::Enzymes,
+            ],
+        )
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
@@ -1361,20 +1454,27 @@ pub(crate) async fn do_add_alignment_seq<R: Runtime>(
 
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    let pm = pm.read().await;
-    let payload = match pm.get_project_by_id(project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            filter_project(p, &params)
-        }
-        None => serde_json::json!({"error": "Project not found"}),
+    let payload = {
+        let pm = pm.read().await;
+        let data = match pm.get_project_by_id(project_id) {
+            Some(p) => {
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                filter_project(p, &params)
+            }
+            None => serde_json::json!({"error": "Project not found"}),
+        };
+        with_mutation_meta(data, &pm, project_id, &[MutationField::Alignments])
     };
-    Ok((payload, alignment_id))
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
+    Ok((
+        with_projects_list(payload, &projects, active_id.as_deref()),
+        alignment_id,
+    ))
 }
 
 pub(crate) async fn do_remove_alignment<R: Runtime>(
@@ -1392,19 +1492,24 @@ pub(crate) async fn do_remove_alignment<R: Runtime>(
 
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
-    let pm = pm.read().await;
-    match pm.get_project_by_id(project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    let result = {
+        let pm = pm.read().await;
+        let data = match pm.get_project_by_id(project_id) {
+            Some(p) => {
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                filter_project(p, &params)
+            }
+            None => serde_json::json!({"error": "Project not found"}),
+        };
+        with_mutation_meta(data, &pm, project_id, &[MutationField::Alignments])
+    };
+    let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
 pub(crate) async fn do_find_orfs(
@@ -2678,16 +2783,19 @@ mod tests {
         let computed = ProjectData {
             sequence: "ACGTACGT".to_string(),
             length: 8,
-            enzymes: vec![libregene_core::models::Enzyme {
-                name: "EcoRI".to_string(),
-                ..Default::default()
-            }],
+            derived: libregene_core::models::DerivedProjectData {
+                enzymes: vec![libregene_core::models::Enzyme {
+                    name: "EcoRI".to_string(),
+                    ..Default::default()
+                }],
+                template_revision: 0,
+            },
             primers: vec![mk_primer("keep", 2), mk_primer("deleted", 3)],
             ..Default::default()
         };
         assert!(merge_recomputed_after_edit(&mut live, computed));
-        assert_eq!(live.enzymes.len(), 1);
-        assert_eq!(live.enzymes[0].name, "EcoRI");
+        assert_eq!(live.derived.enzymes.len(), 1);
+        assert_eq!(live.derived.enzymes[0].name, "EcoRI");
         let ids: Vec<&str> = live.primers.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(ids, ["keep", "added"], "{ids:?}");
         assert_eq!(live.primers[0].binding_sites.len(), 2);
@@ -2702,14 +2810,17 @@ mod tests {
         let computed = ProjectData {
             sequence: "ACGTACGT".to_string(),
             length: 8,
-            enzymes: vec![libregene_core::models::Enzyme {
-                name: "EcoRI".to_string(),
-                ..Default::default()
-            }],
+            derived: libregene_core::models::DerivedProjectData {
+                enzymes: vec![libregene_core::models::Enzyme {
+                    name: "EcoRI".to_string(),
+                    ..Default::default()
+                }],
+                template_revision: 0,
+            },
             ..Default::default()
         };
         assert!(!merge_recomputed_after_edit(&mut live, computed));
-        assert!(live.enzymes.is_empty());
+        assert!(live.derived.enzymes.is_empty());
     }
 
     #[test]
@@ -2728,10 +2839,13 @@ mod tests {
         let computed = ProjectData {
             sequence: "ACGTACGT".to_string(),
             length: 8,
-            enzymes: vec![libregene_core::models::Enzyme {
-                name: "EcoRI".to_string(),
-                ..Default::default()
-            }],
+            derived: libregene_core::models::DerivedProjectData {
+                enzymes: vec![libregene_core::models::Enzyme {
+                    name: "EcoRI".to_string(),
+                    ..Default::default()
+                }],
+                template_revision: 0,
+            },
             ..Default::default()
         };
 
@@ -2742,7 +2856,12 @@ mod tests {
             stale_revision,
             computed.clone()
         ));
-        assert!(pm.get_project_by_id("p1").unwrap().enzymes.is_empty());
+        assert!(pm
+            .get_project_by_id("p1")
+            .unwrap()
+            .derived
+            .enzymes
+            .is_empty());
 
         let latest_revision = pm.revision("p1");
         assert!(commit_recomputed_project(
@@ -2751,6 +2870,6 @@ mod tests {
             latest_revision,
             computed
         ));
-        assert_eq!(pm.get_project_by_id("p1").unwrap().enzymes.len(), 1);
+        assert_eq!(pm.get_project_by_id("p1").unwrap().derived.enzymes.len(), 1);
     }
 }

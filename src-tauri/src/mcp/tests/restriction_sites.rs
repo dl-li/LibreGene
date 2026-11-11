@@ -119,7 +119,7 @@ use libregene_core::models::ProjectData;
         };
         libregene_core::enzyme::recompute(&mut project);
         let internal = project
-            .enzymes
+            .derived.enzymes
             .iter()
             .find(|e| e.name == "BbsI")
             .expect("BbsI site")
@@ -162,7 +162,7 @@ use libregene_core::models::ProjectData;
         };
         libregene_core::enzyme::recompute(&mut project);
         let internal = project
-            .enzymes
+            .derived.enzymes
             .iter()
             .find(|e| e.name == "BbsI")
             .expect("BbsI site")
@@ -210,7 +210,7 @@ use libregene_core::models::ProjectData;
             ..Default::default()
         };
         libregene_core::enzyme::recompute(&mut project);
-        assert!(project.enzymes.iter().any(|e| e.name == "HindIII"));
+        assert!(project.derived.enzymes.iter().any(|e| e.name == "HindIII"));
         let server = handler_with_project(project).await;
         let out = server
             .find_restriction_sites(Parameters(FindRestrictionSitesRequest {

@@ -386,7 +386,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let mut no_site: Vec<String> = Vec::new();
         let mut unknown: Vec<(String, Vec<String>)> = Vec::new();
         if let Some(list) = wanted.as_ref().filter(|l| !l.is_empty()) {
-            let names: Vec<&str> = project.enzymes.iter().map(|e| e.name.as_str()).collect();
+            let names: Vec<&str> = project
+                .derived
+                .enzymes
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect();
             let db = libregene_core::enzyme::search::get_db();
             for n in list {
                 if let Some(found) = names.iter().find(|a| a.eq_ignore_ascii_case(n)) {
@@ -414,7 +419,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         }
         let filter_active = !requested.is_empty() || !no_site.is_empty() || !unknown.is_empty();
         let mut by_name: HashMap<&str, Vec<&Enzyme>> = HashMap::new();
-        for e in &project.enzymes {
+        for e in &project.derived.enzymes {
             if !filter_active || requested.iter().any(|w| w.eq_ignore_ascii_case(&e.name)) {
                 by_name.entry(e.name.as_str()).or_default().push(e);
             }

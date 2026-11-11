@@ -304,7 +304,7 @@ pub(crate) fn cuts_desc(e: &Enzyme, len: i64, circular: bool) -> String {
 /// cut pairs, or two sites).
 pub(crate) fn classify_enzymes(project: &ProjectData) -> (Vec<&Enzyme>, Vec<&Enzyme>, usize) {
     let mut by_name: HashMap<&str, Vec<&Enzyme>> = HashMap::new();
-    for e in &project.enzymes {
+    for e in &project.derived.enzymes {
         by_name.entry(e.name.as_str()).or_default().push(e);
     }
     let mut unique = Vec::new();

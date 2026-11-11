@@ -3,6 +3,7 @@ import { addPrimers, updateSequence } from '../tauriApi';
 import { adjustAlignmentsForEdit } from '../alignmentEdit';
 import { adjustTextColorsForEdit } from '../editor/textColors';
 import { EMPTY_ARRAY } from './constants';
+import { applyProjectMutation } from './projectMutation';
 
 // Pasted annotations supersede pre-existing features fully covered by the
 // replaced span (adjustAnnotations keeps them on equal-length replaces by
@@ -47,12 +48,11 @@ export default function useEditDialog({
   agentLockedRef,
   operationGenRef,
   projectIdRef,
-  editHistoryRef,
+  latestRevisionRef,
   setRestoreState,
   undoVersionRef,
   sequence,
   features,
-  primers,
   alignments,
   textColorsTop,
   textColorsBottom,
@@ -66,6 +66,7 @@ export default function useEditDialog({
   setTextColorsBottom,
   setIsDirty,
   onProjectsSync,
+  onError,
   isDna,
 }) {
   const [editDialog, setEditDialog] = useState({
@@ -330,16 +331,6 @@ export default function useEditDialog({
         );
         if (operationGenRef.current !== gen) return;
         if (data && !data.error) {
-          editHistoryRef.current.push({
-            sequence: data.sequence,
-            features: data.features || mergedFeatures,
-            primers: data.primers || primers || EMPTY_ARRAY,
-            textColorsTop: data.textColorsTop || adjustedTextColorsTop,
-            textColorsBottom: data.textColorsBottom || adjustedTextColorsBottom,
-            cursorIndex: postCursor,
-            selStart: postSelStart,
-            selEnd: postSelEnd,
-          });
           setRestoreState({
             version: ++undoVersionRef.current,
             cursorIndex: postCursor,
@@ -351,15 +342,22 @@ export default function useEditDialog({
             selectedEnzymeIds: [],
             translationSel: null,
           });
-          setSequence(data.sequence);
-          setFeatures(data.features || mergedFeatures); // backend recomputed CDS/mRNA translations
-          setEnzymes(data.enzymes || EMPTY_ARRAY);
-          setPrimers(data.primers || EMPTY_ARRAY);
-          setAlignments(data.alignments || EMPTY_ARRAY);
-          setTextColorsTop(data.textColorsTop || adjustedTextColorsTop);
-          setTextColorsBottom(data.textColorsBottom || adjustedTextColorsBottom);
-          if (data.projects) onProjectsSync(data.projects);
-          setIsDirty(typeof data.dirty === 'boolean' ? data.dirty : true);
+          applyProjectMutation(
+            data,
+            {
+              latestRevisionRef,
+              setSequence,
+              setFeatures,
+              setEnzymes,
+              setPrimers,
+              setAlignments,
+              setTextColorsTop,
+              setTextColorsBottom,
+              setIsDirty,
+              onProjectsSync,
+            },
+            { defaultDirty: true },
+          );
 
           // Import primers from clipboard annotations (DNA only)
           if (annotations && annotations.primers && annotations.primers.length > 0 && isDna) {
@@ -371,19 +369,22 @@ export default function useEditDialog({
               const pData = await addPrimers(projectIdRef.current, primerImports);
               if (operationGenRef.current !== gen) return;
               if (pData && pData.primers) {
-                setPrimers(pData.primers);
-                setIsDirty(true);
+                applyProjectMutation(
+                  pData,
+                  { latestRevisionRef, setPrimers, setIsDirty, onProjectsSync },
+                  { defaultDirty: true },
+                );
               }
             } catch (pe) {
-              console.error('import primers error:', pe);
+              onError('Import primers failed', pe);
             }
           }
         } else {
-          console.error('update_sequence error:', data?.error || 'unknown');
+          onError('Sequence update failed', data?.error || 'Unknown error');
           rollback();
         }
       } catch (e) {
-        console.error('update_sequence exception:', e);
+        onError('Sequence update failed', e);
         rollback();
       }
     },
@@ -392,17 +393,17 @@ export default function useEditDialog({
       editDialog,
       adjustAnnotations,
       features,
-      primers,
       alignments,
       textColorsTop,
       textColorsBottom,
       isDirty,
       onProjectsSync,
+      onError,
       isDna,
       agentLockedRef,
-      editHistoryRef,
       operationGenRef,
       projectIdRef,
+      latestRevisionRef,
       setAlignments,
       setEnzymes,
       setFeatures,

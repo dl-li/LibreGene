@@ -187,7 +187,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             })?;
             if strip_enzymes {
                 ProjectData {
-                    enzymes: Vec::new(),
+                    derived: Default::default(),
                     ..p
                 }
             } else {

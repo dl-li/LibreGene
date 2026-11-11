@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 use crate::payload::{
     broadcast_project_for_id, filter_project, prune_orphan_bindings, sidebar_project_list,
-    with_project_meta, with_projects_list, ProjectParams,
+    with_mutation_meta, with_projects_list, MutationField, ProjectParams,
 };
 use crate::state::{normalize_project_path, validate_user_path, AgentTabs, AppState};
 
@@ -25,10 +25,16 @@ fn response(pm: &ProjectManager, project_id: &str) -> Result<serde_json::Value, 
         row_end: None,
         cpl: None,
     };
-    Ok(with_project_meta(
+    Ok(with_mutation_meta(
         filter_project(project, &params),
         pm,
         project_id,
+        &[
+            MutationField::MsaRows,
+            MutationField::MsaAligned,
+            MutationField::ReferenceRowId,
+            MutationField::MoleculeType,
+        ],
     ))
 }
 
@@ -206,9 +212,8 @@ pub(crate) async fn create_msa_project(
         sequence,
         ..Default::default()
     };
-    let molecule_type = molecule_type.unwrap_or_else(|| {
-        file_io::fasta::detect_msa_molecule_type(std::slice::from_ref(&row))
-    });
+    let molecule_type = molecule_type
+        .unwrap_or_else(|| file_io::fasta::detect_msa_molecule_type(std::slice::from_ref(&row)));
     let mut project = ProjectData {
         name: if name.trim().is_empty() {
             "Untitled MSA".to_string()
@@ -561,13 +566,9 @@ mod tests {
             pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
             tray_status: Arc::new(std::sync::Mutex::new(None)),
         });
-        let window = tauri::WebviewWindowBuilder::new(
-            &app,
-            "main",
-            tauri::WebviewUrl::default(),
-        )
-        .build()
-        .unwrap();
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
+            .build()
+            .unwrap();
         let state = app.state::<AppState>();
         let created = create_msa_project(
             state.clone(),
@@ -578,6 +579,7 @@ mod tests {
         .await
         .unwrap();
         let id = created["id"].as_str().unwrap().to_string();
+        crate::session_log::register_project(app.handle(), &state.pm, &id).await;
         let updated = do_update_msa(
             window.clone(),
             app.handle().clone(),
@@ -604,10 +606,28 @@ mod tests {
         assert_eq!(rows[0]["alignedSequence"], "ACGTACGT");
         assert_eq!(rows[1]["alignedSequence"], "ACGT---T");
 
-        let dir = std::env::temp_dir().join(format!(
-            "libregene-msa-workflow-{}",
-            std::process::id()
-        ));
+        let undone = crate::commands::session_log::restore_project_history(
+            app.handle().clone(),
+            state.clone(),
+            id.clone(),
+            crate::commands::session_log::HistoryDirection::Undo,
+        )
+        .await
+        .unwrap();
+        assert_eq!(undone["msaAligned"], false);
+        let redone = crate::commands::session_log::restore_project_history(
+            app.handle().clone(),
+            state.clone(),
+            id.clone(),
+            crate::commands::session_log::HistoryDirection::Redo,
+        )
+        .await
+        .unwrap();
+        assert_eq!(redone["msaAligned"], true);
+        assert_eq!(redone["msaRows"][1]["alignedSequence"], "ACGT---T");
+
+        let dir =
+            std::env::temp_dir().join(format!("libregene-msa-workflow-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("workflow.msa.fa");
         let saved = crate::commands::projects::save_file_impl(

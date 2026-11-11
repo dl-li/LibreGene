@@ -337,8 +337,8 @@ pub(crate) fn enzyme_test_project() -> ProjectData {
         ..Default::default()
     };
     libregene_core::enzyme::recompute(&mut project);
-    assert!(project.enzymes.iter().any(|e| e.name == "EcoRI"));
-    assert!(!project.enzymes.iter().any(|e| e.name == "AgeI"));
+    assert!(project.derived.enzymes.iter().any(|e| e.name == "EcoRI"));
+    assert!(!project.derived.enzymes.iter().any(|e| e.name == "AgeI"));
     project
 }
 

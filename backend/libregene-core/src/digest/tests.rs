@@ -114,7 +114,8 @@ fn synthetic_project() -> ProjectData {
             },
         ],
         alignments: Vec::new(),
-        enzymes: vec![
+        derived: crate::models::DerivedProjectData {
+            enzymes: vec![
             Enzyme {
                 id: "ecori".into(),
                 name: "EcoRI".into(),
@@ -248,6 +249,8 @@ fn synthetic_project() -> ProjectData {
                 is_palindromic: true,
             },
         ],
+            template_revision: 0,
+        },
         methylation_systems: vec!["dam".into(), "dcm".into()],
         methylation_overlap: 2,
         roi: Some((5, 20)),
@@ -255,7 +258,7 @@ fn synthetic_project() -> ProjectData {
     // Three names that cut 3+ times
     for name in ["AatII", "HaeII", "EcoRV"] {
         for i in 0..3 {
-            p.enzymes.push(Enzyme {
+            p.derived.enzymes.push(Enzyme {
                 id: format!("{}_{}", name, i),
                 name: name.into(),
                 rec_seq: "GGCC".into(),
@@ -1030,10 +1033,10 @@ fn overview_lists_single_cutters_and_names_double_cutters() {
 #[test]
 fn overview_groups_single_cutters_sharing_a_top_cut() {
     let mut p = synthetic_project();
-    let mut twin = p.enzymes[0].clone(); // EcoRI, cut_index 10
+    let mut twin = p.derived.enzymes[0].clone(); // EcoRI, cut_index 10
     twin.id = "twin".into();
     twin.name = "TwinI".into();
-    p.enzymes.push(twin);
+    p.derived.enzymes.push(twin);
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     let line = out
         .lines()

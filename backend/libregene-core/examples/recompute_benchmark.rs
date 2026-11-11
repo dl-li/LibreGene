@@ -134,7 +134,7 @@ fn measure(scenario: Scenario) -> Samples {
         samples
             .total
             .push(total_started.elapsed().as_secs_f64() * 1000.0);
-        std::hint::black_box(project.enzymes.len());
+        std::hint::black_box(project.derived.enzymes.len());
     }
     samples
 }

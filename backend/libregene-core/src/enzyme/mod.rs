@@ -40,11 +40,11 @@ struct SiteHit {
 pub fn recompute(project: &mut ProjectData) {
     // Restriction sites are a DNA concept — single-strand molecules never get them.
     if !project.is_dna() {
-        project.enzymes.clear();
+        project.derived.enzymes.clear();
         return;
     }
     if project.sequence.len() < 4 {
-        project.enzymes.clear();
+        project.derived.enzymes.clear();
         return;
     }
 
@@ -85,14 +85,14 @@ pub fn recompute(project: &mut ProjectData) {
         );
     }
 
-    project.enzymes = result;
+    project.derived.enzymes = result;
 }
 
 /// Re-apply methylation filtering only — avoids full enzyme search when only methylation changes.
 pub fn recompute_methylation_only(project: &mut ProjectData) {
     let systems = project.methylation_systems.clone();
     let is_circular = project.topology == "circular";
-    for enz in &mut project.enzymes {
+    for enz in &mut project.derived.enzymes {
         // Reset methylation state before re-applying
         enz.methylation_blocked = false;
         enz.methylated_offsets.clear();
@@ -537,7 +537,7 @@ mod tests {
         recompute(&mut project);
         assert!(
             project
-                .enzymes
+                .derived.enzymes
                 .iter()
                 .all(|e| !hidden.contains(&e.name.as_str())),
             "hidden enzymes must not appear in recompute results"
@@ -555,7 +555,7 @@ mod tests {
         project.length = project.sequence.len() as i64;
         recompute(&mut project);
         assert!(
-            project.enzymes.is_empty(),
+            project.derived.enzymes.is_empty(),
             "protein projects must never get restriction sites"
         );
     }
@@ -762,7 +762,7 @@ mod tests {
         recompute(&mut project);
 
         let dpni_entries: Vec<_> = project
-            .enzymes
+            .derived.enzymes
             .iter()
             .filter(|e| e.name == "DpnI")
             .collect();
@@ -800,7 +800,7 @@ mod tests {
         recompute(&mut project);
 
         let dpni_entries: Vec<_> = project
-            .enzymes
+            .derived.enzymes
             .iter()
             .filter(|e| e.name == "DpnI")
             .collect();
@@ -831,7 +831,7 @@ mod tests {
         recompute(&mut project);
 
         let mspji_entries: Vec<_> = project
-            .enzymes
+            .derived.enzymes
             .iter()
             .filter(|e| e.name == "MspJI")
             .collect();

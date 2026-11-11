@@ -6,7 +6,10 @@
 
 import type {
   Chromatogram,
+  CreateMsaArgs,
+  CreateProjectArgs,
   Feature,
+  HistoryRestoreResponse,
   MoleculeType,
   Primer,
   PrimerAlignmentResult,
@@ -131,7 +134,7 @@ export async function peekFastaRecords(path) {
  * @param {'circular'|'linear'} args.topology
  * @param {Array<{name:string,ftype:string,color:string,strand:string,segments:Array<{start:number,end:number}>}>} [args.features]
  */
-export async function createProject(args: any = {}) {
+export async function createProject(args: CreateProjectArgs): Promise<ProjectMutationResponse> {
   return tauriInvoke('create_project', {
     name: args.name,
     sequence: args.sequence,
@@ -150,7 +153,7 @@ export async function annotateSequenceText(sequence, circular = false, moleculeT
   return tauriInvoke('annotate_sequence', { sequence, circular, moleculeType });
 }
 
-export async function createMsaProject(args: any = {}) {
+export async function createMsaProject(args: CreateMsaArgs): Promise<ProjectMutationResponse> {
   return tauriInvoke('create_msa_project', {
     name: args.name,
     sequence: args.sequence,
@@ -189,6 +192,16 @@ export async function getSessionEditLog(projectId: string) {
 export async function rollbackSessionEdit(projectId: string, entryId: number) {
   assertEditable();
   return tauriInvoke('rollback_session_edit', { projectId, entryId });
+}
+
+export async function undoProjectEdit(projectId: string): Promise<HistoryRestoreResponse> {
+  assertEditable();
+  return tauriInvoke('undo_project_edit', { projectId });
+}
+
+export async function redoProjectEdit(projectId: string): Promise<HistoryRestoreResponse> {
+  assertEditable();
+  return tauriInvoke('redo_project_edit', { projectId });
 }
 
 export async function writeTextFile(path, contents) {
@@ -245,9 +258,14 @@ export async function setTextColors(projectId, strand, start, end, color) {
 // Features
 // ---------------------------------------------------------------------------
 
-export async function addFeature(projectId, feature, locationStr) {
+export async function addFeature(projectId, feature, locationStr, recordHistory = true) {
   assertEditable();
-  return tauriInvoke('add_feature', { projectId, feature, locationStr: locationStr || null });
+  return tauriInvoke('add_feature', {
+    projectId,
+    feature,
+    locationStr: locationStr || null,
+    recordHistory,
+  });
 }
 
 export async function deleteFeature(projectId, id) {
@@ -284,9 +302,9 @@ export async function updateFeatureStrand(projectId, featureId, strand) {
 // Primers
 // ---------------------------------------------------------------------------
 
-export async function addPrimer(projectId, primer) {
+export async function addPrimer(projectId, primer, recordHistory = true) {
   assertEditable();
-  return tauriInvoke('add_primer', { projectId, primer });
+  return tauriInvoke('add_primer', { projectId, primer, recordHistory });
 }
 
 export async function deletePrimer(projectId, id) {

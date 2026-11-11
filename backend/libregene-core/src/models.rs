@@ -417,6 +417,89 @@ pub struct MsaRow {
 }
 
 // ---------------------------------------------------------------------------
+// Project document and derived data
+// ---------------------------------------------------------------------------
+
+/// User-owned project content without recomputed enzymes, primer binding sites,
+/// feature translations, runtime caches, or user-level analysis settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDocument {
+    pub name: String,
+    #[serde(default)]
+    pub definition: String,
+    #[serde(default)]
+    pub keywords: String,
+    #[serde(default)]
+    pub lab_host: String,
+    pub sequence: String,
+    pub length: i64,
+    #[serde(default = "default_topology")]
+    pub topology: String,
+    #[serde(default = "default_molecule_type")]
+    pub molecule_type: String,
+    #[serde(default = "default_project_kind")]
+    pub project_kind: String,
+    #[serde(default)]
+    pub msa_rows: Vec<MsaRow>,
+    #[serde(default)]
+    pub msa_aligned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_row_id: Option<String>,
+    #[serde(default)]
+    pub features: Vec<Feature>,
+    #[serde(default)]
+    pub primers: Vec<Primer>,
+    #[serde(default)]
+    pub alignments: Vec<Alignment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roi: Option<(i64, i64)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_path: Option<String>,
+    #[serde(default)]
+    pub text_colors_top: Vec<TextColorRange>,
+    #[serde(default)]
+    pub text_colors_bottom: Vec<TextColorRange>,
+}
+
+impl ProjectDocument {
+    pub fn into_project(self) -> ProjectData {
+        ProjectData {
+            name: self.name,
+            definition: self.definition,
+            keywords: self.keywords,
+            lab_host: self.lab_host,
+            sequence: self.sequence,
+            length: self.length,
+            topology: self.topology,
+            molecule_type: self.molecule_type,
+            project_kind: self.project_kind,
+            msa_rows: self.msa_rows,
+            msa_aligned: self.msa_aligned,
+            reference_row_id: self.reference_row_id,
+            features: self.features,
+            primers: self.primers,
+            alignments: self.alignments,
+            roi: self.roi,
+            trace_path: self.trace_path,
+            text_colors_top: self.text_colors_top,
+            text_colors_bottom: self.text_colors_bottom,
+            ..Default::default()
+        }
+    }
+}
+
+/// Recomputed values cached independently of the user document revision.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DerivedProjectData {
+    #[serde(default)]
+    pub enzymes: Vec<Enzyme>,
+    #[serde(skip)]
+    pub template_revision: u64,
+}
+
+// ---------------------------------------------------------------------------
 // ProjectData
 // ---------------------------------------------------------------------------
 
@@ -454,8 +537,8 @@ pub struct ProjectData {
     pub primers: Vec<Primer>,
     #[serde(default)]
     pub alignments: Vec<Alignment>,
-    #[serde(default)]
-    pub enzymes: Vec<Enzyme>,
+    #[serde(flatten)]
+    pub derived: DerivedProjectData,
     /// Effective user-level settings used for enzyme computation; never persisted.
     /// ["dam","dcm","ecoki"]
     #[serde(default)]
@@ -566,6 +649,63 @@ impl ProjectData {
     pub fn is_dna(&self) -> bool {
         self.molecule_type != "rna" && self.molecule_type != "protein"
     }
+
+    pub fn document(&self) -> ProjectDocument {
+        ProjectDocument {
+            name: self.name.clone(),
+            definition: self.definition.clone(),
+            keywords: self.keywords.clone(),
+            lab_host: self.lab_host.clone(),
+            sequence: self.sequence.clone(),
+            length: self.length,
+            topology: self.topology.clone(),
+            molecule_type: self.molecule_type.clone(),
+            project_kind: self.project_kind.clone(),
+            msa_rows: self.msa_rows.clone(),
+            msa_aligned: self.msa_aligned,
+            reference_row_id: self.reference_row_id.clone(),
+            features: self
+                .features
+                .iter()
+                .cloned()
+                .map(|mut feature| {
+                    feature.translation.clear();
+                    feature
+                })
+                .collect(),
+            primers: self
+                .primers
+                .iter()
+                .cloned()
+                .map(|mut primer| {
+                    primer.binding_sites.clear();
+                    primer
+                })
+                .collect(),
+            alignments: self.alignments.clone(),
+            roi: self.roi,
+            trace_path: self.trace_path.clone(),
+            text_colors_top: self.text_colors_top.clone(),
+            text_colors_bottom: self.text_colors_bottom.clone(),
+        }
+    }
+
+    pub fn restore_document(&mut self, document: ProjectDocument) {
+        let methylation_systems = std::mem::take(&mut self.methylation_systems);
+        let methylation_overlap = self.methylation_overlap;
+        let snapgene_history = self.snapgene_history.take();
+        *self = document.into_project();
+        self.methylation_systems = methylation_systems;
+        self.methylation_overlap = methylation_overlap;
+        self.snapgene_history = snapgene_history;
+    }
+
+    pub fn derived(&self, template_revision: u64) -> DerivedProjectData {
+        DerivedProjectData {
+            enzymes: self.derived.enzymes.clone(),
+            template_revision,
+        }
+    }
 }
 
 fn default_methylation_overlap() -> i64 {
@@ -620,4 +760,69 @@ pub struct EditSpan {
 pub struct FeaturesEditImpact {
     pub removed_features: Vec<RemovedFeatureImpact>,
     pub clipped_features: Vec<ClippedFeatureImpact>,
+}
+
+#[cfg(test)]
+mod document_model_tests {
+    use super::*;
+
+    #[test]
+    fn document_excludes_derived_values_and_restore_preserves_runtime_settings() {
+        let mut project = ProjectData {
+            sequence: "GAATTC".to_string(),
+            length: 6,
+            methylation_systems: vec!["dam".to_string()],
+            methylation_overlap: 4,
+            derived: DerivedProjectData {
+                enzymes: vec![Enzyme::default()],
+                template_revision: 7,
+            },
+            features: vec![Feature {
+                id: "f".to_string(),
+                name: "f".to_string(),
+                start: 0,
+                end: 5,
+                color: "#60A5FA".to_string(),
+                ftype: "CDS".to_string(),
+                segments: Vec::new(),
+                strand: "+".to_string(),
+                notes: String::new(),
+                translation: "M".to_string(),
+                qualifiers: Vec::new(),
+            }],
+            primers: vec![Primer {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: "GAATTC".to_string(),
+                binding_sites: vec![PrimerBindingSite {
+                    primer_id: "p".to_string(),
+                    strand: 1,
+                    template_start: 0,
+                    template_end: 6,
+                    tm: 50.0,
+                    gc_content: 0.5,
+                    match_score: 6,
+                    has_3_prime_mismatch: false,
+                    five_prime_tail: String::new(),
+                    three_prime_tail: String::new(),
+                    display_tail: String::new(),
+                    alignment: Default::default(),
+                }],
+            }],
+            ..Default::default()
+        };
+        let document = project.document();
+        assert!(document.features[0].translation.is_empty());
+        assert!(document.primers[0].binding_sites.is_empty());
+
+        let serialized = serde_json::to_value(&project).unwrap();
+        assert!(serialized.get("enzymes").is_some());
+        assert!(serialized.get("templateRevision").is_none());
+        project.restore_document(document);
+        assert!(project.derived.enzymes.is_empty());
+        assert_eq!(project.derived.template_revision, 0);
+        assert_eq!(project.methylation_systems, ["dam"]);
+        assert_eq!(project.methylation_overlap, 4);
+    }
 }

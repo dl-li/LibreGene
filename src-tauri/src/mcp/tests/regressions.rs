@@ -113,7 +113,7 @@ use libregene_core::models::ProjectData;
         };
         libregene_core::enzyme::recompute(&mut project);
         let internal = project
-            .enzymes
+            .derived.enzymes
             .iter()
             .find(|e| e.name == "EcoRI")
             .expect("EcoRI site")

@@ -9,7 +9,10 @@ use crate::kernels::{
     alignment_reject_message, commit_computed_alignment, do_add_alignment_seq, do_remove_alignment,
     parse_align_algorithm,
 };
-use crate::payload::{filter_project, prune_orphan_bindings, with_projects_list, ProjectParams};
+use crate::payload::{
+    filter_project, prune_orphan_bindings, sidebar_project_list, with_mutation_meta,
+    with_projects_list, MutationField, ProjectParams,
+};
 use crate::state::{validate_user_path, AppState, SEQ_EXTS};
 
 // ---------------------------------------------------------------------------
@@ -111,19 +114,24 @@ pub(crate) async fn add_alignment(
     )
     .await;
 
-    let pm = state.pm.read().await;
-    match pm.get_project_by_id(&project_id) {
-        Some(p) => {
-            let params = ProjectParams {
-                enzyme_filter: Some("all".to_string()),
-                row_start: None,
-                row_end: None,
-                cpl: None,
-            };
-            Ok(filter_project(p, &params))
-        }
-        None => Ok(serde_json::json!({"error": "Project not found"})),
-    }
+    let result = {
+        let pm = state.pm.read().await;
+        let data = match pm.get_project_by_id(&project_id) {
+            Some(p) => {
+                let params = ProjectParams {
+                    enzyme_filter: Some("all".to_string()),
+                    row_start: None,
+                    row_end: None,
+                    cpl: None,
+                };
+                filter_project(p, &params)
+            }
+            None => serde_json::json!({"error": "Project not found"}),
+        };
+        with_mutation_meta(data, &pm, &project_id, &[MutationField::Alignments])
+    };
+    let (projects, active_id) = sidebar_project_list(&state.pm, &state.agent_tabs).await;
+    Ok(with_projects_list(result, &projects, active_id.as_deref()))
 }
 
 #[tauri::command]

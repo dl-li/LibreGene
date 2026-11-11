@@ -5,10 +5,12 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::RwLock;
 
-use libregene_core::models::{Feature, Primer, ProjectData};
+use libregene_core::models::{Feature, Primer, ProjectData, ProjectDocument};
 use libregene_core::project::ProjectManager;
 
 pub(crate) const SESSION_ROLLBACK_SOURCE: &str = "session-edit-log";
+pub(crate) const SKIP_SESSION_HISTORY_SOURCE: &str = "skip-session-history";
+const MAX_SESSION_EDITS: usize = 100;
 pub(crate) type SessionEditLog = Arc<RwLock<SessionEditLogStore>>;
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Debug)]
@@ -31,12 +33,15 @@ pub(crate) struct SessionEditEntry {
 
 struct LoggedEdit {
     entry: SessionEditEntry,
-    before: ProjectData,
+    before: ProjectDocument,
+    after: Option<ProjectDocument>,
 }
 
 struct ProjectEditLog {
-    current: ProjectData,
+    current: ProjectDocument,
+    saved: ProjectDocument,
     baseline_dirty: bool,
+    cursor: usize,
     entries: Vec<LoggedEdit>,
 }
 
@@ -62,7 +67,7 @@ fn primer_content(primer: &Primer) -> serde_json::Value {
     value
 }
 
-fn project_content(project: &ProjectData) -> serde_json::Value {
+fn project_content(project: &ProjectDocument) -> serde_json::Value {
     serde_json::json!({
         "name": project.name,
         "definition": project.definition,
@@ -252,7 +257,7 @@ fn primer_changes(before: &[Primer], after: &[Primer]) -> Vec<String> {
     changes
 }
 
-fn alignment_changes(before: &ProjectData, after: &ProjectData) -> Vec<String> {
+fn alignment_changes(before: &ProjectDocument, after: &ProjectDocument) -> Vec<String> {
     let before_ids: HashSet<&str> = before.alignments.iter().map(|a| a.id.as_str()).collect();
     let after_ids: HashSet<&str> = after.alignments.iter().map(|a| a.id.as_str()).collect();
     let added: Vec<_> = after
@@ -279,7 +284,7 @@ fn alignment_changes(before: &ProjectData, after: &ProjectData) -> Vec<String> {
     changes
 }
 
-fn describe_change(before: &ProjectData, after: &ProjectData) -> Vec<String> {
+fn describe_change(before: &ProjectDocument, after: &ProjectDocument) -> Vec<String> {
     let mut details = Vec::new();
     if before.sequence != after.sequence {
         let unit = match after.molecule_type.as_str() {
@@ -290,11 +295,13 @@ fn describe_change(before: &ProjectData, after: &ProjectData) -> Vec<String> {
         details.push(sequence_change(&before.sequence, &after.sequence, unit));
     }
     if before.msa_rows != after.msa_rows || before.msa_aligned != after.msa_aligned {
-        details.push(if before.msa_aligned != after.msa_aligned && after.msa_aligned {
-            format!("Aligned {} sequences with MUSCLE", after.msa_rows.len())
-        } else {
-            format!("Updated MSA rows ({} sequences)", after.msa_rows.len())
-        });
+        details.push(
+            if before.msa_aligned != after.msa_aligned && after.msa_aligned {
+                format!("Aligned {} sequences with MUSCLE", after.msa_rows.len())
+            } else {
+                format!("Updated MSA rows ({} sequences)", after.msa_rows.len())
+            },
+        );
     }
     if before.molecule_type != after.molecule_type {
         details.push(format!("Changed molecule type to {}", after.molecule_type));
@@ -333,10 +340,15 @@ impl SessionEditLogStore {
     pub fn register(&mut self, project_id: &str, project: &ProjectData, dirty: bool) {
         self.projects
             .entry(project_id.to_string())
-            .or_insert_with(|| ProjectEditLog {
-                current: project.clone(),
-                baseline_dirty: dirty,
-                entries: Vec::new(),
+            .or_insert_with(|| {
+                let document = project.document();
+                ProjectEditLog {
+                    current: document.clone(),
+                    saved: document,
+                    baseline_dirty: dirty,
+                    cursor: 0,
+                    entries: Vec::new(),
+                }
             });
     }
 
@@ -351,11 +363,12 @@ impl SessionEditLogStore {
         origin: EditOrigin,
     ) -> Option<SessionEditEntry> {
         let log = self.projects.get_mut(project_id)?;
-        if project_content(&log.current) == project_content(after) {
-            log.current = after.clone();
+        let after = after.document();
+        if project_content(&log.current) == project_content(&after) {
+            log.current = after;
             return None;
         }
-        let details = describe_change(&log.current, after);
+        let details = describe_change(&log.current, &after);
         self.next_id += 1;
         let entry = SessionEditEntry {
             id: self.next_id,
@@ -368,10 +381,18 @@ impl SessionEditLogStore {
             summary: details[0].clone(),
             details,
         };
+        log.entries.truncate(log.cursor);
         log.entries.push(LoggedEdit {
             entry: entry.clone(),
-            before: std::mem::replace(&mut log.current, after.clone()),
+            before: std::mem::replace(&mut log.current, after),
+            after: None,
         });
+        log.cursor = log.entries.len();
+        if log.entries.len() > MAX_SESSION_EDITS {
+            let excess = log.entries.len() - MAX_SESSION_EDITS;
+            log.entries.drain(..excess);
+            log.cursor = log.entries.len();
+        }
         Some(entry)
     }
 
@@ -379,7 +400,7 @@ impl SessionEditLogStore {
         self.projects
             .get(project_id)
             .map(|log| {
-                log.entries
+                log.entries[..log.cursor]
                     .iter()
                     .map(|entry| entry.entry.clone())
                     .collect()
@@ -387,12 +408,53 @@ impl SessionEditLogStore {
             .unwrap_or_default()
     }
 
+    pub fn can_undo(&self, project_id: &str) -> bool {
+        self.projects
+            .get(project_id)
+            .is_some_and(|log| log.cursor > 0)
+    }
+
+    pub fn can_redo(&self, project_id: &str) -> bool {
+        self.projects
+            .get(project_id)
+            .is_some_and(|log| log.cursor < log.entries.len())
+    }
+
+    fn dirty_at(log: &ProjectEditLog, document: &ProjectDocument) -> bool {
+        log.baseline_dirty || project_content(document) != project_content(&log.saved)
+    }
+
+    pub fn undo(&mut self, project_id: &str) -> Option<(ProjectDocument, bool)> {
+        let log = self.projects.get_mut(project_id)?;
+        let index = log.cursor.checked_sub(1)?;
+        let before = log.entries[index].before.clone();
+        let after = std::mem::replace(&mut log.current, before.clone());
+        log.entries[index].after = Some(after);
+        log.cursor = index;
+        let dirty = Self::dirty_at(log, &before);
+        Some((before, dirty))
+    }
+
+    pub fn redo(&mut self, project_id: &str) -> Option<(ProjectDocument, bool)> {
+        let log = self.projects.get_mut(project_id)?;
+        if log.cursor >= log.entries.len() {
+            return None;
+        }
+        let index = log.cursor;
+        let after = log.entries[index].after.clone()?;
+        log.current = after.clone();
+        log.cursor = index + 1;
+        let dirty = Self::dirty_at(log, &after);
+        Some((after, dirty))
+    }
+
     pub fn mark_saved(&mut self, project_id: &str, current: &ProjectData) {
         if let Some(log) = self.projects.get_mut(project_id) {
             for entry in &mut log.entries {
                 entry.entry.saved = true;
             }
-            log.current = current.clone();
+            log.current = current.document();
+            log.saved = current.document();
             log.baseline_dirty = false;
         }
     }
@@ -410,7 +472,7 @@ impl SessionEditLogStore {
         &mut self,
         project_id: &str,
         entry_id: u64,
-    ) -> Option<(ProjectData, bool, bool)> {
+    ) -> Option<(ProjectDocument, bool, bool)> {
         let log = self.projects.get_mut(project_id)?;
         let index = log
             .entries
@@ -418,20 +480,26 @@ impl SessionEditLogStore {
             .position(|entry| entry.entry.id == entry_id && !entry.entry.saved)?;
         let before = log.entries[index].before.clone();
         log.entries.truncate(index);
+        log.cursor = index;
         log.current = before.clone();
         let has_unsaved = log.entries.iter().any(|entry| !entry.entry.saved);
         Some((before, log.baseline_dirty, has_unsaved))
     }
 }
 
-fn emit_entries<R: Runtime>(
+pub(crate) fn emit_history<R: Runtime>(
     app_handle: &AppHandle<R>,
+    log: &SessionEditLogStore,
     project_id: &str,
-    entries: Vec<SessionEditEntry>,
 ) {
     let _ = app_handle.emit(
         "session-edit-log-update",
-        serde_json::json!({ "projectId": project_id, "entries": entries }),
+        serde_json::json!({
+            "projectId": project_id,
+            "entries": log.entries(project_id),
+            "canUndo": log.can_undo(project_id),
+            "canRedo": log.can_redo(project_id),
+        }),
     );
 }
 
@@ -452,7 +520,7 @@ pub(crate) async fn register_project<R: Runtime>(
     };
     let mut log = state.session_edit_log.write().await;
     log.register(project_id, &project, dirty);
-    emit_entries(app_handle, project_id, log.entries(project_id));
+    emit_history(app_handle, &log, project_id);
 }
 
 pub(crate) async fn mark_project_saved<R: Runtime>(
@@ -472,7 +540,7 @@ pub(crate) async fn mark_project_saved<R: Runtime>(
     };
     let mut log = state.session_edit_log.write().await;
     log.mark_saved(project_id, &project);
-    emit_entries(app_handle, project_id, log.entries(project_id));
+    emit_history(app_handle, &log, project_id);
 }
 
 pub(crate) async fn rekey_project<R: Runtime>(
@@ -483,13 +551,18 @@ pub(crate) async fn rekey_project<R: Runtime>(
     let Some(state) = app_handle.try_state::<crate::AppState>() else {
         return;
     };
-    let entries = {
-        let mut log = state.session_edit_log.write().await;
-        log.rekey(old_id, new_id);
-        log.entries(new_id)
-    };
-    emit_entries(app_handle, old_id, Vec::new());
-    emit_entries(app_handle, new_id, entries);
+    let mut log = state.session_edit_log.write().await;
+    log.rekey(old_id, new_id);
+    let _ = app_handle.emit(
+        "session-edit-log-update",
+        serde_json::json!({
+            "projectId": old_id,
+            "entries": [],
+            "canUndo": false,
+            "canRedo": false,
+        }),
+    );
+    emit_history(app_handle, &log, new_id);
 }
 
 pub(crate) async fn record_project_change<R: Runtime>(
@@ -498,7 +571,7 @@ pub(crate) async fn record_project_change<R: Runtime>(
     after: &ProjectData,
     source: Option<&str>,
 ) {
-    if source == Some(SESSION_ROLLBACK_SOURCE) {
+    if source == Some(SESSION_ROLLBACK_SOURCE) || source == Some(SKIP_SESSION_HISTORY_SOURCE) {
         return;
     }
     let Some(state) = app_handle.try_state::<crate::AppState>() else {
@@ -511,7 +584,7 @@ pub(crate) async fn record_project_change<R: Runtime>(
     };
     let mut log = state.session_edit_log.write().await;
     if log.record(project_id, after, origin).is_some() {
-        emit_entries(app_handle, project_id, log.entries(project_id));
+        emit_history(app_handle, &log, project_id);
     }
 }
 
@@ -594,26 +667,18 @@ mod tests {
         });
         edited.topology = "linear".to_string();
         let entry = store.record("p", &edited, EditOrigin::User).unwrap();
-        assert!(
-            entry
-                .details
-                .contains(&"Added feature ‘GFP’ (CDS, 2–6)".to_string())
-        );
-        assert!(
-            entry
-                .details
-                .contains(&"Added primer ‘forward’".to_string())
-        );
-        assert!(
-            entry
-                .details
-                .contains(&"Added alignment ‘read 1’".to_string())
-        );
-        assert!(
-            entry
-                .details
-                .contains(&"Changed topology to linear".to_string())
-        );
+        assert!(entry
+            .details
+            .contains(&"Added feature ‘GFP’ (CDS, 2–6)".to_string()));
+        assert!(entry
+            .details
+            .contains(&"Added primer ‘forward’".to_string()));
+        assert!(entry
+            .details
+            .contains(&"Added alignment ‘read 1’".to_string()));
+        assert!(entry
+            .details
+            .contains(&"Changed topology to linear".to_string()));
     }
 
     #[test]
@@ -677,10 +742,127 @@ mod tests {
         let initial = project("AAAA");
         store.register("p", &initial, false);
         let mut recomputed = initial.clone();
-        recomputed.enzymes.push(Default::default());
+        recomputed.derived.enzymes.push(Default::default());
         recomputed.methylation_systems = vec!["dam".to_string()];
         recomputed.methylation_overlap = 4;
         assert!(store.record("p", &recomputed, EditOrigin::Agent).is_none());
         assert!(store.entries("p").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod document_history_tests {
+    use super::*;
+
+    #[test]
+    fn snapshots_exclude_derived_data_and_history_is_bounded() {
+        let mut store = SessionEditLogStore::default();
+        let mut initial = ProjectData {
+            sequence: "AAAA".to_string(),
+            length: 4,
+            derived: libregene_core::models::DerivedProjectData {
+                enzymes: vec![Default::default()],
+                template_revision: 0,
+            },
+            features: vec![Feature {
+                id: "f".to_string(),
+                name: "f".to_string(),
+                start: 0,
+                end: 3,
+                color: "#60A5FA".to_string(),
+                ftype: "CDS".to_string(),
+                segments: Vec::new(),
+                strand: "+".to_string(),
+                notes: String::new(),
+                translation: "M".to_string(),
+                qualifiers: Vec::new(),
+            }],
+            primers: vec![Primer {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                r#type: "fwd".to_string(),
+                primer_seq: "AAAA".to_string(),
+                binding_sites: vec![libregene_core::models::PrimerBindingSite {
+                    primer_id: "p".to_string(),
+                    strand: 1,
+                    template_start: 0,
+                    template_end: 4,
+                    tm: 50.0,
+                    gc_content: 0.0,
+                    match_score: 4,
+                    has_3_prime_mismatch: false,
+                    five_prime_tail: String::new(),
+                    three_prime_tail: String::new(),
+                    display_tail: String::new(),
+                    alignment: Default::default(),
+                }],
+            }],
+            ..Default::default()
+        };
+        store.register("p", &initial, false);
+        initial.sequence.push('T');
+        initial.length += 1;
+        store.record("p", &initial, EditOrigin::User).unwrap();
+
+        let log = store.projects.get("p").unwrap();
+        assert!(log.current.features[0].translation.is_empty());
+        assert!(log.current.primers[0].binding_sites.is_empty());
+        assert!(log.entries[0].before.features[0].translation.is_empty());
+        assert!(log.entries[0].before.primers[0].binding_sites.is_empty());
+
+        for i in 0..105 {
+            initial.sequence = format!("A{}", i);
+            initial.length = initial.sequence.len() as i64;
+            store.record("p", &initial, EditOrigin::User);
+        }
+        assert_eq!(store.entries("p").len(), MAX_SESSION_EDITS);
+    }
+}
+
+#[cfg(test)]
+mod history_cursor_tests {
+    use super::*;
+
+    fn project(sequence: &str) -> ProjectData {
+        ProjectData {
+            sequence: sequence.to_string(),
+            length: sequence.len() as i64,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn undo_and_redo_share_session_history_and_track_saved_content() {
+        let mut store = SessionEditLogStore::default();
+        let initial = project("AAAA");
+        let saved = project("AAAT");
+        store.register("p", &initial, false);
+        store.record("p", &saved, EditOrigin::User).unwrap();
+        store.mark_saved("p", &saved);
+
+        let edited = project("AATT");
+        store.record("p", &edited, EditOrigin::Agent).unwrap();
+        let (document, dirty) = store.undo("p").unwrap();
+        assert_eq!(document.sequence, "AAAT");
+        assert!(!dirty);
+        assert!(store.can_redo("p"));
+        assert_eq!(store.entries("p").len(), 1);
+
+        let (document, dirty) = store.undo("p").unwrap();
+        assert_eq!(document.sequence, "AAAA");
+        assert!(dirty);
+        let (document, dirty) = store.redo("p").unwrap();
+        assert_eq!(document.sequence, "AAAT");
+        assert!(!dirty);
+        let (document, dirty) = store.redo("p").unwrap();
+        assert_eq!(document.sequence, "AATT");
+        assert!(dirty);
+
+        store.undo("p");
+        store
+            .record("p", &project("AACC"), EditOrigin::User)
+            .unwrap();
+        assert!(!store.can_redo("p"));
+        assert_eq!(store.entries("p").len(), 2);
     }
 }
