@@ -751,4 +751,9 @@ export const zh = {
   'bp)': 'bp）',
   'Reverse complement': '反向互补',
   'Agent · MCP': 'Agent · MCP',
+  On: '开',
+  Off: '关',
+  '{label}: {value}': '{label}：{value}',
+  'Show {name}': '显示{name}',
+  'Type IIS': 'IIS 型',
 };

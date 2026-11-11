@@ -57,6 +57,7 @@ import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
 import { plugins, pluginAvailable } from './plugins';
 import { T, useTranslation } from '@/i18n';
+import NavStateNotice, { useNavStateNotice } from './components/NavStateNotice';
 
 const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
 
@@ -255,10 +256,25 @@ export default function EditorNavMenu({
   onToggleThickFeatureLines,
 }) {
   const { t } = useTranslation();
+  const { notice, showNotice } = useNavStateNotice();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searchScope, setSearchScope] = useState('all');
   const inputRef = useRef(null);
+
+  const toggleState = (label, current, onChange) => () => {
+    const next = !current;
+    onChange?.(next);
+    showNotice(label, next);
+  };
+  const checkState = (label, onChange) => (value) => {
+    const next = value === true;
+    onChange?.(next);
+    showNotice(label, next);
+  };
+  const viewModeLabel = (mode) => (mode === 'wrap' ? 'Wrap (Vertical)' : 'Continuous (Horizontal)');
+  const backgroundLabel = (value) =>
+    backgroundOptions.find((option) => option.value === value)?.label || value;
 
   // rna/protein projects are single-strand sequences: keep Edit/Features/Search,
   // hide DNA-only tooling (primers, enzymes, alignment, antisense/translation).
@@ -275,7 +291,11 @@ export default function EditorNavMenu({
       ?.value || diagramOptions[0]?.value;
   const diagramBackgroundToggle =
     onBackgroundChange && defaultDiagram
-      ? () => onBackgroundChange(background === 'none' ? defaultDiagram : 'none')
+      ? () => {
+          const next = background === 'none' ? defaultDiagram : 'none';
+          onBackgroundChange(next);
+          showNotice('Background', backgroundLabel(next));
+        }
       : null;
   const hasFolding = moleculeType === 'rna' && !!onOpenRnaFold;
   const hasDotplot = moleculeType !== 'protein' && !!onOpenDotplot;
@@ -379,22 +399,39 @@ export default function EditorNavMenu({
   // before any menu interaction (or when the layout mode itself was last
   // changed) it toggles wrap/continuous.
   const [lastViewOption, setLastViewOption] = useState(null);
+  const viewCheckedChange = (key, label, onChange) => (value) => {
+    setLastViewOption(key);
+    checkState(label, onChange)(value);
+  };
   const viewLeftClick = (() => {
-    if (lastViewOption === 'orfs' && onToggleOrfs) return onToggleOrfs;
-    if (lastViewOption === 'dsRuler' && onToggleDoubleStrand) return onToggleDoubleStrand;
-    if (lastViewOption === 'textColor' && onToggleTextColor) return onToggleTextColor;
+    if (lastViewOption === 'orfs' && onToggleOrfs)
+      return toggleState('Show ORFs', showOrfs, onToggleOrfs);
+    if (lastViewOption === 'dsRuler' && onToggleDoubleStrand)
+      return toggleState('Show Both Strands', showDoubleStrand, onToggleDoubleStrand);
+    if (lastViewOption === 'textColor' && onToggleTextColor)
+      return toggleState('Show Text Color', showTextColor, onToggleTextColor);
     if (lastViewOption === 'expandFeatures' && onToggleAlwaysExpandFeatures)
-      return onToggleAlwaysExpandFeatures;
+      return toggleState('Expand All Features', alwaysExpandFeatures, onToggleAlwaysExpandFeatures);
     if (lastViewOption === 'expandPrimers' && onToggleAlwaysExpandPrimers)
-      return onToggleAlwaysExpandPrimers;
+      return toggleState('Expand All Primers', alwaysExpandPrimers, onToggleAlwaysExpandPrimers);
     if (lastViewOption === 'featureLabelsBelow' && onFeatureLabelsBelowChange)
-      return () => onFeatureLabelsBelowChange(!featureLabelsBelow);
+      return toggleState('Feature Labels Below', featureLabelsBelow, onFeatureLabelsBelowChange);
     if (lastViewOption === 'thickFeatureLines' && onToggleThickFeatureLines)
-      return onToggleThickFeatureLines;
+      return toggleState('Thick Feature Lines', thickFeatureLines, onToggleThickFeatureLines);
     const pluginToggle = lastViewOption && pluginToggles[lastViewOption];
-    if (pluginToggle) return pluginToggle.onToggle;
+    const plugin = lastViewOption && viewTogglePlugins.find((p) => p.id === lastViewOption);
+    if (pluginToggle && plugin)
+      return toggleState(
+        plugin.featuresMenuItem.label,
+        pluginToggle.checked,
+        pluginToggle.onToggle,
+      );
     if (!onViewModeChange) return undefined;
-    return () => onViewModeChange(viewMode === 'wrap' ? 'continuous' : 'wrap');
+    return () => {
+      const next = viewMode === 'wrap' ? 'continuous' : 'wrap';
+      onViewModeChange(next);
+      showNotice('View', viewModeLabel(next));
+    };
   })();
 
   return (
@@ -407,7 +444,8 @@ export default function EditorNavMenu({
         zIndex: 40,
       }}
     >
-      <div className="nav-bar-enter relative flex items-center gap-0.5 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
+      <NavStateNotice notice={notice} />
+      <div className="nav-bar-enter relative z-10 flex items-center gap-0.5 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
         {/* Edit: left or right click opens the menu */}
         <NavMenu icon={Pencil} label="Edit" contentClassName="min-w-52 overflow-visible">
           <DropdownMenuItem disabled={!canDirectSave} onSelect={onSave}>
@@ -472,7 +510,12 @@ export default function EditorNavMenu({
           {isDna && onToggleTopology && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onToggleTopology}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  onToggleTopology();
+                  showNotice('Topology', topology === 'circular' ? 'Linear' : 'Circular');
+                }}
+              >
                 {topology === 'circular' ? (
                   <>
                     <Minus /> <T>{'Linearize'}</T>
@@ -513,6 +556,7 @@ export default function EditorNavMenu({
             onValueChange={(v) => {
               setLastViewOption('mode');
               onViewModeChange?.(v);
+              showNotice('View', viewModeLabel(v));
             }}
           >
             <DropdownMenuRadioItem value="wrap">
@@ -527,19 +571,18 @@ export default function EditorNavMenu({
           {onToggleOrfs && (
             <DropdownMenuCheckboxItem
               checked={showOrfs}
-              onCheckedChange={() => {
-                setLastViewOption('orfs');
-                onToggleOrfs();
-              }}
+              onCheckedChange={viewCheckedChange('orfs', 'Show ORFs', onToggleOrfs)}
             >
               <T>{'Show ORFs'}</T>
             </DropdownMenuCheckboxItem>
           )}
           {viewTogglePlugins.map((p) => {
             const checked = !!pluginToggles[p.id].checked;
-            const toggle = () => {
+            const toggle = (value) => {
+              const next = typeof value === 'boolean' ? value : !checked;
               setLastViewOption(p.id);
               pluginToggles[p.id].onToggle();
+              showNotice(p.featuresMenuItem.label, next);
             };
             const legend = p.featuresMenuItem.legend;
             // Plugins with a color legend (e.g. the protein property tracks)
@@ -582,10 +625,11 @@ export default function EditorNavMenu({
           {isDna && onToggleDoubleStrand && (
             <DropdownMenuCheckboxItem
               checked={showDoubleStrand}
-              onCheckedChange={() => {
-                setLastViewOption('dsRuler');
-                onToggleDoubleStrand();
-              }}
+              onCheckedChange={viewCheckedChange(
+                'dsRuler',
+                'Show Both Strands',
+                onToggleDoubleStrand,
+              )}
             >
               <T>{'Show Both Strands'}</T>
             </DropdownMenuCheckboxItem>
@@ -593,10 +637,7 @@ export default function EditorNavMenu({
           {onToggleTextColor && (
             <DropdownMenuCheckboxItem
               checked={showTextColor}
-              onCheckedChange={() => {
-                setLastViewOption('textColor');
-                onToggleTextColor();
-              }}
+              onCheckedChange={viewCheckedChange('textColor', 'Show Text Color', onToggleTextColor)}
             >
               <T>{'Show Text Color'}</T>
             </DropdownMenuCheckboxItem>
@@ -607,10 +648,11 @@ export default function EditorNavMenu({
               {onToggleAlwaysExpandFeatures && (
                 <DropdownMenuCheckboxItem
                   checked={alwaysExpandFeatures}
-                  onCheckedChange={() => {
-                    setLastViewOption('expandFeatures');
-                    onToggleAlwaysExpandFeatures();
-                  }}
+                  onCheckedChange={viewCheckedChange(
+                    'expandFeatures',
+                    'Expand All Features',
+                    onToggleAlwaysExpandFeatures,
+                  )}
                 >
                   <T>{'Expand All Features'}</T>
                 </DropdownMenuCheckboxItem>
@@ -618,10 +660,11 @@ export default function EditorNavMenu({
               {isDna && onToggleAlwaysExpandPrimers && (
                 <DropdownMenuCheckboxItem
                   checked={alwaysExpandPrimers}
-                  onCheckedChange={() => {
-                    setLastViewOption('expandPrimers');
-                    onToggleAlwaysExpandPrimers();
-                  }}
+                  onCheckedChange={viewCheckedChange(
+                    'expandPrimers',
+                    'Expand All Primers',
+                    onToggleAlwaysExpandPrimers,
+                  )}
                 >
                   <T>{'Expand All Primers'}</T>
                 </DropdownMenuCheckboxItem>
@@ -630,10 +673,11 @@ export default function EditorNavMenu({
                 <DropdownMenuCheckboxItem
                   checked={viewMode === 'continuous' ? true : featureLabelsBelow}
                   disabled={viewMode === 'continuous'}
-                  onCheckedChange={(v) => {
-                    setLastViewOption('featureLabelsBelow');
-                    onFeatureLabelsBelowChange(v === true);
-                  }}
+                  onCheckedChange={viewCheckedChange(
+                    'featureLabelsBelow',
+                    'Feature Labels Below',
+                    onFeatureLabelsBelowChange,
+                  )}
                 >
                   <T>{'Feature Labels Below'}</T>
                 </DropdownMenuCheckboxItem>
@@ -641,10 +685,11 @@ export default function EditorNavMenu({
               {onToggleThickFeatureLines && (
                 <DropdownMenuCheckboxItem
                   checked={thickFeatureLines}
-                  onCheckedChange={() => {
-                    setLastViewOption('thickFeatureLines');
-                    onToggleThickFeatureLines();
-                  }}
+                  onCheckedChange={viewCheckedChange(
+                    'thickFeatureLines',
+                    'Thick Feature Lines',
+                    onToggleThickFeatureLines,
+                  )}
                 >
                   <T>{'Thick Feature Lines'}</T>
                 </DropdownMenuCheckboxItem>
@@ -657,20 +702,24 @@ export default function EditorNavMenu({
         <NavMenu
           icon={Tag}
           label="Features"
-          onLeftClick={onToggleFeatures}
+          onLeftClick={toggleState('Show Features', showFeatures, onToggleFeatures)}
           contentClassName="min-w-52 overflow-visible"
         >
-          <DropdownMenuCheckboxItem checked={showFeatures} onCheckedChange={onToggleFeatures}>
+          <DropdownMenuCheckboxItem
+            checked={showFeatures}
+            onCheckedChange={checkState('Show Features', onToggleFeatures)}
+          >
             <T>{'Show Features'}</T>
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           {onToggleAlwaysExpandFeatures && (
             <DropdownMenuCheckboxItem
               checked={alwaysExpandFeatures}
-              onCheckedChange={() => {
-                setLastViewOption('expandFeatures');
-                onToggleAlwaysExpandFeatures();
-              }}
+              onCheckedChange={viewCheckedChange(
+                'expandFeatures',
+                'Expand All Features',
+                onToggleAlwaysExpandFeatures,
+              )}
             >
               <T>{'Expand All Features'}</T>
             </DropdownMenuCheckboxItem>
@@ -679,10 +728,11 @@ export default function EditorNavMenu({
             <DropdownMenuCheckboxItem
               checked={viewMode === 'continuous' ? true : featureLabelsBelow}
               disabled={viewMode === 'continuous'}
-              onCheckedChange={(v) => {
-                setLastViewOption('featureLabelsBelow');
-                onFeatureLabelsBelowChange(v === true);
-              }}
+              onCheckedChange={viewCheckedChange(
+                'featureLabelsBelow',
+                'Feature Labels Below',
+                onFeatureLabelsBelowChange,
+              )}
             >
               <T>{'Feature Labels Below'}</T>
             </DropdownMenuCheckboxItem>
@@ -702,19 +752,23 @@ export default function EditorNavMenu({
           <NavMenu
             icon={ArrowRight}
             label="Primers"
-            onLeftClick={onTogglePrimers}
+            onLeftClick={toggleState('Show Primers', showPrimers, onTogglePrimers)}
             contentClassName="min-w-52 overflow-visible"
           >
-            <DropdownMenuCheckboxItem checked={showPrimers} onCheckedChange={onTogglePrimers}>
+            <DropdownMenuCheckboxItem
+              checked={showPrimers}
+              onCheckedChange={checkState('Show Primers', onTogglePrimers)}
+            >
               <T>{'Show Primers'}</T>
             </DropdownMenuCheckboxItem>
             {onToggleAlwaysExpandPrimers && (
               <DropdownMenuCheckboxItem
                 checked={alwaysExpandPrimers}
-                onCheckedChange={() => {
-                  setLastViewOption('expandPrimers');
-                  onToggleAlwaysExpandPrimers();
-                }}
+                onCheckedChange={viewCheckedChange(
+                  'expandPrimers',
+                  'Expand All Primers',
+                  onToggleAlwaysExpandPrimers,
+                )}
               >
                 <T>{'Expand All Primers'}</T>
               </DropdownMenuCheckboxItem>
@@ -748,7 +802,7 @@ export default function EditorNavMenu({
                 </DropdownMenuItem>
                 <DropdownMenuCheckboxItem
                   checked={autoAddPrimers}
-                  onCheckedChange={onToggleAutoAddPrimers}
+                  onCheckedChange={checkState('Auto-add from Opened Files', onToggleAutoAddPrimers)}
                 >
                   <T>{'Auto-add from Opened Files'}</T>
                 </DropdownMenuCheckboxItem>
@@ -783,10 +837,13 @@ export default function EditorNavMenu({
           <NavMenu
             icon={Scissors}
             label="Enzymes"
-            onLeftClick={onToggleEnzymes}
+            onLeftClick={toggleState('Show Enzyme Sites', showEnzymes, onToggleEnzymes)}
             contentClassName="min-w-52 overflow-visible"
           >
-            <DropdownMenuCheckboxItem checked={showEnzymes} onCheckedChange={onToggleEnzymes}>
+            <DropdownMenuCheckboxItem
+              checked={showEnzymes}
+              onCheckedChange={checkState('Show Enzyme Sites', onToggleEnzymes)}
+            >
               <T>{'Show Enzyme Sites'}</T>
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
@@ -795,7 +852,18 @@ export default function EditorNavMenu({
                 <T>{'Enzyme Set'}</T>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
-                <DropdownMenuRadioGroup value={enzymeFilter} onValueChange={onEnzymeFilterChange}>
+                <DropdownMenuRadioGroup
+                  value={enzymeFilter}
+                  onValueChange={(value) => {
+                    onEnzymeFilterChange?.(value);
+                    showNotice(
+                      'Enzyme Set',
+                      value === 'myEnzymes'
+                        ? 'My Enzymes'
+                        : ENZYME_FILTER_OPTIONS.find((option) => option.value === value)?.label,
+                    );
+                  }}
+                >
                   {myEnzymes.length > 0 && (
                     <>
                       <DropdownMenuRadioItem value="myEnzymes">
@@ -852,7 +920,13 @@ export default function EditorNavMenu({
               <DropdownMenuSubContent className="min-w-44">
                 <DropdownMenuRadioGroup
                   value={enzymeProvider}
-                  onValueChange={onEnzymeProviderChange}
+                  onValueChange={(value) => {
+                    onEnzymeProviderChange?.(value);
+                    showNotice(
+                      'Provider',
+                      ENZYME_PROVIDER_OPTIONS.find((option) => option.value === value)?.label,
+                    );
+                  }}
                 >
                   {ENZYME_PROVIDER_OPTIONS.map((opt) => (
                     <DropdownMenuRadioItem key={opt.value} value={opt.value}>
@@ -890,17 +964,21 @@ export default function EditorNavMenu({
               alignments.length === 0
                 ? onManageAlignments
                 : alignments.some((a) => !hiddenAlignIds.includes(a.id))
-                  ? onToggleAlignments
+                  ? toggleState('Show Alignments', showAlignments, onToggleAlignments)
                   : () => {
                       if (!showAlignments) onToggleAlignments?.();
                       alignments.forEach((a) => {
                         if (hiddenAlignIds.includes(a.id)) onToggleAlignmentVisible?.(a.id);
                       });
+                      showNotice('Show Alignments', true);
                     }
             }
             contentClassName="min-w-56 overflow-visible"
           >
-            <DropdownMenuCheckboxItem checked={showAlignments} onCheckedChange={onToggleAlignments}>
+            <DropdownMenuCheckboxItem
+              checked={showAlignments}
+              onCheckedChange={checkState('Show Alignments', onToggleAlignments)}
+            >
               <T>{'Show Alignments'}</T>
             </DropdownMenuCheckboxItem>
             {alignments.length > 0 && <DropdownMenuSeparator />}
@@ -908,7 +986,10 @@ export default function EditorNavMenu({
               <DropdownMenuCheckboxItem
                 key={a.id}
                 checked={!hiddenAlignIds.includes(a.id)}
-                onCheckedChange={() => onToggleAlignmentVisible?.(a.id)}
+                onCheckedChange={(value) => {
+                  onToggleAlignmentVisible?.(a.id);
+                  showNotice('Show {name}', value === true, { name: a.name });
+                }}
               >
                 <span className="truncate">{a.name}</span>
                 <DropdownMenuShortcut className="ml-4 text-muted-foreground">
@@ -939,7 +1020,13 @@ export default function EditorNavMenu({
           >
             {onBackgroundChange && backgroundOptions.length > 0 && (
               <>
-                <DropdownMenuRadioGroup value={background} onValueChange={onBackgroundChange}>
+                <DropdownMenuRadioGroup
+                  value={background}
+                  onValueChange={(value) => {
+                    onBackgroundChange(value);
+                    showNotice('Background', backgroundLabel(value));
+                  }}
+                >
                   {backgroundOptions.map((o) => (
                     <DropdownMenuRadioItem key={o.value} value={o.value}>
                       <T>{o.label}</T>
