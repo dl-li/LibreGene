@@ -73,9 +73,20 @@ pub(crate) fn feature_line(f: &Feature) -> String {
     )
 }
 
-pub(crate) fn primer_site_line(site: &PrimerBindingSite, primer: &crate::models::Primer) -> (i64, String) {
-    let strand = if site.strand == 1 { "+ strand" } else { "- strand" };
-    let mismatch = if site.has_3_prime_mismatch { ", 3' mismatch" } else { "" };
+pub(crate) fn primer_site_line(
+    site: &PrimerBindingSite,
+    primer: &crate::models::Primer,
+) -> (i64, String) {
+    let strand = if site.strand == 1 {
+        "+ strand"
+    } else {
+        "- strand"
+    };
+    let mismatch = if site.has_3_prime_mismatch {
+        ", 3' mismatch"
+    } else {
+        ""
+    };
     (
         site.template_start,
         format!(
@@ -94,7 +105,12 @@ pub(crate) fn primer_site_line(site: &PrimerBindingSite, primer: &crate::models:
     )
 }
 
-pub(crate) fn alignment_in_region(a: &crate::models::Alignment, s: i64, e: i64, circular: bool) -> bool {
+pub(crate) fn alignment_in_region(
+    a: &crate::models::Alignment,
+    s: i64,
+    e: i64,
+    circular: bool,
+) -> bool {
     a.segments
         .iter()
         .any(|seg| seg_in_range(seg.start as i64, seg.end as i64, s, e, circular))
@@ -102,7 +118,13 @@ pub(crate) fn alignment_in_region(a: &crate::models::Alignment, s: i64, e: i64, 
 
 /// A deletion covers template columns `pos .. pos+length-1`; a merged deletion
 /// straddling the circular origin wraps (pos + length may exceed tlen).
-pub(crate) fn deletion_in_region(d: &AlignDeletion, s: i64, e: i64, circular: bool, tlen: i64) -> bool {
+pub(crate) fn deletion_in_region(
+    d: &AlignDeletion,
+    s: i64,
+    e: i64,
+    circular: bool,
+    tlen: i64,
+) -> bool {
     let start = d.pos as i64;
     let end = d.pos as i64 + d.length as i64 - 1;
     if end < tlen {
@@ -124,7 +146,11 @@ pub(crate) fn alignment_line(a: &crate::models::Alignment) -> String {
     } else {
         inner
     };
-    let strand = if a.strand == "-" { "- strand" } else { "+ strand" };
+    let strand = if a.strand == "-" {
+        "- strand"
+    } else {
+        "+ strand"
+    };
     format!(
         "        {:<24} {:<24} {}  [identity {:.1}%, significant]  (id: {})",
         a.name,
@@ -195,7 +221,11 @@ pub(crate) fn push_alignment_view(
         return;
     }
     let strand = if a.strand == "-" { "-" } else { "+" };
-    let _ = writeln!(out, "        {}  (id: {}, {} strand):", a.name, a.id, strand);
+    let _ = writeln!(
+        out,
+        "        {}  (id: {}, {} strand):",
+        a.name, a.id, strand
+    );
     if cols.len() > ALIGNMENT_VIEW_MAX_COLS {
         let _ = writeln!(
             out,
@@ -240,8 +270,18 @@ pub(crate) fn push_alignment_view(
         }
     }
     for (us, ue) in uncovered {
-        let n = if us <= ue { ue - us + 1 } else { tlen - us + ue + 1 };
-        let _ = writeln!(out, "{indent}uncovered template {}..{} ({} bp)", us + 1, ue + 1, n);
+        let n = if us <= ue {
+            ue - us + 1
+        } else {
+            tlen - us + ue + 1
+        };
+        let _ = writeln!(
+            out,
+            "{indent}uncovered template {}..{} ({} bp)",
+            us + 1,
+            ue + 1,
+            n
+        );
     }
 }
 

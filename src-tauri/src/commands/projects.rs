@@ -366,10 +366,8 @@ mod tests {
 
     #[tokio::test]
     async fn msa_fasta_peek_never_offers_record_splitting() {
-        let path = std::env::temp_dir().join(format!(
-            "libregene-msa-peek-{}.msa.fa",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("libregene-msa-peek-{}.msa.fa", std::process::id()));
         std::fs::write(&path, ">a\nACGT\n>b\nAC-GT\n").unwrap();
         let result = peek_fasta_records(path.to_string_lossy().into_owned())
             .await

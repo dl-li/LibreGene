@@ -217,10 +217,12 @@ pub(crate) fn write_convert_output(
             std::fs::write(path, format!("{}\n", sequence))
                 .map_err(|e| format!("failed to write {}: {}", output_path, e))?;
         }
-        other => return Err(format!(
+        other => {
+            return Err(format!(
             "unsupported output extension '.{}' (allowed: gbk, gb, genbank, gpt, fa, fasta, txt)",
             other
-        )),
+        ))
+        }
     }
     Ok(output_path.to_string())
 }

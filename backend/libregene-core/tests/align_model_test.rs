@@ -58,11 +58,17 @@ fn every_read_base_appears_once_in_read_order() {
         positions.sort_unstable();
         let unique = positions.len();
         positions.dedup();
-        assert_eq!(unique, positions.len(), "[{}] duplicate anchors", algo.as_str());
+        assert_eq!(
+            unique,
+            positions.len(),
+            "[{}] duplicate anchors",
+            algo.as_str()
+        );
 
         let rebuilt = rebuild_read(&aln);
         assert_eq!(
-            rebuilt, aln.seq,
+            rebuilt,
+            aln.seq,
             "[{}] the model must walk the read in its own order (segments {:?})",
             algo.as_str(),
             aln.segments

@@ -109,10 +109,10 @@ pub fn forward_primers(
     for m in automaton.automaton.find_iter(&rc_upper) {
         let pi = automaton.pattern_to_primer[m.pattern().as_usize()];
         let end_index = m.end(); // end of match on rc(template)
-        // Map back to Watson position: the 3' end of the primer on Watson =
-        // template_len - (end_index on rc)
-        // Actually, the position on the forward (Watson) strand is:
-        //   watson_pos = tlen - end_index
+                                 // Map back to Watson position: the 3' end of the primer on Watson =
+                                 // template_len - (end_index on rc)
+                                 // Actually, the position on the forward (Watson) strand is:
+                                 //   watson_pos = tlen - end_index
         let watson_pos = tlen - end_index;
         result.entry(pi).or_default().push(watson_pos);
     }
@@ -335,7 +335,11 @@ mod tests {
         let auto = PrimerAutomaton::build(&primers, 8);
         let pairs = find_primer_pairs(&template, &primers, &auto, 20, 2000);
         // We expect at least one pair.
-        assert!(!pairs.is_empty(), "should find a primer pair, got {}", pairs.len());
+        assert!(
+            !pairs.is_empty(),
+            "should find a primer pair, got {}",
+            pairs.len()
+        );
         let pair = &pairs[0];
         assert_eq!(pair.fwd_index, 0);
         assert_eq!(pair.rev_index, 1);
@@ -355,7 +359,10 @@ mod tests {
         }];
         let auto = PrimerAutomaton::build(&primers, 4);
         let pairs = find_primer_pairs(repeat_template, &primers, &auto, 10, 1000);
-        assert!(pairs.is_empty(), "should not find pairs with non-unique binding");
+        assert!(
+            pairs.is_empty(),
+            "should not find pairs with non-unique binding"
+        );
     }
 
     #[test]

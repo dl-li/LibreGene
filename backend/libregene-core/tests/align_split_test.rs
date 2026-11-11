@@ -49,7 +49,11 @@ fn split_read_two_flanks_with_junction_insert() {
     assert_eq!(a.end, t.len() - 1, "flankA reaches the origin");
     assert_eq!(b.start, 0, "flankA resumes at the origin");
     assert!(b.end >= 3_900 && b.end <= 4_000, "flankA end {}", b.end);
-    assert!(c.start >= 5_200 && c.start <= 5_300, "flankB start {}", c.start);
+    assert!(
+        c.start >= 5_200 && c.start <= 5_300,
+        "flankB start {}",
+        c.start
+    );
 
     // The 19 bp insert is reported as insertion bases anchored at the
     // junction (allowing a few columns of equivalent left/right sliding).

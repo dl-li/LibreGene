@@ -34,7 +34,11 @@ fn positions_iter(f: &Feature) -> impl Iterator<Item = i64> + '_ {
     } else {
         None
     };
-    let n = if fallback.is_some() { 1 } else { f.segments.len() };
+    let n = if fallback.is_some() {
+        1
+    } else {
+        f.segments.len()
+    };
     (0..n).flat_map(move |k| {
         let (start, end) = match fallback {
             Some(se) => se,
@@ -174,11 +178,7 @@ pub fn position_from_feature_offset(f: &Feature, offset1: i64) -> Result<i64, St
 /// template positions of that codon (5'→3' biological order), the coding-strand
 /// codon, and the single-letter amino acid. Errors if the feature is not
 /// translatable or the position is out of bounds.
-pub fn codon_from_aa(
-    f: &Feature,
-    seq: &str,
-    aa1: i64,
-) -> Result<([i64; 3], String, char), String> {
+pub fn codon_from_aa(f: &Feature, seq: &str, aa1: i64) -> Result<([i64; 3], String, char), String> {
     if !f.ftype.eq_ignore_ascii_case("cds") && !f.ftype.eq_ignore_ascii_case("mrna") {
         return Err(format!(
             "feature '{}' has type '{}'; codon lookup requires CDS or mRNA",
@@ -194,11 +194,18 @@ pub fn codon_from_aa(
         ));
     }
     let codon_idx = (aa1 as usize - 1) * 3;
-    let codon_positions = [positions[codon_idx], positions[codon_idx + 1], positions[codon_idx + 2]];
+    let codon_positions = [
+        positions[codon_idx],
+        positions[codon_idx + 1],
+        positions[codon_idx + 2],
+    ];
     let bytes = seq.as_bytes();
     // Feature coordinates are file-derived and not range-checked at parse
     // time; reject instead of indexing out of bounds.
-    if codon_positions.iter().any(|&p| p < 0 || p >= bytes.len() as i64) {
+    if codon_positions
+        .iter()
+        .any(|&p| p < 0 || p >= bytes.len() as i64)
+    {
         return Err(format!(
             "feature '{}' coordinates fall outside the sequence (length {}); \
              the feature location is inconsistent with the loaded file",
@@ -224,11 +231,7 @@ mod tests {
     use super::*;
     use crate::models::{Feature, Segment};
 
-    fn cds(
-        id: &str,
-        strand: &str,
-        segments: Vec<(i64, i64)>,
-    ) -> Feature {
+    fn cds(id: &str, strand: &str, segments: Vec<(i64, i64)>) -> Feature {
         let start = segments.iter().map(|s| s.0).min().unwrap();
         let end = segments.iter().map(|s| s.1).max().unwrap();
         Feature {
@@ -269,7 +272,11 @@ mod tests {
         let seq = "ACGTACGTAC";
         let f = cds("evil", "+", vec![(50, 60)]);
         let hits = position_to_translations(50, seq, &[f]);
-        assert!(hits.is_empty(), "out-of-range feature must be skipped, got {:?}", hits.len());
+        assert!(
+            hits.is_empty(),
+            "out-of-range feature must be skipped, got {:?}",
+            hits.len()
+        );
     }
 
     #[test]
@@ -277,7 +284,10 @@ mod tests {
         let seq = "ACGTACGTAC";
         let f = cds("evil", "+", vec![(50, 60)]);
         let res = codon_from_aa(&f, seq, 1);
-        assert!(res.is_err(), "out-of-range feature must return Err, not panic");
+        assert!(
+            res.is_err(),
+            "out-of-range feature must return Err, not panic"
+        );
         let msg = res.unwrap_err();
         assert!(
             msg.contains("outside the sequence"),

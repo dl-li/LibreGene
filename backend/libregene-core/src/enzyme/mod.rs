@@ -537,7 +537,8 @@ mod tests {
         recompute(&mut project);
         assert!(
             project
-                .derived.enzymes
+                .derived
+                .enzymes
                 .iter()
                 .all(|e| !hidden.contains(&e.name.as_str())),
             "hidden enzymes must not appear in recompute results"
@@ -574,7 +575,7 @@ mod tests {
         let rec_len: i64 = 6;
         let rec_start: i64 = 3;
         // top_cut = rec_start + fst5, bot_cut = rec_start + rec_len + fst3
-        assert_eq!(rec_start + fst5, 4);        // cut between 4 and 5
+        assert_eq!(rec_start + fst5, 4); // cut between 4 and 5
         assert_eq!(rec_start + rec_len + fst3, 8); // cut between 8 and 9
     }
 
@@ -606,7 +607,7 @@ mod tests {
         let rec_start: i64 = 100;
 
         // Standard Biopython formulas
-        let top_cut_bot = rec_start - fst3;           // = 100 - 6 = 94
+        let top_cut_bot = rec_start - fst3; // = 100 - 6 = 94
         let bot_cut_bot = rec_start + rec_len - fst5; // = 100 + 6 - 8 = 98
 
         assert_eq!(top_cut_bot, 94);
@@ -615,8 +616,8 @@ mod tests {
         assert!(top_cut_bot < bot_cut_bot);
 
         // Verify old swap formula gives DIFFERENT result
-        let old_top = rec_start + (rec_len + fst3);  // = 100 + 12 = 112
-        let old_bot = rec_start + fst5;               // = 100 + 8 = 108
+        let old_top = rec_start + (rec_len + fst3); // = 100 + 12 = 112
+        let old_bot = rec_start + fst5; // = 100 + 8 = 108
         assert_ne!(top_cut_bot, old_top);
         assert_ne!(bot_cut_bot, old_bot);
     }
@@ -633,14 +634,14 @@ mod tests {
         let rec_start: i64 = 100;
 
         // First cut pair (upstream)
-        let p1_top = rec_start + fst5;               // 90
-        let p1_bot = rec_start + rec_len + fst3;     // 86
+        let p1_top = rec_start + fst5; // 90
+        let p1_bot = rec_start + rec_len + fst3; // 86
         assert_eq!(p1_top, 90);
         assert_eq!(p1_bot, 86);
 
         // Second cut pair (downstream)
-        let p2_top = rec_start + scd5;               // 123
-        let p2_bot = rec_start + rec_len + scd3;     // 119
+        let p2_top = rec_start + scd5; // 123
+        let p2_bot = rec_start + rec_len + scd3; // 119
         assert_eq!(p2_top, 123);
         assert_eq!(p2_bot, 119);
     }
@@ -656,14 +657,14 @@ mod tests {
         let rec_start: i64 = 100;
 
         // First cut pair (right side, was left side before flipping)
-        let p1_top = rec_start - fst3;               // 100 - (-26) = 126
-        let p1_bot = rec_start + rec_len - fst5;     // 100 + 12 - (-10) = 122
+        let p1_top = rec_start - fst3; // 100 - (-26) = 126
+        let p1_bot = rec_start + rec_len - fst5; // 100 + 12 - (-10) = 122
         assert_eq!(p1_top, 126);
         assert_eq!(p1_bot, 122);
 
         // Second cut pair (left side, was right side before flipping)
-        let p2_top = rec_start - scd3;               // 100 - 7 = 93
-        let p2_bot = rec_start + rec_len - scd5;     // 100 + 12 - 23 = 89
+        let p2_top = rec_start - scd3; // 100 - 7 = 93
+        let p2_bot = rec_start + rec_len - scd5; // 100 + 12 - 23 = 89
         assert_eq!(p2_top, 93);
         assert_eq!(p2_bot, 89);
     }
@@ -734,11 +735,11 @@ mod tests {
         let rec_start: i64 = 50;
 
         // Top strand
-        let top_cut_top = rec_start + fst5;           // 51
+        let top_cut_top = rec_start + fst5; // 51
         let bot_cut_top = rec_start + rec_len + fst3; // 55
 
         // Bottom strand (should give same as top for palindromic)
-        let top_cut_bot = rec_start - fst3;           // 50 - (-1) = 51 ✓
+        let top_cut_bot = rec_start - fst3; // 50 - (-1) = 51 ✓
         let bot_cut_bot = rec_start + rec_len - fst5; // 50 + 6 - 1 = 55 ✓
 
         assert_eq!(top_cut_top, top_cut_bot);
@@ -754,7 +755,7 @@ mod tests {
         let mut project = ProjectData {
             sequence: "NNNNGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string(),
             topology: "circular".to_string(),
-            methylation_systems: vec![],  // Dam NOT active
+            methylation_systems: vec![], // Dam NOT active
             ..Default::default()
         };
         project.length = project.sequence.len() as i64;
@@ -762,7 +763,8 @@ mod tests {
         recompute(&mut project);
 
         let dpni_entries: Vec<_> = project
-            .derived.enzymes
+            .derived
+            .enzymes
             .iter()
             .filter(|e| e.name == "DpnI")
             .collect();
@@ -800,7 +802,8 @@ mod tests {
         recompute(&mut project);
 
         let dpni_entries: Vec<_> = project
-            .derived.enzymes
+            .derived
+            .enzymes
             .iter()
             .filter(|e| e.name == "DpnI")
             .collect();
@@ -831,7 +834,8 @@ mod tests {
         recompute(&mut project);
 
         let mspji_entries: Vec<_> = project
-            .derived.enzymes
+            .derived
+            .enzymes
             .iter()
             .filter(|e| e.name == "MspJI")
             .collect();

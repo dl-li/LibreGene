@@ -65,10 +65,7 @@ pub fn display_columns(ops: &[AlignedPair], query: &[u8]) -> (String, Vec<usize>
 /// `primer` is the **query** sequence (the primer for fwd, RC for rev).
 /// `template_region` is the matching template segment.
 /// Both must be equal length and fully matching (checked by caller).
-pub fn build_render_data(
-    primer: &[u8],
-    template_region: &[u8],
-) -> Option<AlignmentRenderData> {
+pub fn build_render_data(primer: &[u8], template_region: &[u8]) -> Option<AlignmentRenderData> {
     if primer.is_empty() || template_region.is_empty() {
         return None;
     }
@@ -127,11 +124,31 @@ mod tests {
         // Template has one base the primer lacks (Del) and one mismatch.
         let query = b"ATGC";
         let ops = vec![
-            AlignedPair { op: Op::Match, primer_pos: Some(0), template_pos: Some(0) },
-            AlignedPair { op: Op::Mismatch, primer_pos: Some(1), template_pos: Some(1) },
-            AlignedPair { op: Op::Del, primer_pos: None, template_pos: Some(2) },
-            AlignedPair { op: Op::Match, primer_pos: Some(2), template_pos: Some(3) },
-            AlignedPair { op: Op::Match, primer_pos: Some(3), template_pos: Some(4) },
+            AlignedPair {
+                op: Op::Match,
+                primer_pos: Some(0),
+                template_pos: Some(0),
+            },
+            AlignedPair {
+                op: Op::Mismatch,
+                primer_pos: Some(1),
+                template_pos: Some(1),
+            },
+            AlignedPair {
+                op: Op::Del,
+                primer_pos: None,
+                template_pos: Some(2),
+            },
+            AlignedPair {
+                op: Op::Match,
+                primer_pos: Some(2),
+                template_pos: Some(3),
+            },
+            AlignedPair {
+                op: Op::Match,
+                primer_pos: Some(3),
+                template_pos: Some(4),
+            },
         ];
         let (s, mism) = display_columns(&ops, query);
         assert_eq!(s, "AT-GC");
@@ -145,10 +162,18 @@ mod tests {
         let query = b"TACTAGTACGC";
         let mut ops = Vec::new();
         for i in 0..3 {
-            ops.push(AlignedPair { op: Op::Match, primer_pos: Some(i), template_pos: Some(i) });
+            ops.push(AlignedPair {
+                op: Op::Match,
+                primer_pos: Some(i),
+                template_pos: Some(i),
+            });
         }
         for i in 3..8 {
-            ops.push(AlignedPair { op: Op::Ins, primer_pos: Some(i), template_pos: None });
+            ops.push(AlignedPair {
+                op: Op::Ins,
+                primer_pos: Some(i),
+                template_pos: None,
+            });
         }
         for i in 8..11 {
             ops.push(AlignedPair {
@@ -167,10 +192,26 @@ mod tests {
         // Insertion run at the very start/end has only one flanking column.
         let query = b"ZZATGC"; // ZZ inserted before the span
         let ops = vec![
-            AlignedPair { op: Op::Ins, primer_pos: Some(0), template_pos: None },
-            AlignedPair { op: Op::Ins, primer_pos: Some(1), template_pos: None },
-            AlignedPair { op: Op::Match, primer_pos: Some(2), template_pos: Some(0) },
-            AlignedPair { op: Op::Match, primer_pos: Some(3), template_pos: Some(1) },
+            AlignedPair {
+                op: Op::Ins,
+                primer_pos: Some(0),
+                template_pos: None,
+            },
+            AlignedPair {
+                op: Op::Ins,
+                primer_pos: Some(1),
+                template_pos: None,
+            },
+            AlignedPair {
+                op: Op::Match,
+                primer_pos: Some(2),
+                template_pos: Some(0),
+            },
+            AlignedPair {
+                op: Op::Match,
+                primer_pos: Some(3),
+                template_pos: Some(1),
+            },
         ];
         let (s, _) = display_columns(&ops, query);
         assert_eq!(s, "·T");

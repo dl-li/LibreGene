@@ -18,15 +18,40 @@ impl KarlinBlk {
 /// Look up λ/K/H for (reward, penalty, gap_open, gap_extend). Values come
 /// from the NCBI nucleotide precomputed tables (approximate); unknown
 /// combinations return `None`.
-pub fn lookup_karlin(reward: i32, penalty: i32, gap_open: i32, gap_extend: i32) -> Option<KarlinBlk> {
+pub fn lookup_karlin(
+    reward: i32,
+    penalty: i32,
+    gap_open: i32,
+    gap_extend: i32,
+) -> Option<KarlinBlk> {
     // NCBI blastn default (1,-3,5,2): λ≈1.33, K≈0.621, H≈1.12;
     // megablast (1,-3,0,0) maps internally to the (2,2)-gap λ/K.
     match (reward, penalty, gap_open, gap_extend) {
-        (1, -3, 5, 2) => Some(KarlinBlk { lambda: 1.33, k: 0.621, h: 1.12 }),
-        (1, -3, 0, 0) => Some(KarlinBlk { lambda: 1.33, k: 0.621, h: 1.12 }),
-        (1, -3, 4, 2) => Some(KarlinBlk { lambda: 1.28, k: 0.460, h: 1.06 }),
-        (1, -3, 2, 2) => Some(KarlinBlk { lambda: 1.22, k: 0.342, h: 0.95 }),
-        (1, -4, 5, 2) => Some(KarlinBlk { lambda: 1.13, k: 0.378, h: 0.85 }),
+        (1, -3, 5, 2) => Some(KarlinBlk {
+            lambda: 1.33,
+            k: 0.621,
+            h: 1.12,
+        }),
+        (1, -3, 0, 0) => Some(KarlinBlk {
+            lambda: 1.33,
+            k: 0.621,
+            h: 1.12,
+        }),
+        (1, -3, 4, 2) => Some(KarlinBlk {
+            lambda: 1.28,
+            k: 0.460,
+            h: 1.06,
+        }),
+        (1, -3, 2, 2) => Some(KarlinBlk {
+            lambda: 1.22,
+            k: 0.342,
+            h: 0.95,
+        }),
+        (1, -4, 5, 2) => Some(KarlinBlk {
+            lambda: 1.13,
+            k: 0.378,
+            h: 0.85,
+        }),
         _ => None,
     }
 }

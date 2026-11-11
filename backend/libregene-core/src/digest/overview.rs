@@ -7,10 +7,10 @@ use super::lines::{
     deletion_in_region, feature_line, feature_matches_filter, molecule_label, primer_site_line,
     push_alignment_view, translation_diff_pos, unit_for,
 };
-use super::DigestOptions;
 use super::range::{
     cut_flanks, enzyme_in_region, feature_in_region, pos_in_range, seg_in_range, validate_range,
 };
+use super::DigestOptions;
 use crate::models::{Enzyme, Feature, ProjectData};
 
 /// Full or region-filtered project digest. `region` is internal 0-based
@@ -87,9 +87,7 @@ pub fn project_digest(
         .features
         .iter()
         .filter(|f| feature_matches_filter(f, opts.feature_filter.as_deref()))
-        .filter(|f| {
-            region.is_none_or(|(s, e)| feature_in_region(f, s, e, circular))
-        })
+        .filter(|f| region.is_none_or(|(s, e)| feature_in_region(f, s, e, circular)))
         .collect();
     out.push_str("FEATURES (1-based, inclusive):\n");
     match opts.max_features {
@@ -98,7 +96,8 @@ pub fn project_digest(
                 out.push_str(&feature_line(f));
                 out.push('\n');
             }
-            let _ = writeln!(out,
+            let _ = writeln!(
+                out,
                 "        ... and {} more features (narrow with feature_filter)",
                 features.len() - max
             );
@@ -150,9 +149,7 @@ pub fn project_digest(
         }
         for s in &p.binding_sites {
             let covered = (s.template_start, s.template_end - 1);
-            if region.is_none_or(|(rs, re)| {
-                seg_in_range(covered.0, covered.1, rs, re, circular)
-            }) {
+            if region.is_none_or(|(rs, re)| seg_in_range(covered.0, covered.1, rs, re, circular)) {
                 site_lines.push(primer_site_line(s, p));
             }
         }
@@ -165,10 +162,7 @@ pub fn project_digest(
             out.push('\n');
         }
         if !unbound.is_empty() {
-            let _ = writeln!(out,
-                "Primers without binding sites: {}",
-                unbound.join(", ")
-            );
+            let _ = writeln!(out, "Primers without binding sites: {}", unbound.join(", "));
         }
     } else if is_dna && region.is_none() {
         out.push_str("PRIMERS (none)\n");
@@ -179,9 +173,7 @@ pub fn project_digest(
     let alignments: Vec<&crate::models::Alignment> = project
         .alignments
         .iter()
-        .filter(|a| {
-            region.is_none_or(|(s, e)| alignment_in_region(a, s, e, circular))
-        })
+        .filter(|a| region.is_none_or(|(s, e)| alignment_in_region(a, s, e, circular)))
         .collect();
     if !alignments.is_empty() {
         out.push_str("ALIGNMENTS (1-based, inclusive):\n");
@@ -205,10 +197,8 @@ pub fn project_digest(
                         .or_insert(0) += 1;
                 }
             }
-            let consensus: Vec<((i64, String, String), usize)> = counts
-                .into_iter()
-                .filter(|(_, n)| *n >= 2)
-                .collect();
+            let consensus: Vec<((i64, String, String), usize)> =
+                counts.into_iter().filter(|(_, n)| *n >= 2).collect();
             if !consensus.is_empty() {
                 let parts: Vec<String> = consensus
                     .iter()
@@ -254,7 +244,8 @@ pub fn project_digest(
             }
             section.push('\n');
             for m in mismatches {
-                let _ = writeln!(section,
+                let _ = writeln!(
+                    section,
                     "          mismatch at {}: {} > {}",
                     m.pos + 1,
                     m.template_base,
@@ -262,7 +253,8 @@ pub fn project_digest(
                 );
             }
             for d in deletions {
-                let _ = writeln!(section,
+                let _ = writeln!(
+                    section,
                     "          deletion at {}: {} bp ({})",
                     d.pos + 1,
                     d.length,
@@ -271,7 +263,8 @@ pub fn project_digest(
             }
             for i in insertions {
                 let (a1, b1) = cut_flanks(i.pos as i64, project.length, circular);
-                let _ = writeln!(section,
+                let _ = writeln!(
+                    section,
                     "          insertion between {} and {}: {} ({} bp)",
                     a1, b1, i.bases, i.length
                 );
@@ -317,7 +310,9 @@ pub fn project_digest(
                     }
                 } else {
                     if !single.is_empty() {
-                        out.push_str("SINGLE CUTTERS (top-strand cut N; enzymes sharing N are grouped):\n");
+                        out.push_str(
+                            "SINGLE CUTTERS (top-strand cut N; enzymes sharing N are grouped):\n",
+                        );
                         let mut groups: BTreeMap<i64, Vec<&str>> = BTreeMap::new();
                         for e in single {
                             let (n, _) = cut_flanks(e.cut_index, project.length, circular);
@@ -338,7 +333,8 @@ pub fn project_digest(
             }
             Some((s, e)) => {
                 let in_region: Vec<&Enzyme> = project
-                    .derived.enzymes
+                    .derived
+                    .enzymes
                     .iter()
                     .filter(|en| enzyme_in_region(en, s, e, circular))
                     .collect();
@@ -351,7 +347,8 @@ pub fn project_digest(
                     } else {
                         out.push_str("ENZYMES CUTTING IN REGION (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
                         for en in in_region {
-                            let _ = writeln!(out,
+                            let _ = writeln!(
+                                out,
                                 "        {:<10} {}   {}",
                                 en.name,
                                 cuts_desc(en, project.length, circular),

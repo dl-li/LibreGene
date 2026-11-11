@@ -116,139 +116,139 @@ fn synthetic_project() -> ProjectData {
         alignments: Vec::new(),
         derived: crate::models::DerivedProjectData {
             enzymes: vec![
-            Enzyme {
-                id: "ecori".into(),
-                name: "EcoRI".into(),
-                rec_seq: "GAATTC".into(),
-                rec_start: 4,
-                rec_end: 9,
-                display_start: 4,
-                display_end: 14,
-                cut_index: 10,
-                bot_cut_index: 14,
-                cut_pairs: vec![CutPair {
-                    top_cut_index: 10,
+                Enzyme {
+                    id: "ecori".into(),
+                    name: "EcoRI".into(),
+                    rec_seq: "GAATTC".into(),
+                    rec_start: 4,
+                    rec_end: 9,
+                    display_start: 4,
+                    display_end: 14,
+                    cut_index: 10,
                     bot_cut_index: 14,
-                }],
-                recognition_strand: "top".into(),
-                comp_seq: String::new(),
-                rec_seq_pattern: "GAATTC".into(),
-                spacers: None,
-                is_unique: true,
-                truncated: false,
-                is_methylation_sensitive: false,
-                methylation_blocked: false,
-                methylated_offsets: Vec::new(),
-                methylation_sources: Vec::new(),
-                methylation_required: false,
-                methyl_required_offsets: Vec::new(),
-                methyl_required_sources: Vec::new(),
-                cut_type: "5overhang".into(),
-                cut_twice: false,
-                is_palindromic: true,
-            },
-            // BsaI: two recognition sites
-            Enzyme {
-                id: "bsai_0".into(),
-                name: "BsaI".into(),
-                rec_seq: "GGTCTC".into(),
-                rec_start: 14,
-                rec_end: 19,
-                display_start: 14,
-                display_end: 24,
-                cut_index: 20,
-                bot_cut_index: 24,
-                cut_pairs: vec![CutPair {
-                    top_cut_index: 20,
+                    cut_pairs: vec![CutPair {
+                        top_cut_index: 10,
+                        bot_cut_index: 14,
+                    }],
+                    recognition_strand: "top".into(),
+                    comp_seq: String::new(),
+                    rec_seq_pattern: "GAATTC".into(),
+                    spacers: None,
+                    is_unique: true,
+                    truncated: false,
+                    is_methylation_sensitive: false,
+                    methylation_blocked: false,
+                    methylated_offsets: Vec::new(),
+                    methylation_sources: Vec::new(),
+                    methylation_required: false,
+                    methyl_required_offsets: Vec::new(),
+                    methyl_required_sources: Vec::new(),
+                    cut_type: "5overhang".into(),
+                    cut_twice: false,
+                    is_palindromic: true,
+                },
+                // BsaI: two recognition sites
+                Enzyme {
+                    id: "bsai_0".into(),
+                    name: "BsaI".into(),
+                    rec_seq: "GGTCTC".into(),
+                    rec_start: 14,
+                    rec_end: 19,
+                    display_start: 14,
+                    display_end: 24,
+                    cut_index: 20,
                     bot_cut_index: 24,
-                }],
-                recognition_strand: "top".into(),
-                comp_seq: String::new(),
-                rec_seq_pattern: "GGTCTC".into(),
-                spacers: None,
-                is_unique: false,
-                truncated: false,
-                is_methylation_sensitive: false,
-                methylation_blocked: false,
-                methylated_offsets: Vec::new(),
-                methylation_sources: Vec::new(),
-                methylation_required: false,
-                methyl_required_offsets: Vec::new(),
-                methyl_required_sources: Vec::new(),
-                cut_type: "5overhang".into(),
-                cut_twice: false,
-                is_palindromic: true,
-            },
-            Enzyme {
-                id: "bsai_1".into(),
-                name: "BsaI".into(),
-                rec_seq: "GGTCTC".into(),
-                rec_start: 34,
-                rec_end: 39,
-                display_start: 34,
-                display_end: 44,
-                cut_index: 40,
-                bot_cut_index: 44,
-                cut_pairs: vec![CutPair {
-                    top_cut_index: 40,
+                    cut_pairs: vec![CutPair {
+                        top_cut_index: 20,
+                        bot_cut_index: 24,
+                    }],
+                    recognition_strand: "top".into(),
+                    comp_seq: String::new(),
+                    rec_seq_pattern: "GGTCTC".into(),
+                    spacers: None,
+                    is_unique: false,
+                    truncated: false,
+                    is_methylation_sensitive: false,
+                    methylation_blocked: false,
+                    methylated_offsets: Vec::new(),
+                    methylation_sources: Vec::new(),
+                    methylation_required: false,
+                    methyl_required_offsets: Vec::new(),
+                    methyl_required_sources: Vec::new(),
+                    cut_type: "5overhang".into(),
+                    cut_twice: false,
+                    is_palindromic: true,
+                },
+                Enzyme {
+                    id: "bsai_1".into(),
+                    name: "BsaI".into(),
+                    rec_seq: "GGTCTC".into(),
+                    rec_start: 34,
+                    rec_end: 39,
+                    display_start: 34,
+                    display_end: 44,
+                    cut_index: 40,
                     bot_cut_index: 44,
-                }],
-                recognition_strand: "top".into(),
-                comp_seq: String::new(),
-                rec_seq_pattern: "GGTCTC".into(),
-                spacers: None,
-                is_unique: false,
-                truncated: false,
-                is_methylation_sensitive: false,
-                methylation_blocked: false,
-                methylated_offsets: Vec::new(),
-                methylation_sources: Vec::new(),
-                methylation_required: false,
-                methyl_required_offsets: Vec::new(),
-                methyl_required_sources: Vec::new(),
-                cut_type: "5overhang".into(),
-                cut_twice: false,
-                is_palindromic: true,
-            },
-            // BbsI: one site, cut-twice (two cut pairs)
-            Enzyme {
-                id: "bbsi".into(),
-                name: "BbsI".into(),
-                rec_seq: "GAAGAC".into(),
-                rec_start: 10,
-                rec_end: 15,
-                display_start: 10,
-                display_end: 34,
-                cut_index: 15,
-                bot_cut_index: 19,
-                cut_pairs: vec![
-                    CutPair {
-                        top_cut_index: 15,
-                        bot_cut_index: 19,
-                    },
-                    CutPair {
-                        top_cut_index: 30,
-                        bot_cut_index: 34,
-                    },
-                ],
-                recognition_strand: "top".into(),
-                comp_seq: String::new(),
-                rec_seq_pattern: "GAAGAC".into(),
-                spacers: None,
-                is_unique: true,
-                truncated: false,
-                is_methylation_sensitive: false,
-                methylation_blocked: false,
-                methylated_offsets: Vec::new(),
-                methylation_sources: Vec::new(),
-                methylation_required: false,
-                methyl_required_offsets: Vec::new(),
-                methyl_required_sources: Vec::new(),
-                cut_type: "5overhang".into(),
-                cut_twice: true,
-                is_palindromic: true,
-            },
-        ],
+                    cut_pairs: vec![CutPair {
+                        top_cut_index: 40,
+                        bot_cut_index: 44,
+                    }],
+                    recognition_strand: "top".into(),
+                    comp_seq: String::new(),
+                    rec_seq_pattern: "GGTCTC".into(),
+                    spacers: None,
+                    is_unique: false,
+                    truncated: false,
+                    is_methylation_sensitive: false,
+                    methylation_blocked: false,
+                    methylated_offsets: Vec::new(),
+                    methylation_sources: Vec::new(),
+                    methylation_required: false,
+                    methyl_required_offsets: Vec::new(),
+                    methyl_required_sources: Vec::new(),
+                    cut_type: "5overhang".into(),
+                    cut_twice: false,
+                    is_palindromic: true,
+                },
+                // BbsI: one site, cut-twice (two cut pairs)
+                Enzyme {
+                    id: "bbsi".into(),
+                    name: "BbsI".into(),
+                    rec_seq: "GAAGAC".into(),
+                    rec_start: 10,
+                    rec_end: 15,
+                    display_start: 10,
+                    display_end: 34,
+                    cut_index: 15,
+                    bot_cut_index: 19,
+                    cut_pairs: vec![
+                        CutPair {
+                            top_cut_index: 15,
+                            bot_cut_index: 19,
+                        },
+                        CutPair {
+                            top_cut_index: 30,
+                            bot_cut_index: 34,
+                        },
+                    ],
+                    recognition_strand: "top".into(),
+                    comp_seq: String::new(),
+                    rec_seq_pattern: "GAAGAC".into(),
+                    spacers: None,
+                    is_unique: true,
+                    truncated: false,
+                    is_methylation_sensitive: false,
+                    methylation_blocked: false,
+                    methylated_offsets: Vec::new(),
+                    methylation_sources: Vec::new(),
+                    methylation_required: false,
+                    methyl_required_offsets: Vec::new(),
+                    methyl_required_sources: Vec::new(),
+                    cut_type: "5overhang".into(),
+                    cut_twice: true,
+                    is_palindromic: true,
+                },
+            ],
             template_revision: 0,
         },
         methylation_systems: vec!["dam".into(), "dcm".into()],
@@ -313,7 +313,10 @@ fn digest_header_carries_seqhash() {
     // the LOCUS line.
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(out.contains(&expected), "{out}");
-    assert!(out.find("SEQHASH:").unwrap() < out.find("COORDS:").unwrap(), "{out}");
+    assert!(
+        out.find("SEQHASH:").unwrap() < out.find("COORDS:").unwrap(),
+        "{out}"
+    );
     let region = project_digest(&p, &DigestOptions::default(), Some((0, 10))).unwrap();
     assert!(region.contains(&expected), "{region}");
     // Protein digests omit the rev-comp part.
@@ -351,7 +354,8 @@ fn overview_protein_uses_aa_and_omits_dna_sections() {
     assert!(out.contains("FEATURES (1-based, inclusive):\n"));
     assert!(out.contains("repA  [#60A5FA]  (id: f1)"));
     // Region views also skip the enzyme layer for non-DNA.
-    let region = project_digest(&protein_project(), &DigestOptions::default(), Some((0, 39))).unwrap();
+    let region =
+        project_digest(&protein_project(), &DigestOptions::default(), Some((0, 39))).unwrap();
     assert!(!region.contains("ENZYMES CUTTING IN REGION"));
     // Auto-annotation runs on protein projects too, matching the aa
     // sequence against the database's translated CDS features; the
@@ -398,7 +402,8 @@ fn overview_rna_uses_nt() {
 fn read_sequence_protein_uses_aa_units() {
     let p = protein_project();
     let out = read_sequence(&p, 0, 9).unwrap();
-    assert!(out.contains("COORDS: 1-based inclusive. Window 1..10 (10 aa) of 40 aa linear (wrap: false)"));
+    assert!(out
+        .contains("COORDS: 1-based inclusive. Window 1..10 (10 aa) of 40 aa linear (wrap: false)"));
     assert_eq!(read_sequence_bases(&p, 0, 9).unwrap(), "MAAAMAAAMA");
     // Read-limit error message uses the mapped unit too.
     let big = ProjectData {
@@ -425,7 +430,9 @@ fn overview_renders_segmented_and_complement_features() {
 #[test]
 fn overview_renders_primer_sites_and_unbound() {
     let out = project_digest(&synthetic_project(), &DigestOptions::default(), None).unwrap();
-    assert!(out.contains("primer_bind     3..12   P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 58.3, + strand]  (id: p1)"));
+    assert!(out.contains(
+        "primer_bind     3..12   P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 58.3, + strand]  (id: p1)"
+    ));
     assert!(out.contains("primer_bind     51..60   P1 (fwd, 10 nt, ACGTACGTAC)  [Tm 60.1, - strand, 3' mismatch]  (id: p1)"));
     assert!(out.contains("Primers without binding sites: orphan (rev, 6 nt, GGGGGG, id: p2)"));
 }
@@ -521,7 +528,12 @@ fn read_sequence_small_window_omits_ruler() {
     // omitted, the per-line position prefix still anchors coordinates.
     let out = read_sequence(&synthetic_project(), 0, 19).unwrap();
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines.len(), 2, "small window must skip the ruler: {:?}", out);
+    assert_eq!(
+        lines.len(),
+        2,
+        "small window must skip the ruler: {:?}",
+        out
+    );
     assert!(
         lines[1].starts_with("     1 "),
         "sequence line keeps its position prefix: {:?}",
@@ -546,7 +558,11 @@ fn read_sequence_ruler_threshold_boundary() {
     let out = read_sequence(&big, 0, 60).unwrap();
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 4, "61 bp window keeps the ruler: {:?}", out);
-    assert!(lines[1].contains("11"), "ruler line present: {:?}", lines[1]);
+    assert!(
+        lines[1].contains("11"),
+        "ruler line present: {:?}",
+        lines[1]
+    );
 }
 
 #[test]
@@ -573,7 +589,11 @@ fn read_sequence_circular_wrap_coordinates_normalized() {
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 4, "header + ruler + 2 lines: {:?}", out);
     assert!(lines[1].contains("111"), "ruler normalized: {:?}", lines[1]);
-    assert!(!lines[1].contains("121"), "ruler must not exceed tlen: {:?}", lines[1]);
+    assert!(
+        !lines[1].contains("121"),
+        "ruler must not exceed tlen: {:?}",
+        lines[1]
+    );
     assert!(
         lines[3].starts_with("    41 "),
         "second line coordinate wraps to 41: {:?}",
@@ -702,15 +722,24 @@ fn project_with_diff_alignment() -> ProjectData {
 fn region_view_lists_alignment_diffs_in_window() {
     let p = project_with_diff_alignment();
     let out = project_digest(&p, &DigestOptions::default(), Some((10, 29))).unwrap();
-    assert!(out.contains("ALIGNMENT DIFFS IN REGION (1-based inclusive):\n"), "{out}");
+    assert!(
+        out.contains("ALIGNMENT DIFFS IN REGION (1-based inclusive):\n"),
+        "{out}"
+    );
     assert!(out.contains("read1  (id: aln-1):\n"), "{out}");
     assert!(out.contains("mismatch at 16: T > A"), "{out}");
     assert!(out.contains("deletion at 19: 2 bp (GT)"), "{out}");
-    assert!(out.contains("insertion between 25 and 26: GG (2 bp)"), "{out}");
+    assert!(
+        out.contains("insertion between 25 and 26: GG (2 bp)"),
+        "{out}"
+    );
 
     // Window overlapping the read but left of every diff.
     let out = project_digest(&p, &DigestOptions::default(), Some((10, 12))).unwrap();
-    assert!(out.contains("read1  (id: aln-1): no differences in window\n"), "{out}");
+    assert!(
+        out.contains("read1  (id: aln-1): no differences in window\n"),
+        "{out}"
+    );
     assert!(!out.contains("mismatch at 16"), "{out}");
 
     // Partial window: mismatch + overlapping deletion in, insertion out.
@@ -790,13 +819,19 @@ fn region_view_shows_alignment_column_view() {
         ),
         "{out}"
     );
-    assert!(out.contains("        read1  (id: aln-1, + strand):\n"), "{out}");
+    assert!(
+        out.contains("        read1  (id: aln-1, + strand):\n"),
+        "{out}"
+    );
     // Template / mask / read rows over the covered columns 10..29
     // (1-based 11..30); the row prefix is the 1-based start column.
     assert!(out.contains("11  GTACGTACGTACGTACGTAC"), "{out}");
     assert!(out.contains("|||||.||--||||||||||"), "{out}");
     assert!(out.contains("GTACGAAC--ACGTACGTAC"), "{out}");
-    assert!(out.contains("insertion between 25 and 26: +2 bp (GG)"), "{out}");
+    assert!(
+        out.contains("insertion between 25 and 26: +2 bp (GG)"),
+        "{out}"
+    );
     // Region views only — overviews never render the section.
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(!out.contains("ALIGNMENT VIEW IN REGION"), "{out}");
@@ -834,7 +869,10 @@ fn region_view_column_view_circular_wrap_and_uncovered() {
         ..DigestOptions::default()
     };
     let out = project_digest(&p, &opts, Some((55, 4))).unwrap();
-    assert!(out.contains("        wrapped  (id: aln-2, + strand):\n"), "{out}");
+    assert!(
+        out.contains("        wrapped  (id: aln-2, + strand):\n"),
+        "{out}"
+    );
     assert!(out.contains("57  ACGTACGTA"), "{out}");
     assert!(out.contains("||----.||"), "{out}");
     assert!(out.contains("AC----ATA"), "{out}");
@@ -872,7 +910,10 @@ fn region_view_column_view_caps_wide_windows() {
         out.contains("column view omitted (covered window 501 bp exceeds the 500 bp cap"),
         "{out}"
     );
-    assert!(!out.contains("1  ACGT"), "view rows must not render for wide windows: {out}");
+    assert!(
+        !out.contains("1  ACGT"),
+        "view rows must not render for wide windows: {out}"
+    );
 }
 
 #[test]
@@ -1018,7 +1059,10 @@ fn overview_lists_single_cutters_and_names_double_cutters() {
     );
     assert!(!out.contains("top "), "{out}");
     assert!(!out.contains("bot "), "{out}");
-    assert!(!out.contains("GAATTC"), "recognition sequences belong to find_restriction_sites");
+    assert!(
+        !out.contains("GAATTC"),
+        "recognition sequences belong to find_restriction_sites"
+    );
     assert!(!out.contains("5' overhang"), "{out}");
     // Double-cut enzymes are named without cuts.
     assert!(out.contains("DOUBLE CUTTERS: BbsI, BsaI"));
@@ -1042,7 +1086,10 @@ fn overview_groups_single_cutters_sharing_a_top_cut() {
         .lines()
         .find(|l| l.trim_start().starts_with("10  "))
         .unwrap_or_else(|| panic!("no cut-10 line in {out}"));
-    assert!(line.contains("EcoRI") && line.contains("TwinI"), "shared cut must group: {line}");
+    assert!(
+        line.contains("EcoRI") && line.contains("TwinI"),
+        "shared cut must group: {line}"
+    );
 }
 
 #[test]

@@ -199,13 +199,14 @@ mod tests {
 
     #[test]
     fn canonicalize_later_write_wins_and_splits() {
-        let out = canonicalize(
-            &[r(10, 50, "#ff0000"), r(20, 30, "#00ff00")],
-            100,
-        );
+        let out = canonicalize(&[r(10, 50, "#ff0000"), r(20, 30, "#00ff00")], 100);
         assert_eq!(
             out,
-            vec![r(10, 19, "#ff0000"), r(20, 30, "#00ff00"), r(31, 50, "#ff0000")]
+            vec![
+                r(10, 19, "#ff0000"),
+                r(20, 30, "#00ff00"),
+                r(31, 50, "#ff0000")
+            ]
         );
     }
 
@@ -253,7 +254,12 @@ mod tests {
         let out = apply_text_color(&base, 3, 5, Some("#0000ff"), 100);
         assert_eq!(
             out,
-            vec![r(0, 2, "#ff0000"), r(3, 5, "#0000ff"), r(6, 9, "#ff0000"), r(20, 29, "#00ff00")]
+            vec![
+                r(0, 2, "#ff0000"),
+                r(3, 5, "#0000ff"),
+                r(6, 9, "#ff0000"),
+                r(20, 29, "#00ff00")
+            ]
         );
         // Clear across both runs.
         let out = apply_text_color(&base, 8, 22, None, 100);

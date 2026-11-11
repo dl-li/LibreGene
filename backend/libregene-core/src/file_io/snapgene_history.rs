@@ -211,29 +211,29 @@ fn decode_compressed_dna(data: &[u8]) -> Option<String> {
 
     let read_section =
         |payload: &[u8], pay_off: &mut usize, marker: u8, count: usize| -> Option<String> {
-        match marker {
-            0x01 => {
-                let nb = count.div_ceil(4);
-                if *pay_off + nb > payload.len() {
-                    return None;
+            match marker {
+                0x01 => {
+                    let nb = count.div_ceil(4);
+                    if *pay_off + nb > payload.len() {
+                        return None;
+                    }
+                    let s = octet_to_dna(&payload[*pay_off..*pay_off + nb], count);
+                    *pay_off += nb;
+                    Some(s)
                 }
-                let s = octet_to_dna(&payload[*pay_off..*pay_off + nb], count);
-                *pay_off += nb;
-                Some(s)
-            }
-            0x02 => {
-                let nb = count.div_ceil(2);
-                if *pay_off + nb > payload.len() {
-                    return None;
+                0x02 => {
+                    let nb = count.div_ceil(2);
+                    if *pay_off + nb > payload.len() {
+                        return None;
+                    }
+                    let s = nibbles_to_iupac(&payload[*pay_off..*pay_off + nb], count);
+                    *pay_off += nb;
+                    Some(s)
                 }
-                let s = nibbles_to_iupac(&payload[*pay_off..*pay_off + nb], count);
-                *pay_off += nb;
-                Some(s)
+                0x03 => Some("N".repeat(count)),
+                _ => None,
             }
-            0x03 => Some("N".repeat(count)),
-            _ => None,
-        }
-    };
+        };
 
     let mut chars: Vec<char> = Vec::new();
     if chunk_count >= 1 {
@@ -1016,7 +1016,7 @@ mod tests {
             &mut std::io::Cursor::new(&b"ACGT".repeat(1024)[..]),
             &mut xz,
         )
-            .unwrap();
+        .unwrap();
         assert_eq!(
             xz_decompress_with_cap(&xz, 1024 * 4).unwrap(),
             b"ACGT".repeat(1024)

@@ -336,8 +336,8 @@ fn run_align(
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum St {
         Diag,
-        GapQuery,   // consuming template bases (Del)
-        GapTempl,   // consuming query bases (Ins)
+        GapQuery, // consuming template bases (Del)
+        GapTempl, // consuming query bases (Ins)
     }
 
     // Winning state of dp[i][j], same priority as the fill (diag > gp > gt).

@@ -468,7 +468,8 @@ async fn save_file_region_explicit_cuts_export_the_fragment() {
     // off find_restriction_sites' topCutIndex.
     assert_eq!(
         project
-            .derived.enzymes
+            .derived
+            .enzymes
             .iter()
             .find(|e| e.name == "EcoRI")
             .unwrap()
@@ -478,7 +479,8 @@ async fn save_file_region_explicit_cuts_export_the_fragment() {
     );
     assert_eq!(
         project
-            .derived.enzymes
+            .derived
+            .enzymes
             .iter()
             .find(|e| e.name == "BamHI")
             .unwrap()
@@ -1108,27 +1110,27 @@ fn resolve_export_region_rejects_iis_cut_outside_linear_molecule() {
         molecule_type: "dna".to_string(),
         derived: libregene_core::models::DerivedProjectData {
             enzymes: vec![
-            // Type-IIS enzyme whose recognition site sits at the very end:
-            // the cut lands before base 1 on a linear molecule.
-            libregene_core::models::Enzyme {
-                name: "BbsI".to_string(),
-                rec_start: 94,
-                rec_end: 99,
-                cut_index: -2,
-                cut_pairs: vec![libregene_core::models::CutPair {
-                    top_cut_index: -2,
-                    bot_cut_index: 2,
-                }],
-                ..Default::default()
-            },
-            libregene_core::models::Enzyme {
-                name: "GoodCutter".to_string(),
-                rec_start: 40,
-                rec_end: 45,
-                cut_index: 50,
-                ..Default::default()
-            },
-        ],
+                // Type-IIS enzyme whose recognition site sits at the very end:
+                // the cut lands before base 1 on a linear molecule.
+                libregene_core::models::Enzyme {
+                    name: "BbsI".to_string(),
+                    rec_start: 94,
+                    rec_end: 99,
+                    cut_index: -2,
+                    cut_pairs: vec![libregene_core::models::CutPair {
+                        top_cut_index: -2,
+                        bot_cut_index: 2,
+                    }],
+                    ..Default::default()
+                },
+                libregene_core::models::Enzyme {
+                    name: "GoodCutter".to_string(),
+                    rec_start: 40,
+                    rec_end: 45,
+                    cut_index: 50,
+                    ..Default::default()
+                },
+            ],
             template_revision: 0,
         },
         ..Default::default()

@@ -10,7 +10,10 @@ pub(crate) fn token_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 /// Path of the persisted bearer token file. Best-effort: returns None when
@@ -52,14 +55,22 @@ pub(crate) fn write_token_file(path: &std::path::Path, token: &str) {
         .and_then(|mut f| f.write_all(token.as_bytes()))
     {
         // The in-memory token keeps working; only the persistence diverged.
-        log::warn!("failed to persist MCP auth token to {}: {}", path.display(), e);
+        log::warn!(
+            "failed to persist MCP auth token to {}: {}",
+            path.display(),
+            e
+        );
     }
 }
 
 #[cfg(not(unix))]
 pub(crate) fn write_token_file(path: &std::path::Path, token: &str) {
     if let Err(e) = std::fs::write(path, token) {
-        log::warn!("failed to persist MCP auth token to {}: {}", path.display(), e);
+        log::warn!(
+            "failed to persist MCP auth token to {}: {}",
+            path.display(),
+            e
+        );
     }
 }
 
@@ -137,16 +148,22 @@ pub(crate) fn load_or_create_token<R: Runtime>(app: &AppHandle<R>) -> String {
 pub(crate) fn generate_auth_token() -> String {
     let mut buf = [0u8; 32];
     if let Err(e) = getrandom::getrandom(&mut buf) {
-        log::warn!("OS CSPRNG failed ({e}); falling back to time/pid mixing for the MCP auth token");
+        log::warn!(
+            "OS CSPRNG failed ({e}); falling back to time/pid mixing for the MCP auth token"
+        );
         use std::time::{SystemTime, UNIX_EPOCH};
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0)
             ^ (std::process::id() as u64);
-        let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let mut s = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         for b in buf.iter_mut() {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             *b = (s >> 33) as u8;
         }
     }

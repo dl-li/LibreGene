@@ -34,11 +34,8 @@ pub fn recompute(project: &mut ProjectData) {
     if project.primers.is_empty() {
         return;
     }
-    let updated = align::recompute_all_primers(
-        &project.sequence,
-        &project.topology,
-        &project.primers,
-    );
+    let updated =
+        align::recompute_all_primers(&project.sequence, &project.topology, &project.primers);
     project.primers = updated;
 }
 
@@ -63,6 +60,9 @@ mod tests {
             ..Default::default()
         };
         recompute(&mut project);
-        assert!(project.primers.is_empty(), "rna projects must not carry primers");
+        assert!(
+            project.primers.is_empty(),
+            "rna projects must not carry primers"
+        );
     }
 }

@@ -28,11 +28,7 @@ pub fn get_provider_data() -> &'static ProviderData {
 
 /// DNA complement (reverse complement) — `match`-based, no HashMap.
 pub fn dna_complement(seq: &str) -> String {
-    let bytes: Vec<u8> = seq
-        .bytes()
-        .rev()
-        .map(dna_complement_byte)
-        .collect();
+    let bytes: Vec<u8> = seq.bytes().rev().map(dna_complement_byte).collect();
     String::from_utf8(bytes).unwrap_or_default()
 }
 
@@ -52,11 +48,7 @@ fn dna_complement_byte(b: u8) -> u8 {
 
 /// IUPAC complement — handles ambiguity codes, `match`-based.
 pub fn iupac_complement(seq: &str) -> String {
-    let bytes: Vec<u8> = seq
-        .bytes()
-        .rev()
-        .map(iupac_complement_byte)
-        .collect();
+    let bytes: Vec<u8> = seq.bytes().rev().map(iupac_complement_byte).collect();
     String::from_utf8(bytes).unwrap_or_default()
 }
 

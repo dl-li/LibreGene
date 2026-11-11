@@ -27,9 +27,7 @@ const ASSOC_GROUPS: &[(&str, &[&str], &str)] = &[
 ];
 
 #[tauri::command]
-pub(crate) async fn set_default_file_associations(
-    app: tauri::AppHandle,
-) -> Result<Value, String> {
+pub(crate) async fn set_default_file_associations(app: tauri::AppHandle) -> Result<Value, String> {
     let bundle_id = app.config().identifier.clone();
     tokio::task::spawn_blocking(move || imp::set_all(&bundle_id))
         .await
@@ -110,8 +108,9 @@ mod imp {
     fn set_default_for_ext(ext: &str, bundle_id: &CFStr) -> Result<(), String> {
         let tag_class = CFStr::new("public.filename-extension")?;
         let ext_tag = CFStr::new(ext)?;
-        let uti =
-            unsafe { UTTypeCreatePreferredIdentifierForTag(tag_class.0, ext_tag.0, std::ptr::null()) };
+        let uti = unsafe {
+            UTTypeCreatePreferredIdentifierForTag(tag_class.0, ext_tag.0, std::ptr::null())
+        };
         if uti.is_null() {
             return Err(format!("no UTI registered for .{ext}"));
         }
@@ -133,7 +132,11 @@ mod imp {
         for (name, exts, _) in ASSOC_GROUPS {
             let errs: Vec<String> = exts
                 .iter()
-                .filter_map(|ext| set_default_for_ext(ext, &bid).err().map(|e| format!(".{ext}: {e}")))
+                .filter_map(|ext| {
+                    set_default_for_ext(ext, &bid)
+                        .err()
+                        .map(|e| format!(".{ext}: {e}"))
+                })
                 .collect();
             if errs.is_empty() {
                 groups.push(json!({ "name": name, "ok": true }));
@@ -216,7 +219,14 @@ mod imp {
             }
         }
         // Tell the shell the association cache is stale.
-        unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, std::ptr::null(), std::ptr::null()) };
+        unsafe {
+            SHChangeNotify(
+                SHCNE_ASSOCCHANGED,
+                SHCNF_IDLIST,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
         Ok(finish(groups, &failures))
     }
 }
@@ -233,7 +243,9 @@ mod imp {
              <mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n",
         );
         for (name, exts, mime) in ASSOC_GROUPS {
-            out.push_str(&format!("  <mime-type type=\"{mime}\">\n    <comment>{name} file</comment>\n"));
+            out.push_str(&format!(
+                "  <mime-type type=\"{mime}\">\n    <comment>{name} file</comment>\n"
+            ));
             for ext in *exts {
                 out.push_str(&format!("    <glob pattern=\"*.{ext}\"/>\n"));
             }

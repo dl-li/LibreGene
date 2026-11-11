@@ -48,11 +48,20 @@ fn main() {
         println!("    deletion columns: {dels}");
     }
     for ins in &aln.insertions {
-        println!("  ins at {} len={}: {:?}", ins.pos, ins.bases.len(), ins.bases);
+        println!(
+            "  ins at {} len={}: {:?}",
+            ins.pos,
+            ins.bases.len(),
+            ins.bases
+        );
     }
     // Where does the read's aligned part start/end in read coordinates?
     let ins_total: usize = aln.insertions.iter().map(|i| i.bases.len()).sum();
-    let seg_chars: usize = aln.segments.iter().map(|s| s.chars.bytes().filter(|&c| c != b'-').count()).sum();
+    let seg_chars: usize = aln
+        .segments
+        .iter()
+        .map(|s| s.chars.bytes().filter(|&c| c != b'-').count())
+        .sum();
     let mapped = seg_chars;
     println!(
         "read bases mapped={} in insertions={} total={} read_len={}",

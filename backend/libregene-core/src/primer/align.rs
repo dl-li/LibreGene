@@ -827,8 +827,8 @@ mod tests {
 
         for topology in ["linear", "circular"] {
             for primer in [
-                template[10..30].to_string(),                    // exact 20-mer
-                format!("GGC{}", &template[10..28]),             // 5' tail
+                template[10..30].to_string(),                           // exact 20-mer
+                format!("GGC{}", &template[10..28]),                    // 5' tail
                 format!("{}R{}", &template[10..20], &template[21..30]), // IUPAC
             ] {
                 let on_t = compute_binding_sites(template, &primer, "fwd", "P1", topology, 0.0);

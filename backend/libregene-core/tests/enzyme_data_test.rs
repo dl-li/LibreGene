@@ -75,10 +75,12 @@ fn enzyme_data_is_internally_consistent() {
         let top_cut = top_cut.unwrap_or_else(|| panic!("{}: no ^ in elucidate", e.name));
         let bot_cut = bot_cut.unwrap_or_else(|| panic!("{}: no _ in elucidate", e.name));
 
-        let site_start = stripped
-            .find(&e.site)
-            .unwrap_or_else(|| panic!("{}: site {} not in elucidate {:?}", e.name, e.site, e.elucidate))
-            as i64;
+        let site_start = stripped.find(&e.site).unwrap_or_else(|| {
+            panic!(
+                "{}: site {} not in elucidate {:?}",
+                e.name, e.site, e.elucidate
+            )
+        }) as i64;
         let rec_len = e.site.len() as i64;
 
         assert_eq!(

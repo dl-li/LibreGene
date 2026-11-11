@@ -68,11 +68,7 @@ pub(crate) fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .icon(
-            app.default_window_icon()
-                .expect("app icon missing")
-                .clone(),
-        )
+        .icon(app.default_window_icon().expect("app icon missing").clone())
         .tooltip("LibreGene")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main_window(app),

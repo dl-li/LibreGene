@@ -45,13 +45,12 @@ fn scan_strand(seq: &[u8], circular: bool, min_aa: usize) -> Vec<(usize, usize)>
                 if orf_start < 0 {
                     orf_start = p as i64;
                 }
-            } else if (codon == *b"TAA" || codon == *b"TAG" || codon == *b"TGA")
-                && orf_start >= 0 {
-                    if (p as i64 - orf_start) / 3 >= min_aa as i64 && orf_start < tlen as i64 {
-                        orfs.push((orf_start as usize, p + 2));
-                    }
-                    orf_start = -1;
+            } else if (codon == *b"TAA" || codon == *b"TAG" || codon == *b"TGA") && orf_start >= 0 {
+                if (p as i64 - orf_start) / 3 >= min_aa as i64 && orf_start < tlen as i64 {
+                    orfs.push((orf_start as usize, p + 2));
                 }
+                orf_start = -1;
+            }
             p += 3;
         }
     }
@@ -65,11 +64,23 @@ fn full_circle_segments(start: i64, tlen: usize, color: &str) -> Vec<Segment> {
     let last = tlen as i64 - 1;
     let c = || Some(color.to_string());
     if start == 0 {
-        vec![Segment { start: 0, end: last, color: c() }]
+        vec![Segment {
+            start: 0,
+            end: last,
+            color: c(),
+        }]
     } else {
         vec![
-            Segment { start, end: last, color: c() },
-            Segment { start: 0, end: start - 1, color: c() },
+            Segment {
+                start,
+                end: last,
+                color: c(),
+            },
+            Segment {
+                start: 0,
+                end: start - 1,
+                color: c(),
+            },
         ]
     }
 }
@@ -261,7 +272,8 @@ mod tests {
             .expect("multi-revolution ORF should be reported");
         let span: i64 = f.segments.iter().map(|s| s.end - s.start + 1).sum();
         assert_eq!(
-            span, tlen,
+            span,
+            tlen,
             "ORF longer than one revolution must cover exactly the full circle, got {:?}",
             segs(f)
         );

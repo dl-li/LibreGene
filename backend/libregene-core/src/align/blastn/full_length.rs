@@ -84,7 +84,10 @@ fn count_equal_bases(a: &[u8], b: &[u8]) -> usize {
 }
 
 fn count_equal_bases_scalar(a: &[u8], b: &[u8]) -> usize {
-    a.iter().zip(b.iter()).filter(|(left, right)| left == right).count()
+    a.iter()
+        .zip(b.iter())
+        .filter(|(left, right)| left == right)
+        .count()
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -124,7 +127,7 @@ unsafe fn count_equal_bases_avx2(a: &[u8], b: &[u8]) -> usize {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn count_equal_bases_sse2(a: &[u8], b: &[u8]) -> usize {
-    use std::arch::x86_64::{_mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, __m128i};
+    use std::arch::x86_64::{__m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8};
 
     let mut count = 0usize;
     let mut i = 0usize;
@@ -141,7 +144,7 @@ unsafe fn count_equal_bases_sse2(a: &[u8], b: &[u8]) -> usize {
 #[cfg(target_arch = "x86")]
 #[target_feature(enable = "sse2")]
 unsafe fn count_equal_bases_sse2(a: &[u8], b: &[u8]) -> usize {
-    use std::arch::x86::{_mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, __m128i};
+    use std::arch::x86::{__m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8};
 
     let mut count = 0usize;
     let mut i = 0usize;
@@ -174,7 +177,11 @@ fn full_length_ungapped_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) ->
         columns.push(AlignColumn {
             ref_base: ref_seq[i],
             query_base: query_seq[i],
-            col_type: if is_match { ColType::Match } else { ColType::Mismatch },
+            col_type: if is_match {
+                ColType::Match
+            } else {
+                ColType::Mismatch
+            },
             ref_position: (i + 1) as u64,
             query_position: (i + 1) as u64,
         });
@@ -343,7 +350,11 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                     query_position: i as u64,
                 });
                 i -= 1;
-                state = if code & 0b100 != 0 { 2 } else { code_at(i, j) & 0b11 };
+                state = if code & 0b100 != 0 {
+                    2
+                } else {
+                    code_at(i, j) & 0b11
+                };
             }
             3 => {
                 columns.push(AlignColumn {
@@ -354,14 +365,22 @@ fn full_length_banded_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> O
                     query_position: 0,
                 });
                 j -= 1;
-                state = if code & 0b1000 != 0 { 3 } else { code_at(i, j) & 0b11 };
+                state = if code & 0b1000 != 0 {
+                    3
+                } else {
+                    code_at(i, j) & 0b11
+                };
             }
             _ => {
                 let is_match = ref_seq[j - 1] == query_seq[i - 1];
                 columns.push(AlignColumn {
                     ref_base: ref_seq[j - 1],
                     query_base: query_seq[i - 1],
-                    col_type: if is_match { ColType::Match } else { ColType::Mismatch },
+                    col_type: if is_match {
+                        ColType::Match
+                    } else {
+                        ColType::Mismatch
+                    },
                     ref_position: j as u64,
                     query_position: i as u64,
                 });
@@ -420,7 +439,8 @@ fn find_rotation_offsets(ref_seq: &[u8], query_seq: &[u8]) -> Vec<usize> {
     for ref_pos in ref_positions {
         let word = &ref_seq[ref_pos..ref_pos + ROTATION_WORD_SIZE];
         let mut from = 0usize;
-        while offsets.len() < ROTATION_MAX_CANDIDATES && from + ROTATION_WORD_SIZE <= doubled.len() {
+        while offsets.len() < ROTATION_MAX_CANDIDATES && from + ROTATION_WORD_SIZE <= doubled.len()
+        {
             let found = doubled[from..]
                 .windows(ROTATION_WORD_SIZE)
                 .position(|candidate| candidate == word)
@@ -476,8 +496,12 @@ fn full_length_rotated_hit(ref_seq: &[u8], query_seq: &[u8], strand: Strand) -> 
         let hit = full_length_ungapped_hit(ref_seq, &rotated, strand)
             .or_else(|| full_length_banded_hit(ref_seq, &rotated, strand));
         if let Some(hit) = hit {
-            let adjusted = columns_in_read_order(rotate_query_columns(hit, offset, query_seq.len()));
-            if best.as_ref().is_none_or(|current| adjusted.score > current.score) {
+            let adjusted =
+                columns_in_read_order(rotate_query_columns(hit, offset, query_seq.len()));
+            if best
+                .as_ref()
+                .is_none_or(|current| adjusted.score > current.score)
+            {
                 best = Some(adjusted);
             }
         }

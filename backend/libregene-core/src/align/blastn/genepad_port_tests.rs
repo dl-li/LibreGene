@@ -4,7 +4,9 @@
 //! Alignment conversion. Included from blastn/mod.rs.
 
 use super::*;
-use crate::align::{blast_align_read, alignment_diff, align_read_with, AlignAlgorithm, AlignReject, MIN_ALIGNED_LEN};
+use crate::align::{
+    align_read_with, alignment_diff, blast_align_read, AlignAlgorithm, AlignReject, MIN_ALIGNED_LEN,
+};
 
 // xorshift32 taking the high 2 bits: LCG low bits have long same-value runs
 // that DUST masks (same generator as the GenePad tests).
@@ -33,7 +35,10 @@ fn hit_query_range(hit: &ColumnHit) -> (u64, u64) {
         .filter(|c| c.query_position > 0)
         .map(|c| c.query_position)
         .collect();
-    (*positions.iter().min().unwrap(), *positions.iter().max().unwrap())
+    (
+        *positions.iter().min().unwrap(),
+        *positions.iter().max().unwrap(),
+    )
 }
 
 fn hit_ref_coverage(hit: &ColumnHit) -> usize {
@@ -94,7 +99,8 @@ fn full_length_16kb_near_identical_single_hit() {
     query.extend_from_slice(&query_mid);
     query.extend_from_slice(&flank);
 
-    let hit = full_length::try_full_length(&ref_seq, &query, Strand::Plus).expect("full-length hit");
+    let hit =
+        full_length::try_full_length(&ref_seq, &query, Strand::Plus).expect("full-length hit");
     assert_eq!(hit_ref_coverage(&hit), ref_seq.len(), "100% ref coverage");
     assert_eq!(hit_query_coverage(&hit), query.len(), "100% query coverage");
     assert!(hit.identity > 0.9);
@@ -121,7 +127,8 @@ fn full_length_32kb_no_oom_single_hit() {
     query.extend_from_slice(&query_mid);
     query.extend_from_slice(&flank);
 
-    let hit = full_length::try_full_length(&ref_seq, &query, Strand::Plus).expect("full-length hit");
+    let hit =
+        full_length::try_full_length(&ref_seq, &query, Strand::Plus).expect("full-length hit");
     assert_eq!(hit_ref_coverage(&hit), ref_seq.len());
     assert_eq!(hit_query_coverage(&hit), query.len());
 }
@@ -136,12 +143,25 @@ fn full_length_clean_single_insertion_one_gap_run() {
     query.extend_from_slice(insert);
     query.extend_from_slice(&flank);
 
-    let hit = full_length::try_full_length(&ref_seq, &query, Strand::Plus).expect("full-length hit");
+    let hit =
+        full_length::try_full_length(&ref_seq, &query, Strand::Plus).expect("full-length hit");
     assert_eq!(hit_ref_coverage(&hit), ref_seq.len());
     assert_eq!(hit_query_coverage(&hit), query.len());
-    let ins = hit.columns.iter().filter(|c| c.col_type == ColType::Insertion).count();
-    let del = hit.columns.iter().filter(|c| c.col_type == ColType::Deletion).count();
-    let mis = hit.columns.iter().filter(|c| c.col_type == ColType::Mismatch).count();
+    let ins = hit
+        .columns
+        .iter()
+        .filter(|c| c.col_type == ColType::Insertion)
+        .count();
+    let del = hit
+        .columns
+        .iter()
+        .filter(|c| c.col_type == ColType::Deletion)
+        .count();
+    let mis = hit
+        .columns
+        .iter()
+        .filter(|c| c.col_type == ColType::Mismatch)
+        .count();
     assert_eq!(ins, insert.len());
     assert_eq!(del, 0);
     assert_eq!(mis, 0);
@@ -369,7 +389,11 @@ fn blast_split_read_two_segments_conversion() {
     assert!(aln.segments[0].end >= 498, "seg0 {:?}", aln.segments[0]);
     assert!(aln.segments[1].start >= 1498, "seg1 {:?}", aln.segments[1]);
     assert!(aln.segments[1].end <= 2000, "seg1 {:?}", aln.segments[1]);
-    assert!(aln.insertions.len() >= 1, "junction insert {:?}", aln.insertions);
+    assert!(
+        aln.insertions.len() >= 1,
+        "junction insert {:?}",
+        aln.insertions
+    );
     assert!(aln.identity >= 0.6, "identity {}", aln.identity);
     assert_eq!(aln.length, read_len);
 
@@ -453,12 +477,18 @@ fn blast_too_short_rejected() {
 #[test]
 fn algorithm_parse_and_defaults() {
     assert_eq!(AlignAlgorithm::parse("blast"), Some(AlignAlgorithm::BlastN));
-    assert_eq!(AlignAlgorithm::parse("blastn"), Some(AlignAlgorithm::BlastN));
+    assert_eq!(
+        AlignAlgorithm::parse("blastn"),
+        Some(AlignAlgorithm::BlastN)
+    );
     assert_eq!(
         AlignAlgorithm::parse("smith-waterman"),
         Some(AlignAlgorithm::SmithWaterman)
     );
-    assert_eq!(AlignAlgorithm::parse("SW"), Some(AlignAlgorithm::SmithWaterman));
+    assert_eq!(
+        AlignAlgorithm::parse("SW"),
+        Some(AlignAlgorithm::SmithWaterman)
+    );
     assert_eq!(AlignAlgorithm::parse("nonsense"), None);
     assert_eq!(AlignAlgorithm::default(), AlignAlgorithm::BlastN);
 }
@@ -504,7 +534,11 @@ fn blast_read_tails_stored_as_insertions() {
     assert_eq!(aln.segments.len(), 1, "segments {:?}", aln.segments);
     let seg_start = aln.segments[0].start;
     let seg_end = aln.segments[0].end;
-    assert!((seg_start as i64 - 500).abs() <= 1, "seg start {}", seg_start);
+    assert!(
+        (seg_start as i64 - 500).abs() <= 1,
+        "seg start {}",
+        seg_start
+    );
     assert!((seg_end as i64 - 1199).abs() <= 1, "seg end {}", seg_end);
 
     let mapped: usize = aln
@@ -513,7 +547,11 @@ fn blast_read_tails_stored_as_insertions() {
         .map(|s| s.chars.bytes().filter(|&c| c != b'-').count())
         .sum();
     let ins_bases: usize = aln.insertions.iter().map(|i| i.bases.len()).sum();
-    assert_eq!(mapped + ins_bases, read.len(), "no read base may be dropped");
+    assert_eq!(
+        mapped + ins_bases,
+        read.len(),
+        "no read base may be dropped"
+    );
 
     // Leading tail anchored at the first template column of the first
     // segment; the engine may absorb a trailing base or two of the junk into
@@ -524,7 +562,9 @@ fn blast_read_tails_stored_as_insertions() {
         .find(|i| i.pos == seg_start)
         .expect("leading insertion at segment start");
     assert!(
-        String::from_utf8(leading.clone()).unwrap().starts_with(&lead.bases),
+        String::from_utf8(leading.clone())
+            .unwrap()
+            .starts_with(&lead.bases),
         "leading {:?} must be a prefix of the read's junk tail",
         lead.bases
     );
@@ -535,9 +575,10 @@ fn blast_read_tails_stored_as_insertions() {
         .find(|i| i.pos == seg_end + 1)
         .expect("trailing insertion after segment end");
     assert!(
-        String::from_utf8(trailing.clone()).unwrap().ends_with(&tail.bases),
+        String::from_utf8(trailing.clone())
+            .unwrap()
+            .ends_with(&tail.bases),
         "trailing {:?} must be a suffix of the read's junk tail",
         tail.bases
     );
 }
-

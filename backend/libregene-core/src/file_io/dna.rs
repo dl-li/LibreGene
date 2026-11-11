@@ -160,7 +160,10 @@ struct SnapGeneColorRange {
 
 fn read_be_u32(data: &[u8], offset: &mut usize) -> io::Result<u32> {
     if *offset + 4 > data.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated u32"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "truncated u32",
+        ));
     }
     let bytes: [u8; 4] = data[*offset..*offset + 4].try_into().unwrap();
     *offset += 4;
@@ -169,7 +172,10 @@ fn read_be_u32(data: &[u8], offset: &mut usize) -> io::Result<u32> {
 
 fn read_be_u16(data: &[u8], offset: &mut usize) -> io::Result<u16> {
     if *offset + 2 > data.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated u16"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "truncated u16",
+        ));
     }
     let bytes: [u8; 2] = data[*offset..*offset + 2].try_into().unwrap();
     *offset += 2;
@@ -219,7 +225,10 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
 
     // --- Header (6 bytes: 3 × uint16) ---
     if offset + 6 > data.len() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "header truncated"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "header truncated",
+        ));
     }
     let molecule_kind = read_be_u16(&data, &mut offset)?;
     let _file_ver = read_be_u16(&data, &mut offset)?;
@@ -265,7 +274,9 @@ pub fn parse_snapgene(path: &Path) -> io::Result<ProjectData> {
                 sequence = String::from_utf8_lossy(payload)
                     .to_uppercase()
                     .chars()
-                    .filter(|c| c.is_ascii_alphabetic() || (molecule_type == "protein" && *c == '*'))
+                    .filter(|c| {
+                        c.is_ascii_alphabetic() || (molecule_type == "protein" && *c == '*')
+                    })
                     .collect();
             }
             5 => {
@@ -325,7 +336,10 @@ fn strand_colors_from_xml(
     xml: &str,
     seq_len: i64,
     is_dna: bool,
-) -> (Vec<crate::models::TextColorRange>, Vec<crate::models::TextColorRange>) {
+) -> (
+    Vec<crate::models::TextColorRange>,
+    Vec<crate::models::TextColorRange>,
+) {
     use crate::file_io::strand_colors::{canonicalize, snapgene_name_to_hex};
     use crate::models::TextColorRange;
 
@@ -344,11 +358,7 @@ fn strand_colors_from_xml(
                 let Some(names) = cr.colors.as_deref() else {
                     continue;
                 };
-                let Some(hex) = names
-                    .split(',')
-                    .next()
-                    .and_then(snapgene_name_to_hex)
-                else {
+                let Some(hex) = names.split(',').next().and_then(snapgene_name_to_hex) else {
                     continue;
                 };
                 out.push(TextColorRange {
@@ -368,7 +378,11 @@ fn strand_colors_from_xml(
         return (Vec::new(), Vec::new());
     };
     let top = convert(&sc.top);
-    let bottom = if is_dna { convert(&sc.bottom) } else { Vec::new() };
+    let bottom = if is_dna {
+        convert(&sc.bottom)
+    } else {
+        Vec::new()
+    };
     (top, bottom)
 }
 
@@ -458,7 +472,6 @@ fn parse_range_0based(s: &str) -> Option<(i64, i64)> {
     parse_range_1based(s) // SnapGene uses 0-based for primers, so no conversion needed
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,12 +502,24 @@ mod tests {
         assert_eq!(project.topology, "linear");
         assert_eq!(project.length, 91);
         assert_eq!(project.features.len(), 6);
-        let guide = project.features.iter().find(|f| f.name == "Guide strand").unwrap();
+        let guide = project
+            .features
+            .iter()
+            .find(|f| f.name == "Guide strand")
+            .unwrap();
         assert_eq!(guide.color, "#d34035");
         assert_eq!((guide.start, guide.end), (55, 76));
-        let scaffold = project.features.iter().find(|f| f.name == "shRNA (miR-1 scaffold）").unwrap();
+        let scaffold = project
+            .features
+            .iter()
+            .find(|f| f.name == "shRNA (miR-1 scaffold）")
+            .unwrap();
         assert_eq!(scaffold.color, "#3366ff");
-        let pas = project.features.iter().find(|f| f.name == "Passenger strand").unwrap();
+        let pas = project
+            .features
+            .iter()
+            .find(|f| f.name == "Passenger strand")
+            .unwrap();
         assert_eq!(pas.color, "#5c80ba");
     }
 
@@ -581,15 +606,18 @@ mod tests {
         buf.push(10u8); // features block
         buf.extend_from_slice(&(xml.len() as u32).to_be_bytes());
         buf.extend_from_slice(xml);
-        let path = std::env::temp_dir()
-            .join(format!("libregene_negrange_{}.dna", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("libregene_negrange_{}.dna", std::process::id()));
         std::fs::write(&path, &buf).unwrap();
         let p = parse_snapgene(&path).unwrap();
         std::fs::remove_file(&path).ok();
 
         let poisoned = p.features.iter().find(|f| f.name == "poisoned").unwrap();
         assert_eq!(poisoned.segments.len(), 1, "below-one segment dropped");
-        assert_eq!((poisoned.segments[0].start, poisoned.segments[0].end), (9, 19));
+        assert_eq!(
+            (poisoned.segments[0].start, poisoned.segments[0].end),
+            (9, 19)
+        );
         assert_eq!((poisoned.start, poisoned.end), (9, 19));
         assert!(
             !p.features.iter().any(|f| f.name == "degenerate"),
@@ -611,202 +639,211 @@ pub fn features_from_xml(features_xml: &str, sequence: &str, topology: &str) -> 
     }
     if let Ok(sg_features) = quick_xml::de::from_str::<SnapGeneFeatures>(features_xml) {
         for sf in &sg_features.features {
-                    let ftype = sf.feature_type.as_deref().unwrap_or("misc_feature");
-                    let name = sf.name.clone();
+            let ftype = sf.feature_type.as_deref().unwrap_or("misc_feature");
+            let name = sf.name.clone();
 
-                    // Parse segments — filter to @type="standard"
-                    let std_segs: Vec<&SnapGeneSegment> = sf
-                        .segments
-                        .iter()
-                        .filter(|s| s.seg_type.as_deref().unwrap_or("standard") == "standard")
-                        .collect();
+            // Parse segments — filter to @type="standard"
+            let std_segs: Vec<&SnapGeneSegment> = sf
+                .segments
+                .iter()
+                .filter(|s| s.seg_type.as_deref().unwrap_or("standard") == "standard")
+                .collect();
 
-                    let (start, end, segs, raw_color) = if std_segs.len() > 1 {
-                        let mut parsed_segs = Vec::new();
-                        let mut min_s = i64::MAX;
-                        let mut max_e = i64::MIN;
-                        let mut seg_color = String::new();
-                        for seg in &std_segs {
-                            if let Some((s, e)) = parse_range_1based(&seg.range) {
-                                // Below-one 1-based ranges are corrupt data —
-                                // storing them verbatim would poison downstream
-                                // coordinate math.
-                                if s < 1 || e < 1 {
-                                    continue;
-                                }
-                                let s0 = s - 1;
-                                let e0 = e - 1;
-                                parsed_segs.push(Segment {
-                                    start: s0,
-                                    end: e0,
-                                    color: seg.color.clone(),
-                                });
-                                min_s = min_s.min(s0);
-                                max_e = max_e.max(e0);
-                                if seg_color.is_empty() {
-                                    seg_color = seg.color.clone().unwrap_or_default();
-                                }
-                            }
-                        }
-                        if parsed_segs.is_empty() {
-                            // All standard segments unparseable or invalid:
-                            // skip rather than emit the min/max seeds
-                            // (start=MAX, end=MIN).
+            let (start, end, segs, raw_color) = if std_segs.len() > 1 {
+                let mut parsed_segs = Vec::new();
+                let mut min_s = i64::MAX;
+                let mut max_e = i64::MIN;
+                let mut seg_color = String::new();
+                for seg in &std_segs {
+                    if let Some((s, e)) = parse_range_1based(&seg.range) {
+                        // Below-one 1-based ranges are corrupt data —
+                        // storing them verbatim would poison downstream
+                        // coordinate math.
+                        if s < 1 || e < 1 {
                             continue;
                         }
-                        (min_s, max_e, parsed_segs, seg_color)
-                    } else if let Some(first) = std_segs.first() {
-                        if let Some((s, e)) = parse_range_1based(&first.range) {
-                            if s < 1 || e < 1 {
-                                continue;
-                            }
-                            let (s0, e0) = (s - 1, e - 1);
-                            let seq_len = sequence.len() as i64;
-                            if s0 > e0 && topology == "circular" && seq_len > 0 {
-                                // Origin-crossing range — split like a GBK join().
-                                (
-                                    0,
-                                    seq_len - 1,
-                                    vec![
-                                        Segment {
-                                            start: s0,
-                                            end: seq_len - 1,
-                                            color: first.color.clone(),
-                                        },
-                                        Segment {
-                                            start: 0,
-                                            end: e0,
-                                            color: first.color.clone(),
-                                        },
-                                    ],
-                                    first.color.clone().unwrap_or_default(),
-                                )
-                            } else {
-                                (s0, e0, vec![], first.color.clone().unwrap_or_default())
-                            }
-                        } else {
-                            continue; // skip unparseable feature
-                        }
-                    } else if let Some(first) = sf.segments.first() {
-                        // No standard segments — use overall first segment
-                        if let Some((s, e)) = parse_range_1based(&first.range) {
-                            if s < 1 || e < 1 {
-                                continue;
-                            }
-                            (
-                                s - 1,
-                                e - 1,
-                                vec![],
-                                first.color.clone().unwrap_or_default(),
-                            )
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        continue; // no segments at all
-                    };
-
-                    // Resolve colour
-                    let color = normalize_color(&raw_color);
-                    let color = if color.is_empty() {
-                        // Fallback to qualifiers
-                        let from_qual = sf.qualifiers.iter().find_map(|q| {
-                            if q.name == "ApEinfo_fwdcolor" || q.name == "libregene_color" {
-                                q.values.first().and_then(|v| {
-                                    v.text
-                                        .as_deref()
-                                        .or(v.predef.as_deref())
-                                        .or(v.int_val.as_deref())
-                                })
-                            } else {
-                                None
-                            }
+                        let s0 = s - 1;
+                        let e0 = e - 1;
+                        parsed_segs.push(Segment {
+                            start: s0,
+                            end: e0,
+                            color: seg.color.clone(),
                         });
-                        let from_qual = from_qual.unwrap_or("");
-                        let nc = normalize_color(from_qual);
-                        if nc.is_empty() {
-                            default_color(ftype).to_string()
-                        } else {
-                            nc
+                        min_s = min_s.min(s0);
+                        max_e = max_e.max(e0);
+                        if seg_color.is_empty() {
+                            seg_color = seg.color.clone().unwrap_or_default();
                         }
+                    }
+                }
+                if parsed_segs.is_empty() {
+                    // All standard segments unparseable or invalid:
+                    // skip rather than emit the min/max seeds
+                    // (start=MAX, end=MIN).
+                    continue;
+                }
+                (min_s, max_e, parsed_segs, seg_color)
+            } else if let Some(first) = std_segs.first() {
+                if let Some((s, e)) = parse_range_1based(&first.range) {
+                    if s < 1 || e < 1 {
+                        continue;
+                    }
+                    let (s0, e0) = (s - 1, e - 1);
+                    let seq_len = sequence.len() as i64;
+                    if s0 > e0 && topology == "circular" && seq_len > 0 {
+                        // Origin-crossing range — split like a GBK join().
+                        (
+                            0,
+                            seq_len - 1,
+                            vec![
+                                Segment {
+                                    start: s0,
+                                    end: seq_len - 1,
+                                    color: first.color.clone(),
+                                },
+                                Segment {
+                                    start: 0,
+                                    end: e0,
+                                    color: first.color.clone(),
+                                },
+                            ],
+                            first.color.clone().unwrap_or_default(),
+                        )
                     } else {
-                        color
-                    };
-                    let color = adjust_color_readability(&color);
+                        (s0, e0, vec![], first.color.clone().unwrap_or_default())
+                    }
+                } else {
+                    continue; // skip unparseable feature
+                }
+            } else if let Some(first) = sf.segments.first() {
+                // No standard segments — use overall first segment
+                if let Some((s, e)) = parse_range_1based(&first.range) {
+                    if s < 1 || e < 1 {
+                        continue;
+                    }
+                    (
+                        s - 1,
+                        e - 1,
+                        vec![],
+                        first.color.clone().unwrap_or_default(),
+                    )
+                } else {
+                    continue;
+                }
+            } else {
+                continue; // no segments at all
+            };
 
-                    // Directionality → strand
-                    let strand = match sf.directionality.as_deref() {
-                        Some("1") => "+",
-                        Some("2") => "-",
-                        _ => ".",
-                    };
-
-                    // Qualifier values
-                    let notes = sf
-                        .qualifiers
-                        .iter()
-                        .filter(|q| q.name == "note")
-                        .filter_map(|q| {
-                            q.values.first().and_then(|v| {
-                                v.text
-                                    .as_deref()
-                                    .or(v.predef.as_deref())
-                                    .or(v.int_val.as_deref())
-                            })
+            // Resolve colour
+            let color = normalize_color(&raw_color);
+            let color = if color.is_empty() {
+                // Fallback to qualifiers
+                let from_qual = sf.qualifiers.iter().find_map(|q| {
+                    if q.name == "ApEinfo_fwdcolor" || q.name == "libregene_color" {
+                        q.values.first().and_then(|v| {
+                            v.text
+                                .as_deref()
+                                .or(v.predef.as_deref())
+                                .or(v.int_val.as_deref())
                         })
-                        .collect::<Vec<_>>()
-                        .join("; ");
+                    } else {
+                        None
+                    }
+                });
+                let from_qual = from_qual.unwrap_or("");
+                let nc = normalize_color(from_qual);
+                if nc.is_empty() {
+                    default_color(ftype).to_string()
+                } else {
+                    nc
+                }
+            } else {
+                color
+            };
+            let color = adjust_color_readability(&color);
 
-                    let translation = sf
-                        .qualifiers
-                        .iter()
-                        .filter(|q| q.name == "translation")
-                        .filter_map(|q| {
-                            q.values.first().and_then(|v| {
-                                v.text
-                                    .as_deref()
-                                    .or(v.predef.as_deref())
-                                    .or(v.int_val.as_deref())
-                            })
-                        })
-                        .next()
-                        .unwrap_or("")
-                        .replace(',', "");   // SnapGene uses commas as CDS gap markers; strip them
+            // Directionality → strand
+            let strand = match sf.directionality.as_deref() {
+                Some("1") => "+",
+                Some("2") => "-",
+                _ => ".",
+            };
 
-                    // Collect raw qualifier key-value pairs (filter out internal ones like gbk.rs does)
-                    let skip_keys: std::collections::HashSet<&str> = [
-                        "label", "translation", "ApEinfo_fwdcolor", "ApEinfo_revcolor",
-                        "libregene_color", "direction", "directionality",
-                        "libregene_primer_id", "libregene_primer_seq", "libregene_primer_type",
-                    ].into_iter().collect();
-                    let qualifiers: Vec<(String, String)> = sf
-                        .qualifiers
-                        .iter()
-                        .filter(|q| !skip_keys.contains(q.name.as_str()))
-                        .filter_map(|q| {
-                            q.values.first().and_then(|v| {
-                                v.text
-                                    .as_deref()
-                                    .or(v.predef.as_deref())
-                                    .or(v.int_val.as_deref())
-                                    .map(|val| (q.name.clone(), val.to_string()))
-                            })
-                        })
-                        .collect();
+            // Qualifier values
+            let notes = sf
+                .qualifiers
+                .iter()
+                .filter(|q| q.name == "note")
+                .filter_map(|q| {
+                    q.values.first().and_then(|v| {
+                        v.text
+                            .as_deref()
+                            .or(v.predef.as_deref())
+                            .or(v.int_val.as_deref())
+                    })
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
 
-                    features.push(Feature {
-                        id: format!("{}_{}", name, start),
-                        name,
-                        start,
-                        end,
-                        color,
-                        ftype: ftype.to_string(),
-                        segments: segs,
-                        strand: strand.to_string(),
-                        notes,
-                        translation,
-                        qualifiers,
-                    });
+            let translation = sf
+                .qualifiers
+                .iter()
+                .filter(|q| q.name == "translation")
+                .filter_map(|q| {
+                    q.values.first().and_then(|v| {
+                        v.text
+                            .as_deref()
+                            .or(v.predef.as_deref())
+                            .or(v.int_val.as_deref())
+                    })
+                })
+                .next()
+                .unwrap_or("")
+                .replace(',', ""); // SnapGene uses commas as CDS gap markers; strip them
+
+            // Collect raw qualifier key-value pairs (filter out internal ones like gbk.rs does)
+            let skip_keys: std::collections::HashSet<&str> = [
+                "label",
+                "translation",
+                "ApEinfo_fwdcolor",
+                "ApEinfo_revcolor",
+                "libregene_color",
+                "direction",
+                "directionality",
+                "libregene_primer_id",
+                "libregene_primer_seq",
+                "libregene_primer_type",
+            ]
+            .into_iter()
+            .collect();
+            let qualifiers: Vec<(String, String)> = sf
+                .qualifiers
+                .iter()
+                .filter(|q| !skip_keys.contains(q.name.as_str()))
+                .filter_map(|q| {
+                    q.values.first().and_then(|v| {
+                        v.text
+                            .as_deref()
+                            .or(v.predef.as_deref())
+                            .or(v.int_val.as_deref())
+                            .map(|val| (q.name.clone(), val.to_string()))
+                    })
+                })
+                .collect();
+
+            features.push(Feature {
+                id: format!("{}_{}", name, start),
+                name,
+                start,
+                end,
+                color,
+                ftype: ftype.to_string(),
+                segments: segs,
+                strand: strand.to_string(),
+                notes,
+                translation,
+                qualifiers,
+            });
         }
     }
     features

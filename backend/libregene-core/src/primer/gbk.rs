@@ -88,8 +88,8 @@ pub fn serialize_primers_gbk(project: &ProjectData) -> Vec<PrimerGbEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::PrimerBindingSite;
     use crate::models::AlignmentRenderData;
+    use crate::models::PrimerBindingSite;
 
     fn qualifiers_from_pairs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -165,7 +165,10 @@ mod tests {
             .collect();
         assert_eq!(qual_map.get("label"), Some(&"Primer1"));
         assert_eq!(qual_map.get("libregene_primer_id"), Some(&"P1"));
-        assert_eq!(qual_map.get("libregene_primer_seq"), Some(&"AAAACGTACGCTAG"));
+        assert_eq!(
+            qual_map.get("libregene_primer_seq"),
+            Some(&"AAAACGTACGCTAG")
+        );
         assert_eq!(qual_map.get("libregene_bindings"), Some(&"10,19,32.0"));
     }
 }

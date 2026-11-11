@@ -89,14 +89,16 @@ fn model_insertion_runs(aln: &Alignment) -> Vec<(usize, usize)> {
 fn perfect_insertion_is_a_single_run() {
     let tpl = libregene_core::file_io::dna::parse_dna(&test_data("pVA-MCS.dna")).unwrap();
     let piece = &tpl.sequence[1000..1030];
-    let query = format!("{}{}{}", &tpl.sequence[..1000], piece, &tpl.sequence[1000..]);
+    let query = format!(
+        "{}{}{}",
+        &tpl.sequence[..1000],
+        piece,
+        &tpl.sequence[1000..]
+    );
 
     for (label, q) in [
         ("plain", query.clone()),
-        (
-            "rotated",
-            format!("{}{}", &query[2000..], &query[..2000]),
-        ),
+        ("rotated", format!("{}{}", &query[2000..], &query[..2000])),
     ] {
         let hit = full_length_hits(tpl.sequence.as_bytes(), q.as_bytes())
             .unwrap_or_else(|| panic!("{label}: no full-length hit"));
@@ -107,7 +109,11 @@ fn perfect_insertion_is_a_single_run() {
             hit.columns.iter().all(|c| c.col_type != ColType::Deletion),
             "{label}: no template bases may be dropped"
         );
-        assert!((hit.identity - 1.0).abs() < 1e-9, "{label}: identity {}", hit.identity);
+        assert!(
+            (hit.identity - 1.0).abs() < 1e-9,
+            "{label}: identity {}",
+            hit.identity
+        );
     }
 }
 
@@ -124,8 +130,13 @@ fn edited_template_keeps_one_insertion() {
     let mut edited = tpl.sequence.clone();
     edited.replace_range(del_start..del_start + del_len, "");
 
-    let mut aln = align_read_checked_with(&tpl.sequence, &read.sequence, circular, AlignAlgorithm::BlastN)
-        .expect("initial alignment");
+    let mut aln = align_read_checked_with(
+        &tpl.sequence,
+        &read.sequence,
+        circular,
+        AlignAlgorithm::BlastN,
+    )
+    .expect("initial alignment");
     aln.id = "aln-1".to_string();
     aln.name = "pVA-read-1".to_string();
     let mut p = ProjectData {
@@ -140,7 +151,11 @@ fn edited_template_keeps_one_insertion() {
     let aln = &p.alignments[0];
     let runs = model_insertion_runs(aln);
     let big: Vec<(usize, usize)> = runs.iter().copied().filter(|(_, len)| *len >= 20).collect();
-    assert_eq!(big.len(), 1, "one long insertion expected, got runs {runs:?}");
+    assert_eq!(
+        big.len(),
+        1,
+        "one long insertion expected, got runs {runs:?}"
+    );
     assert!(
         big[0].1.abs_diff(del_len) <= 3,
         "the insertion should cover the deleted {del_len}bp: {runs:?}"
@@ -168,5 +183,8 @@ fn edited_template_keeps_one_insertion() {
         .iter()
         .map(|s| s.chars.matches('-').count())
         .sum::<usize>();
-    assert!(mismatches <= 4, "read gaps {mismatches}: check the edit mapping");
+    assert!(
+        mismatches <= 4,
+        "read gaps {mismatches}: check the edit mapping"
+    );
 }

@@ -8,7 +8,11 @@ use crate::models::ProjectData;
 /// Plain bases of `[start, end]` (no ruler); circular wrap supported.
 pub fn read_sequence_bases(project: &ProjectData, start: i64, end: i64) -> Result<String, String> {
     let (s, e) = validate_range(project, start, end)?;
-    let count = if s <= e { e - s + 1 } else { project.length - s + e + 1 };
+    let count = if s <= e {
+        e - s + 1
+    } else {
+        project.length - s + e + 1
+    };
     if count as usize > MAX_READ_BASES {
         let unit = unit_for(&project.molecule_type);
         return Err(format!(
@@ -31,7 +35,11 @@ pub fn read_sequence_bases(project: &ProjectData, start: i64, end: i64) -> Resul
 pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<String, String> {
     let (s, e) = validate_range(project, start, end)?;
     let circular = project.topology == "circular";
-    let count = if s <= e { e - s + 1 } else { project.length - s + e + 1 };
+    let count = if s <= e {
+        e - s + 1
+    } else {
+        project.length - s + e + 1
+    };
     if count as usize > MAX_READ_BASES {
         let unit = unit_for(&project.molecule_type);
         return Err(format!(
@@ -54,7 +62,8 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
 
     let mut out = String::new();
     let unit = unit_for(&project.molecule_type);
-    let _ = writeln!(out,
+    let _ = writeln!(
+        out,
         "COORDS: 1-based inclusive. Window {}..{} ({} {}) of {} {} {} (wrap: {})",
         s + 1,
         e + 1,
@@ -71,7 +80,11 @@ pub fn read_sequence(project: &ProjectData, start: i64, end: i64) -> Result<Stri
     if count as usize > LINE_BASES {
         out.push_str(&" ".repeat(7));
         for i in 0..COLS {
-            let _ = write!(out, "{:>11}", (s + (i as i64) * GROUP as i64) % project.length + 1);
+            let _ = write!(
+                out,
+                "{:>11}",
+                (s + (i as i64) * GROUP as i64) % project.length + 1
+            );
         }
         out.push('\n');
     }

@@ -70,9 +70,11 @@ fn is_ecoki_site_rc(seq: &[u8]) -> bool {
 /// Find a methylation target site anywhere within `window`.
 fn find_site_in_window(window: &[u8], sys: &str) -> bool {
     match sys {
-        "dam"   => window.windows(4).any(is_dam_site),
-        "dcm"   => window.windows(5).any(is_dcm_site),
-        "ecoki" => window.windows(13).any(|w| is_ecoki_site(w) || is_ecoki_site_rc(w)),
+        "dam" => window.windows(4).any(is_dam_site),
+        "dcm" => window.windows(5).any(is_dcm_site),
+        "ecoki" => window
+            .windows(13)
+            .any(|w| is_ecoki_site(w) || is_ecoki_site_rc(w)),
         _ => false,
     }
 }
@@ -81,8 +83,8 @@ fn find_site_in_window(window: &[u8], sys: &str) -> bool {
 /// methylation target (e.g. DpnI/GATC = Dam). Tries each known target pattern.
 fn find_required_system(rec_window: &[u8]) -> Option<&'static str> {
     match rec_window.len() {
-        4 if is_dam_site(rec_window)   => Some("dam"),
-        5 if is_dcm_site(rec_window)   => Some("dcm"),
+        4 if is_dam_site(rec_window) => Some("dam"),
+        5 if is_dcm_site(rec_window) => Some("dcm"),
         13 if is_ecoki_site(rec_window) => Some("ecoki"),
         _ => None,
     }
@@ -202,7 +204,9 @@ pub fn apply_methylation(
             // "[Methylation Required]".
             None => {
                 enzyme.methylation_required = true;
-                enzyme.methyl_required_sources.push("Methylation".to_string());
+                enzyme
+                    .methyl_required_sources
+                    .push("Methylation".to_string());
             }
         }
     }
@@ -212,7 +216,12 @@ pub fn apply_methylation(
 mod tests {
     use super::*;
 
-    fn make_enzyme(rec_start: i64, rec_end: i64, methylation_required: bool, is_methylation_sensitive: bool) -> Enzyme {
+    fn make_enzyme(
+        rec_start: i64,
+        rec_end: i64,
+        methylation_required: bool,
+        is_methylation_sensitive: bool,
+    ) -> Enzyme {
         Enzyme {
             rec_start,
             rec_end,
@@ -252,7 +261,10 @@ mod tests {
 
         apply_methylation(&mut enzyme, template, &active_systems, 2, true);
 
-        assert!(enzyme.methylation_required, "DpnI should require methylation when Dam is inactive");
+        assert!(
+            enzyme.methylation_required,
+            "DpnI should require methylation when Dam is inactive"
+        );
         assert_eq!(enzyme.methyl_required_sources, vec!["Dam"]);
         assert!(!enzyme.methylation_blocked);
     }

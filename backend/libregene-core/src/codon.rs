@@ -1370,9 +1370,9 @@ mod tests {
         assert_eq!(translate(&res.new_codons), translate(&original));
         let d_best = l1_distance(
             &{
-            let mut o = OptimizeOptions::default();
-            o.method = OptimizeMethod::UseBestCodon;
-            optimize_codons(&original, t, &o).new_codons
+                let mut o = OptimizeOptions::default();
+                o.method = OptimizeMethod::UseBestCodon;
+                optimize_codons(&original, t, &o).new_codons
             },
             t,
         );
@@ -1392,8 +1392,8 @@ mod tests {
             &original,
             t,
             &OptimizeOptions {
-            method: OptimizeMethod::HarmonizeRca,
-            ..OptimizeOptions::default()
+                method: OptimizeMethod::HarmonizeRca,
+                ..OptimizeOptions::default()
             },
         );
         assert_eq!(res.new_codons.len(), original.len());
@@ -1409,9 +1409,9 @@ mod tests {
             &original,
             t,
             &OptimizeOptions {
-            method: OptimizeMethod::HarmonizeRca,
-            original_table: Some(ot.clone()),
-            ..OptimizeOptions::default()
+                method: OptimizeMethod::HarmonizeRca,
+                original_table: Some(ot.clone()),
+                ..OptimizeOptions::default()
             },
         );
         assert_eq!(res.new_codons.len(), original.len());
@@ -1459,8 +1459,8 @@ mod tests {
             &original,
             t,
             &OptimizeOptions {
-            method: OptimizeMethod::MatchCodonUsage,
-            ..OptimizeOptions::default()
+                method: OptimizeMethod::MatchCodonUsage,
+                ..OptimizeOptions::default()
             },
         );
         assert_eq!(res.new_codons.len(), original.len());
@@ -1511,8 +1511,8 @@ mod tests {
             aa,
             t,
             &OptimizeOptions {
-            method: OptimizeMethod::MatchCodonUsage,
-            ..OptimizeOptions::default()
+                method: OptimizeMethod::MatchCodonUsage,
+                ..OptimizeOptions::default()
             },
         )
         .unwrap();
@@ -1646,8 +1646,8 @@ mod tests {
             &original,
             t,
             &OptimizeOptions {
-            avoid_enzyme_sites: vec!["GAATTC".to_string()],
-            ..OptimizeOptions::default()
+                avoid_enzyme_sites: vec!["GAATTC".to_string()],
+                ..OptimizeOptions::default()
             },
         );
         assert_eq!(res.new_codons.len(), original.len());
@@ -1671,8 +1671,8 @@ mod tests {
             &original,
             t,
             &OptimizeOptions {
-            avoid_enzyme_sites: vec!["AAAACC".to_string()],
-            ..OptimizeOptions::default()
+                avoid_enzyme_sites: vec!["AAAACC".to_string()],
+                ..OptimizeOptions::default()
             },
         );
         assert_eq!(res.new_codons.len(), original.len());
@@ -1842,8 +1842,8 @@ mod tests {
                 &cd.codons,
                 t,
                 &OptimizeOptions {
-                method,
-                ..OptimizeOptions::default()
+                    method,
+                    ..OptimizeOptions::default()
                 },
             );
             eprintln!(

@@ -29,7 +29,13 @@ pub struct AlignColumn {
 impl EditBlock {
     /// Expand the edit block into alignment columns. q0/s0 are the 0-based
     /// query/subject start offsets.
-    pub fn to_columns(&self, query: &[u8], subject: &[u8], q0: usize, s0: usize) -> Vec<AlignColumn> {
+    pub fn to_columns(
+        &self,
+        query: &[u8],
+        subject: &[u8],
+        q0: usize,
+        s0: usize,
+    ) -> Vec<AlignColumn> {
         let mut cols = Vec::new();
         let mut qi = q0;
         let mut si = s0;
@@ -112,7 +118,9 @@ mod tests {
 
     #[test]
     fn to_columns_all_match() {
-        let eb = EditBlock { ops: vec![EditOp::Sub(4)] };
+        let eb = EditBlock {
+            ops: vec![EditOp::Sub(4)],
+        };
         let cols = eb.to_columns(b"ACGT", b"ACGT", 0, 0);
         assert_eq!(cols.len(), 4);
         for c in &cols {
@@ -125,7 +133,9 @@ mod tests {
     #[test]
     fn to_columns_with_insertion() {
         // query = ACGTT, subject = ACGT: Sub(4) then one extra query T
-        let eb = EditBlock { ops: vec![EditOp::Sub(4), EditOp::Ins(1)] };
+        let eb = EditBlock {
+            ops: vec![EditOp::Sub(4), EditOp::Ins(1)],
+        };
         let cols = eb.to_columns(b"ACGTT", b"ACGT", 0, 0);
         assert_eq!(cols.len(), 5);
         assert_eq!(cols[4].col_type, "insertion");
@@ -135,7 +145,9 @@ mod tests {
 
     #[test]
     fn num_ident_counts_matches() {
-        let eb = EditBlock { ops: vec![EditOp::Sub(3), EditOp::Sub(1)] };
+        let eb = EditBlock {
+            ops: vec![EditOp::Sub(3), EditOp::Sub(1)],
+        };
         // ACG vs ACG = 3 matches; T vs G = 1 mismatch → 3 ident
         assert_eq!(eb.num_ident(b"ACGT", b"ACGG", 0, 0), 3);
     }

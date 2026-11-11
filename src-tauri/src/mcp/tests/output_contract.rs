@@ -5,7 +5,10 @@ use libregene_core::models::ProjectData;
 /// Assert the unified envelope keys of a success response.
 fn assert_envelope(v: &serde_json::Value, project_id: Option<&str>) {
     assert_eq!(v["ok"], true, "ok missing/false: {v}");
-    assert!(v["message"].as_str().is_some_and(|m| !m.is_empty()), "message: {v}");
+    assert!(
+        v["message"].as_str().is_some_and(|m| !m.is_empty()),
+        "message: {v}"
+    );
     if let Some(id) = project_id {
         assert_eq!(v["projectId"], id, "{v}");
     }
@@ -110,7 +113,11 @@ async fn read_tools_share_the_success_envelope() {
         .unwrap()
         .0;
     assert_envelope(&region, Some("enz"));
-    assert_eq!(region["region"], serde_json::json!({"start": 1, "end": 60}), "{region}");
+    assert_eq!(
+        region["region"],
+        serde_json::json!({"start": 1, "end": 60}),
+        "{region}"
+    );
 
     let read = server
         .read_sequence(Parameters(SequenceRequest {
@@ -217,8 +224,14 @@ async fn mutation_and_edit_tools_share_the_envelope() {
     assert_eq!(edited["unit"], "bp", "{edited}");
     assert!(edited.get("regionView").is_none(), "{edited}");
     assert!(edited.get("regionViewBefore").is_none(), "{edited}");
-    assert!(edited["contextBefore"]["start"].as_i64().is_some(), "{edited}");
-    assert!(edited["contextBefore"]["sequence"].as_str().is_some(), "{edited}");
+    assert!(
+        edited["contextBefore"]["start"].as_i64().is_some(),
+        "{edited}"
+    );
+    assert!(
+        edited["contextBefore"]["sequence"].as_str().is_some(),
+        "{edited}"
+    );
 }
 
 #[tokio::test]
@@ -238,7 +251,10 @@ async fn failure_envelopes_keep_the_project_id() {
     assert_eq!(bad_range["ok"], false, "{bad_range}");
     assert_eq!(bad_range["projectId"], "edit_test", "{bad_range}");
     assert!(
-        bad_range["message"].as_str().unwrap().contains("out of bounds"),
+        bad_range["message"]
+            .as_str()
+            .unwrap()
+            .contains("out of bounds"),
         "{bad_range}"
     );
 }
@@ -276,26 +292,28 @@ async fn primer_site_shape_is_shared_by_both_primer_tools() {
                 name: "p1".to_string(),
                 r#type: "fwd".to_string(),
                 seq: Some(seq.clone()),
-                    hash: None,
-                }],
+                hash: None,
+            }],
         }))
         .await
         .unwrap()
         .0;
     assert_envelope(&checked, Some("feat"));
-    assert_eq!(keys(&checked["primers"][0]["sites"][0]), added_keys, "{checked}");
+    assert_eq!(
+        keys(&checked["primers"][0]["sites"][0]),
+        added_keys,
+        "{checked}"
+    );
     assert_eq!(checked["primers"][0]["name"], "p1", "{checked}");
     assert_eq!(checked["primers"][0]["type"], "fwd", "{checked}");
     assert_eq!(checked["primers"][0]["length"], 20, "{checked}");
     // add_primer and the test_primers binding check must agree on the site.
     assert_eq!(
-        added["sites"][0]["templateStart"],
-        checked["primers"][0]["sites"][0]["templateStart"],
+        added["sites"][0]["templateStart"], checked["primers"][0]["sites"][0]["templateStart"],
         "{checked}"
     );
     assert_eq!(
-        added["sites"][0]["annealLength"],
-        checked["primers"][0]["sites"][0]["annealLength"],
+        added["sites"][0]["annealLength"], checked["primers"][0]["sites"][0]["annealLength"],
         "{checked}"
     );
 }
@@ -315,8 +333,18 @@ async fn test_primers_reports_the_amplicon_size() {
         .test_primers(Parameters(TestPrimersRequest {
             project_id: "feat".to_string(),
             primers: vec![
-                PrimerInput { name: "F".to_string(), r#type: "fwd".to_string(), seq: Some(fwd), hash: None },
-                PrimerInput { name: "R".to_string(), r#type: "rev".to_string(), seq: Some(rev), hash: None },
+                PrimerInput {
+                    name: "F".to_string(),
+                    r#type: "fwd".to_string(),
+                    seq: Some(fwd),
+                    hash: None,
+                },
+                PrimerInput {
+                    name: "R".to_string(),
+                    r#type: "rev".to_string(),
+                    seq: Some(rev),
+                    hash: None,
+                },
             ],
         }))
         .await
@@ -336,8 +364,8 @@ async fn test_primers_reports_the_amplicon_size() {
                 name: "F".to_string(),
                 r#type: "fwd".to_string(),
                 seq: Some(template[10..30].to_string()),
-                    hash: None,
-                }],
+                hash: None,
+            }],
         }))
         .await
         .unwrap()
@@ -352,7 +380,10 @@ async fn design_primers_candidates_are_labelled_and_recommended() {
         .design_primers(Parameters(DesignPrimersRequest {
             project_id: "aln_test".to_string(),
             mode: "amplify".to_string(),
-            seg: Some(SegParam { start: 21, end: 120 }),
+            seg: Some(SegParam {
+                start: 21,
+                end: 120,
+            }),
             target_tm: 60.0,
             ..Default::default()
         }))
@@ -371,13 +402,24 @@ async fn design_primers_candidates_are_labelled_and_recommended() {
         for (i, c) in cands.iter().enumerate() {
             assert_eq!(c["id"], format!("{}-{}", ty, i + 1), "{c}");
             assert_eq!(c["recommended"], i == idx, "{c}");
-            for key in ["seq", "tail", "tailLength", "annealLength", "tm", "gcPercent"] {
+            for key in [
+                "seq",
+                "tail",
+                "tailLength",
+                "annealLength",
+                "tm",
+                "gcPercent",
+            ] {
                 assert!(c.get(key).is_some(), "candidate missing {key}: {c}");
             }
             assert!(c.get("annealLen").is_none(), "{c}");
             assert!(c.get("gc").is_none(), "{c}");
         }
-        assert_eq!(cands.iter().filter(|c| c["recommended"] == true).count(), 1, "{group}");
+        assert_eq!(
+            cands.iter().filter(|c| c["recommended"] == true).count(),
+            1,
+            "{group}"
+        );
     }
 }
 
@@ -388,11 +430,17 @@ async fn design_primers_reports_mode_mismatched_parameters() {
         .design_primers(Parameters(DesignPrimersRequest {
             project_id: "aln_test".to_string(),
             mode: "amplify".to_string(),
-            seg: Some(SegParam { start: 21, end: 120 }),
+            seg: Some(SegParam {
+                start: 21,
+                end: 120,
+            }),
             target_tm: 60.0,
             // oepcr-only parameters on an amplify call
             name1: Some("left".to_string()),
-            seg2: Some(SegParam { start: 130, end: 180 }),
+            seg2: Some(SegParam {
+                start: 130,
+                end: 180,
+            }),
             // mutagenesis-only parameter
             mut_seq: Some("AAA".to_string()),
             ..Default::default()
@@ -457,14 +505,26 @@ fn tool_descriptions_are_concise_and_state_their_response() {
     let tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
     assert_eq!(tools.len(), 16, "unexpected tool count");
     for t in tools {
-        assert_ne!(t.name, "list_species", "species keys live in the convert_sequence description");
+        assert_ne!(
+            t.name, "list_species",
+            "species keys live in the convert_sequence description"
+        );
         assert_ne!(t.name, "close_project", "close_project was removed");
         assert_ne!(t.name, "list_projects", "renamed to list_workspace");
-        assert_ne!(t.name, "search_sequence", "search_sequence is a bash-replaceable string scan");
+        assert_ne!(
+            t.name, "search_sequence",
+            "search_sequence is a bash-replaceable string scan"
+        );
         assert_ne!(t.name, "search_enzymes", "search_enzymes was removed; name discovery is find_restriction_sites' unknownEnzymes.similar");
         assert_ne!(t.name, "check_primer_binding", "renamed to test_primers");
-        assert_ne!(t.name, "list_primers", "stored primers are listed in get_project_overview's PRIMERS section");
-        assert_ne!(t.name, "inspect_primers", "split: stored primers moved to get_project_overview, the ad-hoc check is test_primers");
+        assert_ne!(
+            t.name, "list_primers",
+            "stored primers are listed in get_project_overview's PRIMERS section"
+        );
+        assert_ne!(
+            t.name, "inspect_primers",
+            "split: stored primers moved to get_project_overview, the ad-hoc check is test_primers"
+        );
         let d = t.description.as_deref().unwrap_or_default();
         assert!(!d.is_empty(), "{} has no description", t.name);
         assert!(
@@ -494,7 +554,10 @@ async fn convert_sequence_description_lists_the_builtin_species() {
         .find(|t| t.name == "convert_sequence")
         .expect("convert_sequence tool");
     let desc = convert.description.as_deref().unwrap_or_default();
-    assert!(!desc.contains("{species}"), "placeholder left unreplaced: {desc}");
+    assert!(
+        !desc.contains("{species}"),
+        "placeholder left unreplaced: {desc}"
+    );
     let keys = libregene_core::codon::list_species();
     assert!(!keys.is_empty(), "no built-in species");
     for key in keys {
@@ -534,13 +597,27 @@ async fn find_orfs_report_and_mutation_modes_share_one_shape() {
     assert_eq!(v["unit"], "bp", "{v}");
     assert_eq!(v["minAa"], 5, "{v}");
     assert!(v["orfCount"].as_u64().unwrap() >= 1, "{v}");
-    assert_eq!(v["orfCount"], v["orfs"].as_array().unwrap().len() as u64, "{v}");
+    assert_eq!(
+        v["orfCount"],
+        v["orfs"].as_array().unwrap().len() as u64,
+        "{v}"
+    );
     assert!(v["orfs"][0]["start"].as_i64().unwrap() >= 1, "1-based: {v}");
-    assert!(v.get("text").is_none(), "report mode carries no digest: {v}");
-    assert!(v.get("featureCount").is_none(), "old field name must not reappear: {v}");
+    assert!(
+        v.get("text").is_none(),
+        "report mode carries no digest: {v}"
+    );
+    assert!(
+        v.get("featureCount").is_none(),
+        "old field name must not reappear: {v}"
+    );
     {
         let pm = server.pm.read().await;
-        assert!(pm.get_project_by_id("orf_test").unwrap().features.is_empty());
+        assert!(pm
+            .get_project_by_id("orf_test")
+            .unwrap()
+            .features
+            .is_empty());
     }
 
     // Mutation mode: same keys plus the digest.
@@ -558,10 +635,19 @@ async fn find_orfs_report_and_mutation_modes_share_one_shape() {
     assert_eq!(v["minAa"], 5, "{v}");
     let n = v["orfCount"].as_u64().unwrap();
     assert_eq!(n, v["orfs"].as_array().unwrap().len() as u64, "{v}");
-    assert!(v["text"].is_string(), "mutation mode carries the digest: {v}");
-    assert!(v.get("featureCount").is_none(), "old field name must not reappear: {v}");
+    assert!(
+        v["text"].is_string(),
+        "mutation mode carries the digest: {v}"
+    );
+    assert!(
+        v.get("featureCount").is_none(),
+        "old field name must not reappear: {v}"
+    );
     let pm = server.pm.read().await;
-    assert_eq!(pm.get_project_by_id("orf_test").unwrap().features.len(), n as usize);
+    assert_eq!(
+        pm.get_project_by_id("orf_test").unwrap().features.len(),
+        n as usize
+    );
 }
 
 #[tokio::test]
@@ -582,12 +668,18 @@ async fn add_alignment_uses_count_suffixed_field_names() {
     assert_envelope(&v, Some("aln_test"));
     for new in ["mismatchCount", "insertionCount", "deletionCount"] {
         assert!(v.get(new).is_some(), "missing {new}: {v}");
-        assert!(v["alignments"][0].get(new).is_some(), "alignments[0] missing {new}: {v}");
+        assert!(
+            v["alignments"][0].get(new).is_some(),
+            "alignments[0] missing {new}: {v}"
+        );
     }
     // Tombstones: the pre-rename count field names must not come back.
     for old in ["mismatches", "insertions", "deletions"] {
         assert!(v.get(old).is_none(), "old field {old} reappeared: {v}");
-        assert!(v["alignments"][0].get(old).is_none(), "alignments[0] old field {old}: {v}");
+        assert!(
+            v["alignments"][0].get(old).is_none(),
+            "alignments[0] old field {old}: {v}"
+        );
     }
 }
 
@@ -624,8 +716,14 @@ async fn region_view_alignment_columns_are_opt_in() {
         .await
         .unwrap()
         .0;
-    assert!(off["text"].as_str().unwrap().contains("ALIGNMENT DIFFS"), "{off}");
-    assert!(!off["text"].as_str().unwrap().contains("ALIGNMENT VIEW"), "{off}");
+    assert!(
+        off["text"].as_str().unwrap().contains("ALIGNMENT DIFFS"),
+        "{off}"
+    );
+    assert!(
+        !off["text"].as_str().unwrap().contains("ALIGNMENT VIEW"),
+        "{off}"
+    );
 
     let on = server
         .get_region_view(Parameters(RegionRequest {
@@ -638,5 +736,11 @@ async fn region_view_alignment_columns_are_opt_in() {
         .await
         .unwrap()
         .0;
-    assert!(on["text"].as_str().unwrap().contains("ALIGNMENT VIEW IN REGION"), "{on}");
+    assert!(
+        on["text"]
+            .as_str()
+            .unwrap()
+            .contains("ALIGNMENT VIEW IN REGION"),
+        "{on}"
+    );
 }

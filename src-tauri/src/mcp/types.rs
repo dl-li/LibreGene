@@ -466,7 +466,10 @@ pub(crate) enum OptimizeInput {
     Sequence(String),
     /// Workspace entry resolved from a `hash` input; behaves like `Sequence`
     /// except `from` defaults to the entry's own molecule type.
-    Workspace { sequence: String, molecule_type: String },
+    Workspace {
+        sequence: String,
+        molecule_type: String,
+    },
     /// Local sequence/protein file (`file_io::parse_file`).
     File {
         path: String,

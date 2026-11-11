@@ -37,7 +37,11 @@ pub(crate) fn seg_in_range(seg_s: i64, seg_e: i64, s: i64, e: i64, circular: boo
     }
 }
 
-pub(crate) fn validate_range(project: &ProjectData, start: i64, end: i64) -> Result<(i64, i64), String> {
+pub(crate) fn validate_range(
+    project: &ProjectData,
+    start: i64,
+    end: i64,
+) -> Result<(i64, i64), String> {
     if project.length <= 0 || project.sequence.is_empty() {
         return Err("Sequence is empty".to_string());
     }

@@ -17,7 +17,14 @@ fn two_ecori_project(topology: &str) -> ProjectData {
         ..Default::default()
     };
     libregene_core::enzyme::recompute(&mut p);
-    assert_eq!(p.derived.enzymes.iter().filter(|e| e.name == "EcoRI").count(), 2);
+    assert_eq!(
+        p.derived
+            .enzymes
+            .iter()
+            .filter(|e| e.name == "EcoRI")
+            .count(),
+        2
+    );
     p
 }
 
@@ -35,8 +42,22 @@ fn ecori_bamhi_project(topology: &str) -> ProjectData {
         ..Default::default()
     };
     libregene_core::enzyme::recompute(&mut p);
-    assert_eq!(p.derived.enzymes.iter().filter(|e| e.name == "EcoRI").count(), 1);
-    assert_eq!(p.derived.enzymes.iter().filter(|e| e.name == "BamHI").count(), 1);
+    assert_eq!(
+        p.derived
+            .enzymes
+            .iter()
+            .filter(|e| e.name == "EcoRI")
+            .count(),
+        1
+    );
+    assert_eq!(
+        p.derived
+            .enzymes
+            .iter()
+            .filter(|e| e.name == "BamHI")
+            .count(),
+        1
+    );
     p
 }
 

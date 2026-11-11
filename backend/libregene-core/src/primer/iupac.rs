@@ -39,12 +39,12 @@ pub fn iupac_complement(base: u8) -> &'static [u8] {
         b'C' | b'c' => b"G",
         b'G' | b'g' => b"C",
         b'T' | b't' | b'U' | b'u' => b"A",
-        b'R' | b'r' => b"CT", // complement of A|G = T|C = Y
-        b'Y' | b'y' => b"AG", // complement of C|T = G|A = R
-        b'S' | b's' => b"GC", // complement of G|C = C|G = S
-        b'W' | b'w' => b"AT", // complement of A|T = T|A = W
-        b'K' | b'k' => b"AC", // complement of G|T = C|A = M
-        b'M' | b'm' => b"GT", // complement of A|C = T|G = K
+        b'R' | b'r' => b"CT",  // complement of A|G = T|C = Y
+        b'Y' | b'y' => b"AG",  // complement of C|T = G|A = R
+        b'S' | b's' => b"GC",  // complement of G|C = C|G = S
+        b'W' | b'w' => b"AT",  // complement of A|T = T|A = W
+        b'K' | b'k' => b"AC",  // complement of G|T = C|A = M
+        b'M' | b'm' => b"GT",  // complement of A|C = T|G = K
         b'B' | b'b' => b"ACG", // complement of CGT = GCA = V
         b'D' | b'd' => b"ACT", // complement of AGT = TCA = H
         b'H' | b'h' => b"AGT", // complement of ACT = TGA = D

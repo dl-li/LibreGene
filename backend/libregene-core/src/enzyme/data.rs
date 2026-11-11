@@ -26,9 +26,9 @@ pub struct EnzymeRecord {
     #[serde(default, alias = "is_cut_twice")]
     pub is_cut_twice: bool,
     #[serde(default)]
-    pub methylation: String,    // "sensitive" | "none"
+    pub methylation: String, // "sensitive" | "none"
     #[serde(default, alias = "methylation_dependent")]
-    pub methylation_dependent: bool,  // requires methylation to cut (e.g. DpnI)
+    pub methylation_dependent: bool, // requires methylation to cut (e.g. DpnI)
     /// Exclude from on-sequence display (recompute); lookups by name still work.
     /// For sites so dense they are pure noise on the map (e.g. FspEI, "CC").
     #[serde(default)]

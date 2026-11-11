@@ -55,7 +55,8 @@ pub(crate) fn push_auto_annotation(out: &mut String, project: &ProjectData) {
         return;
     }
     for f in &detected {
-        let _ = write!(out,
+        let _ = write!(
+            out,
             "        {} | {} | {} | {}..{} | {:.1}%",
             auto_feature_display_name(f),
             f.ftype,

@@ -83,7 +83,9 @@ pub fn orientation_hashes(sequence: &str, molecule_type: &str) -> (String, Optio
     let h = sequence_hash(sequence);
     let rh = match molecule_type {
         "protein" => None,
-        "rna" => Some(sequence_hash(&to_rna(&reverse_complement(&to_dna(sequence))))),
+        "rna" => Some(sequence_hash(&to_rna(&reverse_complement(&to_dna(
+            sequence,
+        ))))),
         _ => Some(sequence_hash(&reverse_complement(sequence))),
     };
     (h, rh)
@@ -92,13 +94,7 @@ pub fn orientation_hashes(sequence: &str, molecule_type: &str) -> (String, Optio
 /// Map one 0-based inclusive span after replacing `[edit_start, edit_end]`
 /// with `new_len` bases; `None` when the span collapses to nothing. Shared by
 /// `adjust_features_for_edit` and `features_edit_impact` so both stay in sync.
-fn adjust_span(
-    s: i64,
-    e: i64,
-    edit_start: i64,
-    edit_end: i64,
-    new_len: i64,
-) -> Option<(i64, i64)> {
+fn adjust_span(s: i64, e: i64, edit_start: i64, edit_end: i64, new_len: i64) -> Option<(i64, i64)> {
     let delta = new_len - (edit_end - edit_start + 1);
     if e < edit_start {
         return Some((s, e));
@@ -106,8 +102,16 @@ fn adjust_span(
     if s > edit_end {
         return Some((s + delta, e + delta));
     }
-    let ns = if s < edit_start { s } else { edit_start + new_len };
-    let ne = if e > edit_end { e + delta } else { edit_start + new_len - 1 };
+    let ns = if s < edit_start {
+        s
+    } else {
+        edit_start + new_len
+    };
+    let ne = if e > edit_end {
+        e + delta
+    } else {
+        edit_start + new_len - 1
+    };
     if ns > ne {
         None
     } else {
@@ -263,28 +267,32 @@ pub fn features_edit_impact(
             }
         }
         if new_spans.is_empty() {
-            impact.removed_features.push(crate::models::RemovedFeatureImpact {
-                name: f.name.clone(),
-                ftype: f.ftype.clone(),
-                location: format!("{}..{}", f.start, f.end),
-            });
+            impact
+                .removed_features
+                .push(crate::models::RemovedFeatureImpact {
+                    name: f.name.clone(),
+                    ftype: f.ftype.clone(),
+                    location: format!("{}..{}", f.start, f.end),
+                });
             continue;
         }
         if clipped {
-            impact.clipped_features.push(crate::models::ClippedFeatureImpact {
-                name: f.name.clone(),
-                ftype: f.ftype.clone(),
-                before: bounding(&old_spans),
-                after: bounding(&new_spans),
-                before_segments: old_spans
-                    .iter()
-                    .map(|&(start, end)| crate::models::EditSpan { start, end })
-                    .collect(),
-                after_segments: new_spans
-                    .iter()
-                    .map(|&(start, end)| crate::models::EditSpan { start, end })
-                    .collect(),
-            });
+            impact
+                .clipped_features
+                .push(crate::models::ClippedFeatureImpact {
+                    name: f.name.clone(),
+                    ftype: f.ftype.clone(),
+                    before: bounding(&old_spans),
+                    after: bounding(&new_spans),
+                    before_segments: old_spans
+                        .iter()
+                        .map(|&(start, end)| crate::models::EditSpan { start, end })
+                        .collect(),
+                    after_segments: new_spans
+                        .iter()
+                        .map(|&(start, end)| crate::models::EditSpan { start, end })
+                        .collect(),
+                });
         }
     }
     impact
@@ -399,10 +407,7 @@ mod tests {
     fn adjust_text_colors_shift_clip_drop() {
         let ranges = vec![tc(0, 9, "#ff0000"), tc(20, 29, "#00ff00")];
         // Equal-length replace: untouched.
-        assert_eq!(
-            adjust_text_colors_for_edit(&ranges, 5, 7, 3, 100),
-            ranges
-        );
+        assert_eq!(adjust_text_colors_for_edit(&ranges, 5, 7, 3, 100), ranges);
         // Delete 4..13 (10 bases): first run clips to 0..3, second shifts left.
         assert_eq!(
             adjust_text_colors_for_edit(&ranges, 4, 13, 0, 90),
@@ -493,7 +498,10 @@ mod tests {
     #[test]
     fn sequence_hash_ignores_case_whitespace_and_digits() {
         assert_eq!(sequence_hash("acgtacgt"), sequence_hash("ACGTACGT"));
-        assert_eq!(sequence_hash("acgt ACGT 12\nacgt"), sequence_hash("ACGTACGTACGT"));
+        assert_eq!(
+            sequence_hash("acgt ACGT 12\nacgt"),
+            sequence_hash("ACGTACGTACGT")
+        );
         // Multi-byte UTF-8 must not panic and contributes nothing.
         assert_eq!(sequence_hash("AC\u{FFFD}GT"), sequence_hash("ACGT"));
     }
@@ -503,7 +511,10 @@ mod tests {
         let seq = "ACGTGGCCATTA";
         let (h, rh) = orientation_hashes(seq, "dna");
         assert_eq!(h, sequence_hash(seq));
-        assert_eq!(rh.as_deref(), Some(sequence_hash(&reverse_complement(seq)).as_str()));
+        assert_eq!(
+            rh.as_deref(),
+            Some(sequence_hash(&reverse_complement(seq)).as_str())
+        );
         // A reverse-complemented file swaps the pair.
         let rc = reverse_complement(seq);
         let (h2, rh2) = orientation_hashes(&rc, "dna");
@@ -585,10 +596,26 @@ mod tests {
     #[test]
     fn feature_fully_within_checks_every_segment() {
         // span-less feature uses start/end
-        assert!(feature_fully_within(&feat("in", 110, 150, vec![]), 100, 199));
-        assert!(feature_fully_within(&feat("exact", 100, 199, vec![]), 100, 199));
-        assert!(!feature_fully_within(&feat("left", 50, 150, vec![]), 100, 199));
-        assert!(!feature_fully_within(&feat("right", 150, 250, vec![]), 100, 199));
+        assert!(feature_fully_within(
+            &feat("in", 110, 150, vec![]),
+            100,
+            199
+        ));
+        assert!(feature_fully_within(
+            &feat("exact", 100, 199, vec![]),
+            100,
+            199
+        ));
+        assert!(!feature_fully_within(
+            &feat("left", 50, 150, vec![]),
+            100,
+            199
+        ));
+        assert!(!feature_fully_within(
+            &feat("right", 150, 250, vec![]),
+            100,
+            199
+        ));
         // multi-segment: all segments inside → within; one outside → not
         assert!(feature_fully_within(
             &feat("allIn", 110, 180, vec![(110, 130), (160, 180)]),
@@ -601,7 +628,11 @@ mod tests {
             199
         ));
         // pure insertion span (end = start - 1) covers nothing
-        assert!(!feature_fully_within(&feat("at", 100, 100, vec![]), 100, 99));
+        assert!(!feature_fully_within(
+            &feat("at", 100, 100, vec![]),
+            100,
+            99
+        ));
     }
 
     #[test]
@@ -700,7 +731,12 @@ mod tests {
 
     #[test]
     fn impact_segmented_feature_clip_and_remove() {
-        let feats = vec![feat("seg", 50, 300, vec![(50, 120), (130, 150), (200, 300)])];
+        let feats = vec![feat(
+            "seg",
+            50,
+            300,
+            vec![(50, 120), (130, 150), (200, 300)],
+        )];
         let impact = features_edit_impact(&feats, 100, 199, 0);
         assert!(impact.removed_features.is_empty());
         assert_eq!(impact.clipped_features.len(), 1);
@@ -743,11 +779,7 @@ mod tests {
         // before/after share the same bounding-span basis (min start, max end).
         assert_eq!((c.before.start, c.before.end), (0, 9325));
         assert_eq!((c.after.start, c.after.end), (0, 9309));
-        let before: Vec<(i64, i64)> = c
-            .before_segments
-            .iter()
-            .map(|s| (s.start, s.end))
-            .collect();
+        let before: Vec<(i64, i64)> = c.before_segments.iter().map(|s| (s.start, s.end)).collect();
         let after: Vec<(i64, i64)> = c.after_segments.iter().map(|s| (s.start, s.end)).collect();
         assert_eq!(before, vec![(8885, 9325), (0, 218)]);
         assert_eq!(after, vec![(8885, 9309), (0, 218)]);
@@ -851,8 +883,9 @@ mod tests {
 
     #[test]
     fn unique_name_appends_counter() {
-        let taken: std::collections::HashSet<String> =
-            ["gfp".to_string(), "gfp (2)".to_string()].into_iter().collect();
+        let taken: std::collections::HashSet<String> = ["gfp".to_string(), "gfp (2)".to_string()]
+            .into_iter()
+            .collect();
         assert_eq!(unique_name("gfp", &taken), "gfp (3)");
         assert_eq!(unique_name("rfp", &taken), "rfp");
     }
