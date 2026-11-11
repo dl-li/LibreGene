@@ -89,6 +89,17 @@ function SubMenuItem({ item, renderLeaf }) {
   );
 }
 
+export function ContextMenuLeaf({ item, onActivate }) {
+  return (
+    <button type="button" disabled={item.disabled} className={itemClass(item)} onClick={onActivate}>
+      {item.icon && <item.icon />}
+      <span>
+        <T>{item.label}</T>
+      </span>
+    </button>
+  );
+}
+
 export default function ContextMenuHost() {
   const [menu, setMenu] = useState(null); // { x, y, items }
   const [pos, setPos] = useState(null);
@@ -162,12 +173,10 @@ export default function ContextMenuHost() {
   if (menu) items.push(RELOAD_ITEM);
 
   const renderLeaf = (item, i, keyPrefix = '') => (
-    <button
+    <ContextMenuLeaf
       key={`${keyPrefix}${i}`}
-      type="button"
-      disabled={item.disabled}
-      className={itemClass(item)}
-      onClick={() => {
+      item={item}
+      onActivate={() => {
         close();
         if (item.reload) {
           setConfirmReload(true);
@@ -175,10 +184,7 @@ export default function ContextMenuHost() {
         }
         item.onSelect?.();
       }}
-    >
-      {item.icon && <item.icon />}
-      <span>{item.label}</span>
-    </button>
+    />
   );
 
   return (

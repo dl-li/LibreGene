@@ -3,6 +3,7 @@ import { renderToString } from 'react-dom/server';
 import { I18nProvider, T, translate } from '../i18n';
 import { localizeSessionText } from '../i18n/sessionText';
 import { agentPrompt } from '../dialogs/McpGuideDialog';
+import { ContextMenuLeaf } from '../components/ContextMenuHost';
 
 const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
@@ -38,6 +39,23 @@ describe('i18n', () => {
   it('interpolates localized values', () => {
     expect(translate('zh', 'Add {count} feature(s)', { count: 3 })).toBe('添加 3 个特征');
     expect(translate('en', 'Add {count} feature(s)', { count: 3 })).toBe('Add 3 feature(s)');
+  });
+
+  it('localizes regular context-menu items', () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key) => (key === 'language' ? 'zh' : null),
+        setItem: () => {},
+      },
+    });
+    const html = renderToString(
+      <I18nProvider>
+        <ContextMenuLeaf item={{ label: 'Edit Feature…' }} />
+      </I18nProvider>,
+    );
+    expect(html).toContain('编辑特征…');
+    expect(html).not.toContain('Edit Feature…');
   });
 
   it('localizes session summaries without changing names or coordinates', () => {

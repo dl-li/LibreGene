@@ -68,7 +68,7 @@ export default function useProjectData({
     const opts = [];
     if (mapEnabled) opts.push({ value: 'map', label: 'Map' });
     if (moleculeType === 'rna' && !disabledPlugins.includes('rnaFold'))
-      opts.push({ value: 'folding', label: 'Folding' });
+      opts.push({ value: 'folding', label: 'RNA Folding' });
     return opts.length ? [{ value: 'none', label: 'None' }, ...opts] : [];
   }, [moleculeType, mapEnabled, disabledPlugins]);
 
