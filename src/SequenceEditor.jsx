@@ -31,6 +31,7 @@ import {
   renderTooltips,
 } from './editor/layers/enzymes.jsx';
 import SeqBgLayer from './editor/layers/SeqBgLayer';
+import SearchHighlightLayer from './editor/layers/SearchHighlightLayer';
 import { RulerLayer, ComplementLayer, DS_BLOCK_H, DS_BOTTOM_Y } from './editor/layers/DsLayers';
 import ChromatogramLayers, { CHROM_TRACK_H, CHROM_GAP } from './editor/layers/ChromatogramLayers';
 import AlignmentLayers from './editor/layers/AlignmentLayers';
@@ -2012,6 +2013,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
 
   // --- Search: sequence (both strands, IUPAC) + feature/enzyme/primer names ---
   const [searchNav, setSearchNav] = useState({ query: '', index: -1, total: 0 });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchMatches, setSearchMatches] = useState([]);
   const searchStateRef = useRef({ query: '', scope: 'all', results: [], index: -1 });
   const openSearchRef = useRef(null);
 
@@ -2022,6 +2025,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
     st.query = '';
     st.results = [];
     st.index = -1;
+    setSearchMatches([]);
   }, [cleanSeq, normFeatures]);
 
   useEffect(() => {
@@ -2142,6 +2146,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         st.index = -1;
       }
       const { results } = st;
+      setSearchMatches(results.filter((hit) => hit.type === 'seq'));
       if (direction === 'reset' || !results.length) {
         st.index = -1;
         setSearchNav({ query, index: -1, total: results.length });
@@ -2855,6 +2860,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           enzymeProvider={enzymeProvider}
           onEnzymeProviderChange={onEnzymeProviderChange}
           onSearch={handleSearch}
+          onSearchOpenChange={setSearchOpen}
           searchNav={searchNav}
           openSearchRef={openSearchRef}
           alignments={alignments}
@@ -2991,6 +2997,18 @@ const SequenceEditor = React.memo(function SequenceEditor({
               getSeqY={getSeqY}
               sp={sp}
               colRuns={colRuns}
+            />
+            <SearchHighlightLayer
+              matches={searchOpen ? searchMatches : []}
+              visibleRows={visibleRows}
+              rowBuf={ROW_BUF}
+              numRows={numRows}
+              getSeqY={getSeqY}
+              sp={sp}
+              colRuns={colRuns}
+              colFromVis={colFromVis}
+              visibleCols={visibleCols}
+              dsBottomY={dsOn ? DS_BOTTOM_Y : 0}
             />
             <SelectionLayer
               hasSelection={hasSelection}

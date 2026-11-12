@@ -205,6 +205,7 @@ export default function EditorNavMenu({
   enzymeProvider = 'all',
   onEnzymeProviderChange,
   onSearch,
+  onSearchOpenChange,
   searchNav,
   openSearchRef,
   alignments = [],
@@ -310,6 +311,14 @@ export default function EditorNavMenu({
     enzyme: 'enzymes',
   };
 
+  const setSearchVisibility = useCallback(
+    (open) => {
+      setSearchOpen(open);
+      onSearchOpenChange?.(open);
+    },
+    [onSearchOpenChange],
+  );
+
   useEffect(() => {
     if (searchOpen) inputRef.current?.focus();
   }, [searchOpen]);
@@ -321,23 +330,23 @@ export default function EditorNavMenu({
       if (e.key !== 'Escape') return;
       if (e.target === inputRef.current) return; // handled by onSearchKeyDown
       e.preventDefault();
-      setSearchOpen(false);
+      setSearchVisibility(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [searchOpen]);
+  }, [searchOpen, setSearchVisibility]);
 
   useEffect(() => {
     if (!openSearchRef) return;
-    openSearchRef.current = () => setSearchOpen(true);
+    openSearchRef.current = () => setSearchVisibility(true);
     return () => {
       openSearchRef.current = null;
     };
-  }, [openSearchRef]);
+  }, [openSearchRef, setSearchVisibility]);
 
   const toggleSearch = useCallback(() => {
-    setSearchOpen((v) => !v);
-  }, []);
+    setSearchVisibility(!searchOpen);
+  }, [searchOpen, setSearchVisibility]);
 
   const searchDebounceRef = useRef(null);
   useEffect(() => () => clearTimeout(searchDebounceRef.current), []);
@@ -368,10 +377,10 @@ export default function EditorNavMenu({
         if (query) onSearch?.(query, 'reset', next);
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        setSearchOpen(false);
+        setSearchVisibility(false);
       }
     },
-    [query, onSearch, searchScope],
+    [query, onSearch, searchScope, setSearchVisibility],
   );
 
   const navTotal = searchNav && searchNav.query === query ? searchNav.total : 0;
