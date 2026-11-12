@@ -938,6 +938,14 @@ export default function App() {
                   </div>
                   <button
                     type="button"
+                    onClick={() => setMcpGuideOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Bot className="size-3.5" />
+                    {t('Connect an LLM agent via MCP')}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
                     aria-label={t('Switch language')}
                     title={t('Switch language')}
@@ -945,14 +953,6 @@ export default function App() {
                   >
                     <Languages className="size-3.5" />
                     {locale === 'zh' ? '中文 / English' : 'English / 中文'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMcpGuideOpen(true)}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <Bot className="size-3.5" />
-                    {t('Connect an LLM agent via MCP')}
                   </button>
                 </div>
               </main>

@@ -756,4 +756,6 @@ export const zh = {
   '{label}: {value}': '{label}：{value}',
   'Show {name}': '显示{name}',
   'Type IIS': 'IIS 型',
+  'Choose the interface language': '选择界面语言',
+  'Language, file associations and settings backup': '语言、文件关联与设置备份',
 };

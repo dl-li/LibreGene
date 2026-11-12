@@ -136,7 +136,7 @@ export default function SettingsPage({
   onTogglePlugin,
   focusSection,
 }) {
-  const { t } = useTranslation();
+  const { t, locale, setLocale } = useTranslation();
   const [section, setSection] = useState('general');
   const [showBuiltinPlugins, setShowBuiltinPlugins] = useState(false);
   const [busy, setBusy] = useState('');
@@ -201,7 +201,7 @@ export default function SettingsPage({
       id: 'general',
       label: 'General',
       icon: Cog,
-      description: 'File associations and settings backup',
+      description: 'Language, file associations and settings backup',
     },
     {
       id: 'sequence',
@@ -320,6 +320,20 @@ export default function SettingsPage({
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
             {activeSection.id === 'general' && (
               <div className="divide-y divide-border/60">
+                <SettingRow label="Language" hint="Choose the interface language">
+                  <Select value={locale} onValueChange={setLocale}>
+                    <SelectTrigger
+                      className="h-8 w-32 px-2 py-0 text-sm"
+                      aria-label={t('Language')}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="zh">中文</SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
                 <SettingRow
                   label="Default app for sequence files"
                   hint="Set LibreGene as the default app for supported sequence formats"
