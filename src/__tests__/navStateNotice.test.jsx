@@ -11,7 +11,8 @@ describe('NavStateNotice', () => {
     expect(html).toContain('显示引物：开');
     expect(html).toContain('bottom-[calc(100%+0.5rem)]');
     expect(html).toContain('rounded-full');
-    expect(html).toContain('bg-teal-800');
+    expect(html).toContain('from-teal-700/95');
+    expect(html).toContain('to-teal-800/95');
     expect(html).toContain('text-white');
     expect(html).toContain('data-leaving="false"');
   });
