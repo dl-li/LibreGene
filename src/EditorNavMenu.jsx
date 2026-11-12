@@ -256,7 +256,7 @@ export default function EditorNavMenu({
   thickFeatureLines = false,
   onToggleThickFeatureLines,
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { notice, showNotice } = useNavStateNotice();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -446,7 +446,12 @@ export default function EditorNavMenu({
       }}
     >
       <NavStateNotice notice={notice} />
-      <div className="nav-bar-enter relative z-10 flex items-center gap-0.5 rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
+      <div
+        className={cn(
+          'nav-bar-enter relative z-10 flex items-center rounded-full border bg-background/80 px-2 py-1.5 shadow-lg backdrop-blur-md',
+          locale === 'zh' ? 'gap-1.5' : 'gap-0.5',
+        )}
+      >
         {/* Edit: left or right click opens the menu */}
         <NavMenu icon={Pencil} label="Edit" contentClassName="min-w-52 overflow-visible">
           <DropdownMenuItem disabled={!canDirectSave} onSelect={onSave}>
