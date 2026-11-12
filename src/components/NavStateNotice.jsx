@@ -46,16 +46,16 @@ export function useNavStateNotice() {
 export default function NavStateNotice({ notice }) {
   if (!notice) return null;
   return (
-    <div className="pointer-events-none absolute bottom-[calc(100%-0.75rem)] left-1/2 z-0 -translate-x-1/2">
+    <div className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 -translate-x-1/2">
       <div
         key={notice.id}
         role="status"
         aria-live="polite"
         aria-atomic="true"
         data-leaving={notice.leaving}
-        className="nav-state-notice flex h-8 min-w-44 max-w-[min(80vw,28rem)] items-start justify-center whitespace-nowrap rounded-b-none rounded-t-xl border border-b-0 border-teal-700 bg-teal-800 px-6 pb-3 text-white shadow-lg"
+        className="nav-state-notice flex h-7 min-w-44 max-w-[min(80vw,28rem)] items-center justify-center whitespace-nowrap rounded-full border border-teal-700 bg-teal-800 px-5 text-white shadow-lg"
       >
-        <span className="overflow-hidden text-ellipsis text-center text-[11px] font-medium leading-5">
+        <span className="overflow-hidden text-ellipsis text-center text-[11px] font-medium leading-4">
           {notice.text}
         </span>
       </div>
