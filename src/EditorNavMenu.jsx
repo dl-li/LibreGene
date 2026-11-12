@@ -78,7 +78,7 @@ const ENZYME_FILTER_OPTIONS = [
 ];
 
 const NAV_BUTTON_CLASS =
-  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95 data-[state=open]:bg-accent data-[state=open]:text-foreground';
+  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95 data-[state=open]:bg-accent data-[state=open]:text-foreground';
 
 // Left click runs onLeftClick (when given) and right click opens the menu;
 // without onLeftClick both left and right click open the menu. Radix opens
@@ -104,6 +104,7 @@ function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children })
         >
           <span className="relative -ml-1.5 flex items-center justify-center">
             <Icon
+              strokeWidth={2.25}
               className={cn(
                 'size-4 transition-opacity',
                 open ? 'opacity-0' : 'group-hover:opacity-0',
@@ -1068,7 +1069,7 @@ export default function EditorNavMenu({
             searchOpen && 'bg-accent text-foreground',
           )}
         >
-          <Search className="size-4" />
+          <Search className="size-4" strokeWidth={2.25} />
         </button>
         <div
           className={cn(
@@ -1106,7 +1107,7 @@ export default function EditorNavMenu({
                 onClick={() => onSearch?.(query, 'prev', searchScope)}
                 className="rounded-full p-1 transition-colors hover:bg-accent hover:text-foreground"
               >
-                <ChevronUp className="size-3.5" />
+                <ChevronUp className="size-3.5" strokeWidth={2.25} />
               </button>
               <button
                 type="button"
@@ -1114,7 +1115,7 @@ export default function EditorNavMenu({
                 onClick={() => onSearch?.(query, 'next', searchScope)}
                 className="rounded-full p-1 transition-colors hover:bg-accent hover:text-foreground"
               >
-                <ChevronDown className="size-3.5" />
+                <ChevronDown className="size-3.5" strokeWidth={2.25} />
               </button>
             </span>
           )}
@@ -1124,7 +1125,7 @@ export default function EditorNavMenu({
             onClick={toggleSearch}
             className="flex items-center justify-center rounded-full bg-accent p-2 text-foreground outline-none transition-all duration-150 hover:text-foreground active:scale-90"
           >
-            <X className="size-4" />
+            <X className="size-4" strokeWidth={2.25} />
           </button>
         </div>
       </div>
