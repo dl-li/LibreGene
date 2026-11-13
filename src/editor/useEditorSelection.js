@@ -55,6 +55,39 @@ export default function useEditorSelection({ restoreState, onSelectionChange, to
     setCursorVisible(true);
   }, []);
 
+  const clearPrimerAndTranslationSelection = useCallback(() => {
+    setSelectedPrimerIds([]);
+    setTranslationSel(null);
+    translationDragRef.current = null;
+    setIsTranslationDragging(false);
+    isPrimerDraggingRef.current = false;
+    primerDragRef.current = null;
+    clearTimeout(primerDimTimerRef.current);
+    primerDimTimerRef.current = null;
+    setPrimerDimActive(false);
+  }, []);
+
+  const selectTextRange = useCallback(
+    (start, end, { resetCursor = false } = {}) => {
+      setSelStart(start);
+      setSelEnd(end);
+      setCursorIndex(end + 1);
+      setSelectionMode('text');
+      clearPrimerAndTranslationSelection();
+      setIsEnzymeSelection(false);
+      setSelectedEnzymeIds([]);
+      lastEnzymeSelRef.current = null;
+      if (resetCursor) resetCursorTimer();
+      else clearCursorTimer();
+    },
+    [clearCursorTimer, clearPrimerAndTranslationSelection, resetCursorTimer],
+  );
+
+  const prepareEnzymeSelection = useCallback(() => {
+    setSelectionMode('text');
+    clearPrimerAndTranslationSelection();
+  }, [clearPrimerAndTranslationSelection]);
+
   const startTranslationSelection = useCallback(
     (featureId, codon) => {
       setSelectionMode('translation');
@@ -223,6 +256,8 @@ export default function useEditorSelection({ restoreState, onSelectionChange, to
     isPrimerDraggingRef,
     resetCursorTimer,
     clearCursorTimer,
+    selectTextRange,
+    prepareEnzymeSelection,
     startTranslationSelection,
     scrollToSeqIndexRef,
     hasSelection,

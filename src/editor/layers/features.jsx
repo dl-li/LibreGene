@@ -37,18 +37,7 @@ export function renderFeatures({
   setHoveredCodon,
   openFeatureMenu,
   featureSelRef,
-  setSelStart,
-  setSelEnd,
-  setCursorIndex,
-  clearCursorTimer,
-  setSelectionMode,
-  setSelectedPrimerIds,
-  setTranslationSel,
-  setIsTranslationDragging,
-  isPrimerDraggingRef,
-  primerDragRef,
-  primerDimTimerRef,
-  setPrimerDimActive,
+  selectTextRange,
   setCreateFeatureLoc,
   setFeatureInfoFeature,
   rowOf,
@@ -221,26 +210,10 @@ export function renderFeatures({
                   }
 
                   const [fStart, fEnd] = featureSelRange(f);
-                  setSelStart(fStart);
-                  setSelEnd(fEnd);
-                  setCursorIndex(fEnd + 1);
                   featureSelRef.current = f.orf
                     ? null
                     : { id: f.id, selStart: fStart, selEnd: fEnd };
-                  clearCursorTimer();
-                  // Clear primer / translation selection
-                  setSelectionMode('text');
-                  setSelectedPrimerIds([]);
-                  setTranslationSel(null);
-                  translationDragRef.current = null;
-                  setIsTranslationDragging(false);
-                  isPrimerDraggingRef.current = false;
-                  primerDragRef.current = null;
-                  if (primerDimTimerRef.current) {
-                    clearTimeout(primerDimTimerRef.current);
-                    primerDimTimerRef.current = null;
-                  }
-                  setPrimerDimActive(false);
+                  selectTextRange(fStart, fEnd);
                 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
@@ -423,21 +396,9 @@ export function renderFeatureLabels({
   isDraggingRef,
   featureLeaveRef,
   setHoveredFeature,
-  translationDragRef,
   openFeatureMenu,
   featureSelRef,
-  setSelStart,
-  setSelEnd,
-  setCursorIndex,
-  clearCursorTimer,
-  setSelectionMode,
-  setSelectedPrimerIds,
-  setTranslationSel,
-  setIsTranslationDragging,
-  isPrimerDraggingRef,
-  primerDragRef,
-  primerDimTimerRef,
-  setPrimerDimActive,
+  selectTextRange,
   setCreateFeatureLoc,
   setFeatureInfoFeature,
 }) {
@@ -560,23 +521,8 @@ export function renderFeatureLabels({
               e.preventDefault();
 
               const [fStart, fEnd] = featureSelRange(f);
-              setSelStart(fStart);
-              setSelEnd(fEnd);
-              setCursorIndex(fEnd + 1);
               featureSelRef.current = { id: f.id, selStart: fStart, selEnd: fEnd };
-              clearCursorTimer();
-              setSelectionMode('text');
-              setSelectedPrimerIds([]);
-              setTranslationSel(null);
-              translationDragRef.current = null;
-              setIsTranslationDragging(false);
-              isPrimerDraggingRef.current = false;
-              primerDragRef.current = null;
-              if (primerDimTimerRef.current) {
-                clearTimeout(primerDimTimerRef.current);
-                primerDimTimerRef.current = null;
-              }
-              setPrimerDimActive(false);
+              selectTextRange(fStart, fEnd);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -623,23 +569,8 @@ export function renderFeatureLabels({
             e.preventDefault();
 
             const [fStart, fEnd] = featureSelRange(f);
-            setSelStart(fStart);
-            setSelEnd(fEnd);
-            setCursorIndex(fEnd + 1);
             featureSelRef.current = { id: f.id, selStart: fStart, selEnd: fEnd };
-            clearCursorTimer();
-            setSelectionMode('text');
-            setSelectedPrimerIds([]);
-            setTranslationSel(null);
-            translationDragRef.current = null;
-            setIsTranslationDragging(false);
-            isPrimerDraggingRef.current = false;
-            primerDragRef.current = null;
-            if (primerDimTimerRef.current) {
-              clearTimeout(primerDimTimerRef.current);
-              primerDimTimerRef.current = null;
-            }
-            setPrimerDimActive(false);
+            selectTextRange(fStart, fEnd);
           }}
           onDoubleClick={(e) => {
             e.stopPropagation();

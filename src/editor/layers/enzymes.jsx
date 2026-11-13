@@ -49,17 +49,10 @@ export function renderEnzymeLabels({
   setSelEnd,
   setCursorIndex,
   setSelectedEnzymeIds,
-  isPrimerDraggingRef,
-  primerDragRef,
-  primerDimTimerRef,
-  setPrimerDimActive,
-  setTranslationSel,
-  translationDragRef,
-  setIsTranslationDragging,
+  prepareEnzymeSelection,
   lastEnzymeSelRef,
   clearCursorTimer,
   setIsEnzymeSelection,
-  setSelectedPrimerIds,
   cleanSeq,
   topology,
   setIsDragging,
@@ -135,19 +128,7 @@ export function renderEnzymeLabels({
           if (e.button !== 0) return;
           e.stopPropagation();
           e.preventDefault();
-          // Clear primer selection
-          setSelectedPrimerIds([]);
-          isPrimerDraggingRef.current = false;
-          primerDragRef.current = null;
-          if (primerDimTimerRef.current) {
-            clearTimeout(primerDimTimerRef.current);
-            primerDimTimerRef.current = null;
-          }
-          setPrimerDimActive(false);
-          // Clear translation selection
-          setTranslationSel(null);
-          translationDragRef.current = null;
-          setIsTranslationDragging(false);
+          prepareEnzymeSelection();
           const enzyme = enzymes.find((x) => x.id === l.groupId);
           if (!enzyme) return;
           const pairs = enzyme.cutPairs || [
