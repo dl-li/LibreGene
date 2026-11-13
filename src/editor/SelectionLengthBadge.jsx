@@ -1,19 +1,13 @@
+import { useEffect, useState } from 'react';
 import { matchedSeqOf, reverseComplement } from './seqUtils';
-import {
-  measureWidth,
-  monoFont,
-  sliceRange,
-  rangeLen,
-  bgColor,
-  peptideMassKda,
-} from '../editorConstants';
+import { sliceRange, rangeLen, bgColor, peptideMassKda } from '../editorConstants';
+import { NavStateCapsule } from '../components/NavStateNotice';
 
 // ---------------------------------------------------------------------------
-// SelectionLengthBadge — top-right badge showing "xx bp" for the current
-// selection (text / enzyme / primer / amplimer).  The second line shows GC%
-// for nucleic acids or the peptide molecular weight (kDa) for proteins.
+// SelectionLengthBadge — capsule above the navigation bar showing selection
+// length and GC% for nucleic acids or peptide molecular weight for proteins.
 // ---------------------------------------------------------------------------
-function SelectionLengthBadge({
+function getSelectionCapsule({
   selectionMode,
   isEnzymeSelection,
   selStart,
@@ -23,7 +17,6 @@ function SelectionLengthBadge({
   enrichedPrimers,
   enzymeActiveBlue,
   amplimerGreen,
-  hasWarningBelow,
   topology = 'linear',
   unit = 'bp',
   showGc = true,
@@ -79,7 +72,7 @@ function SelectionLengthBadge({
     return null;
   }
 
-  // Second line: GC% for nucleic acids, molecular weight for peptides.
+  // GC% for nucleic acids, molecular weight for peptides.
   let line2 = null;
   if (showGc) {
     const gc = (seqToCopy.match(/[GC]/gi) || []).length;
@@ -90,38 +83,55 @@ function SelectionLengthBadge({
     line2 = `${kda < 1 ? kda.toFixed(2) : kda.toFixed(1)} kDa`;
   }
 
-  // Measure the default label width so the badge has stable width
-  const line1 = `${len} ${unit}`;
-  const w1 = measureWidth(line1, `600 11px ${monoFont}`);
-  const w2 = showGc
-    ? measureWidth('100% GC', `600 11px ${monoFont}`)
-    : line2
-      ? measureWidth(line2, `600 11px ${monoFont}`)
-      : 0;
-  const minBadgeWidth = Math.max(w1, w2) + 10;
+  const text = `${len} ${unit}${line2 ? ` · ${line2}` : ''}`;
+  return { key: `${bg}|${text}`, bg, text };
+}
 
+function SelectionLengthBadge(props) {
+  const selection = getSelectionCapsule(props);
+  const [displayedSelection, setDisplayedSelection] = useState(selection);
+  const [leaving, setLeaving] = useState(false);
+
+  if (selection && (selection.key !== displayedSelection?.key || leaving)) {
+    setDisplayedSelection(selection);
+    setLeaving(false);
+  } else if (!selection && displayedSelection && !leaving) {
+    setLeaving(true);
+  }
+
+  useEffect(() => {
+    if (!leaving) return undefined;
+    const timer = setTimeout(() => {
+      setDisplayedSelection(null);
+      setLeaving(false);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [leaving]);
+
+  if (!displayedSelection) return null;
+
+  const { bg, text } = displayedSelection;
+  const coveredByNavNotice = !!props.coveredByNavNotice;
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: hasWarningBelow ? 42 : 14,
-        right: 28,
-        zIndex: 40,
-        backgroundColor: bg,
-        color: bgColor,
-        border: `1px solid ${bg}`,
-        borderRadius: 5,
-        fontSize: '11px',
-        lineHeight: '1.2',
-        padding: '1px 5px',
-        fontFamily: monoFont,
-        minWidth: minBadgeWidth,
-        textAlign: 'center',
-        userSelect: 'none',
-      }}
-    >
-      <div>{line1}</div>
-      {line2 && <div>{line2}</div>}
+    <div className="pointer-events-none fixed bottom-[4.375rem] left-1/2 z-30 -translate-x-1/2">
+      <div
+        aria-hidden={coveredByNavNotice || leaving}
+        data-leaving={leaving}
+        className="selection-presence-notice"
+      >
+        <NavStateCapsule
+          leaving={coveredByNavNotice}
+          motionClassName="selection-coverage"
+          style={{
+            backgroundColor: bg,
+            backgroundImage: 'none',
+            color: bgColor,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 26px -10px ${bg}61, 0 4px 12px ${bg}29`,
+          }}
+        >
+          {text}
+        </NavStateCapsule>
+      </div>
     </div>
   );
 }

@@ -248,32 +248,39 @@ input[type='radio']:not(:disabled) {
   }
 }
 
-.nav-state-notice {
-  will-change: opacity, transform;
+.nav-state-notice,
+.selection-presence-notice {
+  will-change: opacity;
   animation: nav-state-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.nav-state-notice[data-leaving='true'] {
+.nav-state-notice[data-leaving='true'],
+.selection-presence-notice[data-leaving='true'] {
   animation: nav-state-notice-out 0.18s cubic-bezier(0.4, 0, 1, 1) both;
 }
 @keyframes nav-state-notice-in {
   from {
     opacity: 0;
-    transform: translateY(12px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 @keyframes nav-state-notice-out {
   from {
     opacity: 1;
-    transform: translateY(0);
   }
   to {
     opacity: 0;
-    transform: translateY(8px);
   }
+}
+
+.selection-coverage {
+  opacity: 1;
+  transition: opacity 0.18s cubic-bezier(0.4, 0, 1, 1);
+  will-change: opacity;
+}
+.selection-coverage[data-leaving='true'] {
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -281,9 +288,13 @@ input[type='radio']:not(:disabled) {
   .nav-menu-content[data-state='open'],
   .nav-menu-content[data-state='closed'],
   .nav-menu-content[data-state='open'] > *,
-  .nav-state-notice {
+  .nav-state-notice,
+  .selection-presence-notice {
     animation-duration: 0.01s !important;
     animation-delay: 0s !important;
+  }
+  .selection-coverage {
+    transition-duration: 0.01s !important;
   }
 }
 

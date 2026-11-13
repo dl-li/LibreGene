@@ -60,6 +60,7 @@ import WarningBadge from './editor/WarningBadge';
 import MapWatermark from './editor/MapWatermark';
 import FoldWatermark from './editor/FoldWatermark';
 import SelectionLengthBadge from './editor/SelectionLengthBadge';
+import { useNavStateNotice } from './components/NavStateNotice';
 import useEditorClipboard from './editor/useEditorClipboard';
 import { showContextMenu } from './contextMenu';
 import {
@@ -249,6 +250,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   leftViewportInset = 0,
 }) {
   const { t } = useTranslation();
+  const { notice: navStateNotice, showNotice: showNavStateNotice } = useNavStateNotice();
   const isDna = moleculeType === 'dna';
   const continuous = viewMode === 'continuous';
   // The double-strand block (ruler + complement strand) hangs below the top
@@ -2792,11 +2794,11 @@ const SequenceEditor = React.memo(function SequenceEditor({
         enrichedPrimers={enrichedPrimers}
         enzymeActiveBlue={enzymeActiveBlue}
         amplimerGreen={amplimerGreen}
-        hasWarningBelow={combinedWarnings.length > 0}
         topology={topology}
         unit={seqUnit}
         showGc={moleculeType !== 'protein'}
         showMw={moleculeType === 'protein'}
+        coveredByNavNotice={!designPick && !agentLocked && !!navStateNotice}
       />
       {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}
       {mapWatermark && (
@@ -2825,6 +2827,8 @@ const SequenceEditor = React.memo(function SequenceEditor({
       />
       {!designPick && !agentLocked && (
         <EditorNavMenu
+          navStateNotice={navStateNotice}
+          showNavStateNotice={showNavStateNotice}
           onSave={onSave}
           onSaveAs={onSaveAs}
           onCreateMsa={onCreateMsa}

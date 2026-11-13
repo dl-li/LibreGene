@@ -57,7 +57,7 @@ import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
 import { plugins, pluginAvailable } from './plugins';
 import { T, useTranslation } from '@/i18n';
-import NavStateNotice, { useNavStateNotice } from './components/NavStateNotice';
+import NavStateNotice from './components/NavStateNotice';
 
 const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
 
@@ -165,6 +165,8 @@ function NavMenu({ icon: Icon, label, onLeftClick, contentClassName, children })
 }
 
 export default function EditorNavMenu({
+  navStateNotice,
+  showNavStateNotice,
   onSave,
   onSaveAs,
   onCreateMsa,
@@ -258,7 +260,8 @@ export default function EditorNavMenu({
   onToggleThickFeatureLines,
 }) {
   const { t, locale } = useTranslation();
-  const { notice, showNotice } = useNavStateNotice();
+  const notice = navStateNotice;
+  const showNotice = showNavStateNotice;
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searchScope, setSearchScope] = useState('all');
