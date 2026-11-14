@@ -453,14 +453,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// STRUCTURED whole-project overview; no text dump by default. Returns {ok,
     /// message, projectId, unit, project: {name, length, topology, moleculeType,
     /// roi?}, featureCount, features: [feature], primerCount, primers: [primer],
-    /// enzymeCount, enzymes: [{name, siteCount}], alignmentCount,
+    /// enzymeCount, enzymes?: [{name, siteCount}], alignmentCount,
     /// alignments: [alignmentSummary], methylation?, sequenceHash, revCompHash,
     /// text?}. Features and all coordinates are 1-based inclusive. `featureFilter`
     /// keeps features by name (case-insensitive substring) or exact ftype;
     /// `maxFeatures` caps the returned array while featureCount reports all matches.
     /// Primers include sequence and binding sites; alignment summaries include
-    /// coverage and whole-read difference counts, not read sequences. Enzyme entries
-    /// summarize sites by enzyme; use find_restriction_sites for full cut geometry.
+    /// coverage and whole-read difference counts, not read sequences. `includeEnzymes`
+    /// defaults to false and controls the enzymes array only; enzymeCount always
+    /// counts all cutters. Use find_restriction_sites for full cut geometry.
     ///
     /// `includeText: true` adds the human-readable digest, including translation
     /// warnings, shared read mismatches and auto-annotated common features. The
@@ -476,16 +477,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// STRUCTURED view of one region; no text dump by default. Coordinates are
     /// 1-based inclusive; on circular sequences `start > end` wraps the origin.
     /// Returns {ok, message, projectId, unit, region, featureCount, features,
-    /// primerCount, primers, restrictionSiteCount, restrictionSites, alignmentCount,
+    /// primerCount, primers, restrictionSiteCount, restrictionSites?, alignmentCount,
     /// alignments, sequenceHash, revCompHash, text?}. `featureFilter`/`maxFeatures`
-    /// filter the feature array. `enzymes` filters restriction sites by
-    /// case-insensitive enzyme name. Each restrictionSite groups isoschizomers with
-    /// identical recognition and cut geometry into {enzymes, enzymeCount, recStart,
-    /// recEnd, recSeq, strand, cuts, ...}; no per-isoschizomer duplication.
+    /// filter the feature array. `enzymes` filters restriction sites by name.
+    /// `includeEnzymes` defaults to false; restrictionSiteCount is always present.
+    /// When enabled, each site groups isoschizomers. `compact: true` (default)
+    /// returns only enzymes/enzymeCount/recStart/recEnd; false adds recSeq, strand,
+    /// cuts and the other cut-geometry fields.
     ///
     /// Each overlapping alignment has structured mismatch/deletion/insertion
     /// details filtered to the window plus whole-read counts and in-window counts.
-    /// `includeText: true` adds the human-readable digest; `compact` controls only
+    /// `includeText: true` adds the human-readable digest; `compact` also controls
     /// its enzyme section (true = one count line, false = detailed grouped sites).
     /// `showAlignmentColumns: true` implies includeText and adds the ALIGNMENT VIEW
     /// block (template, match mask and read rows, capped at 500 covered bp).
@@ -551,9 +553,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// be cutting (normal entry), known but site-less (empty `sites` + a `note`), or
     /// unknown — unknown names never fail the call: they appear under
     /// `unknownEnzymes` with `similar` suggestions while the known names still
-    /// answer. For grouped sites in a window use get_region_view (its structured
-    /// restrictionSites always group isoschizomers; add `compact: false` and
-    /// `includeText: true` only when the human-readable list is also needed).
+    /// answer. For grouped sites in a window use get_region_view with
+    /// `includeEnzymes: true` and `compact: false`; add `includeText: true` only
+    /// when the human-readable list is also needed.
     ///
     /// Returns {ok, message, projectId, unit, enzymeCount, enzymes: [{name,
     /// siteCount, sites: [site], note?}], unknownEnzymes?, sequenceHash,

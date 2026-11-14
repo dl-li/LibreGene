@@ -92,6 +92,7 @@ async fn read_tools_share_the_success_envelope() {
     let overview = server
         .get_project_overview(Parameters(OverviewRequest {
             project_id: "enz".to_string(),
+            include_enzymes: Some(true),
             ..Default::default()
         }))
         .await
@@ -119,6 +120,7 @@ async fn read_tools_share_the_success_envelope() {
             project_id: "enz".to_string(),
             start: 1,
             end: 60,
+            include_enzymes: Some(true),
             ..Default::default()
         }))
         .await
@@ -752,4 +754,93 @@ async fn region_view_alignment_columns_are_opt_in() {
             .contains("ALIGNMENT VIEW IN REGION"),
         "{on}"
     );
+}
+
+#[tokio::test]
+async fn overview_and_region_enzyme_details_are_opt_in_and_compact() {
+    let mut project = enzyme_test_project();
+    project.features = vec![
+        feature("car", "CAR", 0, 11, "+"),
+        feature("other", "ZsGreen1", 20, 31, "+"),
+    ];
+    let server = handler_with_project(project).await;
+
+    let overview = server
+        .get_project_overview(Parameters(OverviewRequest {
+            project_id: "enz".to_string(),
+            feature_filter: Some("CAR".to_string()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(overview["featureCount"], 1, "{overview}");
+    assert_eq!(overview["features"].as_array().unwrap().len(), 1);
+    assert_eq!(overview["features"][0]["name"], "CAR");
+    assert!(overview["enzymeCount"].as_u64().unwrap() > 0);
+    assert!(overview.get("enzymes").is_none(), "{overview}");
+
+    let overview_with_enzymes = server
+        .get_project_overview(Parameters(OverviewRequest {
+            project_id: "enz".to_string(),
+            include_enzymes: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(
+        overview_with_enzymes["enzymeCount"],
+        overview["enzymeCount"]
+    );
+    assert!(!overview_with_enzymes["enzymes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    let region = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "enz".to_string(),
+            start: 35,
+            end: 50,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(region["restrictionSiteCount"].as_u64().unwrap() > 0);
+    assert!(region.get("restrictionSites").is_none(), "{region}");
+
+    let compact = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "enz".to_string(),
+            start: 35,
+            end: 50,
+            include_enzymes: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    let compact_site = &compact["restrictionSites"][0];
+    assert!(compact_site.get("recStart").is_some());
+    assert!(compact_site.get("recEnd").is_some());
+    assert!(compact_site.get("enzymes").is_some());
+    assert!(compact_site.get("cuts").is_none(), "{compact_site}");
+    assert!(compact_site.get("recSeq").is_none(), "{compact_site}");
+
+    let detailed = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "enz".to_string(),
+            start: 35,
+            end: 50,
+            include_enzymes: Some(true),
+            compact: Some(false),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(detailed["restrictionSites"][0].get("cuts").is_some());
+    assert!(detailed["restrictionSites"][0].get("recSeq").is_some());
 }

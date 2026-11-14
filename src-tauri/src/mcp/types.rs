@@ -19,6 +19,9 @@ pub(crate) struct OverviewRequest {
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
     pub(crate) feature_filter: Option<String>,
+    /// Include the structured per-enzyme summary array (default false).
+    /// `enzymeCount` is always reported.
+    pub(crate) include_enzymes: Option<bool>,
     /// Also return the human-readable digest as `text` (default false).
     pub(crate) include_text: Option<bool>,
 }
@@ -40,8 +43,12 @@ pub(crate) struct RegionRequest {
     pub(crate) feature_filter: Option<String>,
     /// Enzyme names to report (case-insensitive); omitted/empty = all cutters.
     pub(crate) enzymes: Option<Vec<String>>,
-    /// Collapse the optional text enzyme list into one count line (default true;
-    /// false = detailed sites with isoschizomers sharing a site grouped).
+    /// Include structured restrictionSites (default false). The total matching
+    /// `restrictionSiteCount` is always reported.
+    pub(crate) include_enzymes: Option<bool>,
+    /// Compact structured sites to enzymes/count/recognition bounds and collapse
+    /// the optional text enzyme list to one count line (default true). False
+    /// returns full cut geometry and detailed grouped sites in text.
     pub(crate) compact: Option<bool>,
     /// Also return the human-readable digest as `text` (default false).
     pub(crate) include_text: Option<bool>,

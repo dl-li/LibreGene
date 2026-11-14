@@ -252,6 +252,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let label = project_label(&id, &project);
         let unit = unit_for(&project.molecule_type);
         let include_text = request.include_text.unwrap_or(false);
+        let include_enzymes = request.include_enzymes.unwrap_or(false);
         let (features, feature_count) = feature_list_json(
             &project,
             request.feature_filter.as_deref(),
@@ -279,10 +280,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
         for enzyme in &project.derived.enzymes {
             *enzyme_counts.entry(enzyme.name.as_str()).or_default() += 1;
         }
-        let mut enzymes: Vec<serde_json::Value> = enzyme_counts
-            .into_iter()
-            .map(|(name, count)| serde_json::json!({"name": name, "siteCount": count}))
-            .collect();
+        let enzyme_count = enzyme_counts.len();
+        let mut enzymes: Vec<serde_json::Value> = if include_enzymes {
+            enzyme_counts
+                .into_iter()
+                .map(|(name, count)| serde_json::json!({"name": name, "siteCount": count}))
+                .collect()
+        } else {
+            Vec::new()
+        };
         enzymes.sort_by(|a, b| {
             a["name"]
                 .as_str()
@@ -292,7 +298,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
-            compact_enzymes: false,
+            compact_enzymes: !include_enzymes,
             include_auto_annotation: include_text,
             include_alignment_view: false,
             ..DigestOptions::default()
@@ -325,8 +331,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
         v["features"] = serde_json::json!(features);
         v["primerCount"] = serde_json::json!(primers.len());
         v["primers"] = serde_json::json!(primers);
-        v["enzymeCount"] = serde_json::json!(enzymes.len());
-        v["enzymes"] = serde_json::json!(enzymes);
+        v["enzymeCount"] = serde_json::json!(enzyme_count);
+        if include_enzymes {
+            v["enzymes"] = serde_json::json!(enzymes);
+        }
         v["alignmentCount"] = serde_json::json!(alignments.len());
         v["alignments"] = serde_json::json!(alignments);
         if project.is_dna() {
@@ -353,11 +361,13 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let region = (from1(start), from1(end));
         let show_alignment_columns = request.show_alignment_columns.unwrap_or(false);
         let include_text = request.include_text.unwrap_or(false) || show_alignment_columns;
+        let include_enzymes = request.include_enzymes.unwrap_or(false);
+        let compact = request.compact.unwrap_or(true);
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter.clone(),
             enzyme_filter: request.enzymes.clone(),
-            compact_enzymes: request.compact.unwrap_or(true),
+            compact_enzymes: compact,
             include_auto_annotation: false,
             include_alignment_view: show_alignment_columns,
         };
@@ -412,7 +422,24 @@ impl<R: Runtime> LibreGeneMcp<R> {
         v["primerCount"] = serde_json::json!(primers.len());
         v["primers"] = serde_json::json!(primers);
         v["restrictionSiteCount"] = serde_json::json!(restriction_sites.len());
-        v["restrictionSites"] = serde_json::json!(restriction_sites);
+        if include_enzymes {
+            if compact {
+                let summaries: Vec<serde_json::Value> = restriction_sites
+                    .iter()
+                    .map(|site| {
+                        serde_json::json!({
+                            "enzymes": site["enzymes"],
+                            "enzymeCount": site["enzymeCount"],
+                            "recStart": site["recStart"],
+                            "recEnd": site["recEnd"],
+                        })
+                    })
+                    .collect();
+                v["restrictionSites"] = serde_json::json!(summaries);
+            } else {
+                v["restrictionSites"] = serde_json::json!(restriction_sites);
+            }
+        }
         v["alignmentCount"] = serde_json::json!(alignments.len());
         v["alignments"] = serde_json::json!(alignments);
         insert_seq_hashes(&mut v, &hashes);

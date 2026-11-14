@@ -255,6 +255,7 @@ async fn region_view_groups_isoschizomers_and_filters_enzymes() {
             start: 35,
             end: 55,
             compact: Some(false),
+            include_enzymes: Some(true),
             include_text: Some(true),
             ..Default::default()
         }))
@@ -294,6 +295,7 @@ async fn region_view_groups_isoschizomers_and_filters_enzymes() {
             start: 35,
             end: 55,
             compact: Some(false),
+            include_enzymes: Some(true),
             include_text: Some(true),
             enzymes: Some(vec!["xhoi".to_string()]),
             ..Default::default()
