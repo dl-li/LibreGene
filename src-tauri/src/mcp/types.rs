@@ -161,8 +161,9 @@ pub(crate) struct EditSequenceRequest {
 pub(crate) struct ConvertItem {
     /// Project mode (dna→dna codon optimization only): the open DNA project.
     pub(crate) project_id: Option<String>,
-    /// Feature id to optimize (project mode: required) or to lift from
-    /// `inputPath` (optional; otherwise the whole file sequence is used).
+    /// CDS/mRNA feature id. Required for project-mode dna→dna optimization.
+    /// With a DNA `inputPath`, selects a feature for dna→dna in-place codon
+    /// optimization or dna→protein translation; otherwise the whole file is used.
     pub(crate) feature_id: Option<String>,
     /// Standalone mode: raw sequence text (whitespace/digits ignored). Short
     /// hand-authored sequences only; otherwise use `inputPath` or a workspace

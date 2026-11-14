@@ -853,9 +853,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     }
 
     /// Convert sequences between molecule types, with codon optimization.
-    /// BATCH: `items` holds 1-64 independent conversions (a failing item is
-    /// reported in its slot and does not abort the others); a single conversion may
-    /// pass the item fields at the top level instead.
+    /// BATCH: `items` holds 1-64 independent conversions; failures stay in their
+    /// slots. A single conversion may use top-level item fields.
     ///
     /// Matrix (`from`/`to` = "dna" | "rna" | "protein"):
     /// - dna<->rna: T<->U conversion (optional `revComp`).
@@ -869,8 +868,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// - dna -> dna: codon optimization when `species`/optimizer parameters are
     /// given, else passthrough; `revComp` reverse-complements.
     /// - protein -> protein and `revComp` with a protein side: rejected.
-    /// Defaults: `from` = dna (project mode), the file's type (`inputPath`), or dna
-    /// (`sequence`); `to` = dna for a protein input, else `from`.
+    /// Defaults: `from` = file molecule type (`inputPath`) or dna; `to` = dna for
+    /// protein input, else `from`.
     ///
     /// Exactly one input per item:
     /// - `projectId` + `featureId` (DNA projects, dna->dna optimization ONLY):
@@ -880,7 +879,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// .fasta/.fa/.ab1 nucleotide, .gpt/.prot/.faa protein. A `.prot` that is not
     /// a binary SnapGene document and a `.fa/.fasta` with an explicit
     /// `from: "protein"` are read as plain-text protein (raw sequence or FASTA);
-    /// with `featureId` + `species`, a DNA file's CDS is optimized in place.
+    /// `featureId` selects a DNA file's CDS/mRNA for dna→dna in-place optimization
+    /// (`species` required) or dna→protein translation; other conversion directions
+    /// use the whole file and reject `featureId`.
     /// - `hash`: a workspace entry hash ("fwd7" or "fwd7/rev7" — swapped order =
     ///   reverse complement); `from` defaults to the entry's molecule type.
     /// - `sequence`: short hand-authored text only.

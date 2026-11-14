@@ -728,3 +728,88 @@ async fn convert_sequence_project_mode_rejects_output_path_and_rna() {
         .unwrap();
     assert!(item_failure(&out.0).contains("rna"), "{}", out.0);
 }
+
+#[tokio::test]
+async fn convert_sequence_file_feature_translates_cds_on_either_strand() {
+    let dir = std::env::temp_dir().join(format!(
+        "libregene-mcp-feature-translate-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("src.gbk");
+    let output = dir.join("car.gpt");
+    let feature = |id: &str, name: &str, start: i64, end: i64, strand: &str| Feature {
+        id: id.to_string(),
+        name: name.to_string(),
+        start,
+        end,
+        color: "#60A5FA".to_string(),
+        ftype: "CDS".to_string(),
+        segments: Vec::new(),
+        strand: strand.to_string(),
+        notes: String::new(),
+        translation: String::new(),
+        qualifiers: Vec::new(),
+    };
+    let project = ProjectData {
+        name: "feature_translation".to_string(),
+        sequence: "GATGGTGAGCTAATTAGCTCACCATG".to_string(),
+        length: 26,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        features: vec![
+            feature("car_plus", "CAR", 1, 12, "+"),
+            feature("car_minus", "CAR_reverse", 13, 24, "-"),
+        ],
+        ..Default::default()
+    };
+    libregene_core::file_io::gbk::write_gbk(&project, &src).unwrap();
+
+    let server = test_handler();
+    let req = convert_req(vec![
+        ConvertItem {
+            input_path: Some(src.to_string_lossy().into_owned()),
+            feature_id: Some("car_plus".to_string()),
+            to: Some("protein".to_string()),
+            output_path: Some(output.to_string_lossy().into_owned()),
+            ..Default::default()
+        },
+        ConvertItem {
+            input_path: Some(src.to_string_lossy().into_owned()),
+            feature_id: Some("car_minus".to_string()),
+            to: Some("protein".to_string()),
+            ..Default::default()
+        },
+    ]);
+    let out = server.convert_sequence(Parameters(req)).await.unwrap().0;
+    assert_eq!(out["ok"], true, "{out}");
+    for result in out["results"].as_array().unwrap() {
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(result["from"], "dna");
+        assert_eq!(result["to"], "protein");
+        assert_eq!(result["sequence"], "MVS*");
+    }
+    assert_eq!(out["results"][0]["featureId"], "car_plus");
+    assert_eq!(out["results"][1]["featureId"], "car_minus");
+    let written = libregene_core::file_io::parse_file(&output).unwrap();
+    assert_eq!(written.sequence, "mvs*");
+    assert_eq!(written.features[0].name, "CAR");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn convert_sequence_file_feature_rejects_unsupported_directions() {
+    let (dir, src) = write_temp_gbk("feature-direction", "src.gbk");
+    let server = test_handler();
+    let req = convert_req(vec![ConvertItem {
+        input_path: Some(src.to_string_lossy().into_owned()),
+        feature_id: Some("f1".to_string()),
+        to: Some("rna".to_string()),
+        ..Default::default()
+    }]);
+    let out = server.convert_sequence(Parameters(req)).await.unwrap();
+    let message = item_failure(&out.0);
+    assert!(message.contains("dna→dna"), "{message}");
+    assert!(message.contains("dna→protein"), "{message}");
+    std::fs::remove_dir_all(dir).ok();
+}

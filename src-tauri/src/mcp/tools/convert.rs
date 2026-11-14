@@ -679,14 +679,33 @@ impl<R: Runtime> LibreGeneMcp<R> {
             }
             return Ok(v);
         }
-        if feature_id.is_some() {
-            return Err(
-                "featureId is only meaningful for dna→dna codon optimization (pass `species` to optimize, or drop `featureId` to convert the whole file sequence)"
-                    .to_string(),
-            );
-        }
-
-        let raw = project.sequence.to_ascii_uppercase();
+        let (raw, selected_feature_name) = if let Some(fid) = feature_id.as_deref() {
+            if from != "dna" || to != "protein" {
+                return Err(
+                    "featureId supports dna→dna CDS/mRNA codon optimization and dna→protein CDS/mRNA translation; drop `featureId` to convert the whole file sequence"
+                        .to_string(),
+                );
+            }
+            let feature = project
+                .features
+                .iter()
+                .find(|f| f.id == fid)
+                .ok_or_else(|| format!("Feature not found: {}", fid))?;
+            if feature.ftype != "CDS" && feature.ftype != "mRNA" {
+                return Err(format!(
+                    "feature '{}' is {} (only CDS/mRNA can be translated)",
+                    fid, feature.ftype
+                ));
+            }
+            let coding = libregene_core::codon::extract_codons(
+                &project.sequence,
+                feature,
+                &project.topology,
+            )?;
+            (coding.codons.concat(), Some(feature.name.clone()))
+        } else {
+            (project.sequence.to_ascii_uppercase(), None)
+        };
         let optimize = from == "dna" && to == "dna" && wants_optimization(item);
         let cleaned = match from.as_str() {
             "dna" if optimize => {
@@ -707,6 +726,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .map_err(|e| format!("task join error: {}", e))??;
 
         let mut v = standalone_result_json(&conv, &from, &to);
+        if let Some(fid) = feature_id.as_deref() {
+            v["featureId"] = serde_json::json!(fid);
+        }
         // Hashes describe the OUTPUT sequence.
         insert_seq_hashes(
             &mut v,
@@ -715,9 +737,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
         if let Some(op) = &item.output_path {
             // Label the minimal project's CDS after the source file (e.g.
             // CAR.gpt → a "CAR" CDS), saving a rename step downstream.
-            let cds_name = std::path::Path::new(&path)
-                .file_stem()
-                .map(|s| s.to_string_lossy().replace(' ', "_"));
+            let cds_name = selected_feature_name.or_else(|| {
+                std::path::Path::new(&path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().replace(' ', "_"))
+            });
             let written = write_convert_output(op, &conv.sequence, &to, None, cds_name.as_deref())?;
             v["path"] = serde_json::json!(written);
         }
