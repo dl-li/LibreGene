@@ -99,7 +99,19 @@ async fn read_tools_share_the_success_envelope() {
         .0;
     assert_envelope(&overview, Some("enz"));
     assert_eq!(overview["unit"], "bp", "{overview}");
-    assert!(overview["text"].is_string(), "{overview}");
+    assert!(overview.get("text").is_none(), "{overview}");
+    assert_eq!(overview["project"]["length"], 200, "{overview}");
+    assert!(overview["features"].is_array(), "{overview}");
+    assert!(overview["primers"].is_array(), "{overview}");
+    assert!(overview["alignments"].is_array(), "{overview}");
+    assert!(
+        overview["enzymes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "EcoRI"),
+        "{overview}"
+    );
     assert!(overview.get("regionView").is_none(), "{overview}");
 
     let region = server
@@ -116,6 +128,24 @@ async fn read_tools_share_the_success_envelope() {
     assert_eq!(
         region["region"],
         serde_json::json!({"start": 1, "end": 60}),
+        "{region}"
+    );
+    assert!(region.get("text").is_none(), "{region}");
+    assert!(region["features"].is_array(), "{region}");
+    assert!(region["restrictionSites"].is_array(), "{region}");
+    assert!(region["alignments"].is_array(), "{region}");
+    assert!(
+        region["restrictionSites"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|site| {
+                site["enzymes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|name| name == "EcoRI")
+            }),
         "{region}"
     );
 
@@ -193,21 +223,33 @@ async fn mutation_and_edit_tools_share_the_envelope() {
     let server = handler_with_project(edit_test_project()).await;
 
     let feature = server
-        .set_feature(Parameters(SetFeatureRequest {
+        .update_features(Parameters(UpdateFeaturesRequest {
             project_id: "edit_test".to_string(),
-            name: Some("tag".to_string()),
-            ftype: Some("CDS".to_string()),
-            start: Some(10),
-            end: Some(30),
-            ..Default::default()
+            operations: vec![FeatureOperation {
+                action: FeatureAction::Create,
+                feature_id: None,
+                name: Some("tag".to_string()),
+                ftype: Some("CDS".to_string()),
+                start: Some(10),
+                end: Some(30),
+                segments: None,
+                strand: None,
+                color: None,
+                notes: None,
+            }],
+            include_text: None,
         }))
         .await
         .unwrap()
         .0;
     assert_envelope(&feature, Some("edit_test"));
     assert_eq!(feature["unit"], "bp", "{feature}");
-    assert!(feature["featureId"].is_string(), "{feature}");
-    assert!(feature["text"].is_string(), "{feature}");
+    assert!(feature["results"][0]["featureId"].is_string(), "{feature}");
+    assert!(
+        feature["results"][0]["feature"]["start"].is_i64(),
+        "{feature}"
+    );
+    assert!(feature.get("text").is_none(), "{feature}");
 
     let edited = server
         .edit_sequence(Parameters(EditSequenceRequest {
@@ -503,13 +545,17 @@ async fn reverse_translation_without_a_stop_codon_is_noted() {
 #[test]
 fn tool_descriptions_are_concise_and_state_their_response() {
     let tools = LibreGeneMcp::<tauri::test::MockRuntime>::tool_router().list_all();
-    assert_eq!(tools.len(), 16, "unexpected tool count");
+    assert_eq!(tools.len(), 17, "unexpected tool count");
     for t in tools {
         assert_ne!(
             t.name, "list_species",
             "species keys live in the convert_sequence description"
         );
         assert_ne!(t.name, "close_project", "close_project was removed");
+        assert_ne!(
+            t.name, "set_feature",
+            "feature edits are unified in update_features"
+        );
         assert_ne!(t.name, "list_projects", "renamed to list_workspace");
         assert_ne!(
             t.name, "search_sequence",
@@ -570,8 +616,7 @@ async fn convert_sequence_description_lists_the_builtin_species() {
 }
 
 #[tokio::test]
-async fn find_orfs_report_and_mutation_modes_share_one_shape() {
-    // Plus-strand ORF: ATG + 10 codons + stop (1-based 3..37).
+async fn find_orfs_is_read_only_and_returns_structured_features() {
     let seq = format!("GGATG{}TAAGG", "GCT".repeat(10));
     let project = ProjectData {
         name: "orf_test".to_string(),
@@ -582,13 +627,10 @@ async fn find_orfs_report_and_mutation_modes_share_one_shape() {
         ..Default::default()
     };
     let server = handler_with_project(project).await;
-
-    // Report mode: nothing is written.
     let v = server
         .find_orfs(Parameters(FindOrfsRequest {
             project_id: "orf_test".to_string(),
             min_aa: Some(5),
-            add_as_features: None,
         }))
         .await
         .unwrap()
@@ -603,51 +645,17 @@ async fn find_orfs_report_and_mutation_modes_share_one_shape() {
         "{v}"
     );
     assert!(v["orfs"][0]["start"].as_i64().unwrap() >= 1, "1-based: {v}");
-    assert!(
-        v.get("text").is_none(),
-        "report mode carries no digest: {v}"
-    );
-    assert!(
-        v.get("featureCount").is_none(),
-        "old field name must not reappear: {v}"
-    );
-    {
-        let pm = server.pm.read().await;
-        assert!(pm
-            .get_project_by_id("orf_test")
-            .unwrap()
-            .features
-            .is_empty());
-    }
-
-    // Mutation mode: same keys plus the digest.
-    let v = server
-        .find_orfs(Parameters(FindOrfsRequest {
-            project_id: "orf_test".to_string(),
-            min_aa: Some(5),
-            add_as_features: Some(true),
-        }))
-        .await
-        .unwrap()
-        .0;
-    assert_envelope(&v, Some("orf_test"));
-    assert_eq!(v["unit"], "bp", "{v}");
-    assert_eq!(v["minAa"], 5, "{v}");
-    let n = v["orfCount"].as_u64().unwrap();
-    assert_eq!(n, v["orfs"].as_array().unwrap().len() as u64, "{v}");
-    assert!(
-        v["text"].is_string(),
-        "mutation mode carries the digest: {v}"
-    );
+    assert!(v.get("text").is_none(), "{v}");
     assert!(
         v.get("featureCount").is_none(),
         "old field name must not reappear: {v}"
     );
     let pm = server.pm.read().await;
-    assert_eq!(
-        pm.get_project_by_id("orf_test").unwrap().features.len(),
-        n as usize
-    );
+    assert!(pm
+        .get_project_by_id("orf_test")
+        .unwrap()
+        .features
+        .is_empty());
 }
 
 #[tokio::test]
@@ -711,6 +719,7 @@ async fn region_view_alignment_columns_are_opt_in() {
             project_id: "aln_test".to_string(),
             start: 1,
             end: 40,
+            include_text: Some(true),
             ..Default::default()
         }))
         .await

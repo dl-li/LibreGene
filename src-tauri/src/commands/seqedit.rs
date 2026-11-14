@@ -27,7 +27,7 @@ pub(crate) async fn update_sequence(
         // Feature coordinates arrive from the frontend (paste-merge, adjust)
         // and serde only checks types — clamp to the NEW sequence length so a
         // forged clipboard payload can't seed out-of-range spans that later
-        // panic coordinate consumers. Mirrors MCP set_feature's bounds gate.
+        // panic coordinate consumers. Mirrors MCP update_features' bounds gate.
         let new_len = sequence.len() as i64;
         let mut features = features;
         features.retain(|f| {

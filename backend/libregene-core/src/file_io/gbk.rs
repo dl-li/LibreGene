@@ -321,6 +321,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             "ApEinfo_fwdcolor",
             "ApEinfo_revcolor",
             "libregene_color",
+            "libregene_feature_id",
             "direction",
             "libregene_primer_id",
             "libregene_primer_seq",
@@ -338,8 +339,14 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             .map(|(k, v)| (k.to_string(), v.as_deref().unwrap_or("").to_string()))
             .collect();
 
+        let feature_id = f
+            .qualifier_values("libregene_feature_id")
+            .next()
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{}_{}", label, start));
         features.push(Feature {
-            id: format!("{}_{}", label, start),
+            id: feature_id,
             name: label,
             start,
             end,
@@ -494,6 +501,7 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
         }
 
         qualifiers.push((Cow::Borrowed("label"), Some(f.name.clone())));
+        qualifiers.push((Cow::Borrowed("libregene_feature_id"), Some(f.id.clone())));
 
         // Descriptive notes
         if !f.notes.is_empty() {
@@ -1380,6 +1388,43 @@ mod tests {
             molecule_type: "dna".to_string(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn feature_id_survives_name_location_and_save_roundtrip() {
+        let mut project = tiny_project("linear");
+        project.features = vec![Feature {
+            id: "feature_persistent_42".to_string(),
+            name: "renamed".to_string(),
+            start: 2,
+            end: 8,
+            color: "#60A5FA".to_string(),
+            ftype: "CDS".to_string(),
+            segments: Vec::new(),
+            strand: "+".to_string(),
+            notes: String::new(),
+            translation: String::new(),
+            qualifiers: Vec::new(),
+        }];
+        let path = std::env::temp_dir().join(format!(
+            "libregene_feature_id_roundtrip_{}.gbk",
+            std::process::id()
+        ));
+        write_gbk(&project, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parsed = parse_gbk(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            text.contains("/libregene_feature_id=\"feature_persistent_42\""),
+            "{text}"
+        );
+        assert_eq!(parsed.features[0].id, "feature_persistent_42");
+        assert_eq!(parsed.features[0].name, "renamed");
+        assert_eq!((parsed.features[0].start, parsed.features[0].end), (2, 8));
+        assert!(!parsed.features[0]
+            .qualifiers
+            .iter()
+            .any(|(k, _)| k == "libregene_feature_id"));
     }
 
     #[test]

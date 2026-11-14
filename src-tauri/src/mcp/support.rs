@@ -9,9 +9,10 @@
 //!   in convert_sequence).
 //! - `unit` — "bp" | "nt" | "aa": the molecule's length unit, present on every
 //!   response that reports lengths of a project molecule.
-//! - `text` — human-readable rendering: a compact multi-section digest for
-//!   overview/region/mutation responses, a coordinate-ruled window for
-//!   read_sequence. `textBefore` is the pre-edit digest.
+//! - Structured arrays/objects are the primary result. `text` is an optional
+//!   human-readable supplement (`includeText` on overview/region/update_features),
+//!   or a coordinate-ruled window for read_sequence. `textBefore` is the pre-edit
+//!   digest.
 //! - `warnings` — strings flagging something possibly wrong; `notes` —
 //!   informational strings. Both are arrays, present only when non-empty.
 //!
@@ -24,7 +25,7 @@
 //! - Fractions (identity, CAI) are 0–1; percentages (`gcPercent`) are 0–100
 //!   with one decimal; `tm` is °C rounded to 0.1.
 
-use libregene_core::models::{Feature, PrimerBindingSite};
+use libregene_core::models::{Feature, Primer, PrimerBindingSite, ProjectData};
 
 // ---------------------------------------------------------------------------
 // Coordinate conversion: the MCP interface is 1-based inclusive, the internal
@@ -196,4 +197,50 @@ pub(crate) fn primer_site_json(
     });
     site_json_to_1based(&mut v, tlen, topology == "circular");
     v
+}
+
+pub(crate) fn primer_json_1based(
+    project: &ProjectData,
+    primer: &Primer,
+    region: Option<(i64, i64)>,
+) -> serde_json::Value {
+    let circular = project.topology == "circular";
+    let sites: Vec<serde_json::Value> = primer
+        .binding_sites
+        .iter()
+        .filter(|site| {
+            region.is_none_or(|(rs, re)| {
+                let ss = site.template_start;
+                if circular && site.template_end == 0 {
+                    libregene_core::digest::seg_in_range(ss, project.length - 1, rs, re, true)
+                } else {
+                    let se = site.template_end - 1;
+                    if circular && se < ss {
+                        libregene_core::digest::seg_in_range(ss, project.length - 1, rs, re, true)
+                            || libregene_core::digest::seg_in_range(0, se, rs, re, true)
+                    } else {
+                        libregene_core::digest::seg_in_range(ss, se, rs, re, circular)
+                    }
+                }
+            })
+        })
+        .map(|site| {
+            primer_site_json(
+                &project.sequence,
+                &project.topology,
+                &primer.primer_seq,
+                site,
+                project.length,
+            )
+        })
+        .collect();
+    serde_json::json!({
+        "id": primer.id,
+        "name": primer.name,
+        "type": primer.r#type,
+        "sequence": primer.primer_seq,
+        "length": primer.primer_seq.len(),
+        "bindingSiteCount": sites.len(),
+        "sites": sites,
+    })
 }

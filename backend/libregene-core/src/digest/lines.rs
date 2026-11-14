@@ -27,7 +27,7 @@ pub(crate) fn molecule_label(molecule_type: &str) -> &'static str {
     }
 }
 
-pub(crate) fn feature_matches_filter(feat: &Feature, filter: Option<&str>) -> bool {
+pub fn feature_matches_filter(feat: &Feature, filter: Option<&str>) -> bool {
     match filter {
         None => true,
         Some(f) => {
@@ -105,12 +105,7 @@ pub(crate) fn primer_site_line(
     )
 }
 
-pub(crate) fn alignment_in_region(
-    a: &crate::models::Alignment,
-    s: i64,
-    e: i64,
-    circular: bool,
-) -> bool {
+pub fn alignment_in_region(a: &crate::models::Alignment, s: i64, e: i64, circular: bool) -> bool {
     a.segments
         .iter()
         .any(|seg| seg_in_range(seg.start as i64, seg.end as i64, s, e, circular))

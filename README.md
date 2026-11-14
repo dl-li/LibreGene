@@ -84,11 +84,11 @@ A lightweight cross-platform desktop plasmid editor. Feature annotation, primer 
 
 LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only at `127.0.0.1:8766`, Bearer-token auth) so an LLM agent in your terminal can operate the open plasmid like a real user — while the UI updates live. Launch LibreGene, open the _MCP Server_ dialog in the sidebar (or the "Connect an LLM agent via MCP" link on the empty screen), and copy the auto-generated setup prompt — with the URL and access token embedded — to your agent; it configures the connection itself.
 
-16 tools are exposed, covering the full editing workflow:
+17 tools are exposed, covering the full editing workflow:
 
 - **Projects & files** — `open_project`, `save_file` (with subsequence/region export), `list_workspace`, `add_to_workspace`
-- **Reading** — `read_sequence`, `get_project_overview`, `get_region_view`
-- **Editing** — `edit_sequence` (insert/delete/replace), `set_feature` (create & update)
+- **Reading & rendering** — `read_sequence`, `get_project_overview`, `get_region_view`, `render_map` (standalone SVG)
+- **Editing** — `edit_sequence` (insert/delete/replace), `update_features` (atomic batch create/update/delete)
 - **Primers** — `add_primer`, `test_primers` (ad-hoc binding checks with Tm and amplicon size), `design_primers` (amplify / OE-PCR / mutagenesis)
 - **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
 

@@ -6,6 +6,7 @@ pub mod coords;
 pub mod digest;
 pub mod enzyme;
 pub mod file_io;
+pub mod map;
 pub mod models;
 pub mod orf;
 pub mod primer;

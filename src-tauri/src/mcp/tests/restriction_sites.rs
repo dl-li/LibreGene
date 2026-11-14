@@ -234,3 +234,108 @@ async fn find_restriction_sites_circular_palindrome_inside_no_false_note() {
     assert_eq!((rec_start, rec_end), (56, 1), "{v}");
     assert_eq!(site["hasCutsOutsideRecognitionSite"], false, "{v}");
 }
+
+#[tokio::test]
+async fn region_view_groups_isoschizomers_and_filters_enzymes() {
+    let mut seq = "ACGT".repeat(50);
+    seq.replace_range(40..46, "CTCGAG");
+    let mut project = ProjectData {
+        name: "iso".to_string(),
+        sequence: seq,
+        length: 200,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        ..Default::default()
+    };
+    libregene_core::enzyme::recompute(&mut project);
+    let server = handler_with_project(project).await;
+    let out = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "iso".to_string(),
+            start: 35,
+            end: 55,
+            compact: Some(false),
+            include_text: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    let group = out["restrictionSites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|site| {
+            site["enzymes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|name| name == "XhoI")
+        })
+        .expect("XhoI restriction-site group");
+    assert_eq!(group["recStart"], 41, "{group}");
+    assert_eq!(group["recEnd"], 46, "{group}");
+    assert!(group["enzymeCount"].as_u64().unwrap() > 1, "{group}");
+    assert_eq!(
+        group["enzymeCount"],
+        group["enzymes"].as_array().unwrap().len() as u64,
+        "{group}"
+    );
+    let text = out["text"].as_str().unwrap();
+    let xhoi_lines: Vec<&str> = text.lines().filter(|line| line.contains("XhoI")).collect();
+    assert_eq!(xhoi_lines.len(), 1, "{text}");
+    for name in group["enzymes"].as_array().unwrap() {
+        assert!(xhoi_lines[0].contains(name.as_str().unwrap()), "{text}");
+    }
+
+    let filtered = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "iso".to_string(),
+            start: 35,
+            end: 55,
+            compact: Some(false),
+            include_text: Some(true),
+            enzymes: Some(vec!["xhoi".to_string()]),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(filtered["restrictionSiteCount"], 1, "{filtered}");
+    assert_eq!(
+        filtered["restrictionSites"][0]["enzymes"],
+        serde_json::json!(["XhoI"])
+    );
+    let text = filtered["text"].as_str().unwrap();
+    assert!(text.contains("XhoI"), "{text}");
+    assert!(!text.contains("SmlI"), "{text}");
+}
+
+#[tokio::test]
+async fn region_view_validates_empty_circular_project_before_enzyme_serialization() {
+    let project = ProjectData {
+        name: "empty".to_string(),
+        sequence: String::new(),
+        length: 0,
+        topology: "circular".to_string(),
+        molecule_type: "dna".to_string(),
+        ..Default::default()
+    };
+    let server = handler_with_project(project).await;
+    let err = match server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "empty".to_string(),
+            start: 1,
+            end: 1,
+            ..Default::default()
+        }))
+        .await
+    {
+        Err(err) => err,
+        Ok(v) => panic!(
+            "empty project must be rejected rather than panicking: {}",
+            v.0
+        ),
+    };
+    assert!(err.message.contains("Sequence is empty"), "{err}");
+}

@@ -85,6 +85,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - **Document / Derived 分层**：`ProjectDocument` 只保存用户拥有的文档内容（剥离酶切结果、引物结合位点和特征翻译），用于 Session Edit Log、undo/redo 与 rollback；`ProjectData.derived` 保存派生酶切缓存及 `templateRevision`，模板变更时失效，重计算 CAS 成功后刷新，IPC 仍保持原 `enzymes` 字段形状。
 - **甲基化设置是用户级运行设置**：`ProjectData` 中的 `methylation_*` 仅作当前酶切计算输入，不写 GenBank、不标 dirty、不进 Session Edit Log；保存时剥离旧 `methylation:` KEYWORDS，Agent 锁定项目也允许同步。
 - **跨原点特征**：segments 按 join 顺序存储，后段 `start` < 前段 `start` 即跨原点；`selStart > selEnd` 表示跨原点选区（渲染/复制支持，replace/delete/paste 不支持）。
+- **特征 ID 持久化**：GenBank/GenPept（`.gbk/.gpt`）写出时为每个特征保存 `/libregene_feature_id`，解析优先恢复原 ID（不随名称或坐标改变）；无该限定词的外来文件仍以名称+起点生成初始 ID。
 - **比对模型不变量**：段/插入按 read 自身 5'→3' 顺序走一遍必须精确重建 `Alignment.seq`（后端 `left_align_indels`/`anchor_loose_ends` 守护，`tests/align_model_test.rs`）；同一模板列最多一个插入条目；序列编辑后所有比对自动重算（`align::realign_project`），**重算必须由 strand 反推原始取向的 read**（存盘的 `Alignment.seq` 已是显示取向，直接回喂会翻转 strand、导致色谱镜像）；编辑瞬间前端先用 `src/alignmentEdit.js::adjustAlignmentsForEdit` 本地搬移模型防画面闪烁。
 - **BlastN full-length 快速路径必须返回最优解**：trace 打包「胜出状态+延伸位」、回溯按状态机走；旋转候选覆盖整条模板取样（`tests/full_length_path_test.rs` 守护）。
 - ab1 trace 不进 `ProjectData` 序列化，只记 `tracePath`（`.gbk` 中相对 .gbk 目录存储），前端经 `get_chromatogram` 懒加载；反向链 read 的峰图由 `orientChromatogram` 做 rev-comp 后显示。
@@ -96,7 +97,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - 进程内 Streamable HTTP，绑定 `127.0.0.1:8766`（仅回环）；`Host` 必须严格等于 `127.0.0.1:<port>`，`requireAuth`（默认开）时需 `Authorization: Bearer <token>`（存 `<app_config_dir>/mcp_auth_token`）。与前端共享 `AppState`，所有 mutation 走 `crate::do_*` 内核（同 recompute/dirty/broadcast 路径）。
 - **Agent 标签强制隔离**：`open_project` = 加载 + 绑定主窗口 Agent 标签（默认 locked）；已加载未绑定（用户项目）则拒绝，指引 Agent `cp` 副本再打开；mutation 工具对未绑定项目报错，任何调用自动重锁；解锁走前端 `set_agent_tab_locked`。
 - **Workspace（序列暂存区）**：纯内存、用户不可见（`AppState.workspace`，锁顺序同 `agent_tabs`）；`add_to_workspace` 的片段带 `source_project`，**随来源项目关闭（`do_delete_project`）而移除，主窗口 CloseRequested 视为所有文件关闭=全清**；打开的项目是隐式成员（现场算 hash 动态合并）；需要序列输入的工具接受 workspace hash `"fwd7"` 或 `"fwd7/rev7"`（fwd↔rev 对调 = 反向互补，注释随之翻转）；同一 hash 匹配多个项目/片段时直接拒绝，不得任意选择来源。
-- **约定**（改工具时保持）：参数与响应字段一律 camelCase；坐标 1-based inclusive；统一响应信封 `{ok, message, ...}`，`ok: false` 是业务拒绝（寻址/门控/内部错误才走 MCP 协议错误）；工具描述统一引导 Agent 用文件传序列；`text` 是唯一的人类可读渲染字段。**工具参数与行为细节以 `mcp/mod.rs` 工具描述为准**，不在本文件重复。mutation 工具成功后在 broadcast 之后额外 emit `agent-mutation-focus`（`{projectId, start, end, kind}`，0-based inclusive，kind = sequence/feature/primer，`payload.rs::emit_mutation_focus`），agentLocked 的窗口据此自动滚动并选中变更区域（门控在前端 `ProjectWorkspace`）。
+- **约定**（改工具时保持）：参数与响应字段一律 camelCase；坐标 1-based inclusive；统一响应信封 `{ok, message, ...}`，`ok: false` 是业务拒绝（寻址/门控/内部错误才走 MCP 协议错误）；工具描述统一引导 Agent 用文件传序列；结构化数组/对象是主要结果，`text` 仅作可选的人类可读补充（overview/region/update_features 由 `includeText` 开启）。`update_features` 是唯一的特征注释编辑工具，单批 1–256 个 create/update/delete 操作全成功才一次提交，失败项由 `failedOperation` 定位；`find_orfs` 只读，新增 ORF 注释也走该工具。输出仅支持开放明文格式，SnapGene `.dna/.rna/.prot` 只读。**工具参数与行为细节以 `mcp/mod.rs` 工具描述为准**，不在本文件重复。mutation 工具成功后在 broadcast 之后额外 emit `agent-mutation-focus`（`{projectId, start, end, kind}`，0-based inclusive，kind = sequence/feature/primer，`payload.rs::emit_mutation_focus`），agentLocked 的窗口据此自动滚动并选中变更区域（门控在前端 `ProjectWorkspace`）。
 - **测试**：`src-tauri` 内 `cargo test --lib` 覆盖 MCP 启停/鉴权/Agent 标签门控/各工具正反例。
 
 ### 功能 MCP 适配清单
@@ -110,7 +111,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - 蛋白理化性质轨道（`src/plugins/builtin/proteinProperties/`，疏水/电荷/极性/体积/二级结构倾向 5 条）：纯渲染
 - My Primers / My Enzymes 库：存 localStorage，后端不可见
 - 酶 Provider 数据与筛选（`enzyme_providers.json`、`get_enzyme_providers`）：仅展示用，不进 recompute
-- 质粒图视图 / 编辑器背景水印、选区 badge 分子量：纯渲染
+- 编辑器背景水印、选区 badge 分子量：纯渲染（质粒图已由 `render_map` 输出独立 SVG；`backend/libregene-core/src/map.rs` 与前端 `MapView.jsx` 的布局几何需同步修改）
 - 前端搜索 UI（名称匹配）：MCP 无搜索工具（序列/IUPAC 检索由 Agent 在导出文件上用脚本完成）
 - Agent 标签解锁按钮/导航控制条：纯前端，锁定状态后端持有
 - Tm 参数与引物分析设置：`design_primers` 已暴露浓度参数，其余为渲染层状态

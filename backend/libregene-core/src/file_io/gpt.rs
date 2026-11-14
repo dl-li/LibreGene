@@ -222,15 +222,22 @@ fn build_feature(kind: &str, location: &str, qualifiers: &[(String, String)]) ->
         .join("; ");
 
     let skip_keys: std::collections::HashSet<&str> =
-        ["label", "note", "translation"].into_iter().collect();
+        ["label", "note", "translation", "libregene_feature_id"]
+            .into_iter()
+            .collect();
     let quals: Vec<(String, String)> = qualifiers
         .iter()
         .filter(|(k, _)| !skip_keys.contains(k.as_str()))
         .cloned()
         .collect();
 
+    let feature_id = qualifiers
+        .iter()
+        .find(|(k, v)| k == "libregene_feature_id" && !v.is_empty())
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| format!("{}_{}", label, start));
     Some(Feature {
-        id: format!("{}_{}", label, start),
+        id: feature_id,
         name: label,
         start,
         end,
@@ -337,6 +344,10 @@ fn serialize_feature_gpt(f: &Feature, out: &mut String) {
     out.push_str(&format!("     {:11} {}\n", kind, loc));
 
     out.push_str(&format!("                     /label={}\n", f.name));
+    out.push_str(&format!(
+        "                     /libregene_feature_id={}\n",
+        f.id
+    ));
     if !f.notes.is_empty() {
         for note_line in f.notes.split("; ") {
             if !note_line.is_empty() {
@@ -474,6 +485,7 @@ mod tests {
             .find(|f| f.name == "mCherry")
             .unwrap();
         assert_eq!(feat.color, "#ff0000");
+        assert_eq!(feat.id, orig_feat.id);
         assert!(
             feat.qualifiers.iter().all(|(k, _)| k != "organism"),
             "no leaked organism after roundtrip"

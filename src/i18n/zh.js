@@ -45,8 +45,6 @@ export const zh = {
   'Open a sequence file to start viewing and editing your plasmid.':
     '打开序列文件，开始查看和编辑质粒。',
   'Connect an LLM agent via MCP': '通过 MCP 连接 LLM Agent',
-  'Agent tab — unlocked': 'Agent 标签页 — 已解锁',
-  Lock: '锁定',
   Language: '语言',
   'Switch language': '切换语言',
   'New MSA from Sequence': '从序列新建 MSA',

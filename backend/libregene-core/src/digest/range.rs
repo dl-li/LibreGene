@@ -29,7 +29,7 @@ pub(crate) fn pos_in_range(p: i64, s: i64, e: i64, circular: bool) -> bool {
     }
 }
 
-pub(crate) fn seg_in_range(seg_s: i64, seg_e: i64, s: i64, e: i64, circular: bool) -> bool {
+pub fn seg_in_range(seg_s: i64, seg_e: i64, s: i64, e: i64, circular: bool) -> bool {
     if s <= e {
         seg_s <= e && seg_e >= s
     } else {
@@ -63,7 +63,7 @@ pub(crate) fn validate_range(
     Ok((start, end))
 }
 
-pub(crate) fn feature_in_region(f: &Feature, s: i64, e: i64, circular: bool) -> bool {
+pub fn feature_in_region(f: &Feature, s: i64, e: i64, circular: bool) -> bool {
     if f.segments.is_empty() {
         seg_in_range(f.start, f.end, s, e, circular)
     } else {
@@ -73,7 +73,7 @@ pub(crate) fn feature_in_region(f: &Feature, s: i64, e: i64, circular: bool) -> 
     }
 }
 
-pub(crate) fn enzyme_in_region(en: &Enzyme, s: i64, e: i64, circular: bool) -> bool {
+pub fn enzyme_in_region(en: &Enzyme, s: i64, e: i64, circular: bool) -> bool {
     let cuts: Vec<i64> = if en.cut_pairs.is_empty() {
         vec![en.cut_index, en.bot_cut_index]
     } else {

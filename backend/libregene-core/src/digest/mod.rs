@@ -23,9 +23,11 @@ pub struct DigestOptions {
     pub max_features: Option<usize>,
     /// Substring match on feature name (case-insensitive) or exact ftype match.
     pub feature_filter: Option<String>,
-    /// Collapse the enzyme cut list into a single count line. The full list
-    /// can reach tens of KB (one line per cutter), which blows up MCP
-    /// mutation responses — mutation tools default this to true.
+    /// Case-insensitive enzyme names to keep; omitted/empty = every enzyme.
+    pub enzyme_filter: Option<Vec<String>>,
+    /// Collapse the enzyme cut list into a single count line. The detailed list
+    /// groups isoschizomers sharing recognition and cut geometry; mutation tools
+    /// default this to true.
     pub compact_enzymes: bool,
     /// Whole-project digests only: append a brief auto-annotation section
     /// (`DETECTED COMMON FEATURES (auto)`) listing non-fragment features the
@@ -51,6 +53,7 @@ mod read;
 #[cfg(test)]
 mod tests;
 
+pub use lines::{alignment_in_region, feature_matches_filter};
 pub use overview::project_digest;
-pub use range::{cut_flanks, cut_notation};
+pub use range::{cut_flanks, cut_notation, enzyme_in_region, feature_in_region, seg_in_range};
 pub use read::{read_sequence, read_sequence_bases};

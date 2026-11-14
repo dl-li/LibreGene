@@ -755,22 +755,6 @@ pub(crate) async fn do_delete_project<R: Runtime>(
     }
 }
 
-/// Add or replace features (by id) and broadcast. The location string has
-/// already been parsed into the Feature by the caller.
-pub(crate) async fn do_add_features<R: Runtime>(
-    app_handle: &AppHandle<R>,
-    pm: &Arc<RwLock<ProjectManager>>,
-    agent_tabs: &AgentTabs,
-    source: Option<&str>,
-    project_id: &str,
-    features: Vec<Feature>,
-) -> Result<serde_json::Value, String> {
-    do_add_features_with_history(
-        app_handle, pm, agent_tabs, source, project_id, features, true,
-    )
-    .await
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_add_features_with_history<R: Runtime>(
     app_handle: &AppHandle<R>,
@@ -879,6 +863,30 @@ where
 
     broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
 
+    Ok(feature_mutation_response(pm, agent_tabs, project_id).await)
+}
+
+pub(crate) async fn do_update_features<R: Runtime, F>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    agent_tabs: &AgentTabs,
+    source: Option<&str>,
+    project_id: &str,
+    apply: F,
+) -> Result<serde_json::Value, String>
+where
+    F: FnOnce(&mut libregene_core::models::ProjectData) -> Result<(), String>,
+{
+    {
+        let mut pm = pm.write().await;
+        match pm.get_project_mut_by_id(project_id) {
+            Some(p) => apply(p)?,
+            None => return Err(format!("Project not found: {}", project_id)),
+        }
+        pm.mark_dirty(project_id);
+    }
+
+    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
     Ok(feature_mutation_response(pm, agent_tabs, project_id).await)
 }
 

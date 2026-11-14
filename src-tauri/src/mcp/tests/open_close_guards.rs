@@ -44,13 +44,21 @@ async fn mutating_tools_require_agent_tab() {
     assert!(err.message.contains("open_project"), "{err}");
     assert!(err.message.contains("cp"), "{err}");
     let err = server
-        .set_feature(Parameters(SetFeatureRequest {
+        .update_features(Parameters(UpdateFeaturesRequest {
             project_id: "edit_test".to_string(),
-            name: Some("x".to_string()),
-            ftype: Some("misc_feature".to_string()),
-            start: Some(1),
-            end: Some(5),
-            ..Default::default()
+            operations: vec![FeatureOperation {
+                action: FeatureAction::Create,
+                feature_id: None,
+                name: Some("x".to_string()),
+                ftype: Some("misc_feature".to_string()),
+                start: Some(1),
+                end: Some(5),
+                segments: None,
+                strand: None,
+                color: None,
+                notes: None,
+            }],
+            include_text: None,
         }))
         .await
         .err()

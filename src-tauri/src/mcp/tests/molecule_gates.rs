@@ -141,6 +141,7 @@ async fn get_project_overview_protein_omits_dna_sections() {
     let out = server
         .get_project_overview(Parameters(OverviewRequest {
             project_id: "prot".to_string(),
+            include_text: Some(true),
             ..Default::default()
         }))
         .await

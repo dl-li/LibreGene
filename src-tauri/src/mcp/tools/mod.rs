@@ -1,6 +1,8 @@
 mod align;
 mod convert;
 mod edit;
+mod feature;
+mod map;
 mod primer;
 mod project;
 mod view;
@@ -13,6 +15,10 @@ pub(crate) use align::*;
 pub(crate) use convert::*;
 #[allow(unused_imports)]
 pub(crate) use edit::*;
+#[allow(unused_imports)]
+pub(crate) use feature::*;
+#[allow(unused_imports)]
+pub(crate) use map::*;
 #[allow(unused_imports)]
 pub(crate) use primer::*;
 #[allow(unused_imports)]

@@ -336,6 +336,12 @@ pub fn project_digest(
                     .derived
                     .enzymes
                     .iter()
+                    .filter(|en| {
+                        opts.enzyme_filter.as_ref().is_none_or(|names| {
+                            names.is_empty()
+                                || names.iter().any(|name| name.eq_ignore_ascii_case(&en.name))
+                        })
+                    })
                     .filter(|en| enzyme_in_region(en, s, e, circular))
                     .collect();
                 if !in_region.is_empty() {
@@ -345,14 +351,31 @@ pub fn project_digest(
                             in_region.len()
                         );
                     } else {
-                        out.push_str("ENZYMES CUTTING IN REGION (cuts shown as N^N+1 = between 1-based bases N and N+1):\n");
+                        out.push_str("ENZYMES CUTTING IN REGION (cuts shown as N^N+1 = between 1-based bases N and N+1; isoschizomers sharing recognition and cut geometry are grouped):\n");
+                        let mut groups: BTreeMap<(String, String, String), Vec<&str>> =
+                            BTreeMap::new();
                         for en in in_region {
+                            let site = format!(
+                                "{}..{}:{}:{}",
+                                en.rec_start, en.rec_end, en.rec_seq, en.recognition_strand
+                            );
+                            groups
+                                .entry((
+                                    site,
+                                    cuts_desc(en, project.length, circular),
+                                    cut_type_label(&en.cut_type).to_string(),
+                                ))
+                                .or_default()
+                                .push(en.name.as_str());
+                        }
+                        for ((_, cuts, cut_type), mut names) in groups {
+                            names.sort_unstable();
                             let _ = writeln!(
                                 out,
-                                "        {:<10} {}   {}",
-                                en.name,
-                                cuts_desc(en, project.length, circular),
-                                cut_type_label(&en.cut_type)
+                                "        {}   {}   {}",
+                                names.join(", "),
+                                cuts,
+                                cut_type
                             );
                         }
                     }

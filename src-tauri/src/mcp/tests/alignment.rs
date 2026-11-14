@@ -57,6 +57,7 @@ async fn add_alignment_returns_oriented_sequence_and_coverage() {
             project_id: "aln_test".to_string(),
             start: 101,
             end: 121,
+            include_text: Some(true),
             ..Default::default()
         }))
         .await
@@ -70,6 +71,13 @@ async fn add_alignment_returns_oriented_sequence_and_coverage() {
         )),
         "{text}"
     );
+    let structured = &out.0["alignments"][0];
+    assert_eq!(
+        structured["mismatchDetails"][0]["position"], 111,
+        "{structured}"
+    );
+    assert_eq!(structured["window"]["mismatchCount"], 1, "{structured}");
+    assert!(structured.get("orientedSequence").is_none(), "{structured}");
 
     // Window overlapping the read but not the diff.
     let out = server
@@ -77,6 +85,7 @@ async fn add_alignment_returns_oriented_sequence_and_coverage() {
             project_id: "aln_test".to_string(),
             start: 51,
             end: 61,
+            include_text: Some(true),
             ..Default::default()
         }))
         .await
@@ -91,6 +100,7 @@ async fn add_alignment_returns_oriented_sequence_and_coverage() {
             project_id: "aln_test".to_string(),
             start: 1,
             end: 41,
+            include_text: Some(true),
             ..Default::default()
         }))
         .await

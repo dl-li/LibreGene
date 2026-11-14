@@ -6,12 +6,18 @@ use std::collections::HashMap;
 use rmcp::{handler::server::wrapper::Json, ErrorData};
 use tauri::Runtime;
 
-use libregene_core::digest::{cut_flanks, project_digest, read_sequence, DigestOptions};
-use libregene_core::models::{Enzyme, Feature};
+use libregene_core::digest::{
+    alignment_in_region, cut_flanks, enzyme_in_region, feature_in_region, feature_matches_filter,
+    project_digest, read_sequence, DigestOptions,
+};
+use libregene_core::models::{Enzyme, Feature, ProjectData};
 
+use super::align::{
+    alignment_json_1based, alignment_stats_json_1based, filter_alignment_json_focus,
+};
 use crate::mcp::support::{
-    fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope, to1, unit_for,
-    MAX_FLANK,
+    fail_envelope, feature_json_1based, from1, insert_seq_hashes, ok_envelope, primer_json_1based,
+    to1, unit_for, MAX_FLANK,
 };
 use crate::mcp::types::{
     FindOrfsRequest, FindRestrictionSitesRequest, OverviewRequest, RegionRequest, SequenceRequest,
@@ -73,6 +79,129 @@ fn project_label(project_id: &str, project: &libregene_core::models::ProjectData
     }
 }
 
+fn feature_list_json(
+    project: &ProjectData,
+    filter: Option<&str>,
+    max: Option<usize>,
+    region: Option<(i64, i64)>,
+) -> (Vec<serde_json::Value>, usize) {
+    let circular = project.topology == "circular";
+    let features: Vec<&Feature> = project
+        .features
+        .iter()
+        .filter(|f| feature_matches_filter(f, filter))
+        .filter(|f| region.is_none_or(|(s, e)| feature_in_region(f, s, e, circular)))
+        .collect();
+    let count = features.len();
+    let returned = features
+        .into_iter()
+        .take(max.unwrap_or(usize::MAX))
+        .map(feature_json_1based)
+        .collect();
+    (returned, count)
+}
+
+fn enzyme_site_json(e: &Enzyme, tlen: i64, circular: bool) -> serde_json::Value {
+    let wrap = |x: i64| -> i64 {
+        if circular {
+            x.rem_euclid(tlen)
+        } else {
+            x
+        }
+    };
+    let rec_start = to1(wrap(e.rec_start));
+    let rec_end = to1(wrap(e.rec_end));
+    let cuts: Vec<serde_json::Value> = e
+        .cut_pairs
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "topCutIndex": cut_flanks(p.top_cut_index, tlen, circular).0,
+                "botCutIndex": cut_flanks(p.bot_cut_index, tlen, circular).0,
+            })
+        })
+        .collect();
+    let outside = if circular {
+        let span = e.rec_end - e.rec_start;
+        e.cut_pairs.iter().any(|p| {
+            let dt = (p.top_cut_index - e.rec_start).rem_euclid(tlen);
+            let db = (p.bot_cut_index - e.rec_start).rem_euclid(tlen);
+            dt == 0 || db == 0 || dt > span + 1 || db > span + 1
+        })
+    } else {
+        cuts.iter().any(|c| {
+            let t = c["topCutIndex"].as_i64().unwrap_or(0);
+            let b = c["botCutIndex"].as_i64().unwrap_or(0);
+            t < rec_start || t > rec_end || b < rec_start || b > rec_end
+        })
+    };
+    let mut site = serde_json::json!({
+        "recStart": rec_start,
+        "recEnd": rec_end,
+        "recSeq": e.rec_seq,
+        "strand": e.recognition_strand,
+        "cuts": cuts,
+        "hasCutsOutsideRecognitionSite": outside,
+        "methylationBlocked": e.methylation_blocked,
+        "unique": e.is_unique,
+    });
+    if outside {
+        site["note"] = serde_json::json!(
+            "cut positions lie outside the recognition sequence (type IIS-style); topCutIndex/botCutIndex give the actual break points"
+        );
+    }
+    site
+}
+
+fn region_restriction_sites(
+    project: &ProjectData,
+    region: (i64, i64),
+    wanted: Option<&[String]>,
+) -> Vec<serde_json::Value> {
+    let circular = project.topology == "circular";
+    let mut groups: Vec<serde_json::Value> = Vec::new();
+    let mut by_site: HashMap<String, usize> = HashMap::new();
+    for enzyme in project
+        .derived
+        .enzymes
+        .iter()
+        .filter(|e| {
+            wanted.is_none_or(|names| {
+                names.is_empty() || names.iter().any(|name| name.eq_ignore_ascii_case(&e.name))
+            })
+        })
+        .filter(|e| enzyme_in_region(e, region.0, region.1, circular))
+    {
+        let site = enzyme_site_json(enzyme, project.length, circular);
+        let key = serde_json::to_string(&site).unwrap_or_default();
+        if let Some(index) = by_site.get(&key).copied() {
+            let group = &mut groups[index];
+            group["enzymes"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!(enzyme.name));
+            group["enzymeCount"] = serde_json::json!(group["enzymes"].as_array().unwrap().len());
+        } else {
+            let mut group = site;
+            group["enzymes"] = serde_json::json!([enzyme.name]);
+            group["enzymeCount"] = serde_json::json!(1);
+            by_site.insert(key, groups.len());
+            groups.push(group);
+        }
+    }
+    for group in &mut groups {
+        group["enzymes"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by(|a, b| a.as_str().unwrap_or("").cmp(b.as_str().unwrap_or("")));
+    }
+    groups.sort_by(|a, b| {
+        (a["recStart"].as_i64(), a["recEnd"].as_i64())
+            .cmp(&(b["recStart"].as_i64(), b["recEnd"].as_i64()))
+    });
+    groups
+}
+
 impl<R: Runtime> LibreGeneMcp<R> {
     pub(crate) async fn list_workspace_impl(&self) -> Result<Json<serde_json::Value>, ErrorData> {
         let (projects, active_id, count) = {
@@ -122,21 +251,90 @@ impl<R: Runtime> LibreGeneMcp<R> {
             libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let label = project_label(&id, &project);
         let unit = unit_for(&project.molecule_type);
+        let include_text = request.include_text.unwrap_or(false);
+        let (features, feature_count) = feature_list_json(
+            &project,
+            request.feature_filter.as_deref(),
+            request.max_features,
+            None,
+        );
+        let primers: Vec<serde_json::Value> = project
+            .primers
+            .iter()
+            .map(|p| primer_json_1based(&project, p, None))
+            .collect();
+        let alignments: Vec<serde_json::Value> = project
+            .alignments
+            .iter()
+            .map(|a| {
+                alignment_stats_json_1based(
+                    a,
+                    &project.sequence,
+                    project.length,
+                    project.topology == "circular",
+                )
+            })
+            .collect();
+        let mut enzyme_counts: HashMap<&str, usize> = HashMap::new();
+        for enzyme in &project.derived.enzymes {
+            *enzyme_counts.entry(enzyme.name.as_str()).or_default() += 1;
+        }
+        let mut enzymes: Vec<serde_json::Value> = enzyme_counts
+            .into_iter()
+            .map(|(name, count)| serde_json::json!({"name": name, "siteCount": count}))
+            .collect();
+        enzymes.sort_by(|a, b| {
+            a["name"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["name"].as_str().unwrap_or(""))
+        });
         let opts = DigestOptions {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
             compact_enzymes: false,
-            include_auto_annotation: true,
+            include_auto_annotation: include_text,
             include_alignment_view: false,
+            ..DigestOptions::default()
         };
-        // Auto-annotation scans the whole feature database — CPU-heavy, so
-        // render off the tokio worker.
-        let text = tokio::task::spawn_blocking(move || project_digest(&project, &opts, None))
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let mut v = ok_envelope(&id, format!("Overview of {}", label), Some(text));
+        let text = if include_text {
+            let project = project.clone();
+            Some(
+                tokio::task::spawn_blocking(move || project_digest(&project, &opts, None))
+                    .await
+                    .map_err(|e| {
+                        ErrorData::internal_error(format!("task join error: {}", e), None)
+                    })?
+                    .map_err(|e| ErrorData::invalid_params(e, None))?,
+            )
+        } else {
+            None
+        };
+        let mut v = ok_envelope(&id, format!("Overview of {}", label), text);
         v["unit"] = serde_json::json!(unit);
+        v["project"] = serde_json::json!({
+            "name": project.name,
+            "length": project.length,
+            "topology": project.topology,
+            "moleculeType": project.molecule_type,
+        });
+        if let Some((start, end)) = project.roi {
+            v["project"]["roi"] = serde_json::json!({"start": start + 1, "end": end + 1});
+        }
+        v["featureCount"] = serde_json::json!(feature_count);
+        v["features"] = serde_json::json!(features);
+        v["primerCount"] = serde_json::json!(primers.len());
+        v["primers"] = serde_json::json!(primers);
+        v["enzymeCount"] = serde_json::json!(enzymes.len());
+        v["enzymes"] = serde_json::json!(enzymes);
+        v["alignmentCount"] = serde_json::json!(alignments.len());
+        v["alignments"] = serde_json::json!(alignments);
+        if project.is_dna() {
+            v["methylation"] = serde_json::json!({
+                "systems": project.methylation_systems,
+                "overlap": project.methylation_overlap,
+            });
+        }
         insert_seq_hashes(&mut v, &hashes);
         Ok(Json(v))
     }
@@ -150,27 +348,73 @@ impl<R: Runtime> LibreGeneMcp<R> {
             libregene_core::utils::orientation_hashes(&project.sequence, &project.molecule_type);
         let unit = unit_for(&project.molecule_type);
         let tlen = project.length;
+        let circular = project.topology == "circular";
         let (start, end) = (request.start, request.end);
+        let region = (from1(start), from1(end));
+        let show_alignment_columns = request.show_alignment_columns.unwrap_or(false);
+        let include_text = request.include_text.unwrap_or(false) || show_alignment_columns;
         let opts = DigestOptions {
             max_features: request.max_features,
-            feature_filter: request.feature_filter,
+            feature_filter: request.feature_filter.clone(),
+            enzyme_filter: request.enzymes.clone(),
             compact_enzymes: request.compact.unwrap_or(true),
             include_auto_annotation: false,
-            include_alignment_view: request.show_alignment_columns.unwrap_or(false),
+            include_alignment_view: show_alignment_columns,
         };
-        let region = (from1(request.start), from1(request.end));
-        let text =
-            tokio::task::spawn_blocking(move || project_digest(&project, &opts, Some(region)))
-                .await
-                .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
-                .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let digest_project = project.clone();
+        let text = tokio::task::spawn_blocking(move || {
+            project_digest(&digest_project, &opts, Some(region))
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
+        .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let (features, feature_count) = feature_list_json(
+            &project,
+            request.feature_filter.as_deref(),
+            request.max_features,
+            Some(region),
+        );
+        let primers: Vec<serde_json::Value> = project
+            .primers
+            .iter()
+            .map(|p| primer_json_1based(&project, p, Some(region)))
+            .collect();
+        let restriction_sites = if project.is_dna() {
+            region_restriction_sites(&project, region, request.enzymes.as_deref())
+        } else {
+            Vec::new()
+        };
+        let alignments: Vec<serde_json::Value> = project
+            .alignments
+            .iter()
+            .filter(|a| alignment_in_region(a, region.0, region.1, circular))
+            .map(|a| {
+                let mut value = alignment_json_1based(a, &project.sequence, tlen, circular, true);
+                let (mismatches, insertions, deletions) =
+                    filter_alignment_json_focus(&mut value, start, end, tlen, circular);
+                value["window"] = serde_json::json!({
+                    "mismatchCount": mismatches,
+                    "insertionCount": insertions,
+                    "deletionCount": deletions,
+                });
+                value
+            })
+            .collect();
         let mut v = ok_envelope(
             &id,
             format!("Region {}..{} ({} {})", start, end, tlen, unit),
-            Some(text),
+            include_text.then_some(text),
         );
         v["unit"] = serde_json::json!(unit);
         v["region"] = serde_json::json!({ "start": start, "end": end });
+        v["featureCount"] = serde_json::json!(feature_count);
+        v["features"] = serde_json::json!(features);
+        v["primerCount"] = serde_json::json!(primers.len());
+        v["primers"] = serde_json::json!(primers);
+        v["restrictionSiteCount"] = serde_json::json!(restriction_sites.len());
+        v["restrictionSites"] = serde_json::json!(restriction_sites);
+        v["alignmentCount"] = serde_json::json!(alignments.len());
+        v["alignments"] = serde_json::json!(alignments);
         insert_seq_hashes(&mut v, &hashes);
         Ok(Json(v))
     }
@@ -445,52 +689,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 serde_json::json!({
                     "name": n,
                     "siteCount": site_count,
-                    "sites": sites.iter().map(|e| {
-                        let rec_start = to1(wrap(e.rec_start));
-                        let rec_end = to1(wrap(e.rec_end));
-                        let cuts: Vec<serde_json::Value> = e.cut_pairs.iter().map(|p| serde_json::json!({
-                            "topCutIndex": cut_flanks(p.top_cut_index, tlen, circular).0,
-                            "botCutIndex": cut_flanks(p.bot_cut_index, tlen, circular).0,
-                        })).collect();
-                        // Type IIS and similar enzymes cut outside their
-                        // recognition sequence; flag those sites so the
-                        // cut-vs-recognition offset does not have to be
-                        // inferred from the coordinates alone.
-                        let outside = if circular {
-                            // Compare in the engine's unwrapped frame: a cut is
-                            // inside the recognition when its modular distance
-                            // from rec_start falls in 1..=span+1 (the same
-                            // boundary semantics as the linear check below).
-                            let span = e.rec_end - e.rec_start;
-                            e.cut_pairs.iter().any(|p| {
-                                let dt = (p.top_cut_index - e.rec_start).rem_euclid(tlen);
-                                let db = (p.bot_cut_index - e.rec_start).rem_euclid(tlen);
-                                dt == 0 || db == 0 || dt > span + 1 || db > span + 1
-                            })
-                        } else {
-                            cuts.iter().any(|c| {
-                                let t = c["topCutIndex"].as_i64().unwrap_or(0);
-                                let b = c["botCutIndex"].as_i64().unwrap_or(0);
-                                t < rec_start || t > rec_end || b < rec_start || b > rec_end
-                            })
-                        };
-                        let mut site = serde_json::json!({
-                            "recStart": rec_start,
-                            "recEnd": rec_end,
-                            "recSeq": e.rec_seq,
-                            "strand": e.recognition_strand,
-                            "cuts": cuts,
-                            "hasCutsOutsideRecognitionSite": outside,
-                            "methylationBlocked": e.methylation_blocked,
-                            "unique": e.is_unique,
-                        });
-                        if outside {
-                            site["note"] = serde_json::json!(
-                                "cut positions lie outside the recognition sequence (type IIS-style); topCutIndex/botCutIndex give the actual break points"
-                            );
-                        }
-                        site
-                    }).collect::<Vec<_>>(),
+                    "sites": sites.iter().map(|e| enzyme_site_json(e, tlen, circular)).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -555,72 +754,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 .unwrap_or("bp")
         };
 
-        if !request.add_as_features.unwrap_or(false) {
-            let mut v = serde_json::json!({
-                "ok": true,
-                "message": format!("{} ORF(s) found", count),
-                "projectId": id,
-                "unit": unit,
-                "minAa": min_aa,
-                "orfCount": count,
-                "orfs": orfs_json,
-            });
-            if let Some(h) = &seq_hashes {
-                insert_seq_hashes(&mut v, h);
-            }
-            return Ok(Json(v));
-        }
-        self.require_agent_tab(&id).await?;
-        if orfs.is_empty() {
-            let mut v = serde_json::json!({
-                "ok": true,
-                "message": "No ORFs found",
-                "projectId": id,
-                "unit": unit,
-                "minAa": min_aa,
-                "orfCount": 0,
-                "orfs": [],
-            });
-            if let Some(h) = &seq_hashes {
-                insert_seq_hashes(&mut v, h);
-            }
-            return Ok(Json(v));
-        }
-        let min_s = orfs.iter().map(|f| f.start).min().unwrap_or(0);
-        let max_e = orfs.iter().map(|f| f.end).max().unwrap_or(0);
-        let first_span = orfs.first().map(|f| (f.start, f.end));
-        let payload = crate::do_add_features(
-            &self.app_handle,
-            &self.pm,
-            &self.agent_tabs,
-            None,
-            &id,
-            orfs,
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(err) = Self::payload_error(&payload) {
-            let mut v = fail_envelope(&id, err);
-            if let Some(h) = &seq_hashes {
-                insert_seq_hashes(&mut v, h);
-            }
-            return Ok(Json(v));
-        }
-        if let Some((s, e)) = first_span {
-            crate::payload::emit_mutation_focus(&self.app_handle, &id, s, e, "feature");
-        }
-        let region = self
-            .digest_region(&id, Some((min_s, max_e)), true, false)
-            .await;
-        let mut v = ok_envelope(
-            &id,
-            format!("Added {} ORF(s) as CDS features", count),
-            region,
-        );
-        v["unit"] = serde_json::json!(unit);
-        v["minAa"] = serde_json::json!(min_aa);
-        v["orfCount"] = serde_json::json!(count);
-        v["orfs"] = serde_json::json!(orfs_json);
+        let mut v = serde_json::json!({
+            "ok": true,
+            "message": format!("{} ORF(s) found; pass selected entries to update_features to annotate them", count),
+            "projectId": id,
+            "unit": unit,
+            "minAa": min_aa,
+            "orfCount": count,
+            "orfs": orfs_json,
+        });
         if let Some(h) = &seq_hashes {
             insert_seq_hashes(&mut v, h);
         }

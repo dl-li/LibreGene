@@ -19,6 +19,8 @@ pub(crate) struct OverviewRequest {
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
     pub(crate) feature_filter: Option<String>,
+    /// Also return the human-readable digest as `text` (default false).
+    pub(crate) include_text: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -36,15 +38,33 @@ pub(crate) struct RegionRequest {
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
     pub(crate) feature_filter: Option<String>,
-    /// Collapse the enzyme cut list into one count line (default true;
-    /// false = every cut in the window).
+    /// Enzyme names to report (case-insensitive); omitted/empty = all cutters.
+    pub(crate) enzymes: Option<Vec<String>>,
+    /// Collapse the optional text enzyme list into one count line (default true;
+    /// false = detailed sites with isoschizomers sharing a site grouped).
     pub(crate) compact: Option<bool>,
+    /// Also return the human-readable digest as `text` (default false).
+    pub(crate) include_text: Option<bool>,
     /// Also emit the per-read ALIGNMENT VIEW column block (template / match
-    /// mask / read rows) for reads overlapping the window. Default false — the
-    /// structured ALIGNMENT DIFFS lines are always included. The block is
-    /// capped: a window whose covered columns exceed 500 bp gets an omission
-    /// note instead of rows, so narrow the window when you need the columns.
+    /// mask / read rows) in `text`; implies includeText. Structured alignment
+    /// differences are always included. The block is capped: a window whose
+    /// covered columns exceed 500 bp gets an omission note instead of rows.
     pub(crate) show_alignment_columns: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RenderMapRequest {
+    /// Required: the project to render (see list_workspace). Read-only on the project.
+    pub(crate) project_id: String,
+    /// Preferred output: write a standalone .svg file. Omit to return SVG inline.
+    pub(crate) output_path: Option<String>,
+    /// "circular" | "linear"; defaults to the project topology.
+    pub(crate) view: Option<String>,
+    /// Draw feature names and label leaders (default true).
+    pub(crate) include_labels: Option<bool>,
+    /// Required (true) when outputPath already exists.
+    pub(crate) overwrite: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -207,15 +227,23 @@ pub(crate) struct FeatureSegmentSpec {
     pub(crate) end: i64,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum FeatureAction {
+    Create,
+    Update,
+    Delete,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SetFeatureRequest {
-    /// Required: the project to modify (must be bound as your agent tab).
-    pub(crate) project_id: String,
-    /// Omitted = CREATE a feature (name/ftype plus start+end or segments).
-    /// Given = UPDATE that feature (at least one other field required).
+pub(crate) struct FeatureOperation {
+    /// "create" adds a feature; "update" edits an existing featureId;
+    /// "delete" removes it. Operations apply in array order as one transaction.
+    pub(crate) action: FeatureAction,
+    /// Required for update/delete; forbidden for create.
     pub(crate) feature_id: Option<String>,
-    /// Create: required. Update: new name.
+    /// Create: required. Update: new name. Delete: forbidden.
     pub(crate) name: Option<String>,
     /// Create: required (e.g. "CDS", "misc_feature"). Update: new ftype.
     pub(crate) ftype: Option<String>,
@@ -234,8 +262,19 @@ pub(crate) struct SetFeatureRequest {
     /// Hex color, e.g. "#60A5FA" (create default "#60A5FA"; on update also
     /// recolors existing segments).
     pub(crate) color: Option<String>,
-    /// Create-only initial notes (rejected on update).
+    /// Create: initial notes. Update: replacement notes ("" clears them).
     pub(crate) notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateFeaturesRequest {
+    /// Required: the project to modify (must be bound as your agent tab).
+    pub(crate) project_id: String,
+    /// 1–256 create/update/delete operations. All succeed or none is applied.
+    pub(crate) operations: Vec<FeatureOperation>,
+    /// Also return a human-readable region digest as `text` (default false).
+    pub(crate) include_text: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -326,8 +365,6 @@ pub(crate) struct FindOrfsRequest {
     /// Minimum ORF length in amino acids (default 75).
     #[schemars(with = "Option<i64>")]
     pub(crate) min_aa: Option<usize>,
-    /// true = append the ORFs as CDS features; false/omitted = report them.
-    pub(crate) add_as_features: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]

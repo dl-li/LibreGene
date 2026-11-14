@@ -200,6 +200,43 @@ async fn auth_toggle_applies_live_and_ignores_tokens_when_off() {
 }
 
 #[tokio::test]
+async fn protocol_2026_tools_list_includes_required_cache_metadata() {
+    let server = test_server();
+    let token = server.auth_token();
+    server.set_config(true, 20012, true).await.unwrap();
+    assert!(wait_up(20012, &token).await);
+
+    let resp = raw_post(
+        20012,
+        &token,
+        "Accept: application/json, text/event-stream\r\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2026-07-28\",\"capabilities\":{},\"clientInfo\":{\"name\":\"strict-client\",\"version\":\"0\"}}}",
+    )
+    .await;
+    assert!(resp.contains("200 OK"), "{resp}");
+    assert!(
+        resp.contains("\"protocolVersion\":\"2026-07-28\""),
+        "{resp}"
+    );
+
+    let tools = raw_post(
+        20012,
+        &token,
+        "Accept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: tools/list\r\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
+    )
+    .await;
+    assert!(tools.contains("200 OK"), "{tools}");
+    assert!(tools.contains("\"tools\":["), "{tools}");
+    assert!(tools.contains("\"resultType\":\"complete\""), "{tools}");
+    assert!(tools.contains("\"ttlMs\":0"), "{tools}");
+    assert!(tools.contains("\"cacheScope\":\"private\""), "{tools}");
+
+    server.set_config(false, 20012, true).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+}
+
+#[tokio::test]
 async fn missing_accept_header_returns_structured_406() {
     let server = test_server();
     let token = server.auth_token();

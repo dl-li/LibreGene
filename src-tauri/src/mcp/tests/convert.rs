@@ -419,7 +419,7 @@ async fn convert_sequence_file_with_feature_writes_optimized_gbk() {
     let req = convert_req(vec![ConvertItem {
         species: Some("e_coli".to_string()),
         input_path: Some(src.to_string_lossy().into_owned()),
-        feature_id: Some("cds_0".to_string()), // id rebuilt as {label}_{start} on parse
+        feature_id: Some("cds".to_string()),
         output_path: Some(out_path.to_string_lossy().into_owned()),
         ..Default::default()
     }]);

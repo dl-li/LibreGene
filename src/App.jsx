@@ -8,7 +8,6 @@ import {
   openSnapgeneSnapshot,
   isTauri,
   openFileDialog,
-  setAgentTabLocked,
   setAgentEditLock,
   setWindowTitle,
   setMcpConfig,
@@ -32,7 +31,7 @@ import { useWheelContainment } from './hooks/useWheelContainment';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { FolderOpen, FilePlus2, Bot, Lock, Languages } from 'lucide-react';
+import { FolderOpen, FilePlus2, Bot, Languages } from 'lucide-react';
 import { useTranslation } from './i18n';
 import {
   getRecentFiles,
@@ -597,7 +596,6 @@ export default function App() {
   const visibleRecent = recentFiles.filter((p) => !projects.some((pr) => pr.id === p));
 
   const activeAgentLocked = !!activeId && agentTabs[activeId] === true;
-  const activeAgentUnlocked = !!activeId && agentTabs[activeId] === false;
 
   // While the active project is a locked agent tab, the workspace stays
   // interactive (scroll/select/copy all work) and dirty-producing operations
@@ -607,10 +605,6 @@ export default function App() {
   useEffect(() => {
     setAgentEditLock(activeAgentLocked);
   }, [activeAgentLocked]);
-
-  const handleSetAgentLocked = useCallback((projectId, locked) => {
-    setAgentTabLocked(projectId, locked).catch(() => {});
-  }, []);
 
   const hasProject = projects.length > 0;
   const sidebarTargetId = activeId;
@@ -833,24 +827,6 @@ export default function App() {
               scrolling, selecting and copying work; only dirty-producing
               edits are refused (ProjectWorkspace handler guard + tauriApi
               command guard). */}
-          {/* Unlocked agent tab: floating badge with a manual re-lock */}
-          {activeAgentUnlocked && (
-            <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-md border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              <Bot className="size-3.5 text-teal-500" />
-              <span>
-                <T>{'Agent tab — unlocked'}</T>
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2 text-xs"
-                onClick={() => handleSetAgentLocked(activeId, true)}
-              >
-                <Lock className="size-3" />
-                <T>{'Lock'}</T>
-              </Button>
-            </div>
-          )}
           {hasProject && (
             <div
               className="absolute left-0 top-0 bottom-0 z-40"

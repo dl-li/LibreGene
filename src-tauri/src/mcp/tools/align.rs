@@ -17,7 +17,7 @@ use crate::mcp::LibreGeneMcp;
 /// 1-based base BEFORE the break — the bases sit between `pos` and `pos + 1`
 /// (`pos = len` on circular templates means between the last and the first
 /// base).
-fn alignment_json_1based(
+pub(crate) fn alignment_json_1based(
     a: &libregene_core::models::Alignment,
     template: &str,
     tlen: i64,
@@ -66,7 +66,7 @@ fn alignment_json_1based(
 /// insertion details) — used for every alignment EXCEPT the one just added,
 /// so multi-read responses stay small. Counts only: the diff detail vectors
 /// are never serialized.
-fn alignment_stats_json_1based(
+pub(crate) fn alignment_stats_json_1based(
     a: &libregene_core::models::Alignment,
     template: &str,
     _tlen: i64,

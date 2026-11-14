@@ -18,9 +18,10 @@
 //!   per item in `convert_sequence`).
 //! - `unit` — `bp` | `nt` | `aa`, present whenever lengths of a project
 //!   molecule are reported.
-//! - `text` — human-readable rendering: a compact multi-section digest for
-//!   overview/region/mutation responses, a coordinate-ruled window for
-//!   `read_sequence`. `textBefore` is the pre-edit digest.
+//! - Structured arrays/objects are the primary result. `text` is an optional
+//!   human-readable supplement (`includeText` on overview/region/update_features);
+//!   `read_sequence` retains its coordinate-ruled window and `textBefore` is the
+//!   pre-edit digest.
 //! - `warnings` / `notes` — arrays of strings flagging something possibly
 //!   wrong / informing, present only when non-empty.
 //! - Only "the request cannot be executed at all" failures (unknown project,
@@ -86,7 +87,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 use tokio::sync::RwLock;
 
 use libregene_core::digest::{project_digest, DigestOptions};
-use libregene_core::models::{ProjectData, Segment};
+use libregene_core::models::ProjectData;
 use libregene_core::project::ProjectManager;
 
 // Names mcp/tests.rs reaches through `use super::*;` (the test module globs
@@ -384,49 +385,6 @@ impl<R: Runtime> LibreGeneMcp<R> {
             .flatten()
     }
 
-    async fn feature_exists(&self, project_id: &str, feature_id: &str) -> bool {
-        let pm = self.pm.read().await;
-        pm.get_project_by_id(project_id)
-            .map(|p| p.features.iter().any(|f| f.id == feature_id))
-            .unwrap_or(false)
-    }
-
-    /// Reject feature spans outside [1, project.length] (1-based).
-    /// resolve_feature_span only checks start<=end (no upper bound), so
-    /// without this a caller could write a feature with end = i64::MAX and
-    /// later panic downstream code that slices the sequence by these
-    /// coordinates. `start`/`end` are internal 0-based inclusive; for a
-    /// wrapping feature start > end, so every segment end is checked too.
-    async fn span_within_bounds(
-        &self,
-        project_id: &str,
-        segments: &[Segment],
-        start: i64,
-        end: i64,
-    ) -> Result<(), String> {
-        let pm = self.pm.read().await;
-        let plen = pm
-            .get_project_by_id(project_id)
-            .map(|p| p.length)
-            .unwrap_or(0);
-        let max_coord = segments
-            .iter()
-            .map(|s| s.end.max(s.start))
-            .max()
-            .unwrap_or(0)
-            .max(start)
-            .max(end);
-        if max_coord >= plen {
-            return Err(format!(
-                "feature span {}..{} is out of range for project length {} (1-based inclusive)",
-                start + 1,
-                end + 1,
-                plen
-            ));
-        }
-        Ok(())
-    }
-
     /// A `{"error": ...}` payload from a shared core means a tool-level failure.
     fn payload_error(payload: &serde_json::Value) -> Option<String> {
         payload
@@ -492,19 +450,21 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.add_to_workspace_impl(request).await
     }
 
-    /// Compact text digest of a whole project (`text`): features, primers (with
-    /// type and sequence), enzymes, methylation, auto-annotated common features —
-    /// RNA/protein projects omit the DNA-only sections. The enzyme section groups
-    /// single-cut enzymes by top-strand cut (`N names`, enzymes sharing N on one
-    /// line) and names every double-cut enzyme; enzymes with >=3 sites are omitted
-    /// (find_restriction_sites reports every site of every enzyme). CDS/mRNA
-    /// features whose stored /translation
-    /// disagrees with the DNA get a WARNING line, and positions where >=2 stored
-    /// reads carry the same mismatch are listed as SHARED MISMATCHES (a fact, not a
-    /// verdict — shared differences can be biological, clonal or template-derived).
-    /// `featureFilter` keeps features by name (case-insensitive substring) or
-    /// exact ftype; `maxFeatures` caps the list.
-    /// Returns {ok, message, projectId, unit, text, sequenceHash, revCompHash}.
+    /// STRUCTURED whole-project overview; no text dump by default. Returns {ok,
+    /// message, projectId, unit, project: {name, length, topology, moleculeType,
+    /// roi?}, featureCount, features: [feature], primerCount, primers: [primer],
+    /// enzymeCount, enzymes: [{name, siteCount}], alignmentCount,
+    /// alignments: [alignmentSummary], methylation?, sequenceHash, revCompHash,
+    /// text?}. Features and all coordinates are 1-based inclusive. `featureFilter`
+    /// keeps features by name (case-insensitive substring) or exact ftype;
+    /// `maxFeatures` caps the returned array while featureCount reports all matches.
+    /// Primers include sequence and binding sites; alignment summaries include
+    /// coverage and whole-read difference counts, not read sequences. Enzyme entries
+    /// summarize sites by enzyme; use find_restriction_sites for full cut geometry.
+    ///
+    /// `includeText: true` adds the human-readable digest, including translation
+    /// warnings, shared read mismatches and auto-annotated common features. The
+    /// optional text is a supplement, not the machine-readable result.
     #[tool]
     async fn get_project_overview(
         &self,
@@ -513,23 +473,47 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.get_project_overview_impl(request).await
     }
 
-    /// Compact text digest of one region of a project. Coordinates are 1-based
-    /// inclusive; on circular sequences `start > end` wraps the origin. Covers the
-    /// window's features, primer sites and enzyme cuts (one count line unless
-    /// `compact: false`), plus ALIGNMENT DIFFS (per-read mismatches, deletions,
-    /// insertions with 1-based coordinates) when stored reads overlap. Pass
-    /// `showAlignmentColumns: true` to add the ALIGNMENT VIEW column block (three
-    /// rows per read: template, match mask, read bases); it covers at most 500 bp of
-    /// window — wider windows get an omission note instead of rows.
-    /// Returns {ok, message, projectId, unit, region, text, sequenceHash,
-    /// revCompHash}. This is the fast way to check whether a site is mutated
-    /// without digesting a full read.
+    /// STRUCTURED view of one region; no text dump by default. Coordinates are
+    /// 1-based inclusive; on circular sequences `start > end` wraps the origin.
+    /// Returns {ok, message, projectId, unit, region, featureCount, features,
+    /// primerCount, primers, restrictionSiteCount, restrictionSites, alignmentCount,
+    /// alignments, sequenceHash, revCompHash, text?}. `featureFilter`/`maxFeatures`
+    /// filter the feature array. `enzymes` filters restriction sites by
+    /// case-insensitive enzyme name. Each restrictionSite groups isoschizomers with
+    /// identical recognition and cut geometry into {enzymes, enzymeCount, recStart,
+    /// recEnd, recSeq, strand, cuts, ...}; no per-isoschizomer duplication.
+    ///
+    /// Each overlapping alignment has structured mismatch/deletion/insertion
+    /// details filtered to the window plus whole-read counts and in-window counts.
+    /// `includeText: true` adds the human-readable digest; `compact` controls only
+    /// its enzyme section (true = one count line, false = detailed grouped sites).
+    /// `showAlignmentColumns: true` implies includeText and adds the ALIGNMENT VIEW
+    /// block (template, match mask and read rows, capped at 500 covered bp).
     #[tool]
     async fn get_region_view(
         &self,
         Parameters(request): Parameters<RegionRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         self.get_region_view_impl(request).await
+    }
+
+    /// Render the project's plasmid/feature map as a standalone SVG image, using
+    /// the same circular/linear geometry, directional arrows, wrapping features,
+    /// colors and label layout as the desktop Map view. READ-ONLY on the project;
+    /// no agent-tab binding is required. `view` optionally overrides topology with
+    /// "circular" or "linear"; `includeLabels` defaults to true.
+    ///
+    /// Prefer `outputPath` (a .svg file): the file is written atomically and the SVG
+    /// source is not echoed. Existing files require `overwrite: true`. If outputPath
+    /// is omitted, the complete SVG is returned inline in `svg`. Returns {ok, message,
+    /// projectId, unit, view, width, height, featureCount, path?, bytesWritten?, svg?,
+    /// sequenceHash, revCompHash}. This is an SVG renderer, not a PNG exporter.
+    #[tool]
+    async fn render_map(
+        &self,
+        Parameters(request): Parameters<RenderMapRequest>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        self.render_map_impl(request).await
     }
 
     /// Read bases or resolve a coordinate — INSPECTION only: to move a sequence
@@ -567,8 +551,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// be cutting (normal entry), known but site-less (empty `sites` + a `note`), or
     /// unknown — unknown names never fail the call: they appear under
     /// `unknownEnzymes` with `similar` suggestions while the known names still
-    /// answer. For a full panorama of cuts
-    /// in a window use get_region_view with `compact: false`.
+    /// answer. For grouped sites in a window use get_region_view (its structured
+    /// restrictionSites always group isoschizomers; add `compact: false` and
+    /// `includeText: true` only when the human-readable list is also needed).
     ///
     /// Returns {ok, message, projectId, unit, enzymeCount, enzymes: [{name,
     /// siteCount, sites: [site], note?}], unknownEnzymes?, sequenceHash,
@@ -644,7 +629,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
     /// Write a project to disk — the reverse of open_project. Supported output
     /// formats: .gbk/.gb/.genbank (DNA/RNA) or .gpt (protein) ONLY — the
-    /// extension picks the writer and must match the molecule type; FASTA or
+    /// extension picks the writer and must match the molecule type. Output is
+    /// deliberately limited to OPEN, PLAINTEXT formats: proprietary SnapGene
+    /// .dna/.rna/.prot files are read-only and are never written. FASTA or
     /// bare-text output is not offered here (use convert_sequence's
     /// `outputPath` for that instead).
     ///
@@ -723,25 +710,34 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.edit_sequence_impl(request).await
     }
 
-    /// Create or update one feature (coordinates 1-based inclusive).
+    /// Create, update and delete features in ONE ATOMIC BATCH (coordinates 1-based
+    /// inclusive). `operations` contains 1-256 entries, applied in array order:
+    /// - {action: "create", name, ftype, start+end|segments, strand?, color?, notes?}
+    /// - {action: "update", featureId, ...one or more editable fields}
+    /// - {action: "delete", featureId}
+    /// Create requires non-empty name/ftype and a span. Update accepts name, ftype,
+    /// color, strand, start+end, segments and notes (empty notes clears them); span
+    /// replacement leaves strand unchanged unless explicitly supplied. `segments`
+    /// is [{start, end}] in 5'->3' encoding order, ascending starts, with a
+    /// cross-origin feature leading with its tail, and is mutually exclusive with
+    /// start/end. Strand is ".", "+" or "-" (create default "+"). Delete takes no
+    /// other fields.
     ///
-    /// OMIT `featureId` to create: `name`, `ftype` and a span — `start` + `end`, or
-    /// `segments` ([{start, end}] in 5'->3' order, ascending starts; a cross-origin
-    /// feature leads with its tail) — are required. `strand` (".", "+", "-";
-    /// default "+"), `color` (hex) and `notes` are optional.
-    ///
-    /// GIVE `featureId` to update: pass at least one of name/ftype/color/strand/
-    /// start+end/segments (notes cannot be updated). `segments` is mutually
-    /// exclusive with `start`/`end` in both modes; neither form touches `strand`.
-    ///
-    /// Returns {ok, message, projectId, unit, featureId, text, sequenceHash,
-    /// revCompHash}.
+    /// ALL operations are validated against the live project before one commit:
+    /// any failure returns ok:false with failedOperation {index, action, featureId}
+    /// and leaves the project completely unchanged. The response contains only the
+    /// affected features, not the full project feature list:
+    /// {ok, message, projectId, unit, operationCount, createdCount, updatedCount,
+    /// deletedCount, results: [{index, action, featureId, feature}], text?,
+    /// sequenceHash, revCompHash}. Feature objects have 1-based coordinates.
+    /// `includeText: true` adds a digest around the first affected feature; text is
+    /// omitted by default. Feature ids persist across GenBank save/reopen.
     #[tool]
-    async fn set_feature(
+    async fn update_features(
         &self,
-        Parameters(request): Parameters<SetFeatureRequest>,
+        Parameters(request): Parameters<UpdateFeaturesRequest>,
     ) -> Result<Json<serde_json::Value>, ErrorData> {
-        self.set_feature_impl(request).await
+        self.update_features_impl(request).await
     }
 
     /// Add a primer to a DNA project and recompute its binding sites. Sequences are
@@ -804,12 +800,11 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Find open reading frames (ATG->stop, both strands, all frames) on a DNA
     /// project. `minAa` defaults to 75.
     ///
-    /// Returns {ok, message, projectId, unit, minAa, orfCount, orfs: [feature],
-    /// text?, sequenceHash, revCompHash} with 1-based inclusive coordinates
-    /// (feature shape as in get_project_overview/set_feature). With
-    /// `addAsFeatures: true` the ORFs are additionally persisted as real CDS
-    /// features (the same recompute path as set_feature) and the response gains
-    /// the `text` digest; otherwise nothing is written.
+    /// READ-ONLY: returns {ok, message, projectId, unit, minAa, orfCount,
+    /// orfs: [feature], sequenceHash, revCompHash} with 1-based inclusive
+    /// coordinates (feature shape as in get_project_overview/update_features).
+    /// To annotate selected ORFs, pass their name/ftype/coordinates/strand as
+    /// create operations to update_features; this tool never writes features.
     #[tool]
     async fn find_orfs(
         &self,
@@ -890,9 +885,10 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///   reverse complement); `from` defaults to the entry's molecule type.
     /// - `sequence`: short hand-authored text only.
     ///
-    /// `outputPath` (sequence/inputPath modes) writes the result — .gbk/.gb/.genbank
-    /// GenBank, .gpt protein GenBank, .fa/.fasta/.txt bare text; `overwrite: true`
-    /// when it exists. Prefer the written file over the echoed `sequence`.
+    /// `outputPath` (sequence/inputPath modes) writes .gbk/.gb/.genbank, .gpt, or
+    /// headerless .fa/.fasta/.txt (`overwrite: true` if existing). Only OPEN
+    /// PLAINTEXT outputs are supported: .dna/.rna/.prot are read-only; write protein
+    /// sequences as .fa, not .faa. Prefer files over the echoed `sequence`.
     ///
     /// Returns {ok, message, resultCount, okCount, failedCount, results: [{index,
     /// ok, from, to, unit, message, sequence?, length?, path?, projectId?, text?,
@@ -932,7 +928,7 @@ pub(crate) fn splice_species_keys(tools: &mut [rmcp::model::Tool]) {
 
 #[tool_handler(
     name = "LibreGene",
-    instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_workspace's activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent. WORKSPACE: add_to_workspace stages a project fragment (feature / start+end region / enzyme-digest fragment, annotations kept) in an in-memory workspace (fragments are removed when their source project closes; closing the main window removes them all); open projects are implicit members. Sequence-taking tools accept a workspace hash — `hash` (edit_sequence: `replacementHash`) as '<sequenceHash>' or '<sequenceHash>/<revCompHash>' from list_workspace; a swapped pair means the entry's reverse complement (annotations flip with it)."
+    instructions = "LibreGene is a plasmid editor; you drive the open project like a user. AGENT TABS: open_project loads a sequence file AND binds it as your agent tab in one step (locked against user input; every call on it re-locks it). Mutating tools refuse any project you did not open — if a path is already open but not bound, it belongs to the user: copy the file with bash `cp` to a new path and open the copy. A path already bound to you is reused (locked, reused: true). RESPONSES: every tool returns {ok, message, projectId?, unit?, text?, sequenceHash?, revCompHash?, ...}; ok:false is a domain rejection with the same keys plus diagnostics, while unknown-project / not-an-agent-tab / wrong-molecule-type / internal failures come back as MCP errors. Coordinates are 1-based inclusive everywhere; compare sequenceHash/revCompHash across calls to detect sequence changes. STRUCTURED RESULTS: get_project_overview/get_region_view return arrays/objects by default (features, primers, restriction sites and alignments), and update_features returns only affected features; pass includeText:true only when a human-readable digest is also needed. Feature create/update/delete operations all use update_features as one atomic batch. OUTPUT FORMATS: writes are intentionally limited to open plaintext formats; SnapGene .dna/.rna/.prot are read-only. FILE-FIRST I/O: whenever a sequence exists as a file (or can be written to one), pass the path — open_project, edit_sequence's replacementPath, add_alignment's path, convert_sequence's inputPath/outputPath, render_map's outputPath, save_file's `region` export — instead of pasting sequence text; plain-text sequence parameters are only for short hand-authored input (primers ~20-60 nt, point mutations, short inserts). read_sequence is for inspecting bases, not for moving sequences between tools. list_workspace's activeId is the project the user is viewing (informational) — avoid it when several agents work in parallel, and prefer one working copy per agent. WORKSPACE: add_to_workspace stages a project fragment (feature / start+end region / enzyme-digest fragment, annotations kept) in an in-memory workspace (fragments are removed when their source project closes; closing the main window removes them all); open projects are implicit members. Sequence-taking tools accept a workspace hash — `hash` (edit_sequence: `replacementHash`) as '<sequenceHash>' or '<sequenceHash>/<revCompHash>' from list_workspace; a swapped pair means the entry's reverse complement (annotations flip with it)."
 )]
 impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     // Tools return Json<serde_json::Value>, so the generated outputSchema has
@@ -941,8 +937,11 @@ impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
     async fn list_tools(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParams>,
-        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
+        let cache_metadata = context.protocol_version().is_some_and(|version| {
+            version.as_str() >= rmcp::model::ProtocolVersion::V_2026_07_28.as_str()
+        });
         let mut tools = Self::tool_router().list_all();
         splice_species_keys(&mut tools);
         for tool in &mut tools {
@@ -958,8 +957,8 @@ impl<R: Runtime> ServerHandler for LibreGeneMcp<R> {
             tools,
             meta: None,
             next_cursor: None,
-            ttl_ms: None,
-            cache_scope: None,
+            ttl_ms: cache_metadata.then_some(0),
+            cache_scope: cache_metadata.then_some(rmcp::model::CacheScope::Private),
         })
     }
 }
