@@ -215,8 +215,8 @@ async fn save_file_region_minus_strand_feature_is_reverse_complemented() {
         .expect("exported feature carried over");
     assert_eq!((exported.start, exported.end), (0, 19));
     assert_eq!(
-        exported.strand, ".",
-        "plus-strand round-trips as '.' (gbk only encodes '-' via complement)"
+        exported.strand, "+",
+        "a location without complement() round-trips as plus strand"
     );
     let prom = parsed
         .features

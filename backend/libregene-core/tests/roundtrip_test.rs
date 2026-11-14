@@ -593,3 +593,65 @@ fn roundtrip_primer_without_binding_site() {
     assert_eq!(rev.primer_seq, "TTGGCCAATTGG");
     assert_eq!(rev.r#type, "rev");
 }
+
+#[test]
+fn roundtrip_preserves_forward_and_reverse_strands_and_map_arrows() {
+    use libregene_core::models::{Feature, ProjectData};
+
+    let feature = |id: &str, name: &str, start: i64, end: i64, strand: &str| Feature {
+        id: id.to_string(),
+        name: name.to_string(),
+        start,
+        end,
+        color: "#60a5fa".to_string(),
+        ftype: "CDS".to_string(),
+        segments: Vec::new(),
+        strand: strand.to_string(),
+        notes: String::new(),
+        translation: String::new(),
+        qualifiers: Vec::new(),
+    };
+    let project = ProjectData {
+        name: "strand_roundtrip".to_string(),
+        sequence: "ATGGTGAGCTAA".repeat(6),
+        length: 72,
+        topology: "circular".to_string(),
+        molecule_type: "dna".to_string(),
+        features: vec![
+            feature("car", "CAR", 0, 11, "+"),
+            feature("zsgreen", "ZsGreen1", 20, 31, "+"),
+            feature("reverse", "reverse", 40, 51, "-"),
+        ],
+        ..Default::default()
+    };
+    let path = std::env::temp_dir().join(format!(
+        "libregene-strand-roundtrip-{}.gbk",
+        std::process::id()
+    ));
+    libregene_core::file_io::gbk::write_gbk(&project, &path).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&path).unwrap();
+    std::fs::remove_file(path).ok();
+
+    for name in ["CAR", "ZsGreen1"] {
+        let feature = reloaded.features.iter().find(|f| f.name == name).unwrap();
+        assert_eq!(feature.strand, "+", "{name}");
+    }
+    assert_eq!(
+        reloaded
+            .features
+            .iter()
+            .find(|f| f.name == "reverse")
+            .unwrap()
+            .strand,
+        "-"
+    );
+
+    let image = libregene_core::map::render_map(&reloaded, Some("linear"), true).unwrap();
+    let arrow_count = image
+        .svg
+        .split("<polygon points=\"")
+        .skip(1)
+        .filter(|rest| rest.split('"').next().unwrap().split_whitespace().count() == 7)
+        .count();
+    assert_eq!(arrow_count, 3, "all directed features keep arrowheads");
+}

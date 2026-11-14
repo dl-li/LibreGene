@@ -273,6 +273,9 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             // Check SnapGene note: "direction: RIGHT" or "direction: LEFT"
             strand = parse_snapgene_direction_from_notes(&note_values);
         }
+        if strand == "." {
+            strand = "+".to_string();
+        }
 
         // Extract coordinates; a SnapGene "This feature has N segments" note
         // takes precedence over the location for segment info.
