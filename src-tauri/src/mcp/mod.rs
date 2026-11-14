@@ -499,17 +499,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         self.get_region_view_impl(request).await
     }
 
-    /// Render the project's plasmid/feature map as a standalone SVG image, using
-    /// the same circular/linear geometry, directional arrows, wrapping features,
-    /// colors and label layout as the desktop Map view. READ-ONLY on the project;
-    /// no agent-tab binding is required. `view` optionally overrides topology with
-    /// "circular" or "linear"; `includeLabels` defaults to true.
+    /// Render the project's plasmid/feature map using the desktop Map view's
+    /// circular/linear geometry, arrows, colors and labels. READ-ONLY; no agent-tab
+    /// binding is required. `view` optionally overrides topology; `includeLabels`
+    /// defaults to true. `format` is "jpg" (default; "jpeg" accepted) or "svg".
     ///
-    /// Prefer `outputPath` (a .svg file): the file is written atomically and the SVG
-    /// source is not echoed. Existing files require `overwrite: true`. If outputPath
-    /// is omitted, the complete SVG is returned inline in `svg`. Returns {ok, message,
-    /// projectId, unit, view, width, height, featureCount, path?, bytesWritten?, svg?,
-    /// sequenceHash, revCompHash}. This is an SVG renderer, not a PNG exporter.
+    /// Prefer `outputPath` (.jpg/.jpeg or .svg to match format): the file is written
+    /// atomically and its content is not echoed. Existing files require `overwrite:
+    /// true`. Without outputPath, JPG is Base64 in `jpg` and SVG source is in `svg`.
+    /// Returns {ok, message, projectId, unit, view, width, height, featureCount,
+    /// format, mimeType, path?, bytesWritten?, jpg?, svg?, sequenceHash, revCompHash}.
     #[tool]
     async fn render_map(
         &self,

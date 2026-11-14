@@ -1,5 +1,6 @@
 use super::common::*;
 use crate::mcp::*;
+use base64::Engine;
 
 fn map_project() -> ProjectData {
     let mut project = dna_test_project();
@@ -19,6 +20,7 @@ async fn render_map_returns_inline_svg_and_relocks_agent_tab() {
     let out = server
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
+            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -47,6 +49,7 @@ async fn render_map_writes_atomically_and_requires_overwrite() {
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
             output_path: Some(path.to_string_lossy().into_owned()),
+            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -66,6 +69,7 @@ async fn render_map_writes_atomically_and_requires_overwrite() {
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
             output_path: Some(path.to_string_lossy().into_owned()),
+            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -82,6 +86,7 @@ async fn render_map_writes_atomically_and_requires_overwrite() {
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
             output_path: Some(path.to_string_lossy().into_owned()),
+            format: Some("svg".to_string()),
             overwrite: Some(true),
             ..Default::default()
         }))
@@ -100,6 +105,7 @@ async fn render_map_linear_can_hide_feature_labels() {
             project_id: "feat".to_string(),
             view: Some("linear".to_string()),
             include_labels: Some(false),
+            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -124,5 +130,40 @@ async fn render_map_is_read_only_for_user_projects() {
         .unwrap()
         .0;
     assert_eq!(out["ok"], true, "{out}");
+    assert_eq!(out["format"], "jpg");
+    assert_eq!(out["mimeType"], "image/jpeg");
+    assert!(out.get("svg").is_none(), "{out}");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(out["jpg"].as_str().unwrap())
+        .unwrap();
+    assert!(bytes.starts_with(&[0xff, 0xd8, 0xff]));
+    assert!(bytes.ends_with(&[0xff, 0xd9]));
     assert!(!server.agent_tabs.read().await.contains_key("feat"));
+}
+
+#[tokio::test]
+async fn render_map_defaults_to_jpg_file_output() {
+    let server = handler_with_project(map_project()).await;
+    let dir = std::env::temp_dir().join(format!("libregene-mcp-map-jpg-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("map.jpg");
+    let out = server
+        .render_map(Parameters(RenderMapRequest {
+            project_id: "feat".to_string(),
+            output_path: Some(path.to_string_lossy().into_owned()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(out["ok"], true, "{out}");
+    assert_eq!(out["format"], "jpg");
+    assert_eq!(out["mimeType"], "image/jpeg");
+    assert!(out.get("svg").is_none(), "{out}");
+    assert!(out.get("jpg").is_none(), "{out}");
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(out["bytesWritten"], bytes.len());
+    assert!(bytes.starts_with(&[0xff, 0xd8, 0xff]));
+    assert!(bytes.ends_with(&[0xff, 0xd9]));
+    std::fs::remove_dir_all(dir).ok();
 }
