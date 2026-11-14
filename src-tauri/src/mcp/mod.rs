@@ -460,8 +460,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `maxFeatures` caps the returned array while featureCount reports all matches.
     /// Primers include sequence and binding sites; alignment summaries include
     /// coverage and whole-read difference counts, not read sequences. `includeEnzymes`
-    /// defaults to false and controls the enzymes array only; enzymeCount always
-    /// counts all cutters. Use find_restriction_sites for full cut geometry.
+    /// defaults to true and controls the enzymes array only; set false for a compact
+    /// overview. enzymeCount always counts all cutters. Use find_restriction_sites
+    /// for full cut geometry.
     ///
     /// `includeText: true` adds the human-readable digest, including translation
     /// warnings, shared read mismatches and auto-annotated common features. The

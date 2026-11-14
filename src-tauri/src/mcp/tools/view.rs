@@ -252,7 +252,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let label = project_label(&id, &project);
         let unit = unit_for(&project.molecule_type);
         let include_text = request.include_text.unwrap_or(false);
-        let include_enzymes = request.include_enzymes.unwrap_or(false);
+        let include_enzymes = request.include_enzymes.unwrap_or(true);
         let (features, feature_count) = feature_list_json(
             &project,
             request.feature_filter.as_deref(),

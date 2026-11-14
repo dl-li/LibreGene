@@ -19,8 +19,8 @@ pub(crate) struct OverviewRequest {
     pub(crate) max_features: Option<usize>,
     /// Feature name (case-insensitive substring) or exact ftype to keep.
     pub(crate) feature_filter: Option<String>,
-    /// Include the structured per-enzyme summary array (default false).
-    /// `enzymeCount` is always reported.
+    /// Include the structured per-enzyme summary array (default true).
+    /// Set false for a compact overview; `enzymeCount` is always reported.
     pub(crate) include_enzymes: Option<bool>,
     /// Also return the human-readable digest as `text` (default false).
     pub(crate) include_text: Option<bool>,
