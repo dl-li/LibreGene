@@ -833,3 +833,34 @@ async fn edit_sequence_transferred_primer_id_does_not_collide_with_different_nam
     assert_ne!(transferred.id, existing.id);
     assert_eq!(project.primers.len(), 2);
 }
+
+#[tokio::test]
+async fn edit_sequence_refreshes_cds_translation_without_a_noop_edit() {
+    let project = libregene_core::models::ProjectData {
+        name: "edit_test".to_string(),
+        sequence: "ATGGTGAGCTAA".to_string(),
+        length: 12,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        features: vec![feature("cds", "CAR", 0, 11, "+")],
+        ..Default::default()
+    };
+    let server = handler_with_project(project).await;
+    let out = server
+        .edit_sequence(Parameters(EditSequenceRequest {
+            project_id: "edit_test".to_string(),
+            start: 4,
+            end: 6,
+            replacement: Some("GAA".to_string()),
+            expected_old: Some("GTG".to_string()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(out["ok"], true, "{out}");
+    let pm = server.pm.read().await;
+    let project = pm.get_project_by_id("edit_test").unwrap();
+    assert_eq!(project.sequence, "ATGGAAAGCTAA");
+    assert_eq!(project.features[0].translation, "MES*");
+}

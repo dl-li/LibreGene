@@ -1193,3 +1193,46 @@ async fn save_file_region_over_own_source_requires_overwrite() {
     assert!(full_len > 10);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn save_file_refreshes_stale_translation_before_writing() {
+    let mut cds = feature("cds", "CAR", 0, 11, "+");
+    cds.translation = "STALE".to_string();
+    let project = ProjectData {
+        name: "translation_save".to_string(),
+        sequence: "ATGGTGAGCTAA".to_string(),
+        length: 12,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        features: vec![cds],
+        ..Default::default()
+    };
+    let server = handler_with_project(project).await;
+    let path = std::env::temp_dir().join(format!(
+        "libregene-mcp-translation-save-{}.gbk",
+        std::process::id()
+    ));
+    let out = server
+        .save_file(Parameters(SaveFileRequest {
+            project_id: "translation_save".to_string(),
+            path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(out["ok"], true, "{out}");
+    assert!(
+        !out["text"].as_str().unwrap().contains("disagrees"),
+        "{out}"
+    );
+    let parsed = libregene_core::file_io::parse_file(&path).unwrap();
+    assert_eq!(parsed.features[0].translation, "MVS*");
+    let pm = server.pm.read().await;
+    assert_eq!(
+        pm.get_project_by_id("translation_save").unwrap().features[0].translation,
+        "MVS*"
+    );
+    drop(pm);
+    std::fs::remove_file(path).ok();
+}

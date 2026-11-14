@@ -363,6 +363,7 @@ pub(crate) async fn do_save_file(
         None
     };
     let mut output = snapshot;
+    libregene_core::translate::refresh_feature_translations(&mut output);
     if let Some(ref n) = new_name {
         output.name = n.clone();
     }
@@ -404,6 +405,9 @@ pub(crate) async fn do_save_file(
                     live.name = n;
                 }
             }
+        }
+        if let Some(live) = pm.get_project_mut_by_id(&final_id) {
+            libregene_core::translate::refresh_feature_translations(live);
         }
         (pm.is_dirty(&final_id), pm.revision(&final_id))
     };
@@ -778,6 +782,7 @@ pub(crate) async fn do_add_features_with_history<R: Runtime>(
                     p.features.push(feature);
                 }
             }
+            libregene_core::translate::refresh_feature_translations(p);
         }
         pm.mark_dirty(project_id);
     }
@@ -852,10 +857,13 @@ where
     {
         let mut pm = pm.write().await;
         match pm.get_project_mut_by_id(project_id) {
-            Some(p) => match p.features.iter_mut().find(|f| f.id == feature_id) {
-                Some(f) => apply(f)?,
-                None => return Err(format!("Feature not found: {}", feature_id)),
-            },
+            Some(p) => {
+                match p.features.iter_mut().find(|f| f.id == feature_id) {
+                    Some(f) => apply(f)?,
+                    None => return Err(format!("Feature not found: {}", feature_id)),
+                }
+                libregene_core::translate::refresh_feature_translations(p);
+            }
             None => return Err(format!("Project not found: {}", project_id)),
         }
         pm.mark_dirty(project_id);
@@ -880,7 +888,10 @@ where
     {
         let mut pm = pm.write().await;
         match pm.get_project_mut_by_id(project_id) {
-            Some(p) => apply(p)?,
+            Some(p) => {
+                apply(p)?;
+                libregene_core::translate::refresh_feature_translations(p);
+            }
             None => return Err(format!("Project not found: {}", project_id)),
         }
         pm.mark_dirty(project_id);

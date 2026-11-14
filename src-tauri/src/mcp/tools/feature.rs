@@ -313,6 +313,19 @@ fn apply_feature_batch(
         }));
     }
     project.features = features;
+    libregene_core::translate::refresh_feature_translations(project);
+    for result in &mut outcome.results {
+        if result["action"] == "delete" {
+            continue;
+        }
+        if let Some(feature) = project
+            .features
+            .iter()
+            .find(|f| Some(f.id.as_str()) == result["featureId"].as_str())
+        {
+            result["feature"] = feature_json_1based(feature);
+        }
+    }
     Ok(outcome)
 }
 

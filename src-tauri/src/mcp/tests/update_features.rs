@@ -262,3 +262,53 @@ async fn update_features_optional_text_is_explicit() {
     assert_eq!(out["ok"], true, "{out}");
     assert!(out["text"].as_str().unwrap().contains("FEATURES"), "{out}");
 }
+
+fn translation_project() -> libregene_core::models::ProjectData {
+    libregene_core::models::ProjectData {
+        name: "feat".to_string(),
+        sequence: "ATGGTGAGCTAA".to_string(),
+        length: 12,
+        topology: "linear".to_string(),
+        molecule_type: "dna".to_string(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn update_features_refreshes_translation_on_create_span_strand_and_recreate() {
+    let server = handler_with_project(translation_project()).await;
+    let created = update(&server, vec![create("CAR", 1, 9)]).await;
+    assert_eq!(created["ok"], true, "{created}");
+    assert_eq!(created["results"][0]["feature"]["translation"], "MVS");
+    let fid = created["results"][0]["featureId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut expand = operation(FeatureAction::Update);
+    expand.feature_id = Some(fid.clone());
+    expand.start = Some(1);
+    expand.end = Some(12);
+    let expanded = update(&server, vec![expand]).await;
+    assert_eq!(expanded["ok"], true, "{expanded}");
+    assert_eq!(expanded["results"][0]["feature"]["translation"], "MVS*");
+
+    let mut reverse = operation(FeatureAction::Update);
+    reverse.feature_id = Some(fid.clone());
+    reverse.strand = Some("-".to_string());
+    let reversed = update(&server, vec![reverse]).await;
+    assert_eq!(reversed["ok"], true, "{reversed}");
+    assert_eq!(reversed["results"][0]["feature"]["translation"], "MAHH");
+
+    let mut remove = operation(FeatureAction::Delete);
+    remove.feature_id = Some(fid);
+    assert_eq!(update(&server, vec![remove]).await["ok"], true);
+    let recreated = update(&server, vec![create("CAR", 1, 12)]).await;
+    assert_eq!(recreated["ok"], true, "{recreated}");
+    assert_eq!(recreated["results"][0]["feature"]["translation"], "MVS*");
+
+    let pm = server.pm.read().await;
+    let features = &pm.get_project_by_id("feat").unwrap().features;
+    assert_eq!(features.len(), 1);
+    assert_eq!(features[0].translation, "MVS*");
+}
