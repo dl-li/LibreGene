@@ -434,7 +434,7 @@ struct LinearLabel<'a> {
 }
 
 fn linear_piece_points(start: f64, end: f64, line_y: f64, tip: bool, strand: &str) -> String {
-    let head = ((end - start) / 2.0).max(2.0).min(10.0);
+    let head = ((end - start) / 2.0).clamp(2.0, 10.0);
     let h = 8.0;
     let flare = h + HEAD_FLARE;
     if !tip {
