@@ -645,6 +645,7 @@ fn overview_renders_alignments() {
         }],
         insertions: Vec::new(),
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     });
     p.alignments.push(crate::models::Alignment {
@@ -667,6 +668,7 @@ fn overview_renders_alignments() {
         ],
         insertions: Vec::new(),
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     });
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
@@ -713,6 +715,7 @@ fn project_with_diff_alignment() -> ProjectData {
             bases: "GG".into(),
         }],
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     });
     p
@@ -779,6 +782,7 @@ fn region_view_alignment_diffs_circular_wrap() {
         ],
         insertions: Vec::new(),
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     });
 
@@ -860,6 +864,7 @@ fn region_view_column_view_circular_wrap_and_uncovered() {
         ],
         insertions: Vec::new(),
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     });
     // Wrapping window 55..4: position 55 is uncovered, columns 56..59 and
@@ -899,6 +904,7 @@ fn region_view_column_view_caps_wide_windows() {
         }],
         insertions: Vec::new(),
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     });
     let opts = DigestOptions {
@@ -991,6 +997,7 @@ fn overview_notes_consensus_mismatches() {
             }],
             insertions: Vec::new(),
             seq: String::new(),
+            algorithm: "blast".into(),
             trace_path: None,
         });
     }

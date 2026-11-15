@@ -583,6 +583,7 @@ fn build_alignment(
             segments,
             insertions,
             seq: oriented_read,
+            algorithm: "blast".to_string(),
             trace_path: None,
         },
         matched,
@@ -986,6 +987,7 @@ pub fn align_read_checked(
         circular,
     );
     anchor_loose_ends(&mut aln, template.len(), circular);
+    aln.algorithm = AlignAlgorithm::SmithWaterman.as_str().to_string();
     Ok(aln)
 }
 
@@ -1092,10 +1094,12 @@ pub fn align_read_checked_with(
     circular: bool,
     algorithm: AlignAlgorithm,
 ) -> Result<Alignment, AlignReject> {
-    match algorithm {
+    let mut alignment = match algorithm {
         AlignAlgorithm::SmithWaterman => align_read_checked(template, read, circular),
         AlignAlgorithm::BlastN => blast_align_read(template, read, circular),
-    }
+    }?;
+    alignment.algorithm = algorithm.as_str().to_string();
+    Ok(alignment)
 }
 
 /// Slide every indel run to its 5'-most equivalent position. A gap can sit
@@ -1477,6 +1481,7 @@ fn blast_align_read_raw(
         segments,
         insertions,
         seq: oriented,
+        algorithm: "blast".to_string(),
         trace_path: None,
     })
 }

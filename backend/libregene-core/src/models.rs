@@ -334,7 +334,7 @@ pub struct AlignInsertion {
     pub bases: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Alignment {
     pub id: String,
@@ -351,11 +351,34 @@ pub struct Alignment {
     pub insertions: Vec<AlignInsertion>,
     /// Read sequence as oriented for display (rev-comp when strand is "-").
     pub seq: String,
+    #[serde(default = "default_alignment_algorithm")]
+    pub algorithm: String,
     /// Source .ab1 path when the read carries trace data; the frontend loads
     /// the chromatogram lazily from this file (traces stay out of every
     /// project serialization).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_path: Option<String>,
+}
+
+fn default_alignment_algorithm() -> String {
+    "blast".to_string()
+}
+
+impl Default for Alignment {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            length: 0,
+            strand: String::new(),
+            identity: 0.0,
+            segments: Vec::new(),
+            insertions: Vec::new(),
+            seq: String::new(),
+            algorithm: default_alignment_algorithm(),
+            trace_path: None,
+        }
+    }
 }
 
 /// A single mismatched column: template position (0-based inclusive) and the

@@ -459,7 +459,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// keeps features by name (case-insensitive substring) or exact ftype;
     /// `maxFeatures` caps the returned array while featureCount reports all matches.
     /// Primers include sequence and binding sites; alignment summaries include
-    /// coverage and whole-read difference counts, not read sequences. `includeEnzymes`
+    /// the saved algorithm, coverage and whole-read difference counts, not read
+    /// sequences. Indel counts are base counts, not numbers of indel runs. `includeEnzymes`
     /// defaults to false and controls both the enzymes array and the optional text's
     /// enzyme section. enzymeCount always counts all cutters; featureFilter never
     /// filters enzymes. Use find_restriction_sites for selected enzymes/full geometry.
@@ -778,14 +779,15 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `text` entirely.
     ///
     /// Returns {ok, message, projectId, unit, significant, alignmentId, name,
-    /// identity, strand, segmentCount, alignedLength, readLength, mismatchCount,
-    /// insertionCount, deletionCount, mismatchDetails, deletionDetails,
+    /// identity, strand, algorithm, segmentCount, alignedLength, readLength,
+    /// mismatchCount, insertionCount, deletionCount, mismatchDetails, deletionDetails,
     /// insertionDetails, coverage, orientedSequence?, window?,
     /// notes?, alignments, text, sequenceHash, revCompHash}.
     /// `identity` is a 0-1 fraction; `alignedLength` is the covered template span
     /// while `readLength` is the read's own length; the mismatch/insertion/deletion
-    /// counts describe the WHOLE read (an insertion sits between bases `position`
-    /// and `position+1`); `orientedSequence` is the full read oriented to the
+    /// counts describe the WHOLE read and are BASE counts (each indel run
+    /// contributes its length, not 1). An insertion sits between bases `position`
+    /// and `position+1`; `orientedSequence` is the full read oriented to the
     /// template (rev-comp'd when strand is "-"); every `alignments` entry has the
     /// same shape, older reads stats-only. No significant hit returns {ok: false,
     /// significant: false} with the reason (identity < 0.60 or span < 50 bp).

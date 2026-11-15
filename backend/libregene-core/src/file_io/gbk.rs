@@ -158,8 +158,8 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let mut features: Vec<Feature> = Vec::new();
     let mut primers: Vec<Primer> = Vec::new();
-    // (name, read sequence, optional source .ab1 path for the chromatogram)
-    let mut alignment_reads: Vec<(String, String, Option<String>)> = Vec::new();
+    // (name, oriented read, trace path, strand, algorithm)
+    let mut alignment_reads: Vec<(String, String, Option<String>, String, String)> = Vec::new();
     let mut lab_host = String::new();
     let mut text_colors_top: Vec<TextColorRange> = Vec::new();
     let mut text_colors_bottom: Vec<TextColorRange> = Vec::new();
@@ -206,7 +206,17 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
                     .map(|s| s.lines().map(|l| l.trim()).collect::<String>())
                     .filter(|s| !s.is_empty())
                     .map(|s| resolve_trace_path(&s, path));
-                alignment_reads.push((name, cleaned, trace_path));
+                let strand = f
+                    .qualifier_values("libregene_align_strand")
+                    .next()
+                    .unwrap_or("+")
+                    .to_string();
+                let algorithm = f
+                    .qualifier_values("libregene_align_algorithm")
+                    .next()
+                    .unwrap_or("blast")
+                    .to_string();
+                alignment_reads.push((name, cleaned, trace_path, strand, algorithm));
                 continue;
             }
         }
@@ -365,10 +375,19 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
 
     let length = sequence.len() as i64;
 
-    // Re-run the alignment so segments/identity match the current sequence.
+    // Re-run with the saved engine and the read in its original orientation.
     let mut alignments = Vec::new();
-    for (name, read, trace_path) in &alignment_reads {
-        if let Some(mut aln) = crate::align::align_read(&sequence, read, topology == "circular") {
+    for (name, read, trace_path, strand, algorithm) in &alignment_reads {
+        let raw = if strand == "-" {
+            crate::utils::reverse_complement(read)
+        } else {
+            read.clone()
+        };
+        let algorithm = crate::align::AlignAlgorithm::parse(algorithm)
+            .unwrap_or(crate::align::AlignAlgorithm::BlastN);
+        if let Some(mut aln) =
+            crate::align::align_read_with(&sequence, &raw, topology == "circular", algorithm)
+        {
             aln.name = name.clone();
             aln.id = crate::align::next_alignment_id(&alignments);
             aln.trace_path = trace_path.clone();
@@ -572,8 +591,8 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
 }
 
 /// Serialize alignments as `misc_feature`s spanning the first segment
-/// (full length when there are no segments). The read sequence and strand
-/// travel in custom qualifiers; position is recomputed on parse.
+/// (full length when there are no segments). The read sequence, strand and
+/// algorithm travel in custom qualifiers; position is recomputed on parse.
 fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq, gbk_path: &Path) {
     for a in &project.alignments {
         let (start, end) = match a.segments.first() {
@@ -587,6 +606,10 @@ fn serialize_alignments_gbk(project: &ProjectData, record: &mut Seq, gbk_path: &
             (
                 Cow::Borrowed("libregene_align_strand"),
                 Some(a.strand.clone()),
+            ),
+            (
+                Cow::Borrowed("libregene_align_algorithm"),
+                Some(a.algorithm.clone()),
             ),
             (Cow::Borrowed("libregene_align_seq"), Some(a.seq.clone())),
         ];
@@ -1372,6 +1395,7 @@ mod tests {
         let a = &parsed.alignments[0];
         assert_eq!(a.name, "read1");
         assert_eq!(a.strand, "+");
+        assert_eq!(a.algorithm, "smith-waterman");
         assert_eq!(a.seq, read);
         assert_eq!(a.segments.len(), 1);
         assert_eq!(a.segments[0].start, 100);
@@ -1381,6 +1405,60 @@ mod tests {
             .features
             .iter()
             .all(|f| !f.qualifiers.iter().any(|(k, _)| k == "libregene_align_seq")));
+    }
+
+    #[test]
+    fn test_reverse_alignment_roundtrip_preserves_engine_and_stats() {
+        let mut x = 43u64;
+        let sequence: String = (0..600)
+            .map(|_| {
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                b"ACGT"[(x >> 33) as usize & 3] as char
+            })
+            .collect();
+        let mut read = sequence[100..500].to_string();
+        read.replace_range(200..201, "A");
+        read.replace_range(250..253, "");
+        let raw = crate::utils::reverse_complement(&read);
+
+        for algorithm in [
+            crate::align::AlignAlgorithm::BlastN,
+            crate::align::AlignAlgorithm::SmithWaterman,
+        ] {
+            let mut aln =
+                crate::align::align_read_checked_with(&sequence, &raw, false, algorithm).unwrap();
+            aln.id = "aln-1".to_string();
+            aln.name = "reverse-read".to_string();
+            let expected = crate::align::alignment_diff(&aln, &sequence);
+            let project = ProjectData {
+                sequence: sequence.clone(),
+                length: sequence.len() as i64,
+                topology: "linear".to_string(),
+                alignments: vec![aln.clone()],
+                ..Default::default()
+            };
+            let path = std::env::temp_dir().join(format!(
+                "libregene_aln_reverse_roundtrip_{}_{}.gbk",
+                std::process::id(),
+                algorithm.as_str()
+            ));
+            write_gbk(&project, &path).unwrap();
+            let parsed = parse_gbk(&path).unwrap();
+            let _ = std::fs::remove_file(&path);
+
+            let actual = &parsed.alignments[0];
+            let diff = crate::align::alignment_diff(actual, &sequence);
+            assert_eq!(actual.strand, "-", "{}", algorithm.as_str());
+            assert_eq!(actual.algorithm, algorithm.as_str());
+            assert_eq!(actual.seq, aln.seq, "{}", algorithm.as_str());
+            assert_eq!(actual.identity, aln.identity, "{}", algorithm.as_str());
+            assert_eq!(diff.aligned_length, expected.aligned_length);
+            assert_eq!(diff.mismatches.len(), expected.mismatches.len());
+            assert_eq!(diff.deletions.len(), expected.deletions.len());
+            assert_eq!(diff.insertions.len(), expected.insertions.len());
+        }
     }
 
     fn tiny_project(topology: &str) -> ProjectData {

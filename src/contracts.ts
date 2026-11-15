@@ -85,6 +85,7 @@ export interface Alignment {
   length: number;
   strand: '+' | '-';
   identity: number;
+  algorithm: 'blast' | 'smith-waterman';
   segments: AlignSegment[];
   insertions: AlignInsertion[];
   seq: string;

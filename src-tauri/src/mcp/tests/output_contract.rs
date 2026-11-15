@@ -712,6 +712,7 @@ async fn region_view_alignment_columns_are_opt_in() {
         }],
         insertions: Vec::new(),
         seq: read,
+        algorithm: "blast".into(),
         trace_path: None,
     }];
     let server = handler_with_project(project).await;

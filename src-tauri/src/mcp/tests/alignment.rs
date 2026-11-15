@@ -453,6 +453,7 @@ fn uncovered_between_segments_measures_gaps_only() {
             .collect(),
         insertions: Vec::new(),
         seq: String::new(),
+        algorithm: "blast".into(),
         trace_path: None,
     };
     // Single segment: no gap.
