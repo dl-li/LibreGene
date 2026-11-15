@@ -300,12 +300,6 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             _ => (loc_segments, loc_start, loc_end),
         };
 
-        let translation = f
-            .qualifier_values("translation")
-            .next()
-            .unwrap_or("")
-            .to_string();
-
         // Build notes string, filtering out SnapGene color/direction notes and
         // the segments note (kept only in `segments`); leftover text from the
         // segments note (e.g. "Cleavage site after base 2417") is preserved.
@@ -330,7 +324,6 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
         // Collect remaining qualifiers (filter out ones we store separately or add synthetically)
         let skip_keys: std::collections::HashSet<&str> = [
             "label",
-            "translation",
             "ApEinfo_fwdcolor",
             "ApEinfo_revcolor",
             "libregene_color",
@@ -368,7 +361,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             segments,
             strand,
             notes,
-            translation,
+            translation: String::new(),
             qualifiers,
         });
     }
@@ -558,11 +551,6 @@ pub fn write_gbk(project: &ProjectData, path: &Path) -> io::Result<()> {
             format!("color: {}", f.color)
         };
         qualifiers.push((Cow::Borrowed("note"), Some(color_note)));
-
-        // Translation for CDS
-        if !f.translation.is_empty() {
-            qualifiers.push((Cow::Borrowed("translation"), Some(f.translation.clone())));
-        }
 
         record.features.push(GbFeature {
             kind: Cow::Owned(if f.ftype.is_empty() {
@@ -1459,6 +1447,62 @@ mod tests {
             assert_eq!(diff.deletions.len(), expected.deletions.len());
             assert_eq!(diff.insertions.len(), expected.insertions.len());
         }
+    }
+
+    #[test]
+    fn test_genbank_translation_is_reference_only_and_not_written() {
+        let feature = Feature {
+            id: "cds".to_string(),
+            name: "CAR".to_string(),
+            start: 0,
+            end: 11,
+            color: "#60A5FA".to_string(),
+            ftype: "CDS".to_string(),
+            segments: Vec::new(),
+            strand: "+".to_string(),
+            notes: String::new(),
+            translation: "STALE".to_string(),
+            qualifiers: vec![("translation".to_string(), "STALE".to_string())],
+        };
+        let project = ProjectData {
+            name: "translation_test".to_string(),
+            sequence: "ATGGTGAGCTAA".to_string(),
+            length: 12,
+            topology: "linear".to_string(),
+            features: vec![feature],
+            ..Default::default()
+        };
+        let path = std::env::temp_dir().join(format!(
+            "libregene_translation_reference_{}.gbk",
+            std::process::id()
+        ));
+        write_gbk(&project, &path).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(!written.contains("/translation="), "{written}");
+
+        let with_imported = written.replacen(
+            "/note=",
+            "/translation=\"STALE\"\n                     /note=",
+            1,
+        );
+        std::fs::write(&path, with_imported).unwrap();
+        let parsed = crate::file_io::parse_file(&path).unwrap();
+        assert_eq!(parsed.features[0].translation, "MVS*");
+        assert_eq!(
+            crate::translate::source_translation(&parsed.features[0]).as_deref(),
+            Some("STALE")
+        );
+
+        write_gbk(&parsed, &path).unwrap();
+        let rewritten = std::fs::read_to_string(&path).unwrap();
+        assert!(!rewritten.contains("/translation="), "{rewritten}");
+        let reparsed = crate::file_io::parse_file(&path).unwrap();
+        assert_eq!(reparsed.features[0].translation, "MVS*");
+        assert_eq!(
+            crate::translate::source_translation(&reparsed.features[0]),
+            None
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     fn tiny_project(topology: &str) -> ProjectData {

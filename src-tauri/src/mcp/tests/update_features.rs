@@ -298,7 +298,7 @@ async fn update_features_refreshes_translation_on_create_span_strand_and_recreat
     reverse.strand = Some("-".to_string());
     let reversed = update(&server, vec![reverse]).await;
     assert_eq!(reversed["ok"], true, "{reversed}");
-    assert_eq!(reversed["results"][0]["feature"]["translation"], "MAHH");
+    assert_eq!(reversed["results"][0]["feature"]["translation"], "LAHH");
 
     let mut remove = operation(FeatureAction::Delete);
     remove.feature_id = Some(fid);
@@ -311,4 +311,32 @@ async fn update_features_refreshes_translation_on_create_span_strand_and_recreat
     let features = &pm.get_project_by_id("feat").unwrap().features;
     assert_eq!(features.len(), 1);
     assert_eq!(features[0].translation, "MVS*");
+}
+
+#[tokio::test]
+async fn overview_distinguishes_derived_and_imported_translations() {
+    let mut project = translation_project();
+    let mut cds = feature("cds", "CAR", 0, 11, "+");
+    cds.translation = "STALE".to_string();
+    cds.qualifiers = vec![("translation".to_string(), "STALE".to_string())];
+    project.features = vec![cds];
+    libregene_core::translate::refresh_feature_translations(&mut project);
+    let server = handler_with_project(project).await;
+    let out = server
+        .get_project_overview(Parameters(OverviewRequest {
+            project_id: "feat".to_string(),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    let feature = &out["features"][0];
+    assert_eq!(feature["translation"], "MVS*", "{feature}");
+    assert_eq!(feature["sourceTranslation"], "STALE", "{feature}");
+    assert_eq!(feature["translationBasis"], "libregene-dna-derived");
+    assert!(feature["qualifiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|qualifier| qualifier[0] != "translation"));
 }

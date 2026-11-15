@@ -82,7 +82,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
   - **GenBank 落盘/解析：1-based**（`gbk.rs::parse_location_string`；App 内用 `parse_location_string_0based`）；gb-io Range 是 0-based end-exclusive
 - **分子类型 gate**：digest 渲染、酶/引物 recompute、translate 都按 `molecule_type` 分支，非 DNA 跳过（`ProjectData::is_dna()`，空串视为 DNA）；auto-annotation 例外（DNA 双通路，protein 按 aa 匹配，RNA 不支持）。
 - **MSA 是独立项目模型**：`projectKind: "msa"` 时使用 `msaRows[].sequence`（无 gap 原始序列）与 `alignedSequence`（等长比对序列），不得复用 Sanger 的模板/read `Alignment`；`msaAligned` 表示当前 aligned 数据有效。`.msa.fa/.msa.fasta` 默认进入 MSA，保存保留 gap，导出 ungapped FASTA 不改变项目 dirty。MUSCLE 5.3 经 sidecar 子进程运行，输出可能重排，必须按名称+原始序列映射回稳定 row ID；参考行只是显示/统计基准，不是模板坐标。
-- **Document / Derived 分层**：`ProjectDocument` 只保存用户拥有的文档内容（剥离酶切结果、引物结合位点和特征翻译），用于 Session Edit Log、undo/redo 与 rollback；`ProjectData.derived` 保存派生酶切缓存及 `templateRevision`，模板变更时失效，重计算 CAS 成功后刷新，IPC 仍保持原 `enzymes` 字段形状。
+- **Document / Derived 分层**：`ProjectDocument` 只保存用户拥有的文档内容（剥离酶切结果、引物结合位点和特征翻译），用于 Session Edit Log、undo/redo 与 rollback；`ProjectData.derived` 保存派生酶切缓存及 `templateRevision`，模板变更时失效，重计算 CAS 成功后刷新，IPC 仍保持原 `enzymes` 字段形状。CDS/mRNA 的 `Feature.translation` 始终由当前 DNA 重算；导入的 `/translation` 仅保留在 qualifiers 供参考（MCP 暴露为 `sourceTranslation`），不参与计算，GBK 写出时省略所有 translation 限定词。
 - **甲基化设置是用户级运行设置**：`ProjectData` 中的 `methylation_*` 仅作当前酶切计算输入，不写 GenBank、不标 dirty、不进 Session Edit Log；保存时剥离旧 `methylation:` KEYWORDS，Agent 锁定项目也允许同步。
 - **跨原点特征**：segments 按 join 顺序存储，后段 `start` < 前段 `start` 即跨原点；`selStart > selEnd` 表示跨原点选区（渲染/复制支持，replace/delete/paste 不支持）。
 - **特征 ID 持久化**：GenBank/GenPept（`.gbk/.gpt`）写出时为每个特征保存 `/libregene_feature_id`，解析优先恢复原 ID（不随名称或坐标改变）；无该限定词的外来文件仍以名称+起点生成初始 ID。

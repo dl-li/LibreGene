@@ -110,20 +110,18 @@ pub fn project_digest(
         }
     }
 
-    // DNA overview only: cross-check stored /translation qualifiers of CDS/mRNA
-    // features against the current sequence (open_file keeps the file's value,
-    // so a stale qualifier after sequence edits is detectable). A mismatch
-    // reports the first disagreeing amino-acid position.
+    // Imported translations are reference-only; the derived sequence wins.
     if is_dna && region.is_none() {
         for f in &features {
-            if (f.ftype == "CDS" || f.ftype == "mRNA") && !f.translation.is_empty() {
+            if f.ftype != "CDS" && f.ftype != "mRNA" {
+                continue;
+            }
+            if let Some(source) = crate::translate::source_translation(f) {
                 let derived = crate::translate::translate_feature(&project.sequence, f);
-                if let Some((pos, stored, derived_aa)) =
-                    translation_diff_pos(&f.translation, &derived)
-                {
+                if let Some((pos, stored, derived_aa)) = translation_diff_pos(&source, &derived) {
                     let _ = writeln!(
                         out,
-                        "WARNING: /translation of {} '{}' (id: {}) disagrees with the DNA sequence at aa {} (stored {}, derived {})",
+                        "WARNING: imported /translation of {} '{}' (id: {}) is reference-only and differs from LibreGene's authoritative DNA-derived translation at aa {} (imported {}, LibreGene {})",
                         f.ftype, f.name, f.id, pos, stored, derived_aa
                     );
                 }

@@ -107,6 +107,10 @@ pub fn parse_file_with_molecule_type(
         )),
     }
     .map(normalize_rna_thymine)
+    .map(|mut project| {
+        crate::translate::refresh_feature_translations(&mut project);
+        project
+    })
 }
 
 /// True when the file starts with the SnapGene cookie

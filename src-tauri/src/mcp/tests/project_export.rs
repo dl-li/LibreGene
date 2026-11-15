@@ -1226,6 +1226,8 @@ async fn save_file_refreshes_stale_translation_before_writing() {
         !out["text"].as_str().unwrap().contains("disagrees"),
         "{out}"
     );
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(!written.contains("/translation="), "{written}");
     let parsed = libregene_core::file_io::parse_file(&path).unwrap();
     assert_eq!(parsed.features[0].translation, "MVS*");
     let pm = server.pm.read().await;

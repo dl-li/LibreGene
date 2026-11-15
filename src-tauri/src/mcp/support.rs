@@ -141,6 +141,15 @@ pub(crate) fn feature_json_1based(f: &Feature) -> serde_json::Value {
             }
         }
     }
+    if let Some(source) = libregene_core::translate::source_translation(f) {
+        v["sourceTranslation"] = serde_json::json!(source);
+        if let Some(qualifiers) = v.get_mut("qualifiers").and_then(|q| q.as_array_mut()) {
+            qualifiers.retain(|q| q[0] != "translation");
+        }
+    }
+    if f.ftype == "CDS" || f.ftype == "mRNA" {
+        v["translationBasis"] = serde_json::json!("libregene-dna-derived");
+    }
     v
 }
 

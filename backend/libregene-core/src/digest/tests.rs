@@ -937,30 +937,32 @@ fn overview_warns_on_translation_dna_mismatch() {
         segments: Vec::new(),
         strand: "+".into(),
         notes: String::new(),
-        translation: "MVSKL".into(),
-        qualifiers: Vec::new(),
+        translation: String::new(),
+        qualifiers: vec![("translation".into(), "MVSKL".into())],
     });
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(
-        out.contains("WARNING: /translation of CDS 'plusCDS' (id: f-plus) disagrees with the DNA sequence at aa 1 (stored M, derived T)"),
+        out.contains("WARNING: imported /translation of CDS 'plusCDS' (id: f-plus) is reference-only and differs from LibreGene's authoritative DNA-derived translation at aa 1 (imported M, LibreGene T)"),
         "{out}"
     );
 
     // A stored translation that matches the DNA emits no warning.
-    p.features[0].translation = "TYVRT".into();
+    p.features[0].qualifiers = vec![("translation".into(), "TYVRT".into())];
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(!out.contains("WARNING:"), "{out}");
 
     // Minus-strand CDS: derived = reverse-complement translation "RTYVR";
     // a mismatch at the last residue is reported at its own position.
     p.features[0].strand = "-".into();
-    p.features[0].translation = "RTYVS".into();
+    p.features[0].qualifiers = vec![("translation".into(), "RTYVS".into())];
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(
-        out.contains("disagrees with the DNA sequence at aa 5 (stored S, derived R)"),
+        out.contains(
+            "LibreGene's authoritative DNA-derived translation at aa 5 (imported S, LibreGene R)"
+        ),
         "{out}"
     );
-    p.features[0].translation = "RTYVR".into();
+    p.features[0].qualifiers = vec![("translation".into(), "RTYVR".into())];
     let out = project_digest(&p, &DigestOptions::default(), None).unwrap();
     assert!(!out.contains("WARNING:"), "{out}");
 

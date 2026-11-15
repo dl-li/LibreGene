@@ -141,10 +141,17 @@ function extractQualifiers(feature) {
   }
 
   for (const [key, vals] of rawQuals) {
-    if (key === 'note') continue;
+    if (key === 'note' || key === 'translation') continue;
     for (const v of vals) {
       quals.push({ key, value: stripHtml(v) });
     }
+  }
+
+  for (const value of rawQuals.get('translation') || []) {
+    quals.push({
+      key: 'translation (imported, reference only)',
+      value: stripHtml(value).replace(/\s+/g, ''),
+    });
   }
 
   const rawNotes = rawQuals.get('note');
@@ -162,7 +169,7 @@ function extractQualifiers(feature) {
 
   if (feature.translation) {
     quals.push({
-      key: 'translation',
+      key: 'translation (LibreGene)',
       value: stripHtml(feature.translation).replace(/\s+/g, ''),
     });
   }
