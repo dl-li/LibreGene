@@ -36,7 +36,14 @@ async fn design_primers_amplify_reports_product_and_cds_strand() {
     assert_eq!(v["unit"], "bp", "{v}");
     assert_eq!(
         v["product"],
-        serde_json::json!({"start": 51, "end": 151, "length": 101}),
+        serde_json::json!({
+            "start": 51,
+            "end": 151,
+            "length": 101,
+            "templateSpanLength": 101,
+            "forwardTailLength": 0,
+            "reverseTailLength": 0,
+        }),
         "{v}"
     );
     assert!(v.get("orientation").is_none(), "replaced by product: {v}");
@@ -228,6 +235,10 @@ async fn design_primers_unified_tm_matches_test_primers() {
         .await
         .unwrap();
     let v = out.0;
+    assert_eq!(v["product"]["length"], 50, "{v}");
+    assert_eq!(v["product"]["templateSpanLength"], 41, "{v}");
+    assert_eq!(v["product"]["forwardTailLength"], 9, "{v}");
+    assert_eq!(v["product"]["reverseTailLength"], 0, "{v}");
     assert!(
         v.get("tmBasis").is_none(),
         "Tm basis lives in the description: {v}"

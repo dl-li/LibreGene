@@ -598,8 +598,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// 1-based inclusive; read `alignedTemplate`/`matchMask` to see exactly
     /// which primer bases pair. When exactly one fwd and one rev primer are
     /// tested and both bind, the response carries `amplicon` {forwardStart,
-    /// reverseEnd, length, note} with the PCR product's size (no export
-    /// needed).
+    /// reverseEnd, length, templateSpanLength, forwardTailLength,
+    /// reverseTailLength, note}. `length` is the full physical PCR product,
+    /// including unannealed 5' tails; templateSpanLength excludes them.
     #[tool]
     async fn test_primers(
         &self,
@@ -846,10 +847,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// dropped). Use the candidate with `recommended: true` (or
     /// `recommendedIndex`) — `annealLength`/`tm` describe the ACTUAL contiguous
     /// 3' match, `designedAnnealLength`/`designedTm` the designed core before
-    /// 3'-end unification. In amplify mode `product` = {start, end, length}
-    /// (1-based inclusive): the product's top strand is the template's top
-    /// strand over this span, and `cdsOverlaps[].strand` maps overlapping CDS
-    /// features onto it.
+    /// 3'-end unification. In amplify mode `product` = {start, end, length,
+    /// templateSpanLength, forwardTailLength, reverseTailLength} (coordinates
+    /// 1-based inclusive): `length` is the full physical product including the
+    /// requested 5' tails, while templateSpanLength is seg alone. The product's
+    /// top strand is the template top strand over seg; `cdsOverlaps[].strand`
+    /// maps overlapping CDS features onto it.
     #[tool]
     async fn design_primers(
         &self,

@@ -505,6 +505,8 @@ impl<R: Runtime> LibreGeneMcp<R> {
 
         let mode_is_amplify = request.mode == "amplify";
         let seg_bounds = seg.as_ref().map(|s| (s.start, s.end));
+        let fwd_tail_length = fwd_tail.as_ref().map_or(0, String::len);
+        let rev_tail_length = rev_tail.as_ref().map_or(0, String::len);
         let groups = crate::do_design_primer_candidates(
             &self.pm,
             &id,
@@ -557,10 +559,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 );
             }
             if let Some((ss, se)) = seg_bounds {
+                let template_span_length = (se - ss).rem_euclid(tlen) + 1;
                 v["product"] = serde_json::json!({
                     "start": to1(ss),
                     "end": to1(se),
-                    "length": (se - ss).rem_euclid(tlen) + 1,
+                    "length": template_span_length + fwd_tail_length as i64 + rev_tail_length as i64,
+                    "templateSpanLength": template_span_length,
+                    "forwardTailLength": fwd_tail_length,
+                    "reverseTailLength": rev_tail_length,
                 });
                 let cds_overlaps: Vec<serde_json::Value> = {
                     let pm = self.pm.read().await;
@@ -743,9 +749,9 @@ fn remap_site(site: &mut serde_json::Value, tlen: i64, circular: bool) {
     site_json_to_1based(site, tlen, circular);
 }
 
-/// `{forwardStart, reverseEnd, length, note}` for the fwd/rev primer pair, when
-/// the request holds exactly one primer of each type and both bind the strand
-/// their role needs. The best (highest-Tm) site per role is used.
+/// Product geometry for the fwd/rev primer pair, when the request holds exactly
+/// one primer of each type and both bind the strand their role needs. The best
+/// (highest-Tm) site per role is used; full length includes unannealed 5' tails.
 fn amplicon_json(
     results: &serde_json::Value,
     inputs: &[(String, String, usize)],
@@ -758,19 +764,26 @@ fn amplicon_json(
     let fwd_idx = inputs.iter().position(|(_, t, _)| t == "fwd")?;
     let rev_idx = inputs.iter().position(|(_, t, _)| t == "rev")?;
     let results = results.as_array()?;
-    let fwd_start = best_site_on_strand(results.get(fwd_idx)?, 1)?["templateStart"].as_i64()?;
-    let rev_end = best_site_on_strand(results.get(rev_idx)?, -1)?["templateEnd"].as_i64()?;
-    let length = if circular {
+    let fwd_site = best_site_on_strand(results.get(fwd_idx)?, 1)?;
+    let rev_site = best_site_on_strand(results.get(rev_idx)?, -1)?;
+    let fwd_start = fwd_site["templateStart"].as_i64()?;
+    let rev_end = rev_site["templateEnd"].as_i64()?;
+    let template_span_length = if circular {
         (rev_end - fwd_start).rem_euclid(tlen) + 1
     } else if rev_end >= fwd_start {
         rev_end - fwd_start + 1
     } else {
         return None;
     };
+    let forward_tail_length = fwd_site["tailLength"].as_u64().unwrap_or(0);
+    let reverse_tail_length = rev_site["tailLength"].as_u64().unwrap_or(0);
     Some(serde_json::json!({
         "forwardStart": fwd_start,
         "reverseEnd": rev_end,
-        "length": length,
-        "note": "Length of the fwd/rev primer pair's PCR product (top strand), derived from the best binding site of each primer; binding sites are best-first (Tm descending)",
+        "length": template_span_length as u64 + forward_tail_length + reverse_tail_length,
+        "templateSpanLength": template_span_length,
+        "forwardTailLength": forward_tail_length,
+        "reverseTailLength": reverse_tail_length,
+        "note": "length is the full physical PCR product including unannealed 5' tails; templateSpanLength excludes those tails. Derived from the best binding site of each primer (Tm descending)",
     }))
 }

@@ -418,6 +418,44 @@ async fn test_primers_reports_the_amplicon_size() {
 }
 
 #[tokio::test]
+async fn test_primers_amplicon_includes_unannealed_five_prime_tails() {
+    let project = dna_test_project();
+    let template = project.sequence.clone();
+    let server = handler_with_project(project).await;
+    let fwd = format!("GGCGGATCC{}", &template[10..30]);
+    let rev = format!(
+        "GCGAAGCTT{}",
+        libregene_core::utils::reverse_complement(&template[80..100])
+    );
+    let checked = server
+        .test_primers(Parameters(TestPrimersRequest {
+            project_id: "feat".to_string(),
+            primers: vec![
+                PrimerInput {
+                    name: "F".to_string(),
+                    r#type: "fwd".to_string(),
+                    seq: Some(fwd),
+                    hash: None,
+                },
+                PrimerInput {
+                    name: "R".to_string(),
+                    r#type: "rev".to_string(),
+                    seq: Some(rev),
+                    hash: None,
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .0;
+    let amp = &checked["amplicon"];
+    assert_eq!(amp["templateSpanLength"], 92, "{checked}");
+    assert_eq!(amp["forwardTailLength"], 7, "{checked}");
+    assert_eq!(amp["reverseTailLength"], 9, "{checked}");
+    assert_eq!(amp["length"], 108, "{checked}");
+}
+
+#[tokio::test]
 async fn design_primers_candidates_are_labelled_and_recommended() {
     let server = handler_with_project(alignment_test_project("linear")).await;
     let v = server
