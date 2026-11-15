@@ -10,7 +10,7 @@ fn map_project() -> ProjectData {
 }
 
 #[tokio::test]
-async fn render_map_returns_inline_svg_and_relocks_agent_tab() {
+async fn render_map_returns_inline_jpg_rejects_svg_and_relocks_agent_tab() {
     let server = handler_with_project(map_project()).await;
     server
         .agent_tabs
@@ -20,7 +20,6 @@ async fn render_map_returns_inline_svg_and_relocks_agent_tab() {
     let out = server
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
-            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -29,14 +28,33 @@ async fn render_map_returns_inline_svg_and_relocks_agent_tab() {
     assert_eq!(out["ok"], true, "{out}");
     assert_eq!(out["view"], "circular");
     assert_eq!(out["featureCount"], 1);
+    assert_eq!(out["format"], "jpg");
+    assert_eq!(out["mimeType"], "image/jpeg");
     assert!(out["width"].as_f64().unwrap() > 0.0);
     assert!(out["height"].as_f64().unwrap() > 0.0);
-    let svg = out["svg"].as_str().unwrap();
-    assert!(svg.starts_with("<svg xmlns="), "{svg}");
-    assert!(svg.contains("AmpR"), "{svg}");
-    assert!(svg.contains("100 bp"), "{svg}");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(out["jpg"].as_str().unwrap())
+        .unwrap();
+    assert!(bytes.starts_with(&[0xff, 0xd8, 0xff]));
+    assert!(bytes.ends_with(&[0xff, 0xd9]));
+    assert!(out.get("svg").is_none(), "{out}");
     assert!(out.get("path").is_none(), "{out}");
     assert!(server.agent_tabs.read().await["feat"].locked);
+
+    let svg = server
+        .render_map(Parameters(RenderMapRequest {
+            project_id: "feat".to_string(),
+            format: Some("svg".to_string()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(svg["ok"], false, "{svg}");
+    assert!(svg["message"]
+        .as_str()
+        .unwrap()
+        .contains("only outputs JPG"));
 }
 
 #[tokio::test]
@@ -44,32 +62,31 @@ async fn render_map_writes_atomically_and_requires_overwrite() {
     let server = handler_with_project(map_project()).await;
     let dir = std::env::temp_dir().join(format!("libregene-mcp-map-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("map.svg");
+    let path = dir.join("map.jpg");
     let out = server
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
             output_path: Some(path.to_string_lossy().into_owned()),
-            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
         .unwrap()
         .0;
     assert_eq!(out["ok"], true, "{out}");
-    assert!(out.get("svg").is_none(), "{out}");
+    assert!(out.get("jpg").is_none(), "{out}");
     assert_eq!(
         out["path"],
         crate::normalize_project_path(path.to_str().unwrap()).unwrap()
     );
-    let svg = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(out["bytesWritten"], svg.len());
-    assert!(svg.contains("AmpR"), "{svg}");
+    let jpg = std::fs::read(&path).unwrap();
+    assert_eq!(out["bytesWritten"], jpg.len());
+    assert!(jpg.starts_with(&[0xff, 0xd8, 0xff]));
+    assert!(jpg.ends_with(&[0xff, 0xd9]));
 
     let refused = server
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
             output_path: Some(path.to_string_lossy().into_owned()),
-            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -80,13 +97,12 @@ async fn render_map_writes_atomically_and_requires_overwrite() {
         .as_str()
         .unwrap()
         .contains("overwrite: true"));
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), svg);
+    assert_eq!(std::fs::read(&path).unwrap(), jpg);
 
     let overwritten = server
         .render_map(Parameters(RenderMapRequest {
             project_id: "feat".to_string(),
             output_path: Some(path.to_string_lossy().into_owned()),
-            format: Some("svg".to_string()),
             overwrite: Some(true),
             ..Default::default()
         }))
@@ -105,7 +121,6 @@ async fn render_map_linear_can_hide_feature_labels() {
             project_id: "feat".to_string(),
             view: Some("linear".to_string()),
             include_labels: Some(false),
-            format: Some("svg".to_string()),
             ..Default::default()
         }))
         .await
@@ -113,9 +128,8 @@ async fn render_map_linear_can_hide_feature_labels() {
         .0;
     assert_eq!(out["ok"], true, "{out}");
     assert_eq!(out["view"], "linear");
-    let svg = out["svg"].as_str().unwrap();
-    assert!(!svg.contains(">AmpR</text>"), "{svg}");
-    assert!(svg.contains("feat · 100 bp"), "{svg}");
+    assert_eq!(out["format"], "jpg");
+    assert!(out["jpg"].as_str().is_some_and(|jpg| !jpg.is_empty()));
 }
 
 #[tokio::test]

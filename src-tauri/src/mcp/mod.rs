@@ -503,13 +503,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// Render the project's plasmid/feature map using the desktop Map view's
     /// circular/linear geometry, arrows, colors and labels. READ-ONLY; no agent-tab
     /// binding is required. `view` optionally overrides topology; `includeLabels`
-    /// defaults to true. `format` is "jpg" (default; "jpeg" accepted) or "svg".
+    /// defaults to true. Output is ALWAYS JPG; optional `format` accepts "jpg"
+    /// (default) or "jpeg". SVG output is not supported.
     ///
-    /// Prefer `outputPath` (.jpg/.jpeg or .svg to match format): the file is written
-    /// atomically and its content is not echoed. Existing files require `overwrite:
-    /// true`. Without outputPath, JPG is Base64 in `jpg` and SVG source is in `svg`.
-    /// Returns {ok, message, projectId, unit, view, width, height, featureCount,
-    /// format, mimeType, path?, bytesWritten?, jpg?, svg?, sequenceHash, revCompHash}.
+    /// Prefer `outputPath` (.jpg/.jpeg): the file is written atomically and its
+    /// content is not echoed. Existing files require `overwrite: true`. Without
+    /// outputPath, JPG is Base64 in `jpg`. Returns {ok, message, projectId, unit,
+    /// view, width, height, featureCount, format, mimeType, path?, bytesWritten?,
+    /// jpg?, sequenceHash, revCompHash}.
     #[tool]
     async fn render_map(
         &self,

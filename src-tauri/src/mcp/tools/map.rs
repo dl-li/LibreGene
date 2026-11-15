@@ -45,24 +45,17 @@ impl<R: Runtime> LibreGeneMcp<R> {
             insert_seq_hashes(&mut value, &hashes);
             Json(value)
         };
-        let format = match request.format.as_deref().unwrap_or("jpg") {
-            "jpg" | "jpeg" => "jpg",
-            "svg" => "svg",
-            other => {
+        if let Some(format) = request.format.as_deref() {
+            if !matches!(format, "jpg" | "jpeg") {
                 return Ok(fail(format!(
-                    "invalid format '{}': expected jpg or svg",
-                    other
-                )))
+                    "invalid format '{}': render_map only outputs JPG",
+                    format
+                )));
             }
-        };
+        }
         let output_path = match request.output_path {
             Some(path) => {
-                let extensions: &[&str] = if format == "jpg" {
-                    &["jpg", "jpeg"]
-                } else {
-                    &["svg"]
-                };
-                crate::validate_user_path(&path, extensions).map_err(|e| {
+                crate::validate_user_path(&path, &["jpg", "jpeg"]).map_err(|e| {
                     ErrorData::invalid_params(format!("invalid outputPath: {}", e), None)
                 })?;
                 let path = crate::normalize_project_path(&path)
@@ -87,26 +80,16 @@ impl<R: Runtime> LibreGeneMcp<R> {
         .await
         .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
         .map_err(|e| ErrorData::invalid_params(e, None))?;
-        let jpeg = if format == "jpg" {
-            let svg = std::mem::take(&mut image.svg);
-            Some(
-                tokio::task::spawn_blocking(move || render_jpeg(&svg))
-                    .await
-                    .map_err(|e| {
-                        ErrorData::internal_error(format!("task join error: {}", e), None)
-                    })?
-                    .map_err(|e| ErrorData::invalid_params(e, None))?,
-            )
-        } else {
-            None
-        };
+        let svg = std::mem::take(&mut image.svg);
+        let jpeg = tokio::task::spawn_blocking(move || render_jpeg(&svg))
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("task join error: {}", e), None))?
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
         let mut response = ok_envelope(
             &id,
-            match (&output_path, format) {
-                (Some(path), "jpg") => format!("Rendered {} map to {}", image.view, path),
-                (Some(path), _) => format!("Rendered {} map to {}", image.view, path),
-                (None, "jpg") => format!("Rendered {} map as inline JPEG", image.view),
-                (None, _) => format!("Rendered {} map as inline SVG", image.view),
+            match &output_path {
+                Some(path) => format!("Rendered {} map to {}", image.view, path),
+                None => format!("Rendered {} map as inline JPEG", image.view),
             },
             None,
         );
@@ -115,22 +98,14 @@ impl<R: Runtime> LibreGeneMcp<R> {
         response["width"] = serde_json::json!(image.width);
         response["height"] = serde_json::json!(image.height);
         response["featureCount"] = serde_json::json!(feature_count);
-        response["format"] = serde_json::json!(format);
-        response["mimeType"] = serde_json::json!(if format == "jpg" {
-            "image/jpeg"
-        } else {
-            "image/svg+xml"
-        });
+        response["format"] = serde_json::json!("jpg");
+        response["mimeType"] = serde_json::json!("image/jpeg");
         if let Some(path) = output_path {
-            let bytes = match jpeg {
-                Some(bytes) => bytes,
-                None => image.svg.into_bytes(),
-            };
-            let byte_count = bytes.len();
+            let byte_count = jpeg.len();
             let write_path = path.clone();
             tokio::task::spawn_blocking(move || {
                 libregene_core::file_io::write_atomic(std::path::Path::new(&write_path), |file| {
-                    std::io::Write::write_all(file, &bytes)
+                    std::io::Write::write_all(file, &jpeg)
                 })
             })
             .await
@@ -140,11 +115,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
             })?;
             response["path"] = serde_json::json!(path);
             response["bytesWritten"] = serde_json::json!(byte_count);
-        } else if let Some(bytes) = jpeg {
-            response["jpg"] =
-                serde_json::json!(base64::engine::general_purpose::STANDARD.encode(bytes));
         } else {
-            response["svg"] = serde_json::json!(image.svg);
+            response["jpg"] =
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode(jpeg));
         }
         insert_seq_hashes(&mut response, &hashes);
         Ok(Json(response))

@@ -64,10 +64,9 @@ pub(crate) struct RegionRequest {
 pub(crate) struct RenderMapRequest {
     /// Required: the project to render (see list_workspace). Read-only on the project.
     pub(crate) project_id: String,
-    /// Preferred output file (.jpg/.jpeg or .svg, matching `format`). Omit to
-    /// return Base64 JPEG in `jpg` or SVG source in `svg`.
+    /// Preferred output file (.jpg/.jpeg). Omit to return Base64 JPEG in `jpg`.
     pub(crate) output_path: Option<String>,
-    /// "jpg" (default; "jpeg" accepted) | "svg".
+    /// Optional output format: "jpg" (default) or "jpeg". SVG is not supported.
     pub(crate) format: Option<String>,
     /// "circular" | "linear"; defaults to the project topology.
     pub(crate) view: Option<String>,
