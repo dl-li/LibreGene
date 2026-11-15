@@ -111,7 +111,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - 蛋白理化性质轨道（`src/plugins/builtin/proteinProperties/`，疏水/电荷/极性/体积/二级结构倾向 5 条）：纯渲染
 - My Primers / My Enzymes 库：存 localStorage，后端不可见
 - 酶 Provider 数据与筛选（`enzyme_providers.json`、`get_enzyme_providers`）：仅展示用，不进 recompute
-- 编辑器背景水印、选区 badge 分子量：纯渲染（质粒图已由 `render_map` 输出独立 SVG；`backend/libregene-core/src/map.rs` 与前端 `MapView.jsx` 的布局几何需同步修改）
+- 编辑器背景水印、选区 badge 分子量：纯渲染（质粒图已由 `render_map` 输出独立 JPG；`backend/libregene-core/src/map.rs` 与前端 `MapView.jsx` 的布局几何需同步修改）
 - 前端搜索 UI（名称匹配）：MCP 无搜索工具（序列/IUPAC 检索由 Agent 在导出文件上用脚本完成）
 - Agent 标签解锁按钮/导航控制条：纯前端，锁定状态后端持有
 - Tm 参数与引物分析设置：`design_primers` 已暴露浓度参数，其余为渲染层状态

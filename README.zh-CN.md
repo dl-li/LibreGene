@@ -87,7 +87,7 @@ LibreGene 内置了 [MCP](https://modelcontextprotocol.io) 服务器（仅监听
 共暴露 17 个工具，覆盖完整编辑流程：
 
 - **项目与文件** — `open_project`、`save_file`（支持子序列/区域导出）、`list_workspace`、`add_to_workspace`
-- **读取与出图** — `read_sequence`、`get_project_overview`、`get_region_view`、`render_map`（独立 SVG 图谱）
+- **读取与出图** — `read_sequence`、`get_project_overview`、`get_region_view`、`render_map`（独立 JPG 图谱）
 - **编辑** — `edit_sequence`（插入/删除/替换）、`update_features`（原子批量创建/更新/删除）
 - **引物** — `add_primer`、`test_primers`（临时引物结合检查，含 Tm 与扩增子大小）、`design_primers`（扩增 / OE-PCR / 诱变）
 - **分析** — `find_restriction_sites`、`find_orfs`、`add_alignment`、`convert_sequence`（序列转换 + 9 个物种的密码子优化）

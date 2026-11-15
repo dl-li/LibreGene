@@ -87,7 +87,7 @@ LibreGene embeds an [MCP](https://modelcontextprotocol.io) server (loopback only
 17 tools are exposed, covering the full editing workflow:
 
 - **Projects & files** — `open_project`, `save_file` (with subsequence/region export), `list_workspace`, `add_to_workspace`
-- **Reading & rendering** — `read_sequence`, `get_project_overview`, `get_region_view`, `render_map` (standalone SVG)
+- **Reading & rendering** — `read_sequence`, `get_project_overview`, `get_region_view`, `render_map` (standalone JPG)
 - **Editing** — `edit_sequence` (insert/delete/replace), `update_features` (atomic batch create/update/delete)
 - **Primers** — `add_primer`, `test_primers` (ad-hoc binding checks with Tm and amplicon size), `design_primers` (amplify / OE-PCR / mutagenesis)
 - **Analysis** — `find_restriction_sites`, `find_orfs`, `add_alignment`, `convert_sequence` (sequence conversion + codon optimization for 9 species)
