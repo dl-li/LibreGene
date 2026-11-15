@@ -757,7 +757,7 @@ async fn region_view_alignment_columns_are_opt_in() {
 }
 
 #[tokio::test]
-async fn overview_enzymes_default_on_region_opt_in_and_compact() {
+async fn overview_and_region_enzyme_details_are_opt_in_and_compact() {
     let mut project = enzyme_test_project();
     project.features = vec![
         feature("car", "CAR", 0, 11, "+"),
@@ -778,29 +778,39 @@ async fn overview_enzymes_default_on_region_opt_in_and_compact() {
     assert_eq!(overview["features"].as_array().unwrap().len(), 1);
     assert_eq!(overview["features"][0]["name"], "CAR");
     assert!(overview["enzymeCount"].as_u64().unwrap() > 0);
-    assert_eq!(
-        overview["enzymes"].as_array().unwrap().len(),
-        overview["enzymeCount"].as_u64().unwrap() as usize,
-        "featureFilter does not filter the default enzyme summary"
-    );
+    assert!(overview.get("enzymes").is_none(), "{overview}");
 
-    let overview_without_enzymes = server
+    let overview_with_enzymes = server
         .get_project_overview(Parameters(OverviewRequest {
             project_id: "enz".to_string(),
-            include_enzymes: Some(false),
+            include_enzymes: Some(true),
             ..Default::default()
         }))
         .await
         .unwrap()
         .0;
     assert_eq!(
-        overview_without_enzymes["enzymeCount"],
+        overview_with_enzymes["enzymeCount"],
         overview["enzymeCount"]
     );
-    assert!(
-        overview_without_enzymes.get("enzymes").is_none(),
-        "{overview_without_enzymes}"
-    );
+    assert!(!overview_with_enzymes["enzymes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    let text_without_enzymes = server
+        .get_project_overview(Parameters(OverviewRequest {
+            project_id: "enz".to_string(),
+            include_text: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(!text_without_enzymes["text"]
+        .as_str()
+        .unwrap()
+        .contains("ENZYMES"));
 
     let region = server
         .get_region_view(Parameters(RegionRequest {
@@ -814,6 +824,23 @@ async fn overview_enzymes_default_on_region_opt_in_and_compact() {
         .0;
     assert!(region["restrictionSiteCount"].as_u64().unwrap() > 0);
     assert!(region.get("restrictionSites").is_none(), "{region}");
+
+    let region_text = server
+        .get_region_view(Parameters(RegionRequest {
+            project_id: "enz".to_string(),
+            start: 35,
+            end: 50,
+            include_text: Some(true),
+            compact: Some(false),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert!(!region_text["text"]
+        .as_str()
+        .unwrap()
+        .contains("ENZYMES CUTTING IN REGION"));
 
     let compact = server
         .get_region_view(Parameters(RegionRequest {

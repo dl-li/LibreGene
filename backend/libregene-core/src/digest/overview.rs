@@ -292,7 +292,7 @@ pub fn project_digest(
     }
 
     // Enzymes (DNA only — single-strand molecules have no restriction sites)
-    if is_dna {
+    if is_dna && !opts.omit_enzymes {
         match region {
             None => {
                 let (single, double, multi) = classify_enzymes(project);

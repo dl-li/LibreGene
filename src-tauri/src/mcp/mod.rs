@@ -460,9 +460,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     /// `maxFeatures` caps the returned array while featureCount reports all matches.
     /// Primers include sequence and binding sites; alignment summaries include
     /// coverage and whole-read difference counts, not read sequences. `includeEnzymes`
-    /// defaults to true and controls the enzymes array only; set false for a compact
-    /// overview. enzymeCount always counts all cutters. Use find_restriction_sites
-    /// for full cut geometry.
+    /// defaults to false and controls both the enzymes array and the optional text's
+    /// enzyme section. enzymeCount always counts all cutters; featureFilter never
+    /// filters enzymes. Use find_restriction_sites for selected enzymes/full geometry.
     ///
     /// `includeText: true` adds the human-readable digest, including translation
     /// warnings, shared read mismatches and auto-annotated common features. The
@@ -488,8 +488,9 @@ impl<R: Runtime> LibreGeneMcp<R> {
     ///
     /// Each overlapping alignment has structured mismatch/deletion/insertion
     /// details filtered to the window plus whole-read counts and in-window counts.
-    /// `includeText: true` adds the human-readable digest; `compact` also controls
-    /// its enzyme section (true = one count line, false = detailed grouped sites).
+    /// `includeText: true` adds the human-readable digest. Its enzyme section is
+    /// present only with `includeEnzymes: true`; then `compact` selects one count
+    /// line (true) or detailed grouped sites (false).
     /// `showAlignmentColumns: true` implies includeText and adds the ALIGNMENT VIEW
     /// block (template, match mask and read rows, capped at 500 covered bp).
     #[tool]

@@ -252,7 +252,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
         let label = project_label(&id, &project);
         let unit = unit_for(&project.molecule_type);
         let include_text = request.include_text.unwrap_or(false);
-        let include_enzymes = request.include_enzymes.unwrap_or(true);
+        let include_enzymes = request.include_enzymes.unwrap_or(false);
         let (features, feature_count) = feature_list_json(
             &project,
             request.feature_filter.as_deref(),
@@ -299,6 +299,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             max_features: request.max_features,
             feature_filter: request.feature_filter,
             compact_enzymes: !include_enzymes,
+            omit_enzymes: !include_enzymes,
             include_auto_annotation: include_text,
             include_alignment_view: false,
             ..DigestOptions::default()
@@ -368,6 +369,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             feature_filter: request.feature_filter.clone(),
             enzyme_filter: request.enzymes.clone(),
             compact_enzymes: compact,
+            omit_enzymes: !include_enzymes,
             include_auto_annotation: false,
             include_alignment_view: show_alignment_columns,
         };

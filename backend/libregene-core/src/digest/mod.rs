@@ -29,6 +29,8 @@ pub struct DigestOptions {
     /// groups isoschizomers sharing recognition and cut geometry; mutation tools
     /// default this to true.
     pub compact_enzymes: bool,
+    /// Omit the enzyme section from the optional human-readable digest.
+    pub omit_enzymes: bool,
     /// Whole-project digests only: append a brief auto-annotation section
     /// (`DETECTED COMMON FEATURES (auto)`) listing non-fragment features the
     /// annotate engine found against the embedded SnapGene database, one line

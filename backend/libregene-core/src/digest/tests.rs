@@ -1044,6 +1044,17 @@ fn compact_enzymes_collapses_cutter_lists() {
     let region = project_digest(&p, &opts, Some((30, 5))).unwrap();
     assert!(region.contains("ENZYMES CUTTING IN REGION (compact): "));
     assert!(!region.contains("BsaI"));
+
+    let omitted = project_digest(
+        &p,
+        &DigestOptions {
+            omit_enzymes: true,
+            ..DigestOptions::default()
+        },
+        Some((30, 5)),
+    )
+    .unwrap();
+    assert!(!omitted.contains("ENZYMES CUTTING IN REGION"));
 }
 
 #[test]
