@@ -153,6 +153,12 @@ impl<R: Runtime> LibreGeneMcp<R> {
                     // Annotations travel with the sequence: features/primers
                     // from the file land on the inserted region below.
                     Ok(data) => {
+                        if data.sequence.is_empty() {
+                            return Ok(fail(format!(
+                                "replacementPath parsed to an empty sequence (0 {}); refusing a file-based empty replacement. Check the file format (FASTA requires a '>' header); to delete explicitly, pass replacement: \"\"",
+                                unit_for(&project.molecule_type)
+                            )));
+                        }
                         // The file's molecule type must match the target
                         // project (e.g. a protein .gpt into a DNA project
                         // would corrupt the sequence).

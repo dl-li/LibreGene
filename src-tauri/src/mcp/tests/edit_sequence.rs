@@ -2,6 +2,61 @@ use super::common::*;
 use crate::mcp::*;
 
 #[tokio::test]
+async fn edit_sequence_rejects_empty_sequence_from_replacement_path() {
+    let server = handler_with_project(edit_test_project()).await;
+    let original = {
+        let pm = server.pm.read().await;
+        pm.get_project_by_id("edit_test").unwrap().sequence.clone()
+    };
+    let original_hashes = libregene_core::utils::orientation_hashes(&original, "dna");
+    let path = std::env::temp_dir().join(format!(
+        "libregene-mcp-headerless-replacement-{}.fasta",
+        std::process::id()
+    ));
+    let bases = "ACGT".repeat(18);
+    std::fs::write(&path, &bases[..71]).unwrap();
+
+    let out = server
+        .edit_sequence(Parameters(EditSequenceRequest {
+            project_id: "edit_test".to_string(),
+            start: 61,
+            end: 131,
+            replacement_path: Some(path.to_string_lossy().into_owned()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(out["ok"], false, "{out}");
+    assert!(out["message"]
+        .as_str()
+        .unwrap()
+        .contains("empty sequence (0 bp)"));
+    assert_eq!(out["sequenceHash"], original_hashes.0);
+    {
+        let pm = server.pm.read().await;
+        let project = pm.get_project_by_id("edit_test").unwrap();
+        assert_eq!(project.sequence, original);
+        assert_eq!(project.length, 200);
+    }
+
+    let deleted = server
+        .edit_sequence(Parameters(EditSequenceRequest {
+            project_id: "edit_test".to_string(),
+            start: 61,
+            end: 61,
+            replacement: Some(String::new()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    assert_eq!(deleted["newLength"], 199);
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn edit_sequence_replacement_from_fasta_file() {
     let server = handler_with_project(edit_test_project()).await;
     let insert = "AAACCCGGGTTT";
