@@ -1058,6 +1058,9 @@ function ProjectWorkspace({
           <main
             ref={mainScrollRef}
             className="w-full flex-1 overflow-y-auto overscroll-contain hide-scrollbar transition-[padding] duration-300 ease-out"
+            // Hovered SVG labels are reordered for paint priority; native scroll
+            // anchoring can mistake that for a layout change and shift the page.
+            style={{ overflowAnchor: 'none' }}
           >
             <SequenceEditor
               sequence={sequence}
