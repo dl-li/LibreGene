@@ -621,6 +621,7 @@ mod tests {
             name: "Test".into(),
             r#type: "fwd".into(),
             primer_seq: "CGTACGCTAG".into(),
+            hidden: false,
             binding_sites: vec![],
         }];
         let updated = recompute_all_primers(template, "linear", &primers);

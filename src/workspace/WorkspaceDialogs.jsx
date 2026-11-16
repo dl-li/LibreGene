@@ -82,6 +82,7 @@ export default function WorkspaceDialogs({
   primerDeleteConfirm,
   setPrimerDeleteConfirm,
   handleDeletePrimer,
+  handlePrimerChange,
   handleFeatureAdd,
   handleAddMyPrimerToFile,
   handleAddAllBindingPrimers,
@@ -102,6 +103,7 @@ export default function WorkspaceDialogs({
           primers={primers}
           tmParams={tmParams}
           alignmentCacheRef={alignmentCacheRef}
+          onPrimerChange={handlePrimerChange}
           onEditPrimer={(p) => {
             openPrimerEditorRef.current?.(p);
           }}

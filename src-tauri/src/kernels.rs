@@ -991,13 +991,13 @@ pub(crate) async fn do_set_text_colors<R: Runtime>(
 }
 
 /// Cheap structural equality for the primers list (Primer has no PartialEq).
-/// The snapshot/merge write-back guard only needs to detect whether the list
-/// membership changed (add/remove/replace), not binding-site internals.
+/// The snapshot/merge write-back guard only needs to detect whether list
+/// membership or a user-owned primer definition changed, not binding-site internals.
 pub(crate) fn primers_equal(a: &[Primer], b: &[Primer]) -> bool {
     a.len() == b.len()
-        && a.iter()
-            .zip(b)
-            .all(|(x, y)| x.id == y.id && x.name == y.name && x.primer_seq == y.primer_seq)
+        && a.iter().zip(b).all(|(x, y)| {
+            x.id == y.id && x.name == y.name && x.primer_seq == y.primer_seq && x.hidden == y.hidden
+        })
 }
 
 pub(crate) fn primer_definitions(primers: &[Primer]) -> Vec<Primer> {
@@ -1008,6 +1008,7 @@ pub(crate) fn primer_definitions(primers: &[Primer]) -> Vec<Primer> {
             name: p.name.clone(),
             r#type: p.r#type.clone(),
             primer_seq: p.primer_seq.clone(),
+            hidden: p.hidden,
             binding_sites: Vec::new(),
         })
         .collect()
@@ -2280,6 +2281,7 @@ mod tests {
             name: "f1".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "GATTACAGTC".to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         }];
         let out = do_check_primers_binding(&pm, "p1", primers).await.unwrap();
@@ -2342,6 +2344,7 @@ mod tests {
             name: "t1".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "AGCGTACGCTAGCTA".to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         }];
         let out = do_check_primers_binding(&pm, "p1", primers).await.unwrap();
@@ -2413,6 +2416,7 @@ mod tests {
             name: id.to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "GATTACA".to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         };
 
@@ -2447,6 +2451,7 @@ mod tests {
             name: "old".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "GATTACA".to_string(),
+            hidden: false,
             binding_sites: vec![libregene_core::models::PrimerBindingSite {
                 primer_id: "old".to_string(),
                 strand: 1,
@@ -2487,6 +2492,7 @@ mod tests {
                 name: "new".to_string(),
                 r#type: "fwd".to_string(),
                 primer_seq: "GATTACAGATTACA".to_string(),
+                hidden: false,
                 binding_sites: Vec::new(),
             },
         )
@@ -2889,6 +2895,7 @@ mod tests {
             name: id.to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "ACGT".to_string(),
+            hidden: false,
             binding_sites: vec![
                 libregene_core::models::PrimerBindingSite {
                     primer_id: id.to_string(),

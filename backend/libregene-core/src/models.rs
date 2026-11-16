@@ -152,6 +152,8 @@ pub struct Primer {
     /// Full primer sequence 5'→3'.
     #[serde(default)]
     pub primer_seq: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     /// Computed binding sites, sorted by Tm descending (best first).
     #[serde(default)]
     pub binding_sites: Vec<PrimerBindingSite>,
@@ -818,6 +820,7 @@ mod document_model_tests {
                 name: "p".to_string(),
                 r#type: "fwd".to_string(),
                 primer_seq: "GAATTC".to_string(),
+                hidden: true,
                 binding_sites: vec![PrimerBindingSite {
                     primer_id: "p".to_string(),
                     strand: 1,
@@ -838,6 +841,7 @@ mod document_model_tests {
         let document = project.document();
         assert!(document.features[0].translation.is_empty());
         assert!(document.primers[0].binding_sites.is_empty());
+        assert!(document.primers[0].hidden);
 
         let serialized = serde_json::to_value(&project).unwrap();
         assert!(serialized.get("enzymes").is_some());

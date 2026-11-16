@@ -55,6 +55,7 @@ mod tests {
                 name: "P1".into(),
                 r#type: "fwd".into(),
                 primer_seq: "ACGTACGTAC".into(),
+                hidden: false,
                 binding_sites: Vec::new(),
             }],
             ..Default::default()

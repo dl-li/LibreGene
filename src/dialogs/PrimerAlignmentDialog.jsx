@@ -424,6 +424,7 @@ export default function PrimerAlignmentDialog({
             name: editName || primer.name,
             type: primerType,
             primerSeq: stripIUPAC(editSeq),
+            hidden: !!primer.hidden,
           };
       await onPrimerChange(primerData);
       onOpenChange(false);

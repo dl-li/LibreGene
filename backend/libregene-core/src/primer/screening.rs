@@ -238,6 +238,7 @@ mod tests {
                 name: "Fwd1".into(),
                 r#type: "fwd".into(),
                 primer_seq: "CGTACGCTAG".into(),
+                hidden: false,
                 binding_sites: vec![],
             },
             Primer {
@@ -245,6 +246,7 @@ mod tests {
                 name: "Rev1".into(),
                 r#type: "rev".into(),
                 primer_seq: "GCTAGCATCG".into(),
+                hidden: false,
                 binding_sites: vec![],
             },
         ]
@@ -265,6 +267,7 @@ mod tests {
             name: "Short".into(),
             r#type: "fwd".into(),
             primer_seq: "ATGC".into(),
+            hidden: false,
             binding_sites: vec![],
         }];
         let auto = PrimerAutomaton::build(&primers, 8);
@@ -282,6 +285,7 @@ mod tests {
             name: "Fwd".into(),
             r#type: "fwd".into(),
             primer_seq: "CGTACGCTAG".into(),
+            hidden: false,
             binding_sites: vec![],
         }];
         let auto = PrimerAutomaton::build(&primers, 8);
@@ -299,6 +303,7 @@ mod tests {
             name: "Rev".into(),
             r#type: "rev".into(),
             primer_seq: "CGTACGCTAG".into(),
+            hidden: false,
             binding_sites: vec![],
         }];
         let auto = PrimerAutomaton::build(&primers, 8);
@@ -322,6 +327,7 @@ mod tests {
                 name: "Fwd".into(),
                 r#type: "fwd".into(),
                 primer_seq: "CGTACGCTAG".into(), // RC = CTAGCGTACG
+                hidden: false,
                 binding_sites: vec![],
             },
             Primer {
@@ -329,6 +335,7 @@ mod tests {
                 name: "Rev".into(),
                 r#type: "rev".into(),
                 primer_seq: rev_seq.to_string(),
+                hidden: false,
                 binding_sites: vec![],
             },
         ];
@@ -355,6 +362,7 @@ mod tests {
             name: "P1".into(),
             r#type: "fwd".into(),
             primer_seq: "CGTACGTA".into(),
+            hidden: false,
             binding_sites: vec![],
         }];
         let auto = PrimerAutomaton::build(&primers, 4);
@@ -375,6 +383,7 @@ mod tests {
             name: "Iupac".into(),
             r#type: "fwd".into(),
             primer_seq: "CGTACGRTAG".into(),
+            hidden: false,
             binding_sites: vec![],
         }];
         // template = "NN" + "CTATCGTA" + "NN" (RC will contain "TACGATAG")

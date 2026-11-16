@@ -43,6 +43,7 @@ pub(crate) fn primer_from_qualifier_values(
         name: label.to_string(),
         r#type: ptype.to_string(),
         primer_seq: primer_seq.to_string(),
+        hidden: false,
         binding_sites: Vec::new(),
     }
 }
@@ -332,6 +333,7 @@ pub fn parse_gbk(path: &Path) -> io::Result<ProjectData> {
             "libregene_primer_id",
             "libregene_primer_seq",
             "libregene_primer_type",
+            "libregene_primer_hidden",
         ]
         .into_iter()
         .collect();
@@ -702,13 +704,20 @@ fn serialize_primers_snapgene(project: &ProjectData, record: &mut Seq) {
             loc
         };
 
+        let mut qualifiers = vec![
+            (Cow::Borrowed("label"), Some(p.name.clone())),
+            (Cow::Borrowed("note"), Some(note)),
+        ];
+        if p.hidden {
+            qualifiers.push((
+                Cow::Borrowed("libregene_primer_hidden"),
+                Some("true".to_string()),
+            ));
+        }
         record.features.push(GbFeature {
             kind: Cow::Borrowed("primer_bind"),
             location: loc,
-            qualifiers: vec![
-                (Cow::Borrowed("label"), Some(p.name.clone())),
-                (Cow::Borrowed("note"), Some(note)),
-            ],
+            qualifiers,
         });
     }
 }
@@ -925,6 +934,9 @@ pub(crate) fn build_primer_qualifier_pairs(p: &Primer) -> (i64, i64, Vec<(String
         ("libregene_primer_type".to_string(), p.r#type.clone()),
         ("libregene_primer_seq".to_string(), p.primer_seq.clone()),
     ];
+    if p.hidden {
+        qualifiers.push(("libregene_primer_hidden".to_string(), "true".to_string()));
+    }
 
     if !p.binding_sites.is_empty() {
         let parts: Vec<String> = p
@@ -1210,6 +1222,10 @@ fn parse_snapgene_primer(f: &GbFeature, seq: &str) -> Option<Primer> {
         name: label.to_string(),
         r#type: ptype.to_string(),
         primer_seq,
+        hidden: f
+            .qualifier_values("libregene_primer_hidden")
+            .next()
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
         binding_sites: Vec::new(),
     })
 }

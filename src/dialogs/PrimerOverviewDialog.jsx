@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Eye, EyeOff } from 'lucide-react';
 import { writePlainClipboard } from '../clipboardAnnotations';
 import { isDefaultTmParams } from '../tmParams';
 import { T, useTranslation } from '@/i18n';
@@ -70,6 +70,25 @@ function formatTm(site) {
   return `${t.toFixed(1)}°C`;
 }
 
+export function PrimerVisibilityButton({ primer, onPrimerChange }) {
+  const { t } = useTranslation();
+  const label = t(primer.hidden ? 'Show Primer' : 'Hide Primer');
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      onClick={(event) => {
+        event.stopPropagation();
+        onPrimerChange?.({ ...primer, hidden: !primer.hidden });
+      }}
+    >
+      {primer.hidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+    </button>
+  );
+}
+
 export function resolvePrimerOverviewSites(primer, cacheData, useCompatibilityDefaults) {
   const storedSites = primer.bindingSites || [];
   const primary = cacheData?.current || (useCompatibilityDefaults ? storedSites[0] : null);
@@ -88,6 +107,7 @@ export default function PrimerOverviewDialog({
   alignmentCacheRef,
   tmParams,
   onEditPrimer,
+  onPrimerChange,
 }) {
   const { t } = useTranslation();
   const useCompatibilityDefaults = isDefaultTmParams(tmParams);
@@ -123,8 +143,11 @@ export default function PrimerOverviewDialog({
                 <th className="text-left font-semibold py-2 pr-3">
                   <T>{'Initial-cycle Tm'}</T>
                 </th>
-                <th className="text-left font-semibold py-2">
+                <th className="text-left font-semibold py-2 pr-3">
                   <T>{'Other Sites'}</T>
+                </th>
+                <th className="text-left font-semibold py-2">
+                  <T>{'Visibility'}</T>
                 </th>
               </tr>
             </thead>
@@ -170,7 +193,7 @@ export default function PrimerOverviewDialog({
                     <td className="py-2.5 pr-3 font-mono text-xs tabular-nums">
                       {primary ? formatTm(primary) : '—'}
                     </td>
-                    <td className="py-2.5 text-xs">
+                    <td className="py-2.5 pr-3 text-xs">
                       {alts.length > 0 ? (
                         <div className="flex flex-wrap gap-x-1.5 gap-y-1">
                           {alts.map((alt, i) => {
@@ -189,12 +212,15 @@ export default function PrimerOverviewDialog({
                         <span className="text-muted-foreground/40">—</span>
                       )}
                     </td>
+                    <td className="py-2.5">
+                      <PrimerVisibilityButton primer={p} onPrimerChange={onPrimerChange} />
+                    </td>
                   </tr>
                 );
               })}
               {primers.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                     <T>{'No primers found'}</T>
                   </td>
                 </tr>

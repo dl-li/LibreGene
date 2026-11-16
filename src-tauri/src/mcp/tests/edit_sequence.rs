@@ -841,6 +841,7 @@ async fn edit_sequence_transferred_primer_id_does_not_collide_with_different_nam
         name: "existing".to_string(),
         r#type: "fwd".to_string(),
         primer_seq: "ACGTACGT".to_string(),
+        hidden: false,
         binding_sites: Vec::new(),
     }];
     let server = handler_with_project(project).await;
@@ -857,6 +858,7 @@ async fn edit_sequence_transferred_primer_id_does_not_collide_with_different_nam
             name: "incoming".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: sequence[30..50].to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         }],
         source: "collision".to_string(),

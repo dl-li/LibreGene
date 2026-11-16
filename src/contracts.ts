@@ -63,6 +63,7 @@ export interface Primer {
   name: string;
   type: 'fwd' | 'rev';
   primerSeq: string;
+  hidden?: boolean;
   bindingSites: PrimerBindingSite[];
   color?: string;
   [key: string]: unknown;

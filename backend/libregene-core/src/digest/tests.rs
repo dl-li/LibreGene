@@ -74,6 +74,7 @@ fn synthetic_project() -> ProjectData {
                 name: "P1".into(),
                 r#type: "fwd".into(),
                 primer_seq: "ACGTACGTAC".into(),
+                hidden: false,
                 binding_sites: vec![
                     PrimerBindingSite {
                         primer_id: "p1".into(),
@@ -110,6 +111,7 @@ fn synthetic_project() -> ProjectData {
                 name: "orphan".into(),
                 r#type: "rev".into(),
                 primer_seq: "GGGGGG".into(),
+                hidden: false,
                 binding_sites: Vec::new(),
             },
         ],

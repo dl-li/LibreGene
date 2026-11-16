@@ -75,6 +75,7 @@ import {
   CopyMinus,
   CopyX,
   Eraser,
+  EyeOff,
   Globe,
   Image,
   Paintbrush,
@@ -1347,6 +1348,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
             setPrimerAlignmentPrimer(enrichedPrimers.find((ep) => ep.id === p.id) || null);
           },
         },
+        {
+          icon: EyeOff,
+          label: 'Hide Primer',
+          onSelect: () => {
+            setSelectionMode('none');
+            setSelectedPrimerIds([]);
+            onPrimerChange?.({ ...p, hidden: true });
+          },
+        },
         { type: 'separator' },
         {
           icon: Trash2,
@@ -1356,7 +1366,15 @@ const SequenceEditor = React.memo(function SequenceEditor({
         },
       ]);
     },
-    [selectPrimer, primerMenuItems, enrichedPrimers, onPrimerDeleteRequest],
+    [
+      selectPrimer,
+      primerMenuItems,
+      enrichedPrimers,
+      onPrimerDeleteRequest,
+      onPrimerChange,
+      setSelectionMode,
+      setSelectedPrimerIds,
+    ],
   );
 
   const enzymeDbRef = useRef(null); // null = not loaded, [] = load failed/empty

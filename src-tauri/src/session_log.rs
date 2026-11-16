@@ -658,6 +658,7 @@ mod tests {
             name: "forward".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "AACCGGTT".to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         });
         edited.alignments.push(Alignment {
@@ -782,6 +783,7 @@ mod document_history_tests {
                 name: "p".to_string(),
                 r#type: "fwd".to_string(),
                 primer_seq: "AAAA".to_string(),
+                hidden: false,
                 binding_sites: vec![libregene_core::models::PrimerBindingSite {
                     primer_id: "p".to_string(),
                     strand: 1,

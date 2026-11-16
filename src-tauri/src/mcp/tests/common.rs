@@ -233,6 +233,7 @@ pub(crate) fn write_annotated_insert() -> (std::path::PathBuf, std::path::PathBu
             name: "ins_primer".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: src_seq[30..50].to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         }],
         ..Default::default()

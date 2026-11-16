@@ -1315,6 +1315,7 @@ function ProjectWorkspace({
         primerDeleteConfirm={primerDeleteConfirm}
         setPrimerDeleteConfirm={setPrimerDeleteConfirm}
         handleDeletePrimer={handleDeletePrimer}
+        handlePrimerChange={handlePrimerChange}
         handleFeatureAdd={handleFeatureAdd}
         handleAddMyPrimerToFile={handleAddMyPrimerToFile}
         handleAddAllBindingPrimers={handleAddAllBindingPrimers}

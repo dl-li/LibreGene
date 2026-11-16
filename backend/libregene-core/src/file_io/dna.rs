@@ -438,6 +438,7 @@ pub fn parse_dna_primers(xml: &str, _full_seq: &str) -> Vec<Primer> {
                 name: sp.name.clone(),
                 r#type: ptype.to_string(),
                 primer_seq,
+                hidden: false,
                 binding_sites: Vec::new(),
             })
         })
@@ -813,6 +814,7 @@ pub fn features_from_xml(features_xml: &str, sequence: &str, topology: &str) -> 
                 "libregene_primer_id",
                 "libregene_primer_seq",
                 "libregene_primer_type",
+                "libregene_primer_hidden",
             ]
             .into_iter()
             .collect();

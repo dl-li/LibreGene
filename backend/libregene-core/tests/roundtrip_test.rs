@@ -545,6 +545,42 @@ fn roundtrip_order_location() {
     assert_eq!(segments_of(f2), vec![(99, 149), (199, 249)]);
 }
 
+#[test]
+fn roundtrip_hidden_primer_with_binding_site() {
+    let mut project = synthetic_project(vec![]);
+    project.primers = vec![libregene_core::models::Primer {
+        id: "hidden".to_string(),
+        name: "Hidden".to_string(),
+        r#type: "fwd".to_string(),
+        primer_seq: "ACGT".to_string(),
+        hidden: true,
+        binding_sites: vec![libregene_core::models::PrimerBindingSite {
+            primer_id: "hidden".to_string(),
+            strand: 1,
+            template_start: 0,
+            template_end: 4,
+            tm: 50.0,
+            gc_content: 0.5,
+            match_score: 4,
+            has_3_prime_mismatch: false,
+            five_prime_tail: String::new(),
+            three_prime_tail: String::new(),
+            display_tail: String::new(),
+            alignment: Default::default(),
+        }],
+    }];
+
+    let tmp = std::env::temp_dir().join("libregene_hidden_primer_roundtrip.gbk");
+    libregene_core::file_io::gbk::write_gbk(&project, &tmp).expect("write gbk");
+    let written = std::fs::read_to_string(&tmp).unwrap();
+    let reloaded = libregene_core::file_io::gbk::parse_gbk(&tmp).expect("re-parse gbk");
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(written.contains("libregene_primer_hidden"));
+    assert_eq!(reloaded.primers.len(), 1);
+    assert!(reloaded.primers[0].hidden);
+}
+
 /// A primer with no binding sites must survive a save→reload instead of
 /// being silently dropped.
 #[test]
@@ -556,6 +592,7 @@ fn roundtrip_primer_without_binding_site() {
             name: "OrphanFwd".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "ACGTACGTACGT".to_string(),
+            hidden: true,
             binding_sites: Vec::new(),
         },
         libregene_core::models::Primer {
@@ -563,6 +600,7 @@ fn roundtrip_primer_without_binding_site() {
             name: "OrphanRev".to_string(),
             r#type: "rev".to_string(),
             primer_seq: "TTGGCCAATTGG".to_string(),
+            hidden: false,
             binding_sites: Vec::new(),
         },
     ];
@@ -585,6 +623,8 @@ fn roundtrip_primer_without_binding_site() {
         .expect("OrphanFwd");
     assert_eq!(fwd.primer_seq, "ACGTACGTACGT");
     assert_eq!(fwd.r#type, "fwd");
+    assert!(fwd.hidden);
+    assert!(written.contains("libregene_primer_hidden"));
     let rev = reloaded
         .primers
         .iter()
@@ -592,6 +632,7 @@ fn roundtrip_primer_without_binding_site() {
         .expect("OrphanRev");
     assert_eq!(rev.primer_seq, "TTGGCCAATTGG");
     assert_eq!(rev.r#type, "rev");
+    assert!(!rev.hidden);
 }
 
 #[test]

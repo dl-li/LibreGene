@@ -217,6 +217,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             name: request.name,
             r#type: request.r#type,
             primer_seq: clean_seq.clone(),
+            hidden: false,
             binding_sites: Vec::new(),
         };
         let payload = crate::do_add_primer(
@@ -680,6 +681,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
                 name: p.name,
                 r#type: p.r#type,
                 primer_seq: clean_seq,
+                hidden: false,
                 binding_sites: Vec::new(),
             });
         }

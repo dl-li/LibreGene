@@ -67,6 +67,18 @@ describe('enrichPrimers', () => {
     expect(result.every((p) => p.color === '#C2410C')).toBe(true);
   });
 
+  it('omits hidden primers without removing their data', () => {
+    const visible = primer([site(0, 4)]);
+    const result = enrichPrimers(
+      [visible, { ...primer([site(4, 8)]), id: 'hidden', hidden: true }],
+      'AAAACCCC',
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('primer-1');
+    expect(visible.hidden).toBeUndefined();
+  });
+
   it('supports legacy flat primer fields', () => {
     const result = enrichPrimers(
       [{ id: 'legacy', matchStart: 2, matchEnd: 6, isFwd: false, bindingSites: [] }],

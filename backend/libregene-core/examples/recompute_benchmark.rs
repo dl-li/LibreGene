@@ -63,6 +63,7 @@ fn project(scenario: Scenario) -> ProjectData {
                 name: format!("Primer {i}"),
                 r#type: if i % 2 == 0 { "fwd" } else { "rev" }.to_string(),
                 primer_seq: sequence[start..start + 20].to_string(),
+                hidden: false,
                 binding_sites: Vec::new(),
             }
         })

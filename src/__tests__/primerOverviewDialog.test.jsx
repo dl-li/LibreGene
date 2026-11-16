@@ -1,10 +1,26 @@
+import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { resolvePrimerOverviewSites } from '../dialogs/PrimerOverviewDialog';
+import {
+  PrimerVisibilityButton,
+  resolvePrimerOverviewSites,
+} from '../dialogs/PrimerOverviewDialog';
 
 const storedSite = { templateStart: 4, templateEnd: 10, strand: 1, tm: 50 };
 const storedAlternative = { templateStart: 20, templateEnd: 26, strand: -1, tm: 45 };
 const currentSite = { start: 4, end: 10, strand: 1, tm: 60 };
 const primer = { id: 'p1', bindingSites: [storedSite, storedAlternative] };
+
+describe('PrimerOverviewDialog visibility controls', () => {
+  it('offers to restore hidden primers and hide visible primers', () => {
+    const visibleHtml = renderToString(<PrimerVisibilityButton primer={primer} />);
+    const hiddenHtml = renderToString(
+      <PrimerVisibilityButton primer={{ ...primer, hidden: true }} />,
+    );
+
+    expect(visibleHtml).toContain('aria-label="Hide Primer"');
+    expect(hiddenHtml).toContain('aria-label="Show Primer"');
+  });
+});
 
 describe('PrimerOverviewDialog Tm conditions', () => {
   it('uses the cache computed with the current conditions', () => {

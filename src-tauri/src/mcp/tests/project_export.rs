@@ -541,6 +541,7 @@ async fn save_file_region_exports_overlapping_primers() {
         name: name.to_string(),
         r#type: "fwd".to_string(),
         primer_seq: seq[s..e].to_string(),
+        hidden: false,
         binding_sites: Vec::new(),
     };
     let mut project = ProjectData {
@@ -1044,6 +1045,7 @@ fn build_export_data_keeps_wrap_origin_primer() {
             name: "wp".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "AAAAAAAAAA".to_string(),
+            hidden: false,
             binding_sites: vec![site],
         }],
         ..Default::default()
@@ -1089,6 +1091,7 @@ fn build_export_data_full_circle_export_keeps_wrapped_primer_site() {
             name: "wp".to_string(),
             r#type: "fwd".to_string(),
             primer_seq: "AAAAAAAAAA".to_string(),
+            hidden: false,
             binding_sites: vec![site],
         }],
         ..Default::default()
