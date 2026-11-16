@@ -359,6 +359,7 @@ pub(crate) async fn do_save_file(
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .map(|s| s.strip_suffix(".msa").unwrap_or(&s).to_string())
+            .map(|s| s.strip_suffix(".libregene").unwrap_or(&s).to_string())
     } else {
         None
     };
@@ -2179,6 +2180,51 @@ mod tests {
         assert!(first_line.starts_with("LOCUS"), "{first_line}");
         assert!(first_line.contains("My_Plasmid"), "{first_line}");
         std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn save_as_libregene_suffixes_roundtrip_without_leaking_into_names() {
+        let dir =
+            std::env::temp_dir().join(format!("libregene-saveas-native-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for (molecule_type, sequence, extension) in [
+            ("dna", "GATTACAGTCGATTACAGTC", "libregene.gbk"),
+            ("protein", "MVS*", "libregene.gpt"),
+        ] {
+            let project_id = format!("untitled-native-{molecule_type}");
+            let pm = Arc::new(RwLock::new(ProjectManager::new()));
+            pm.write()
+                .await
+                .open_project(
+                    project_id.clone(),
+                    ProjectData {
+                        name: "Untitled".to_string(),
+                        sequence: sequence.to_string(),
+                        length: sequence.len() as i64,
+                        molecule_type: molecule_type.to_string(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let path = dir.join(format!("Native.{extension}"));
+            let out = do_save_file(&pm, project_id, path.to_string_lossy().into_owned(), true)
+                .await
+                .unwrap();
+            assert!(out.get("error").is_none(), "{out}");
+
+            let final_id = out["projectId"].as_str().unwrap();
+            assert_eq!(
+                pm.read().await.get_project_by_id(final_id).unwrap().name,
+                "Native"
+            );
+            let parsed = file_io::parse_file(&path).unwrap();
+            assert_eq!(parsed.name, "Native");
+            assert_eq!(parsed.molecule_type, molecule_type);
+            assert_eq!(parsed.sequence.len(), sequence.len());
+            std::fs::remove_file(&path).ok();
+        }
+        std::fs::remove_dir(&dir).ok();
     }
 
     #[tokio::test]

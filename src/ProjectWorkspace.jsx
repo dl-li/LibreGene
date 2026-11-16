@@ -37,6 +37,7 @@ import { createProjectSnapshot, projectSnapshotsEqual } from './workspace/projec
 import { applyProjectMutation } from './workspace/projectMutation';
 import WorkspaceError from './components/WorkspaceError';
 import { useTranslation } from './i18n';
+import { nativeSaveExtension, nativeSaveFileName } from './saveFormats';
 
 function ProjectWorkspace({
   projectId,
@@ -873,13 +874,13 @@ function ProjectWorkspace({
   const handleSaveAs = useCallback(async () => {
     if (!isTauri) return false;
 
-    const defaultExt = moleculeType === 'protein' ? 'gpt' : 'gbk';
+    const defaultExt = nativeSaveExtension(moleculeType);
     const pid = projectIdRef.current || '';
     const rawName =
       pid.startsWith('untitled-') || pid.startsWith('snapshot-') || !pid
         ? projectName || 'sequence'
         : pid.split('/').pop().split('\\').pop();
-    const defaultName = rawName.replace(/\.[^.]+$/, '') + '.' + defaultExt;
+    const defaultName = nativeSaveFileName(rawName, moleculeType);
     const path = await saveFileDialog(defaultName, defaultExt);
     if (!path) return false;
 

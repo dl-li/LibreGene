@@ -1,6 +1,6 @@
 # LibreGene — 质粒编辑器
 
-React 19 + Vite + Tauri v2 + Rust 桌面质粒编辑器。纯 SVG 渲染，支持分段特征、引物、酶切标注、序列比对（ab1 色谱）、插件系统；默认输出增强型 GenBank（含颜色和引物注释）。
+React 19 + Vite + Tauri v2 + Rust 桌面质粒编辑器。纯 SVG 渲染，支持分段特征、引物、酶切标注、序列比对（ab1 色谱）、插件系统；默认输出增强型 GenBank（含颜色和引物注释），DNA/RNA 原生保存后缀为 `.libregene.gbk`，蛋白为 `.libregene.gpt`。
 
 **这是 Tauri v2 桌面应用，不要用浏览器测试，必须用 `npx tauri dev` 启动。**
 

@@ -4,6 +4,7 @@
  * Tauri-desktop-only. Uses invoke() for IPC commands and listen() for events.
  */
 
+import { saveFormatLabel } from './saveFormats';
 import type {
   Chromatogram,
   CreateMsaArgs,
@@ -723,10 +724,9 @@ export async function openAlignmentFileDialog() {
   return Array.isArray(result) ? result : [result];
 }
 
-export async function saveFileDialog(defaultName = 'project.gbk', ext = 'gbk') {
+export async function saveFileDialog(defaultName = 'project.libregene.gbk', ext = 'libregene.gbk') {
   if (!isTauri) return null;
-  const label =
-    ext === 'fa' || ext === 'fasta' ? 'FASTA' : ext === 'gpt' ? 'Protein GenBank' : 'GenBank';
+  const label = saveFormatLabel(ext);
   const result = await tauriSave({
     title: `Save ${label} file`,
     defaultPath: defaultName,
