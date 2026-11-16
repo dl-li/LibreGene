@@ -39,6 +39,57 @@ function validMeta() {
   );
 }
 
+describe('collectAnnotations', () => {
+  it('excludes virtual ORFs but keeps overlapping document features', () => {
+    const meta = collectAnnotations(
+      {
+        features: [
+          {
+            name: 'gene',
+            ftype: 'CDS',
+            strand: '+',
+            segments: [{ start: 10, end: 29 }],
+          },
+          {
+            name: 'ORF #1',
+            ftype: 'CDS',
+            strand: '+',
+            orf: true,
+            qualifiers: [['orf', 'true']],
+            segments: [{ start: 10, end: 29 }],
+          },
+        ],
+        primers: [],
+      },
+      0,
+      99,
+    );
+
+    expect(meta.features).toHaveLength(1);
+    expect(meta.features[0].name).toBe('gene');
+  });
+
+  it('returns null when only virtual ORFs overlap the copied range', () => {
+    const meta = collectAnnotations(
+      {
+        features: [
+          {
+            name: 'ORF #1',
+            ftype: 'CDS',
+            orf: true,
+            segments: [{ start: 10, end: 29 }],
+          },
+        ],
+        primers: [],
+      },
+      0,
+      99,
+    );
+
+    expect(meta).toBeNull();
+  });
+});
+
 describe('parseMetaFromPasteEvent (forged-flavor hardening)', () => {
   it('accepts the shape collectAnnotations produces', () => {
     const meta = validMeta();

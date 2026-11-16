@@ -17,6 +17,7 @@ export function collectAnnotations({ features, primers }, start, end, totalLen =
 
   if (features) {
     for (const f of features) {
+      if (f.orf) continue;
       const segs =
         f.segments && f.segments.length > 0 ? f.segments : [{ start: f.start, end: f.end }];
       let hasOverlap = false;
