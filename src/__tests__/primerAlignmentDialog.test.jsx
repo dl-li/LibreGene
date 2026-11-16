@@ -35,6 +35,8 @@ describe('PrimerAlignmentDialog other binding sites', () => {
     expect(html).toContain('||||||');
     expect(html).toContain('font-weight:bold');
     expect(html).toContain('background-color:#C2410C');
+    expect(html).toContain('padding:1px 0');
+    expect(html).not.toContain('padding:1px 2px');
   });
 
   it('shows the selected Tm mode for alternative sites', () => {

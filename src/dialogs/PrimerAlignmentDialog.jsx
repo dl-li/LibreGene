@@ -120,7 +120,7 @@ export function AlignmentView({ data, primerColor: primerColorOverride }) {
           return (
             <div key={i} style={{ whiteSpace: 'pre', color, fontWeight: 'bold' }}>
               {m[1]}
-              <span style={{ backgroundColor: primerColor, color: cardBg, padding: '1px 2px' }}>
+              <span style={{ backgroundColor: primerColor, color: cardBg, padding: '1px 0' }}>
                 {m[2]}
               </span>
               {m[3]}
