@@ -727,9 +727,14 @@ export async function openAlignmentFileDialog() {
 export async function saveFileDialog(defaultName = 'project.libregene.gbk', ext = 'libregene.gbk') {
   if (!isTauri) return null;
   const label = saveFormatLabel(ext);
+  const suffix = `.${ext}`;
+  const dialogDefaultName =
+    isMac && ext.startsWith('libregene.') && defaultName.toLowerCase().endsWith(suffix)
+      ? defaultName.slice(0, -suffix.length)
+      : defaultName;
   const result = await tauriSave({
     title: `Save ${label} file`,
-    defaultPath: defaultName,
+    defaultPath: dialogDefaultName,
     filters: [{ name: label, extensions: [ext] }],
   });
   return result;

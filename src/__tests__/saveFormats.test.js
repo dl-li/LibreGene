@@ -26,7 +26,7 @@ describe('native sequence save formats', () => {
   it.each([
     ['libregene.gbk', 'GenBank (LibreGene)'],
     ['libregene.gpt', 'GenPept (LibreGene)'],
-  ])('passes the %s native filter to the Tauri save dialog', async (ext, label) => {
+  ])('uses an extension-free macOS default name with the %s native filter', async (ext, label) => {
     vi.resetModules();
     const save = vi.fn().mockResolvedValue(`/tmp/sequence.${ext}`);
     vi.doMock('@tauri-apps/plugin-dialog', () => ({ save }));
@@ -38,9 +38,27 @@ describe('native sequence save formats', () => {
       await expect(saveFileDialog(defaultName, ext)).resolves.toBe(`/tmp/sequence.${ext}`);
       expect(save).toHaveBeenCalledWith({
         title: `Save ${label} file`,
-        defaultPath: defaultName,
+        defaultPath: 'sequence',
         filters: [{ name: label, extensions: [ext] }],
       });
+    } finally {
+      vi.doUnmock('@tauri-apps/plugin-dialog');
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the full default filename on non-macOS platforms', async () => {
+    vi.resetModules();
+    const save = vi.fn().mockResolvedValue('/tmp/sequence.libregene.gbk');
+    vi.doMock('@tauri-apps/plugin-dialog', () => ({ save }));
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    vi.stubGlobal('navigator', { platform: 'Win32' });
+    try {
+      const { saveFileDialog } = await import('../tauriApi');
+      await saveFileDialog('sequence.libregene.gbk', 'libregene.gbk');
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultPath: 'sequence.libregene.gbk' }),
+      );
     } finally {
       vi.doUnmock('@tauri-apps/plugin-dialog');
       vi.unstubAllGlobals();
