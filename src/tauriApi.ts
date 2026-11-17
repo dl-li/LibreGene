@@ -127,7 +127,7 @@ export async function peekFastaRecords(path) {
 /**
  * Create a new in-memory project from pasted sequence (Empty-page "New
  * Sequence" dialog). Returns the same shape as openFile plus `id` (the
- * generated project id, `untitled-<millis>`).
+ * generated project id, `untitled-<millis>-<counter>`).
  * @param {object} args
  * @param {string} args.name
  * @param {string} args.sequence
