@@ -17,6 +17,18 @@ examples/tasks/_traces/
 examples/tasks/_agents/
 examples/tasks/_mcp_test_*/
 
+# Local plasmid agent benchmark files — keep off GitHub
+examples/tasks/benchmark/
+examples/tasks/Alignment/gold.json
+examples/tasks/Alignment/task.json
+examples/tasks/CAR-T/gold.json
+examples/tasks/CAR-T/task.json
+examples/tasks/Primer Design/gold.json
+examples/tasks/Primer Design/task.json
+examples/tasks/RNAi/gold.json
+examples/tasks/RNAi/task.json
+backend/libregene-core/examples/benchmark_oracle.rs
+
 # Local kimi-code config
 .kimi-code/
 .Rhistory
