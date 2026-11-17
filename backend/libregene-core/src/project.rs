@@ -181,14 +181,20 @@ impl ProjectManager {
                 .is_some_and(|project| project.derived.template_revision == revision)
     }
 
-    /// Mark a project as having unsaved changes.
+    /// Mark a loaded project as having unsaved changes. A late async mutation
+    /// whose project has already closed must not leave a dirty marker that
+    /// blocks reopening the same id.
     pub fn mark_dirty(&mut self, id: &str) {
-        self.dirty_projects.insert(id.to_string());
-        self.bump_revision(id);
+        if self.projects.contains_key(id) {
+            self.dirty_projects.insert(id.to_string());
+            self.bump_revision(id);
+        }
     }
 
     pub fn restore_dirty(&mut self, id: &str) {
-        self.dirty_projects.insert(id.to_string());
+        if self.projects.contains_key(id) {
+            self.dirty_projects.insert(id.to_string());
+        }
     }
 
     /// Mark a project as clean (saved to disk).
@@ -337,6 +343,22 @@ mod tests {
         assert_eq!(list[1]["name"], "/tmp/foo.gbk");
         // Opened SnapGene history snapshots display the snapshot's node name.
         assert_eq!(list[2]["name"], "Vector.dna");
+    }
+
+    #[test]
+    fn dirty_markers_do_not_outlive_a_missing_project() {
+        let mut pm = ProjectManager::new();
+        pm.load("p", proj("p")).unwrap();
+        pm.close_project("p");
+
+        pm.mark_dirty("p");
+        pm.restore_dirty("p");
+        assert!(!pm.is_dirty("p"));
+        assert_eq!(pm.revision("p"), 0);
+
+        pm.load("p", proj("reopened")).unwrap();
+        assert!(!pm.is_dirty("p"));
+        assert_eq!(pm.get_project_by_id("p").unwrap().name, "reopened");
     }
 
     #[test]
