@@ -20,7 +20,8 @@ use crate::payload::{
     with_projects_list, MutationField, ProjectParams,
 };
 use crate::state::{
-    normalize_project_path, validate_user_path, AgentTabs, CODON_OUTPUT_EXTS, SEQ_EXTS,
+    new_memory_project_id, normalize_project_path, validate_user_path, AgentTabs,
+    CODON_OUTPUT_EXTS, SEQ_EXTS,
 };
 
 // ---------------------------------------------------------------------------
@@ -155,10 +156,11 @@ fn feature_from_input(input: NewFeatureInput, id: &str) -> Option<Feature> {
 }
 
 /// Create a new in-memory project from pasted sequence (empty-page "New
-/// Sequence"). The virtual id is `untitled-{millis}` (no extension) so the
+/// Sequence"). The virtual id is `untitled-{millis}-{counter}` (no extension) so the
 /// frontend canDirectSave check fails and the first save goes through
-/// Save As + rekey_project. Returns the same shape as `do_open_file` plus the
-/// generated project id.
+/// Save As + rekey_project. IDs include a process-local counter so concurrent
+/// creation cannot replace an existing unsaved project. Returns the same shape
+/// as `do_open_file` plus the generated project id.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn do_create_project(
     pm: &Arc<RwLock<ProjectManager>>,
@@ -228,11 +230,7 @@ pub(crate) async fn do_create_project(
         .filter_map(|(i, f)| feature_from_input(f, &format!("feature_{}", i)))
         .collect();
 
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let id = format!("untitled-{}", ts);
+    let id = new_memory_project_id("untitled");
 
     let mut project = ProjectData {
         name,
@@ -2647,6 +2645,46 @@ mod tests {
         let feats2 = ok2["features"].as_array().unwrap();
         assert_eq!(feats2[0]["start"], 10);
         assert_eq!(feats2[0]["end"], 40);
+    }
+
+    #[tokio::test]
+    async fn concurrent_project_creation_preserves_both_unsaved_projects() {
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        let agent_tabs: AgentTabs = Arc::new(RwLock::new(HashMap::new()));
+        let workspace: crate::mcp::Workspace = Arc::new(RwLock::new(Vec::new()));
+        let create = |name: &str, sequence: String| {
+            do_create_project(
+                &pm,
+                &agent_tabs,
+                &workspace,
+                name.to_string(),
+                sequence,
+                "dna".to_string(),
+                "linear".to_string(),
+                Vec::new(),
+            )
+        };
+        let (first, second) = tokio::join!(
+            create("first", "A".repeat(100)),
+            create("second", "C".repeat(100))
+        );
+        let first = first.unwrap();
+        let second = second.unwrap();
+        let first_id = first["id"].as_str().unwrap();
+        let second_id = second["id"].as_str().unwrap();
+        assert_ne!(first_id, second_id);
+
+        let pm = pm.read().await;
+        assert_eq!(
+            pm.get_project_by_id(first_id).unwrap().sequence,
+            "A".repeat(100)
+        );
+        assert_eq!(
+            pm.get_project_by_id(second_id).unwrap().sequence,
+            "C".repeat(100)
+        );
+        assert!(pm.is_dirty(first_id));
+        assert!(pm.is_dirty(second_id));
     }
 
     #[tokio::test]

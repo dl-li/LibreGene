@@ -13,7 +13,9 @@ use crate::payload::{
     broadcast_project_for_id, filter_project, prune_orphan_bindings, sidebar_project_list,
     with_mutation_meta, with_projects_list, MutationField, ProjectParams,
 };
-use crate::state::{normalize_project_path, validate_user_path, AgentTabs, AppState};
+use crate::state::{
+    new_memory_project_id, normalize_project_path, validate_user_path, AgentTabs, AppState,
+};
 
 fn response(pm: &ProjectManager, project_id: &str) -> Result<serde_json::Value, serde_json::Value> {
     let Some(project) = pm.get_project_by_id(project_id) else {
@@ -199,13 +201,7 @@ pub(crate) async fn create_msa_project(
     sequence: String,
     molecule_type: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let id = format!(
-        "untitled-msa-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
+    let id = new_memory_project_id("untitled-msa");
     let row = MsaRow {
         id: "row-1".to_string(),
         name: "Sequence 1".to_string(),

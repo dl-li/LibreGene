@@ -13,7 +13,7 @@ use crate::payload::{
     filter_project, prune_orphan_bindings, sidebar_project_list, with_mutation_meta,
     with_projects_list, MutationField, ProjectParams,
 };
-use crate::state::{validate_user_path, AppState, SEQ_EXTS};
+use crate::state::{new_memory_project_id, validate_user_path, AppState, SEQ_EXTS};
 
 // ---------------------------------------------------------------------------
 // Tauri commands — alignments
@@ -258,8 +258,8 @@ pub(crate) async fn get_snapgene_history(
 /// history carried along (root = the snapshot) so nested snapshots stay
 /// openable — GenePad's "open snapshot as independent document" semantics.
 /// Works both on `.dna`-file projects and on snapshot projects themselves.
-/// The virtual id `snapshot-<millis>` has no file extension, so the first
-/// save always goes through Save As.
+/// The virtual id `snapshot-<millis>-<counter>` has no file extension, so the
+/// first save always goes through Save As.
 #[tauri::command]
 pub(crate) async fn open_snapgene_snapshot(
     state: State<'_, AppState>,
@@ -312,11 +312,7 @@ pub(crate) async fn open_snapgene_snapshot(
         Err(e) => return Ok(serde_json::json!({ "error": e })),
     };
 
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let id = format!("snapshot-{}", ts);
+    let id = new_memory_project_id("snapshot");
 
     let params = ProjectParams {
         enzyme_filter: Some("all".to_string()),

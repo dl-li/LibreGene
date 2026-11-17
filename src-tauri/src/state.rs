@@ -1,10 +1,22 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::RwLock;
 
 use libregene_core::project::ProjectManager;
+
+static MEMORY_PROJECT_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn new_memory_project_id(prefix: &str) -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let sequence = MEMORY_PROJECT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}-{millis}-{sequence}")
+}
 
 // ---------------------------------------------------------------------------
 // Path validation for filesystem-touching commands
@@ -170,5 +182,19 @@ pub(crate) fn queue_open_targets(app: &AppHandle, paths: Vec<String>) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod memory_project_id_tests {
+    use super::*;
+
+    #[test]
+    fn ids_are_unique_even_when_created_in_the_same_millisecond() {
+        let ids: std::collections::HashSet<String> = (0..1000)
+            .map(|_| new_memory_project_id("untitled"))
+            .collect();
+        assert_eq!(ids.len(), 1000);
+        assert!(ids.iter().all(|id| id.starts_with("untitled-")));
     }
 }
