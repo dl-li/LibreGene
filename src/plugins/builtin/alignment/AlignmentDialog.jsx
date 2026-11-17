@@ -1,19 +1,26 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, LoaderCircle } from 'lucide-react';
 import { T, useTranslation } from '@/i18n';
+import AlignmentOverview from './AlignmentOverview';
 
 export default function AlignmentDialog({
   open,
   onOpenChange,
   alignments = [],
+  hiddenAlignIds = [],
+  onToggleAlignmentVisible,
+  sequence = '',
+  features = [],
   onAddAlignment,
   onRemoveAlignment,
 }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [hoveredId, setHoveredId] = useState(null);
 
   const handleAdd = async () => {
     setError('');
@@ -38,18 +45,19 @@ export default function AlignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col px-8">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col px-8">
         <DialogHeader>
           <DialogTitle>
-            <T>{'Alignments ('}</T>
-            {alignments.length})
+            <T>{'Alignment Overview'}</T>
+            {` (${alignments.length})`}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-auto -mx-8 px-8">
+        <div className="flex-1 min-h-0 overflow-auto -mx-8 px-8">
           <table className="w-full border-collapse text-sm">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
               <tr className="border-b border-border/60 text-xs uppercase tracking-wider text-muted-foreground">
+                <th className="py-2 pr-2 w-8" />
                 <th className="text-left font-semibold py-2 pr-3">
                   <T>{'Name'}</T>
                 </th>
@@ -69,8 +77,21 @@ export default function AlignmentDialog({
               {alignments.map((a) => (
                 <tr
                   key={a.id}
-                  className="border-b border-border/30 hover:bg-muted/50 transition-colors"
+                  className={`border-b border-border/30 transition-colors ${
+                    hoveredId === a.id ? 'bg-muted/50' : ''
+                  }`}
+                  onMouseEnter={() => setHoveredId(a.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  onFocus={() => setHoveredId(a.id)}
+                  onBlur={() => setHoveredId(null)}
                 >
+                  <td className="py-2.5 pr-2 w-8">
+                    <Checkbox
+                      checked={!hiddenAlignIds.includes(a.id)}
+                      onCheckedChange={() => onToggleAlignmentVisible?.(a.id)}
+                      aria-label={t('Show {name}', { name: a.name })}
+                    />
+                  </td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">{a.name}</td>
                   <td className="py-2.5 pr-3 font-mono text-xs tabular-nums text-muted-foreground">
                     {a.length} <T>{'bp'}</T>
@@ -93,7 +114,7 @@ export default function AlignmentDialog({
               ))}
               {alignments.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                     <T>{'No alignments yet'}</T>
                   </td>
                 </tr>
@@ -103,6 +124,13 @@ export default function AlignmentDialog({
         </div>
 
         {error && <div className="pt-2 text-xs text-destructive">{error}</div>}
+
+        <AlignmentOverview
+          alignments={alignments.filter((a) => !hiddenAlignIds.includes(a.id))}
+          sequence={sequence}
+          features={features}
+          hoveredId={hoveredId}
+        />
 
         <div className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted-foreground/60">

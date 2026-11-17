@@ -9,6 +9,77 @@ const BAND_H = 9;
 const VIEW_BOX_H = 36;
 const MIN_VIEW_W = 24;
 
+export function OverviewMap({
+  width,
+  height = H,
+  features,
+  sequenceLength,
+  highlightPositions,
+  padX = PAD_X,
+}) {
+  const lineY = height / 2;
+  const mapLen = Math.max(0, width - padX * 2);
+  const px = (pos) => padX + (pos / sequenceLength) * mapLen;
+
+  return (
+    <svg width={width} height={height} className="pointer-events-none block">
+      <line x1={padX} y1={lineY} x2={width - padX} y2={lineY} stroke="#8a8577" strokeWidth="1.5" />
+      {(features || []).map((f) => {
+        const hasDir = f.strand === '+' || f.strand === '-';
+        const buried = hasDir && tipBuried(f, features, sequenceLength);
+        const runs = unwrapRuns(f, sequenceLength);
+        const wraps = runs.some((r) => r.end >= sequenceLength);
+        const pieces = [];
+        if (wraps) {
+          for (const r of runs) {
+            pieces.push({ s: r.start, e: Math.min(r.end, sequenceLength - 1) });
+            if (r.end >= sequenceLength) pieces.push({ s: 0, e: r.end - sequenceLength });
+          }
+        } else {
+          pieces.push({ s: f.start, e: f.end });
+        }
+        return pieces.map((p, i) => {
+          const fx0 = px(p.s);
+          const fx1 = px(p.e + 1);
+          const head = Math.min(10, Math.max(2, (fx1 - fx0) / 2));
+          const h = BAND_H;
+          const hf = h + HEAD_FLARE;
+          const isTip = hasDir && !buried && (f.strand === '-' ? i === 0 : i === pieces.length - 1);
+          const points = !isTip
+            ? `${fx0},${lineY - h} ${fx1},${lineY - h} ${fx1},${lineY + h} ${fx0},${lineY + h}`
+            : f.strand !== '-'
+              ? `${fx0},${lineY - h} ${fx1 - head},${lineY - h} ${fx1 - head},${lineY - hf} ${fx1},${lineY} ${fx1 - head},${lineY + hf} ${fx1 - head},${lineY + h} ${fx0},${lineY + h}`
+              : `${fx1},${lineY - h} ${fx0 + head},${lineY - h} ${fx0 + head},${lineY - hf} ${fx0},${lineY} ${fx0 + head},${lineY + hf} ${fx0 + head},${lineY + h} ${fx1},${lineY + h}`;
+          return (
+            <polygon
+              key={`${f.id}-${i}`}
+              points={points}
+              fill={f.color || '#9e9e9e'}
+              fillOpacity={0.85}
+              stroke="#333"
+              strokeWidth={1}
+            />
+          );
+        });
+      })}
+      {(highlightPositions || []).map((p, i) => {
+        const x = px(p);
+        return (
+          <line
+            key={`hl-${i}`}
+            x1={x}
+            y1={lineY - BAND_H - HEAD_FLARE - 3}
+            x2={x}
+            y2={lineY + BAND_H + HEAD_FLARE + 3}
+            stroke="#2563EB"
+            strokeWidth="1.5"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 // Continuous-mode floating overview: the LinearMap rendering (backbone +
 // arrow features, no labels) stretched edge to edge, with the editor's
 // visible window marked by a black rectangle. Click/drag scrubs the editor's
@@ -97,7 +168,6 @@ export default function ContinuousOverview({
   if (!sequenceLength) return null;
 
   const mapLen = Math.max(0, barW - PAD_X * 2);
-  const px = (pos) => PAD_X + (pos / sequenceLength) * mapLen;
 
   const { pos, vp, sz } = metrics;
   const scrollRange = Math.max(0, sz - vp);
@@ -148,69 +218,12 @@ export default function ContinuousOverview({
       onMouseDown={onTrackDown}
     >
       {barW > 0 && (
-        <svg width={barW} height={H} className="pointer-events-none block">
-          <line
-            x1={PAD_X}
-            y1={LINE_Y}
-            x2={barW - PAD_X}
-            y2={LINE_Y}
-            stroke="#8a8577"
-            strokeWidth="1.5"
-          />
-          {(features || []).map((f) => {
-            const hasDir = f.strand === '+' || f.strand === '-';
-            const buried = hasDir && tipBuried(f, features, sequenceLength);
-            const runs = unwrapRuns(f, sequenceLength);
-            const wraps = runs.some((r) => r.end >= sequenceLength);
-            const pieces = [];
-            if (wraps) {
-              for (const r of runs) {
-                pieces.push({ s: r.start, e: Math.min(r.end, sequenceLength - 1) });
-                if (r.end >= sequenceLength) pieces.push({ s: 0, e: r.end - sequenceLength });
-              }
-            } else {
-              pieces.push({ s: f.start, e: f.end });
-            }
-            return pieces.map((p, i) => {
-              const fx0 = px(p.s);
-              const fx1 = px(p.e + 1);
-              const head = Math.min(10, Math.max(2, (fx1 - fx0) / 2));
-              const h = BAND_H;
-              const hf = h + HEAD_FLARE;
-              const isTip =
-                hasDir && !buried && (f.strand === '-' ? i === 0 : i === pieces.length - 1);
-              const points = !isTip
-                ? `${fx0},${LINE_Y - h} ${fx1},${LINE_Y - h} ${fx1},${LINE_Y + h} ${fx0},${LINE_Y + h}`
-                : f.strand !== '-'
-                  ? `${fx0},${LINE_Y - h} ${fx1 - head},${LINE_Y - h} ${fx1 - head},${LINE_Y - hf} ${fx1},${LINE_Y} ${fx1 - head},${LINE_Y + hf} ${fx1 - head},${LINE_Y + h} ${fx0},${LINE_Y + h}`
-                  : `${fx1},${LINE_Y - h} ${fx0 + head},${LINE_Y - h} ${fx0 + head},${LINE_Y - hf} ${fx0},${LINE_Y} ${fx0 + head},${LINE_Y + hf} ${fx0 + head},${LINE_Y + h} ${fx1},${LINE_Y + h}`;
-              return (
-                <polygon
-                  key={`${f.id}-${i}`}
-                  points={points}
-                  fill={f.color || '#9e9e9e'}
-                  fillOpacity={0.85}
-                  stroke="#333"
-                  strokeWidth={1}
-                />
-              );
-            });
-          })}
-          {(highlightPositions || []).map((p, i) => {
-            const x = px(p);
-            return (
-              <line
-                key={`hl-${i}`}
-                x1={x}
-                y1={LINE_Y - BAND_H - HEAD_FLARE - 3}
-                x2={x}
-                y2={LINE_Y + BAND_H + HEAD_FLARE + 3}
-                stroke="#2563EB"
-                strokeWidth="1.5"
-              />
-            );
-          })}
-        </svg>
+        <OverviewMap
+          width={barW}
+          features={features}
+          sequenceLength={sequenceLength}
+          highlightPositions={highlightPositions}
+        />
       )}
       <div
         ref={viewRef}

@@ -972,7 +972,7 @@ export default function EditorNavMenu({
         )}
 
         {/* Alignment (DNA only): right click opens menu. Left click: no alignments →
-            open the manager; some checked → toggle Show Alignments; all unchecked →
+            open the overview; some checked → toggle Show Alignments; all unchecked →
             enable Show Alignments and check them all. */}
         {isDna && alignmentEnabled && (
           <NavMenu
@@ -1023,7 +1023,7 @@ export default function EditorNavMenu({
               <Type /> <T>{'Add from Text…'}</T>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onManageAlignments}>
-              <ListChecks /> <T>{'Manage Alignments…'}</T>
+              <ListChecks /> <T>{'Alignment Overview…'}</T>
             </DropdownMenuItem>
           </NavMenu>
         )}

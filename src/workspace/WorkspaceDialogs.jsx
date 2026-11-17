@@ -47,6 +47,8 @@ export default function WorkspaceDialogs({
   enzymes,
   topology,
   alignments,
+  hiddenAlignIds,
+  onToggleAlignmentVisible,
   primers,
   tmParams,
   myPrimers,
@@ -178,6 +180,8 @@ export default function WorkspaceDialogs({
               sequence={sequence}
               fileName={mapName}
               alignments={alignments}
+              hiddenAlignIds={hiddenAlignIds}
+              onToggleAlignmentVisible={onToggleAlignmentVisible}
               onAddAlignment={handleAddAlignment}
               onRemoveAlignment={handleRemoveAlignment}
               features={features}

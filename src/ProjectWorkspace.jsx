@@ -1281,6 +1281,8 @@ function ProjectWorkspace({
         enzymes={enzymes}
         topology={topologyLive}
         alignments={alignments}
+        hiddenAlignIds={hiddenAlignIds}
+        onToggleAlignmentVisible={handleToggleAlignmentVisible}
         primers={primers}
         tmParams={tmParams}
         myPrimers={myPrimers}

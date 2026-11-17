@@ -95,7 +95,8 @@ export const zh = {
   'Show Alignments': '显示比对',
   'Add from File…': '从文件添加…',
   'Add from Text…': '从文本添加…',
-  'Manage Alignments…': '管理比对…',
+  'Alignment Overview…': '比对概览…',
+  'Alignment Overview': '比对概览',
   'Examine Map': '查看图谱',
   'Examine Secondary Structure': '查看二级结构',
   'Examine Dotplot': '查看点阵图',
@@ -290,7 +291,6 @@ export const zh = {
   'Name (optional)': '名称（可选）',
   'Sequence (DNA or FASTA)': '序列（DNA 或 FASTA）',
   'The reverse complement is also tried automatically': '也会自动尝试反向互补序列',
-  'Alignments (': '比对（',
   'No alignments yet': '尚无比对',
   'Add a read or sequence file (.ab1, .fasta, .gbk…) to align against the template':
     '添加 read 或序列文件（.ab1、.fasta、.gbk…），与模板比对',
