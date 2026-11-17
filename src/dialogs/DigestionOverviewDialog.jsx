@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Select,
@@ -66,13 +66,6 @@ export default function DigestionOverviewDialog({
   const [records, setRecords] = useState(null);
   const [error, setError] = useState('');
   const [sortBy, setSortBy] = useState('cuts');
-  const cutPositionsHeaderRef = useRef(null);
-
-  const syncCutPositionsHeader = (event) => {
-    if (cutPositionsHeaderRef.current) {
-      cutPositionsHeaderRef.current.style.transform = `translateX(${-event.currentTarget.scrollLeft}px)`;
-    }
-  };
 
   useEffect(() => {
     if (!open || records !== null) return undefined;
@@ -180,20 +173,14 @@ export default function DigestionOverviewDialog({
                 >
                   <T>{'Name'}</T>
                 </div>
-                <div role="columnheader" className="min-w-0 flex-1 overflow-hidden">
-                  <div
-                    ref={cutPositionsHeaderRef}
-                    className="w-max px-4 py-2.5 text-left font-semibold will-change-transform"
-                  >
-                    <T>{'Cut Positions'}</T>
-                  </div>
+                <div
+                  role="columnheader"
+                  className="min-w-0 flex-1 px-4 py-2.5 text-left font-semibold"
+                >
+                  <T>{'Cut Positions'}</T>
                 </div>
               </div>
-              <div
-                role="rowgroup"
-                className="min-h-0 flex-1 overflow-auto"
-                onScroll={syncCutPositionsHeader}
-              >
+              <div role="rowgroup" className="min-h-0 flex-1 overflow-auto">
                 <div className="w-max min-w-full">
                   {rows.map((enzyme) => (
                     <div
