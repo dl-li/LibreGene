@@ -35,6 +35,25 @@ export function buildPrimerImports(primerAnnotations, existingEntries) {
   });
 }
 
+export function buildPostEditSelection({ mode, cursorIndex, selStart, newLen, version }) {
+  const postCursor =
+    mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? selStart : selStart + newLen;
+  const postSelStart = mode === 'insert' ? cursorIndex : mode === 'delete' ? null : selStart;
+  const postSelEnd =
+    mode === 'insert' ? cursorIndex + newLen - 1 : mode === 'delete' ? null : selStart + newLen - 1;
+  return {
+    version,
+    cursorIndex: postCursor,
+    selStart: postSelStart,
+    selEnd: postSelEnd,
+    selectionMode: postSelStart === null ? 'none' : 'text',
+    selectedPrimerIds: [],
+    isEnzymeSelection: false,
+    selectedEnzymeIds: [],
+    translationSel: null,
+  };
+}
+
 export function restoreEditSnapshot(snapshot, setters) {
   setters.setSequence(snapshot.sequence);
   setters.setFeatures(snapshot.features || EMPTY_ARRAY);
@@ -42,6 +61,12 @@ export function restoreEditSnapshot(snapshot, setters) {
   setters.setTextColorsBottom(snapshot.textColorsBottom || EMPTY_ARRAY);
   setters.setAlignments(snapshot.alignments || EMPTY_ARRAY);
   setters.setIsDirty(snapshot.isDirty);
+  if (snapshot.selection) {
+    setters.setRestoreState({
+      ...snapshot.selection,
+      version: ++setters.undoVersionRef.current,
+    });
+  }
 }
 
 export default function useEditDialog({
@@ -78,6 +103,7 @@ export default function useEditDialog({
     selectedText: '',
     initialText: '',
     clipboardMeta: null,
+    previousSelection: null,
   });
 
   /**
@@ -149,7 +175,7 @@ export default function useEditDialog({
     async (result) => {
       if (agentLockedRef.current) return;
       const gen = ++operationGenRef.current;
-      const { mode, cursorIndex, selStart, selEnd } = editDialog;
+      const { mode, cursorIndex, selStart, selEnd, previousSelection } = editDialog;
       let newSeq;
       const currentSeq = sequence || '';
       let editStart, editEnd, oldLen, newLen;
@@ -258,19 +284,6 @@ export default function useEditDialog({
         mergedFeatures = [...adjustedFeatures, ...newFeats];
       }
 
-      // Post-edit selection: a deletion clears the (now stale) selection but
-      // parks the cursor at the deletion point; insert/replace leave the
-      // freshly inserted bases selected.
-      const postCursor =
-        mode === 'insert' ? cursorIndex + newLen : mode === 'delete' ? selStart : selStart + newLen;
-      const postSelStart = mode === 'insert' ? cursorIndex : mode === 'delete' ? null : selStart;
-      const postSelEnd =
-        mode === 'insert'
-          ? cursorIndex + newLen - 1
-          : mode === 'delete'
-            ? null
-            : selStart + newLen - 1;
-
       const adjustedTextColorsTop = adjustTextColorsForEdit(
         textColorsTop || EMPTY_ARRAY,
         editStart,
@@ -296,6 +309,15 @@ export default function useEditDialog({
       // new sequence until the backend's recomputed models land.
       setAlignments((prev) => adjustAlignmentsForEdit(prev, editStart, editEnd, oldLen, newLen));
       setIsDirty(true);
+      setRestoreState(
+        buildPostEditSelection({
+          mode,
+          cursorIndex,
+          selStart,
+          newLen,
+          version: ++undoVersionRef.current,
+        }),
+      );
 
       const rollback = () => {
         if (operationGenRef.current !== gen) return;
@@ -307,6 +329,16 @@ export default function useEditDialog({
             textColorsBottom,
             alignments,
             isDirty,
+            selection: previousSelection || {
+              cursorIndex,
+              selStart,
+              selEnd,
+              selectionMode: selStart === null ? 'none' : 'text',
+              selectedPrimerIds: [],
+              isEnzymeSelection: false,
+              selectedEnzymeIds: [],
+              translationSel: null,
+            },
           },
           {
             setSequence,
@@ -315,6 +347,8 @@ export default function useEditDialog({
             setTextColorsBottom,
             setAlignments,
             setIsDirty,
+            setRestoreState,
+            undoVersionRef,
           },
         );
       };
@@ -331,17 +365,6 @@ export default function useEditDialog({
         );
         if (operationGenRef.current !== gen) return;
         if (data && !data.error) {
-          setRestoreState({
-            version: ++undoVersionRef.current,
-            cursorIndex: postCursor,
-            selStart: postSelStart,
-            selEnd: postSelEnd,
-            selectionMode: postSelStart === null ? 'none' : 'text',
-            selectedPrimerIds: [],
-            isEnzymeSelection: false,
-            selectedEnzymeIds: [],
-            translationSel: null,
-          });
           applyProjectMutation(
             data,
             {

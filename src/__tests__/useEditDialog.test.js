@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  buildPostEditSelection,
   buildPrimerImports,
   dropCoveredFeatures,
   restoreEditSnapshot,
@@ -68,6 +69,50 @@ describe('dropCoveredFeatures (annotated paste supersedes covered features)', ()
   });
 });
 
+describe('buildPostEditSelection', () => {
+  it('selects pasted bases immediately after insert and replace edits', () => {
+    for (const [mode, expectedStart] of [
+      ['insert', 4],
+      ['replace', 4],
+    ]) {
+      expect(
+        buildPostEditSelection({
+          mode,
+          cursorIndex: 4,
+          selStart: 4,
+          newLen: 3,
+          version: 9,
+        }),
+      ).toMatchObject({
+        version: 9,
+        cursorIndex: 7,
+        selStart: expectedStart,
+        selEnd: 6,
+        selectionMode: 'text',
+        selectedPrimerIds: [],
+        translationSel: null,
+      });
+    }
+  });
+
+  it('clears a deleted selection and parks the cursor at the deletion point', () => {
+    expect(
+      buildPostEditSelection({
+        mode: 'delete',
+        cursorIndex: null,
+        selStart: 4,
+        newLen: 0,
+        version: 10,
+      }),
+    ).toMatchObject({
+      cursorIndex: 4,
+      selStart: null,
+      selEnd: null,
+      selectionMode: 'none',
+    });
+  });
+});
+
 describe('restoreEditSnapshot', () => {
   it('restores every optimistic UI field and the previous dirty value', () => {
     const setters = {
@@ -94,6 +139,41 @@ describe('restoreEditSnapshot', () => {
     expect(setters.setTextColorsBottom).toHaveBeenCalledWith(snapshot.textColorsBottom);
     expect(setters.setAlignments).toHaveBeenCalledWith(snapshot.alignments);
     expect(setters.setIsDirty).toHaveBeenCalledWith(false);
+  });
+
+  it('restores the complete pre-edit selection together with the sequence', () => {
+    const selection = {
+      cursorIndex: null,
+      selStart: null,
+      selEnd: null,
+      selectionMode: 'translation',
+      selectedPrimerIds: [],
+      isEnzymeSelection: false,
+      selectedEnzymeIds: [],
+      translationSel: { featureId: 'cds', startCodon: 2, endCodon: 4 },
+    };
+    const setters = {
+      setSequence: vi.fn(),
+      setFeatures: vi.fn(),
+      setTextColorsTop: vi.fn(),
+      setTextColorsBottom: vi.fn(),
+      setAlignments: vi.fn(),
+      setIsDirty: vi.fn(),
+      setRestoreState: vi.fn(),
+      undoVersionRef: { current: 3 },
+    };
+
+    restoreEditSnapshot(
+      {
+        sequence: 'AACCGGTT',
+        selection,
+        isDirty: false,
+      },
+      setters,
+    );
+
+    expect(setters.setSequence).toHaveBeenCalledWith('AACCGGTT');
+    expect(setters.setRestoreState).toHaveBeenCalledWith({ ...selection, version: 4 });
   });
 });
 

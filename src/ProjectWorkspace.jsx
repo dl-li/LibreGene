@@ -744,6 +744,7 @@ function ProjectWorkspace({
         selectedText: request.selectedText ?? '',
         initialText: request.clipboardText ?? '',
         clipboardMeta: request.clipboardMeta ?? null,
+        previousSelection: lastSelectionRef.current,
       });
     },
     [agentLockedRef, setEditDialog],
