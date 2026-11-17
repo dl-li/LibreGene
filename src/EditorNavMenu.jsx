@@ -55,27 +55,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { ENZYME_PROVIDER_OPTIONS } from './enzymeProviders';
+import { ENZYME_FILTER_OPTIONS } from './enzymeDigestion';
 import { plugins, pluginAvailable } from './plugins';
 import { T, useTranslation } from '@/i18n';
 import NavStateNotice from './components/NavStateNotice';
 
 const SEARCH_SCOPES = ['all', 'seq', 'feature', 'primer', 'enzyme'];
-
-const ENZYME_FILTER_OPTIONS = [
-  { value: 'all', label: 'All Enzymes' },
-  { value: 'unique+twice', label: 'Highlighted Cutters' },
-  { value: 'unique', label: 'Unique Cutters' },
-  { value: 'unique6', label: 'Unique 6 bp' },
-  { value: 'twice', label: 'Twice-cutter' },
-  { value: 'blunt', label: 'Blunt', className: 'bg-amber-800/10' },
-  { value: 'overhang5', label: "5' Overhang" },
-  { value: 'overhang3', label: "3' Overhang" },
-  { value: 'iis', label: 'Type IIS', className: 'bg-teal-700/10' },
-  { value: 'rec4', label: '4 bp Recognition' },
-  { value: 'rec5', label: '5 bp Recognition' },
-  { value: 'rec6', label: '6 bp Recognition' },
-  { value: 'rec8p', label: '≥8 bp Recognition' },
-];
 
 const NAV_BUTTON_CLASS =
   'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-foreground/80 outline-none transition-all duration-150 hover:bg-accent hover:text-foreground active:scale-95 data-[state=open]:bg-accent data-[state=open]:text-foreground';
@@ -238,6 +223,7 @@ export default function EditorNavMenu({
   hasPrimers = false,
   onOpenMyEnzymes,
   onOpenEnzymeDatabase,
+  onOpenDigestionOverview,
   myEnzymes = [],
   topology,
   onToggleTopology,
@@ -865,6 +851,9 @@ export default function EditorNavMenu({
               <T>{'Show Enzyme Sites'}</T>
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onOpenDigestionOverview}>
+              <ListChecks /> <T>{'Digestion Overview'}</T>
+            </DropdownMenuItem>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger inset>
                 <T>{'Enzyme Set'}</T>

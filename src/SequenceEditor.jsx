@@ -214,6 +214,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
   onOpenCodonOptimization,
   onOpenMyEnzymes,
   onOpenEnzymeDatabase,
+  onOpenDigestionOverview,
   onAddPrimerToMyPrimers,
   onAddAllPrimersToMyPrimers,
   autoAddPrimers = false,
@@ -2827,6 +2828,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
           hasPrimers={(primers || []).length > 0}
           onOpenMyEnzymes={onOpenMyEnzymes}
           onOpenEnzymeDatabase={onOpenEnzymeDatabase}
+          onOpenDigestionOverview={onOpenDigestionOverview}
           myEnzymes={myEnzymes}
           topology={topology}
           onToggleTopology={onToggleTopology}

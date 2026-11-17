@@ -7,6 +7,7 @@ import DetectFeaturesDialog from '../dialogs/DetectFeaturesDialog';
 import MyPrimersDialog from '../dialogs/MyPrimersDialog';
 import MyEnzymesDialog from '../dialogs/MyEnzymesDialog';
 import EnzymeDatabaseDialog from '../dialogs/EnzymeDatabaseDialog';
+import DigestionOverviewDialog from '../dialogs/DigestionOverviewDialog';
 import {
   Dialog,
   DialogContent,
@@ -54,8 +55,10 @@ export default function WorkspaceDialogs({
   myPrimers,
   myEnzymes,
   enzymeFilter,
+  onEnzymeFilterChange,
   enzymeProvider,
   onEnzymeProviderChange,
+  providerIndex,
   disabledPlugins,
   onOpenSnapshot,
   mapName,
@@ -73,6 +76,9 @@ export default function WorkspaceDialogs({
   setMyEnzymesOpen,
   enzymeDbOpen,
   setEnzymeDbOpen,
+  digestionOverviewOpen,
+  setDigestionOverviewOpen,
+  onDigestionCutSelect,
   myPrimerBinding,
   pluginDialogs,
   setPluginDialogs,
@@ -130,6 +136,21 @@ export default function WorkspaceDialogs({
           onAddPrimer={handleAddMyPrimerToFile}
           onAddAllBinding={handleAddAllBindingPrimers}
           onDelete={handleDeleteMyPrimer}
+        />
+      )}
+
+      {isDna && (
+        <DigestionOverviewDialog
+          open={digestionOverviewOpen}
+          onOpenChange={setDigestionOverviewOpen}
+          enzymes={enzymes}
+          sequenceLength={sequence?.length ?? 0}
+          enzymeFilter={enzymeFilter}
+          onEnzymeFilterChange={onEnzymeFilterChange}
+          myEnzymes={myEnzymes}
+          enzymeProvider={enzymeProvider}
+          providerIndex={providerIndex}
+          onCutSelect={onDigestionCutSelect}
         />
       )}
 

@@ -44,7 +44,7 @@ const readStoredNumber = (field, key) => {
 };
 
 // Valid values for the persisted enzyme filter (ENZYME_FILTER_OPTIONS in
-// EditorNavMenu.jsx plus the dynamic 'myEnzymes' entry).
+// enzymeDigestion.js plus the dynamic 'myEnzymes' entry).
 const ENZYME_FILTER_VALUES = new Set([
   'all',
   'unique+twice',

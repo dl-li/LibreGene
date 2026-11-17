@@ -120,6 +120,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - 自动标注弹窗、新建序列弹窗、复制粘贴标注迁移、rnaFold 插件（WASM）、系统文件关联/拖放打开：纯前端/OS 集成
 - Dotplot 插件（`src/plugins/example-plugin-dotplot/`）：纯前端渲染
 - Digest and Run Gel 插件（`src/plugins/example-plugin-gel/`）：纯前端模拟渲染，酶切位点已由 `find_restriction_sites` 覆盖
+- 酶切概况对话框（`src/dialogs/DigestionOverviewDialog.jsx`）：只读汇总与编辑器定位 UI，酶切位点已由 `find_restriction_sites` 覆盖
 - BLAST 插件（右键选区 → `blast_submit`）：交互式外网操作，Agent 场景意义不大
 - 拓扑切换（`set_topology`，仅 DNA）：未暴露 MCP 工具
 - SnapGene 历史快照（`src/plugins/builtin/snapgeneHistory/`，`get_snapgene_history`/`open_snapgene_snapshot`）：未暴露 MCP 工具

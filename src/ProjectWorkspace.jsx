@@ -153,6 +153,8 @@ function ProjectWorkspace({
     setMyEnzymesOpen,
     enzymeDbOpen,
     setEnzymeDbOpen,
+    digestionOverviewOpen,
+    setDigestionOverviewOpen,
     myPrimerBinding,
     setMyPrimerBinding,
     pluginDialogs,
@@ -716,6 +718,29 @@ function ProjectWorkspace({
     [setRestoreState, undoVersionRef],
   );
 
+  const handleDigestionCutSelect = useCallback(
+    (cutIndex, { close = false } = {}) => {
+      const len = (sequenceRef.current || '').length;
+      if (!len) return;
+      const cursorIndex = Math.max(0, Math.min(cutIndex, len));
+      setRestoreState({
+        version: ++undoVersionRef.current,
+        cursorIndex,
+        selStart: null,
+        selEnd: null,
+        selectionMode: 'text',
+        selectedPrimerIds: [],
+        isEnzymeSelection: false,
+        selectedEnzymeIds: [],
+        translationSel: null,
+        scrollToIndex: Math.min(cursorIndex, len - 1),
+      });
+      setLiveSelection(null);
+      if (close) setDigestionOverviewOpen(false);
+    },
+    [setRestoreState, undoVersionRef, setDigestionOverviewOpen],
+  );
+
   const handleMapClear = useCallback(() => {
     setRestoreState({
       version: ++undoVersionRef.current,
@@ -1202,6 +1227,7 @@ function ProjectWorkspace({
               }
               onOpenMyEnzymes={() => setMyEnzymesOpen(true)}
               onOpenEnzymeDatabase={() => setEnzymeDbOpen(true)}
+              onOpenDigestionOverview={() => setDigestionOverviewOpen(true)}
               onAddPrimerToMyPrimers={handleAddPrimerToMyPrimers}
               onAddAllPrimersToMyPrimers={handleAddAllPrimersToMyPrimers}
               autoAddPrimers={autoAddPrimers}
@@ -1288,8 +1314,10 @@ function ProjectWorkspace({
         myPrimers={myPrimers}
         myEnzymes={myEnzymes}
         enzymeFilter={enzymeFilter}
+        onEnzymeFilterChange={onEnzymeFilterChange}
         enzymeProvider={enzymeProvider}
         onEnzymeProviderChange={onEnzymeProviderChange}
+        providerIndex={providerIndex}
         disabledPlugins={disabledPlugins}
         onOpenSnapshot={onOpenSnapshot}
         mapName={mapName}
@@ -1307,6 +1335,9 @@ function ProjectWorkspace({
         setMyEnzymesOpen={setMyEnzymesOpen}
         enzymeDbOpen={enzymeDbOpen}
         setEnzymeDbOpen={setEnzymeDbOpen}
+        digestionOverviewOpen={digestionOverviewOpen}
+        setDigestionOverviewOpen={setDigestionOverviewOpen}
+        onDigestionCutSelect={handleDigestionCutSelect}
         myPrimerBinding={myPrimerBinding}
         pluginDialogs={pluginDialogs}
         setPluginDialogs={setPluginDialogs}

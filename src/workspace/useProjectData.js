@@ -77,6 +77,7 @@ export default function useProjectData({
   const [myPrimersOpen, setMyPrimersOpen] = useState(false);
   const [myEnzymesOpen, setMyEnzymesOpen] = useState(false);
   const [enzymeDbOpen, setEnzymeDbOpen] = useState(false);
+  const [digestionOverviewOpen, setDigestionOverviewOpen] = useState(false);
   const [myPrimerBinding, setMyPrimerBinding] = useState({ loading: false, results: [] });
   const [pluginDialogs, setPluginDialogs] = useState({});
   const openPrimerEditorRef = useRef(null);
@@ -245,6 +246,8 @@ export default function useProjectData({
     setMyEnzymesOpen,
     enzymeDbOpen,
     setEnzymeDbOpen,
+    digestionOverviewOpen,
+    setDigestionOverviewOpen,
     myPrimerBinding,
     setMyPrimerBinding,
     pluginDialogs,
