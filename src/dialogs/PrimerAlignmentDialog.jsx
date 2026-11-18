@@ -35,6 +35,11 @@ import {
   primerTmModeForSite,
 } from '../tmParams';
 import { T, useTranslation } from '@/i18n';
+import SequenceShortcutInput, {
+  SequenceShortcutHint,
+  useSequenceShortcuts,
+} from '@/components/SequenceShortcutInput';
+import { findInvalidSequenceCharacters } from '../sequenceShortcuts';
 const COLORS = { bg: '#faf9f7', fwd: '#166534', rev: '#4A148C' };
 
 /* Reverse complement (preserves case, supports IUPAC degenerate bases) */
@@ -233,8 +238,7 @@ function CopyBtn({ text }) {
   );
 }
 
-const LABEL_CLS =
-  'w-[76px] shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
+const LABEL_CLS = 'shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground';
 
 export default function PrimerAlignmentDialog({
   primer,
@@ -251,9 +255,11 @@ export default function PrimerAlignmentDialog({
   onPrimerTmModeChange,
   projectId,
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const labelCls = `${locale === 'zh' ? 'w-10' : 'w-[76px]'} ${LABEL_CLS}`;
   const [editSeq, setEditSeq] = useState('');
   const [editName, setEditName] = useState('');
+  const [nameCopyVisible, setNameCopyVisible] = useState(false);
   const [data, setData] = useState(null);
   const [preview, setPreview] = useState(null); // { data, loading, error }
   const [confirmClose, setConfirmClose] = useState(false);
@@ -265,6 +271,7 @@ export default function PrimerAlignmentDialog({
   // Initialize when dialog opens
   useEffect(() => {
     if (!open) return;
+    setNameCopyVisible(false);
     if (isNewPrimer) {
       setEditSeq(newPrimerSeq || '');
       setEditName('New Primer');
@@ -311,14 +318,11 @@ export default function PrimerAlignmentDialog({
     : editSeq !== initialSeq || editName !== initialName;
 
   const IUPAC = useMemo(() => new Set('ACGTURYSWKMBDHVNacgturyswkmbdhvn'), []);
-  const invalidChars = useMemo(() => {
-    const bad = [];
-    for (const ch of editSeq) {
-      if (ch === ' ' || ch === '\t') continue; // whitespace is ignorable
-      if (!IUPAC.has(ch)) bad.push(ch);
-    }
-    return [...new Set(bad)]; // unique list
-  }, [editSeq, IUPAC]);
+  const shortcuts = useSequenceShortcuts(editSeq);
+  const invalidChars = useMemo(
+    () => findInvalidSequenceCharacters(editSeq, (ch) => IUPAC.has(ch), shortcuts.groups),
+    [editSeq, IUPAC, shortcuts.groups],
+  );
   const isInvalid = invalidChars.length > 0;
 
   // Check if the edited name conflicts with any other existing primer
@@ -351,6 +355,10 @@ export default function PrimerAlignmentDialog({
     }
     if (isInitialRender.current) {
       isInitialRender.current = false;
+      return;
+    }
+    if (shortcuts.hasSyntax || shortcuts.loading || isInvalid) {
+      setPreview(null);
       return;
     }
     // Cancel previous debounce
@@ -398,9 +406,13 @@ export default function PrimerAlignmentDialog({
     tmParams,
     newPrimerSeq,
     projectId,
+    shortcuts.hasSyntax,
+    shortcuts.loading,
+    isInvalid,
   ]);
 
   const handleApply = useCallback(async () => {
+    if (isInvalid || shortcuts.hasUnresolved || shortcuts.loading) return;
     if (!hasChanges) {
       onOpenChange(false);
       return;
@@ -442,6 +454,9 @@ export default function PrimerAlignmentDialog({
     stripIUPAC,
     nameConflict,
     primerType,
+    isInvalid,
+    shortcuts.hasUnresolved,
+    shortcuts.loading,
   ]);
 
   const handleClose = useCallback(() => {
@@ -498,63 +513,118 @@ export default function PrimerAlignmentDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-[76px_1fr] items-center gap-x-3 gap-y-3">
-          {/* Name */}
-          <span className={LABEL_CLS}>
-            <T>{'Name'}</T>
-          </span>
-          <div className="flex items-center gap-1 min-w-0">
-            <input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.stopPropagation();
-                  setEditName(initialName);
-                }
-              }}
-              className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <CopyBtn text={editName} />
+        <div className="space-y-3">
+          <div
+            className="grid items-center gap-x-3"
+            style={{
+              gridTemplateColumns: `${locale === 'zh' ? '2.5rem' : '4.75rem'} minmax(0, 1fr)`,
+            }}
+          >
+            <span className={labelCls}>
+              <T>{'Name'}</T>
+            </span>
+            <div
+              className="flex min-w-0 items-center gap-1"
+              onMouseEnter={() => setNameCopyVisible(true)}
+              onMouseLeave={() => setNameCopyVisible(false)}
+            >
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    setEditName(initialName);
+                  }
+                }}
+                className="min-w-0 flex-1 border-b border-dashed border-input bg-transparent py-0.5 text-sm font-semibold outline-none transition-colors focus:border-primary"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <span className="flex size-7 shrink-0 items-center justify-center">
+                {nameCopyVisible && <CopyBtn text={editName} />}
+              </span>
+            </div>
           </div>
 
-          {/* Sequence */}
-          <span className={LABEL_CLS}>
-            <T>{'Sequence'}</T>
-          </span>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">5'</span>
-            <input
-              ref={sequenceInputRef}
-              value={editSeq}
-              onChange={(e) => setEditSeq(e.target.value)}
-              className={
-                'h-8 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-xs outline-none transition-shadow focus:ring-[3px] ' +
-                (hasChanges
-                  ? 'border-amber-400 focus:border-amber-400 focus:ring-amber-400/30'
-                  : 'border-input focus:border-ring focus:ring-ring/40')
-              }
-              spellCheck={false}
-              placeholder={t('Enter primer sequence…')}
-            />
-            <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">3'</span>
-            <CopyBtn text={editSeq} />
-            <button
-              type="button"
-              onClick={() => {
-                setEditSeq(reverseComplement(editSeq));
-                setPrimerType((t) => (t === 'fwd' ? 'rev' : 'fwd'));
-              }}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title={t('Reverse complement')}
-            >
-              <Repeat className="size-4" />
-            </button>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-3">
+              <span className={labelCls}>
+                <T>{'Sequence'}</T>
+              </span>
+              <SequenceShortcutHint align="start" />
+            </div>
+            <div className="flex min-w-0 items-start gap-1.5">
+              <span className="flex h-8 shrink-0 items-center font-mono text-xs font-bold text-muted-foreground">
+                5'
+              </span>
+              <SequenceShortcutInput
+                inputRef={sequenceInputRef}
+                value={editSeq}
+                onChange={setEditSeq}
+                shortcuts={shortcuts}
+                showHint={false}
+                className="flex-1"
+                inputClassName={
+                  'h-8 w-full min-w-0 rounded-md border bg-background px-2 font-mono text-xs leading-8 outline-none transition-shadow focus:ring-[3px] ' +
+                  (hasChanges
+                    ? 'border-amber-400 focus:border-amber-400 focus:ring-amber-400/30'
+                    : 'border-input focus:border-ring focus:ring-ring/40')
+                }
+                spellCheck={false}
+                placeholder={t('Enter primer sequence…')}
+              />
+              <span className="flex h-8 shrink-0 items-center font-mono text-xs font-bold text-muted-foreground">
+                3'
+              </span>
+              <CopyBtn text={editSeq} />
+              <button
+                type="button"
+                onClick={() => {
+                  setEditSeq(reverseComplement(editSeq));
+                  setPrimerType((t) => (t === 'fwd' ? 'rev' : 'fwd'));
+                }}
+                disabled={shortcuts.hasSyntax}
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                title={t('Reverse complement')}
+              >
+                <Repeat className="size-4" />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Tm display */}
+        {/* Alignment box */}
+        <div className="relative flex-1 overflow-auto rounded-lg border border-border/70 bg-muted/40 p-4">
+          {preview?.error && <div className="text-sm text-red-600 font-mono">{preview.error}</div>}
+          {cur && (
+            <div className="flex justify-center">
+              <AlignmentView data={cur} />
+            </div>
+          )}
+          {!cur && preview?.loading && (
+            <div className="text-sm text-muted-foreground italic">
+              <T>{'Computing alignment…'}</T>
+            </div>
+          )}
+          {!cur && !preview?.loading && preview?.data && !preview.data.current && (
+            <div className="text-sm text-red-600 font-mono">
+              <T>{'No candidate binding sites found.'}</T>
+            </div>
+          )}
+          {!cur && !preview && !data && (
+            <div className="text-sm text-muted-foreground italic">
+              <T>{'Type a DNA sequence to see alignment preview.'}</T>
+            </div>
+          )}
+          {preview?.loading && cur && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-[1px]">
+              <div className="text-xs text-muted-foreground italic">
+                <T>{'Updating…'}</T>
+              </div>
+            </div>
+          )}
+        </div>
+
         {cur && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
@@ -591,42 +661,10 @@ export default function PrimerAlignmentDialog({
           </div>
         )}
 
-        {/* Alignment box */}
-        <div className="relative flex-1 overflow-auto rounded-lg border border-border/70 bg-muted/40 p-4">
-          {preview?.error && <div className="text-sm text-red-600 font-mono">{preview.error}</div>}
-          {cur && (
-            <div className="flex justify-center">
-              <AlignmentView data={cur} />
-            </div>
-          )}
-          {!cur && preview?.loading && (
-            <div className="text-sm text-muted-foreground italic">
-              <T>{'Computing alignment…'}</T>
-            </div>
-          )}
-          {!cur && !preview?.loading && preview?.data && !preview.data.current && (
-            <div className="text-sm text-red-600 font-mono">
-              <T>{'No candidate binding sites found.'}</T>
-            </div>
-          )}
-          {!cur && !preview && !data && (
-            <div className="text-sm text-muted-foreground italic">
-              <T>{'Type a DNA sequence to see alignment preview.'}</T>
-            </div>
-          )}
-          {preview?.loading && cur && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-[1px]">
-              <div className="text-xs text-muted-foreground italic">
-                <T>{'Updating…'}</T>
-              </div>
-            </div>
-          )}
-        </div>
-
         {cur && alts.length > 0 && <OtherBindingSites sites={alts} tmMode={primerTmMode} />}
 
         {/* Invalid character warning */}
-        {isInvalid && (
+        {isInvalid && !shortcuts.loading && (
           <InlineNotice tone="warning">
             <span>
               <T>{'Invalid character(s):'}</T>{' '}
@@ -679,7 +717,13 @@ export default function PrimerAlignmentDialog({
               <Button
                 size="sm"
                 onClick={handleApply}
-                disabled={editSeq.length < 6 || isInvalid || nameConflict}
+                disabled={
+                  editSeq.length < 6 ||
+                  isInvalid ||
+                  shortcuts.hasUnresolved ||
+                  shortcuts.loading ||
+                  nameConflict
+                }
               >
                 {isNewPrimer ? <T>{'Create Primer'}</T> : <T>{'Apply'}</T>}
               </Button>

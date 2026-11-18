@@ -770,4 +770,15 @@ export const zh = {
   'Type IIS': 'IIS 型',
   'Choose the interface language': '选择界面语言',
   'Language, file associations and settings backup': '语言、文件关联与设置备份',
+  'Sequence shortcut input': '序列快捷输入',
+  '3 code types': '3 种代号',
+  'A number + N sets the random-base length.': '数字 + N 指定随机碱基的数量。',
+  'Case-insensitive enzyme name → recognition sequence.': '酶名不区分大小写 → 识别序列。',
+  'Random synonymous codons; * → stop codon.': '随机同义密码子；* → 终止密码子。',
+  Examples: '示例',
+  'Separate codes with commas. Click a badge to replace it.':
+    '用逗号分隔多个代号，点击标签完成替换。',
+  'Restriction enzyme': '限制性内切酶',
+  'Amino acids': '氨基酸',
+  'Random bases': '随机碱基',
 };

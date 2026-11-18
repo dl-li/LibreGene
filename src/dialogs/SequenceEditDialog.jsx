@@ -13,6 +13,11 @@ import { InlineNotice } from '@/components/ui/notice';
 import { Repeat } from 'lucide-react';
 import { metaMatchesText, revCompClipboardMeta } from '../clipboardAnnotations';
 import { T, useTranslation } from '@/i18n';
+import SequenceShortcutInput, {
+  SequenceShortcutHint,
+  useSequenceShortcuts,
+} from '@/components/SequenceShortcutInput';
+import { findInvalidSequenceCharacters } from '../sequenceShortcuts';
 
 // IUPAC 互补碱基对照表（含简并碱基）
 const IUPAC_COMP = {
@@ -107,7 +112,7 @@ export default function SequenceEditDialog({
   // 每次打开弹窗时预填文本（粘贴场景用 initialText，手打时保持清空）
   useEffect(() => {
     if (open) {
-      setInputText(filterLetters(initialText));
+      setInputText(initialText);
       setPasteAnnotations(true);
     }
   }, [open, initialText]);
@@ -127,7 +132,14 @@ export default function SequenceEditDialog({
     }
   }, [open, mode]);
 
-  const cleaned = stripWhitespace(inputText);
+  const shortcuts = useSequenceShortcuts(inputText, !isProtein);
+  const cleaned = stripWhitespace(shortcuts.plainText);
+  const invalidChars = findInvalidSequenceCharacters(
+    inputText,
+    (ch) => /[a-zA-Z]/.test(ch),
+    shortcuts.groups,
+  );
+  const isInvalid = invalidChars.length > 0;
   // Length alone is not enough — the annotations only apply when the pasted
   // text is still equivalent to the one they were copied from. A text that
   // matches after reverse-complementing carries the same annotations, mapped
@@ -154,8 +166,9 @@ export default function SequenceEditDialog({
     );
   };
 
-  // 可提交条件：非删除模式需要内容不为空（输入已被过滤为纯字母）
-  const canConfirm = mode === 'delete' || (mode !== 'delete' && inputText.trim().length > 0);
+  const canConfirm =
+    mode === 'delete' ||
+    (cleaned.length > 0 && !isInvalid && !shortcuts.hasUnresolved && !shortcuts.loading);
 
   const handleConfirm = () => {
     if (!canConfirm) return;
@@ -240,20 +253,26 @@ export default function SequenceEditDialog({
           {/* 插入/替换：输入新序列 */}
           {(mode === 'insert' || mode === 'replace') && (
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                {mode === 'insert' ? <T>{'Sequence to insert'}</T> : <T>{'New sequence'}</T>}
-              </label>
-              <textarea
-                ref={inputRef}
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {mode === 'insert' ? <T>{'Sequence to insert'}</T> : <T>{'New sequence'}</T>}
+                </label>
+                {!isProtein && <SequenceShortcutHint />}
+              </div>
+              <SequenceShortcutInput
+                inputRef={inputRef}
                 value={inputText}
-                onChange={(e) => setInputText(filterLetters(e.target.value))}
+                onChange={setInputText}
+                shortcuts={shortcuts}
+                showHint={false}
+                multiline
                 onKeyDown={handleKeyDown}
                 placeholder={
                   isProtein ? t('Enter amino acid sequence…') : t('Enter DNA / RNA sequence…')
                 }
                 rows={4}
                 spellCheck={false}
-                className="font-mono text-sm w-full rounded-lg border border-input bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                inputClassName="font-mono text-sm w-full rounded-lg border border-input bg-transparent p-2.5 resize-y min-h-[80px] leading-relaxed outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
               />
             </div>
           )}
@@ -303,6 +322,15 @@ export default function SequenceEditDialog({
             )}
           </div>
 
+          {isInvalid && !shortcuts.loading && (
+            <InlineNotice tone="warning">
+              <span>
+                <T>{'Invalid character(s):'}</T>{' '}
+                <span className="font-mono">{invalidChars.join(', ')}</span>
+              </span>
+            </InlineNotice>
+          )}
+
           {/* U/T 混入提醒 */}
           {wrongCount > 0 && wrongBase && (
             <InlineNotice tone="warning">
@@ -312,7 +340,13 @@ export default function SequenceEditDialog({
                     ? t('DNA sequences use T, not U — found {count} U.', { count: wrongCount })
                     : t('RNA sequences use U, not T — found {count} T.', { count: wrongCount })}
                 </span>
-                <Button variant="outline" size="sm" className="shrink-0" onClick={convertWrongBase}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={convertWrongBase}
+                  disabled={shortcuts.hasSyntax}
+                >
                   {wrongBase[0]} → {wrongBase[1]}
                 </Button>
               </div>
@@ -358,6 +392,7 @@ export default function SequenceEditDialog({
                 variant="secondary"
                 size="sm"
                 onClick={() => setInputText(reverseComplement(inputText))}
+                disabled={shortcuts.hasSyntax}
                 className="mr-auto"
               >
                 <Repeat className="size-3.5" />
