@@ -43,7 +43,7 @@ pub fn display_columns(ops: &[AlignedPair], query: &[u8]) -> (String, Vec<usize>
                     dots.push(cols.len());
                     prev_ins = false;
                 }
-                let b = query[p.primer_pos.unwrap_or(0)].to_ascii_uppercase() as char;
+                let b = query[p.primer_pos.unwrap_or(0)] as char;
                 cols.push((b, p.op == Op::Mismatch));
             }
         }
@@ -73,10 +73,7 @@ pub fn build_render_data(primer: &[u8], template_region: &[u8]) -> Option<Alignm
         return None;
     }
 
-    let display: String = primer
-        .iter()
-        .map(|&b| b.to_ascii_uppercase() as char)
-        .collect();
+    let display: String = primer.iter().map(|&b| b as char).collect();
 
     Some(AlignmentRenderData {
         display_sequence: display,
@@ -98,6 +95,20 @@ mod tests {
         assert_eq!(rd.display_sequence, "ATGC");
         assert!(rd.mismatch_indices.is_empty());
         assert!(rd.insertion_map.is_empty());
+    }
+
+    #[test]
+    fn test_render_data_preserves_primer_case() {
+        let rd = build_render_data(b"AtgC", b"ATGC").unwrap();
+        assert_eq!(rd.display_sequence, "AtgC");
+
+        let ops = vec![AlignedPair {
+            op: Op::Match,
+            primer_pos: Some(0),
+            template_pos: Some(0),
+        }];
+        let (display, _) = display_columns(&ops, b"aTGC");
+        assert_eq!(display, "a");
     }
 
     #[test]

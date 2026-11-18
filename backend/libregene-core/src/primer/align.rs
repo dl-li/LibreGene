@@ -52,7 +52,6 @@ pub fn compute_binding_sites(
         return Vec::new();
     }
 
-    let primer_seq = primer_seq.to_ascii_uppercase();
     let is_circular = topology == "circular";
 
     let mut results: Vec<PrimerBindingSite> = Vec::new();
@@ -60,7 +59,7 @@ pub fn compute_binding_sites(
     // Fwd (strand 1): primer matches top strand directly.
     results.extend(search_one_strand(
         template,
-        &primer_seq,
+        primer_seq,
         primer_id,
         1,
         false,
@@ -72,7 +71,7 @@ pub fn compute_binding_sites(
     // Search the primer AS-IS with complement regex on the template.
     results.extend(search_one_strand(
         template,
-        &primer_seq,
+        primer_seq,
         primer_id,
         -1,
         true,
@@ -815,6 +814,27 @@ mod tests {
         let expect: String = footprint.chars().rev().collect();
         assert_eq!(s.alignment.display_sequence, expect);
         assert_eq!(s.display_tail, "AA");
+    }
+
+    #[test]
+    fn test_display_render_preserves_primer_case_on_both_strands() {
+        let footprint = "CGTACGCTAGcga";
+
+        let fwd_template = "GGGGGGCGTACGCTAGCGAGGG";
+        let fwd_primer = format!("ttaattaa{}", footprint);
+        let sites = compute_binding_sites(fwd_template, &fwd_primer, "fwd", "P1", "linear", 0.0);
+        let fwd = sites.iter().find(|s| s.strand == 1).expect("fwd site");
+        assert_eq!(fwd.alignment.display_sequence, footprint);
+        assert_eq!(fwd.display_tail, "ttaattaa");
+
+        let rc = crate::utils::reverse_complement(footprint);
+        let rev_template = format!("GGG{}GGGGG", rc);
+        let rev_primer = format!("ta{}", footprint);
+        let sites = compute_binding_sites(&rev_template, &rev_primer, "rev", "P1", "linear", 0.0);
+        let rev = sites.iter().find(|s| s.strand == -1).expect("rev site");
+        let expected: String = footprint.chars().rev().collect();
+        assert_eq!(rev.alignment.display_sequence, expected);
+        assert_eq!(rev.display_tail, "ta");
     }
 
     #[test]
