@@ -2727,6 +2727,7 @@ const SequenceEditor = React.memo(function SequenceEditor({
         unit={seqUnit}
         showGc={moleculeType !== 'protein'}
         showMw={moleculeType === 'protein'}
+        primerTmMode={primerTmMode}
         coveredByNavNotice={!designPick && !agentLocked && !!navStateNotice}
       />
       {combinedWarnings.length > 0 && <WarningBadge warnings={combinedWarnings} />}

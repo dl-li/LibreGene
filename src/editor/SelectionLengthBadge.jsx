@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { matchedSeqOf, reverseComplement } from './seqUtils';
 import { sliceRange, rangeLen, bgColor, peptideMassKda } from '../editorConstants';
 import { NavStateCapsule } from '../components/NavStateNotice';
+import { primerTmForMode } from '../tmParams';
 
 // ---------------------------------------------------------------------------
 // SelectionLengthBadge — capsule above the navigation bar showing selection
@@ -21,9 +22,11 @@ function getSelectionCapsule({
   unit = 'bp',
   showGc = true,
   showMw = false,
+  primerTmMode = 'annealCore',
 }) {
   // Compute the display length + colour and the sequence for GC calculation.
   let len, bg, seqToCopy;
+  let primerTms = [];
 
   if (selectionMode === 'amplimer' && selectedPrimerIds.length === 2) {
     const fp = enrichedPrimers.find((p) => p.id === selectedPrimerIds[0]);
@@ -46,6 +49,10 @@ function getSelectionCapsule({
     }
     len = fSeq.length + intervening.length + rSeq.length;
     seqToCopy = fSeq + intervening + reverseComplement(rSeq);
+    primerTms = [
+      ['F', primerTmForMode(fwdPrimer.bindingSites?.[0], primerTmMode)],
+      ['R', primerTmForMode(revPrimer.bindingSites?.[0], primerTmMode)],
+    ];
     bg = amplimerGreen;
   } else if (selectionMode === 'primer' && selectedPrimerIds.length === 1) {
     const p = enrichedPrimers.find((pr) => pr.id === selectedPrimerIds[0]);
@@ -58,6 +65,7 @@ function getSelectionCapsule({
       (p.matchStart !== undefined && p.matchEnd !== undefined
         ? matchedSeqOf(p, cleanSeq).length
         : 0);
+    primerTms = [['', primerTmForMode(p.bindingSites?.[0], primerTmMode)]];
     bg = p.isFwd === false ? '#4A148C' : '#166534';
   } else if (isEnzymeSelection) {
     if (selStart === null || selEnd === null) return null;
@@ -83,7 +91,11 @@ function getSelectionCapsule({
     line2 = `${kda < 1 ? kda.toFixed(2) : kda.toFixed(1)} kDa`;
   }
 
-  const text = `${len} ${unit}${line2 ? ` · ${line2}` : ''}`;
+  const tmText = primerTms
+    .filter(([, tm]) => Number.isFinite(tm))
+    .map(([direction, tm]) => `${direction ? `${direction} ` : ''}${Math.round(tm)}℃`)
+    .join(' · ');
+  const text = `${len} ${unit}${line2 ? ` · ${line2}` : ''}${tmText ? ` · ${tmText}` : ''}`;
   return { key: `${bg}|${text}`, bg, text };
 }
 
@@ -126,7 +138,6 @@ function SelectionLengthBadge(props) {
             backgroundColor: bg,
             backgroundImage: 'none',
             color: bgColor,
-            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 26px -10px ${bg}61, 0 4px 12px ${bg}29`,
           }}
         >
           {text}

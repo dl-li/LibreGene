@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
+import { bgColor } from '../editorConstants';
 
 const HOLD_MS = 1600;
 const EXIT_MS = 220;
@@ -54,8 +55,8 @@ export function NavStateCapsule({
     <div
       {...props}
       data-leaving={leaving}
-      className={`${motionClassName} flex h-7 w-max min-w-32 max-w-[min(80vw,28rem)] items-center justify-center whitespace-nowrap rounded-full border border-white/15 bg-gradient-to-b from-teal-700/95 to-teal-800/95 px-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_10px_26px_-10px_rgba(15,118,110,0.38),0_4px_12px_rgba(15,23,42,0.16)] backdrop-blur-md`}
-      style={style}
+      className={`${motionClassName} flex h-7 w-max min-w-32 max-w-[min(80vw,28rem)] items-center justify-center whitespace-nowrap rounded-full bg-gradient-to-b from-teal-700/95 to-teal-800/95 px-4 text-white backdrop-blur-md`}
+      style={{ boxShadow: `0 0 3px 3px ${bgColor}`, ...style }}
     >
       <span className="w-full overflow-hidden text-ellipsis text-center text-[13px] font-bold leading-none">
         {children}

@@ -14,6 +14,8 @@ describe('NavStateNotice', () => {
     expect(html).toContain('from-teal-700/95');
     expect(html).toContain('to-teal-800/95');
     expect(html).toContain('text-white');
+    expect(html).toContain('box-shadow:0 0 3px 3px #fdfbf7');
+    expect(html).not.toContain('outline:');
     expect(html).toContain('data-leaving="false"');
   });
 
