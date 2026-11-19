@@ -269,7 +269,7 @@ pub fn compute_tm_with_params(duplex: &str, params: &TmParams) -> f64 {
 pub(crate) fn tm_from_nn_params(dh: f64, ds: f64, n: usize, params: &TmParams) -> f64 {
     let na_eq = na_equivalent(params);
     let ds_salt = ds + 0.368 * (n as f64 - 1.0) * (na_eq.max(1e-9)).ln();
-    let tm = (dh * 1000.0) / (ds_salt + R * (params.primer_conc.max(1e-12) / 4.0).ln()) - 273.15;
+    let tm = (dh * 1000.0) / (ds_salt + R * params.primer_conc.max(1e-12).ln()) - 273.15;
 
     if tm.is_nan() || tm < -273.15 {
         0.0
@@ -466,6 +466,12 @@ mod tests {
     fn test_tm_nn_model() {
         let tm = compute_tm("CGTACGTACGTACG");
         assert!(tm > 30.0 && tm < 80.0, "Tm={tm} out of expected range");
+    }
+
+    #[test]
+    fn test_tm_pcr_primer_concentration() {
+        let tm = compute_tm("GTAAAACGACGGCCAGT");
+        assert!((tm - 53.742).abs() < 0.001, "Tm={tm}");
     }
 
     #[test]

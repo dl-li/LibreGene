@@ -288,7 +288,7 @@ mod tests {
             &TmParams::default(),
         )
         .unwrap();
-        assert!((tm - 57.1).abs() < 0.2, "Tm={tm}");
+        assert!((tm - 58.620).abs() < 0.001, "Tm={tm}");
     }
 
     #[test]
@@ -296,7 +296,7 @@ mod tests {
         let seq = b".CGTTCCAAAGATGTGGGCATGAGCTTAC.";
         let cseq = b"TGCAAGGcTTCTACACCCGTACTCGAATGC".to_ascii_uppercase();
         let tm = compute_duplex_tm(seq, &cseq, &TmParams::default()).unwrap();
-        assert!((tm - 57.3).abs() < 0.3, "Tm={tm}");
+        assert!((tm - 58.792).abs() < 0.001, "Tm={tm}");
     }
 
     #[test]

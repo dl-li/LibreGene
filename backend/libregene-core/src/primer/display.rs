@@ -429,7 +429,7 @@ mod tests {
         );
 
         assert_eq!(actual.scope, TmScope::FullDuplex);
-        assert!((actual.tm - 57.1).abs() < 0.2, "Tm={}", actual.tm);
+        assert!((actual.tm - 58.620).abs() < 0.001, "Tm={}", actual.tm);
     }
 
     #[test]
