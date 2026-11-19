@@ -17,7 +17,7 @@ use super::iupac;
 // ---------------------------------------------------------------------------
 
 const NN_TABLE: &[(&[u8; 2], f64, f64)] = &[
-    (b"AA", -7.9, -22.2),
+    (b"AA", -7.6, -21.3),
     (b"AC", -8.4, -22.4),
     (b"AG", -7.8, -21.0),
     (b"AT", -7.2, -20.4),
@@ -32,7 +32,7 @@ const NN_TABLE: &[(&[u8; 2], f64, f64)] = &[
     (b"TA", -7.2, -21.3),
     (b"TC", -8.2, -22.2),
     (b"TG", -8.5, -22.7),
-    (b"TT", -7.9, -22.2),
+    (b"TT", -7.6, -21.3),
 ];
 
 /// Initiation parameters for non-self-complementary duplex
@@ -501,6 +501,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_tm_santalucia_2004_aa_tt_parameters() {
+        let nn_map = get_nn_map();
+        assert_eq!(nn_map.get(b"AA"), Some(&(-7.6, -21.3)));
+        assert_eq!(nn_map.get(b"TT"), Some(&(-7.6, -21.3)));
     }
 
     #[test]
