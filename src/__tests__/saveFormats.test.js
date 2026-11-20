@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ensureMsaSaveExtension,
   ensureNativeSaveExtension,
+  isMsaSavePath,
+  msaSaveBaseName,
   isNativeSavePath,
   nativeSaveExtension,
   nativeSaveFileName,
@@ -54,9 +57,35 @@ describe('native sequence save formats', () => {
     );
   });
 
+  it('detects canonical MSA save paths', () => {
+    expect(isMsaSavePath('/tmp/alignment.msa.fa')).toBe(true);
+    expect(isMsaSavePath('/tmp/alignment.MSA.FA')).toBe(true);
+    expect(isMsaSavePath('/tmp/alignment.msa.fasta')).toBe(false);
+    expect(isMsaSavePath('/tmp/alignment.fa')).toBe(false);
+    expect(isMsaSavePath('')).toBe(false);
+  });
+
+  it('derives a clean MSA base name from an existing project name', () => {
+    expect(msaSaveBaseName('test.msa.fa')).toBe('test');
+    expect(msaSaveBaseName('test.msa.fasta')).toBe('test');
+    expect(msaSaveBaseName('test.fa')).toBe('test');
+    expect(msaSaveBaseName('test')).toBe('test');
+    expect(msaSaveBaseName('')).toBe('alignment');
+  });
+
+  it('forces the MSA native suffix onto a chosen filename', () => {
+    expect(ensureMsaSaveExtension('/tmp/alignment')).toBe('/tmp/alignment.msa.fa');
+    expect(ensureMsaSaveExtension('/tmp/alignment.fa')).toBe('/tmp/alignment.msa.fa');
+    expect(ensureMsaSaveExtension('/tmp/alignment.fasta')).toBe('/tmp/alignment.msa.fa');
+    expect(ensureMsaSaveExtension('/tmp/alignment.msa.fa')).toBe('/tmp/alignment.msa.fa');
+    expect(ensureMsaSaveExtension('/tmp/alignment.msa.fasta')).toBe('/tmp/alignment.msa.fa');
+    expect(ensureMsaSaveExtension('/tmp/alignment.MSA.FA')).toBe('/tmp/alignment.MSA.FA');
+  });
+
   it('labels native formats explicitly in the save dialog', () => {
     expect(saveFormatLabel('libregene.gbk')).toBe('GenBank (LibreGene)');
     expect(saveFormatLabel('libregene.gpt')).toBe('GenPept (LibreGene)');
+    expect(saveFormatLabel('msa.fa')).toBe('Aligned FASTA (LibreGene)');
     expect(saveFormatLabel('fa')).toBe('FASTA');
   });
 
@@ -103,7 +132,7 @@ describe('native sequence save formats', () => {
     }
   });
 
-  it('leaves non-native formats (MSA FASTA) to their own naming rules', async () => {
+  it('prefills and forces the MSA native suffix', async () => {
     vi.resetModules();
     const save = vi.fn().mockResolvedValue('/tmp/alignment');
     vi.doMock('@tauri-apps/plugin-dialog', () => ({ save }));
@@ -111,9 +140,50 @@ describe('native sequence save formats', () => {
     vi.stubGlobal('navigator', { platform: 'MacIntel' });
     try {
       const { saveFileDialog } = await import('../tauriApi');
-      await expect(saveFileDialog('alignment.msa.fa', 'fa')).resolves.toBe('/tmp/alignment');
+      await expect(saveFileDialog('alignment.msa.fa', 'msa.fa')).resolves.toBe(
+        '/tmp/alignment.msa.fa',
+      );
+      expect(save).toHaveBeenCalledWith({
+        title: 'Save Aligned FASTA (LibreGene) file',
+        defaultPath: 'alignment.msa.fa',
+        filters: [{ name: 'Aligned FASTA (LibreGene)', extensions: ['msa.fa'] }],
+      });
+    } finally {
+      vi.doUnmock('@tauri-apps/plugin-dialog');
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('normalizes an MSA filename typed with a plain FASTA suffix', async () => {
+    vi.resetModules();
+    const save = vi.fn().mockResolvedValue('/tmp/alignment.msa.fasta');
+    vi.doMock('@tauri-apps/plugin-dialog', () => ({ save }));
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+    try {
+      const { saveFileDialog } = await import('../tauriApi');
+      await expect(saveFileDialog('alignment.msa.fa', 'msa.fa')).resolves.toBe(
+        '/tmp/alignment.msa.fa',
+      );
+    } finally {
+      vi.doUnmock('@tauri-apps/plugin-dialog');
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('leaves plain FASTA exports on the ext-less dialog path', async () => {
+    vi.resetModules();
+    const save = vi.fn().mockResolvedValue('/tmp/alignment-unaligned.fa');
+    vi.doMock('@tauri-apps/plugin-dialog', () => ({ save }));
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+    try {
+      const { saveFileDialog } = await import('../tauriApi');
+      await expect(saveFileDialog('alignment-unaligned.fa', 'fa')).resolves.toBe(
+        '/tmp/alignment-unaligned.fa',
+      );
       expect(save).toHaveBeenCalledWith(
-        expect.objectContaining({ defaultPath: 'alignment.msa.fa' }),
+        expect.objectContaining({ defaultPath: 'alignment-unaligned.fa' }),
       );
     } finally {
       vi.doUnmock('@tauri-apps/plugin-dialog');

@@ -46,6 +46,7 @@ import {
   selectionToFasta,
 } from './msaAnalysis';
 import { T, useTranslation } from '@/i18n';
+import { isMsaSavePath, msaSaveBaseName } from '../saveFormats';
 
 function snapshotOf(data) {
   return {
@@ -62,10 +63,6 @@ function snapshotKey(snapshot) {
     moleculeType: snapshot.moleculeType,
     aligned: snapshot.aligned,
   });
-}
-
-function isMsaPath(path) {
-  return /\.msa\.fasta?$/i.test(path || '');
 }
 
 function MsaWorkspace({
@@ -274,12 +271,9 @@ function MsaWorkspace({
     const rawName = projectIdRef.current.startsWith('untitled-')
       ? projectName || 'alignment'
       : projectIdRef.current.replace(/\\/g, '/').split('/').pop();
-    const base = rawName.replace(/\.msa\.fasta?$/i, '').replace(/\.[^.]+$/, '');
-    let path = await saveFileDialog(`${base}.msa.fa`, 'fa');
+    const base = msaSaveBaseName(rawName);
+    const path = await saveFileDialog(`${base}.msa.fa`, 'msa.fa');
     if (!path) return false;
-    if (!isMsaPath(path)) {
-      path = path.replace(/\.fasta?$/i, '') + '.msa.fa';
-    }
     try {
       const result = await saveFile(projectIdRef.current, path);
       if (result && !result.error) {
@@ -295,7 +289,7 @@ function MsaWorkspace({
 
   const handleSave = useCallback(async () => {
     if (!isTauri) return false;
-    if (!isMsaPath(projectIdRef.current)) return handleSaveAs();
+    if (!isMsaSavePath(projectIdRef.current)) return handleSaveAs();
     try {
       const result = await saveFile(projectIdRef.current, projectIdRef.current);
       if (result && !result.error) {
@@ -311,7 +305,7 @@ function MsaWorkspace({
 
   const handleExport = useCallback(async () => {
     const rawName = projectName || 'alignment';
-    const base = rawName.replace(/\.msa\.fasta?$/i, '').replace(/\.[^.]+$/, '');
+    const base = msaSaveBaseName(rawName);
     const path = await saveFileDialog(`${base}-unaligned.fa`, 'fa');
     if (!path) return;
     try {

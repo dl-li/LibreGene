@@ -25,8 +25,28 @@ export function isNativeSavePath(path, moleculeType) {
   return path.toLowerCase().endsWith(`.${nativeSaveExtension(moleculeType)}`);
 }
 
+export const MSA_SAVE_EXTENSION = 'msa.fa';
+
+export function isMsaSavePath(path) {
+  return !!path && path.toLowerCase().endsWith(`.${MSA_SAVE_EXTENSION}`);
+}
+
+export function ensureMsaSaveExtension(path) {
+  if (!path) return path;
+  if (isMsaSavePath(path)) return path;
+  return `${path.replace(/(?:\.msa)?\.fa(?:sta)?$/i, '')}.${MSA_SAVE_EXTENSION}`;
+}
+
+export function msaSaveBaseName(rawName) {
+  return (rawName || 'alignment')
+    .replace(/\.msa\.fasta$/i, '')
+    .replace(/\.msa\.fa$/i, '')
+    .replace(/\.[^.]+$/, '');
+}
+
 export function saveFormatLabel(ext) {
   if (ext === 'fa' || ext === 'fasta') return 'FASTA';
+  if (ext === 'msa.fa' || ext === 'msa.fasta') return 'Aligned FASTA (LibreGene)';
   if (ext === 'libregene.gbk') return 'GenBank (LibreGene)';
   if (ext === 'libregene.gpt') return 'GenPept (LibreGene)';
   return ext === 'gpt' ? 'Protein GenBank' : 'GenBank';

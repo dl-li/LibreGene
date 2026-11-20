@@ -4,7 +4,12 @@
  * Tauri-desktop-only. Uses invoke() for IPC commands and listen() for events.
  */
 
-import { ensureNativeSaveExtension, saveFormatLabel } from './saveFormats';
+import {
+  ensureMsaSaveExtension,
+  ensureNativeSaveExtension,
+  MSA_SAVE_EXTENSION,
+  saveFormatLabel,
+} from './saveFormats';
 import type {
   Chromatogram,
   CreateMsaArgs,
@@ -753,6 +758,7 @@ export async function saveFileDialog(defaultName = 'project.libregene.gbk', ext 
   // macOS hides the extension for the selected filter and may return the
   // chosen name without one; force the native suffix before the backend
   // validates the path (it rejects an empty extension).
+  if (ext === MSA_SAVE_EXTENSION) return ensureMsaSaveExtension(result);
   return ext.startsWith('libregene.') ? ensureNativeSaveExtension(result, ext) : result;
 }
 
