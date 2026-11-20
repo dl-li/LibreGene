@@ -64,7 +64,12 @@ export function useSequenceShortcuts(value, enabled = true) {
   };
 }
 
-function HighlightedText({ value, tokens, activeToken, setActiveToken, className, scrollRef }) {
+export function isShortcutBadgeHighlighted(active, tokenId, kind) {
+  if (!active || active.tokenId !== tokenId) return false;
+  return active.kind === null || active.kind === kind;
+}
+
+function HighlightedText({ value, tokens, active, setActive, className, scrollRef }) {
   const segments = [];
   let cursor = 0;
   for (const token of tokens) {
@@ -75,10 +80,10 @@ function HighlightedText({ value, tokens, activeToken, setActiveToken, className
         key={token.id}
         className={cn(
           'pointer-events-auto rounded-[2px]',
-          activeToken === token.id && 'bg-[#4b2e20] text-white',
+          active?.tokenId === token.id && 'bg-[#4b2e20] text-white',
         )}
-        onMouseEnter={() => setActiveToken(token.id)}
-        onMouseLeave={() => setActiveToken(null)}
+        onMouseEnter={() => setActive({ tokenId: token.id, kind: null })}
+        onMouseLeave={() => setActive(null)}
       >
         {value.slice(token.start, token.end)}
       </span>,
@@ -209,7 +214,7 @@ export default function SequenceShortcutInput({
   const localRef = useRef(null);
   const overlayRef = useRef(null);
   const actualRef = inputRef || localRef;
-  const [activeToken, setActiveToken] = useState(null);
+  const [active, setActive] = useState(null);
   const InputTag = multiline ? 'textarea' : 'input';
 
   const handleScroll = (event) => {
@@ -222,7 +227,7 @@ export default function SequenceShortcutInput({
 
   const replaceToken = (token, replacement) => {
     onChange(replaceSequenceShortcut(value, token, replacement));
-    setActiveToken(null);
+    setActive(null);
     requestAnimationFrame(() => actualRef.current?.focus());
   };
 
@@ -247,8 +252,8 @@ export default function SequenceShortcutInput({
           <HighlightedText
             value={value}
             tokens={shortcuts.tokens}
-            activeToken={activeToken}
-            setActiveToken={setActiveToken}
+            active={active}
+            setActive={setActive}
             className={cn(
               inputClassName,
               multiline ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
@@ -269,15 +274,15 @@ export default function SequenceShortcutInput({
                   type="button"
                   title={optionKind(option.kind)}
                   aria-label={label}
-                  onMouseEnter={() => setActiveToken(token.id)}
-                  onMouseLeave={() => setActiveToken(null)}
-                  onFocus={() => setActiveToken(token.id)}
-                  onBlur={() => setActiveToken(null)}
+                  onMouseEnter={() => setActive({ tokenId: token.id, kind: option.kind })}
+                  onMouseLeave={() => setActive(null)}
+                  onFocus={() => setActive({ tokenId: token.id, kind: option.kind })}
+                  onBlur={() => setActive(null)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => replaceToken(token, option.replacement)}
                   className={cn(
                     'inline-flex max-w-full items-center rounded-md border px-2 py-0.5 font-mono text-[11px] leading-4 transition-colors',
-                    activeToken === token.id
+                    isShortcutBadgeHighlighted(active, token.id, option.kind)
                       ? 'border-[#4b2e20] bg-[#4b2e20] text-white'
                       : 'border-amber-200 bg-amber-50 text-amber-950 hover:border-amber-300',
                   )}
