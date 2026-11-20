@@ -438,6 +438,7 @@ impl<R: Runtime> LibreGeneMcp<R> {
             &self.agent_tabs,
             None,
             &id,
+            false,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e, None))?;

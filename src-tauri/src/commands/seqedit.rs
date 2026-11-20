@@ -3,12 +3,24 @@ use tauri::{AppHandle, State};
 use libregene_core::file_io::strand_colors;
 use libregene_core::models::{Feature, Primer, TextColorRange};
 
-use crate::kernels::{do_set_methylation, do_set_text_colors, do_set_topology, do_update_sequence};
+use crate::kernels::{
+    do_get_enzymes, do_set_methylation, do_set_text_colors, do_set_topology, do_update_sequence,
+};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Tauri commands — sequence
 // ---------------------------------------------------------------------------
+
+/// Derived enzyme sites only; the sequence-edit response omits them so the
+/// editor updates without waiting for the (enzyme-dominated) project payload.
+#[tauri::command]
+pub(crate) async fn get_enzymes(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<serde_json::Value, String> {
+    do_get_enzymes(&state.pm, &project_id).await
+}
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]

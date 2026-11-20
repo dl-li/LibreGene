@@ -15,9 +15,10 @@ use libregene_core::primer;
 use libregene_core::project::ProjectManager;
 
 use crate::payload::{
-    broadcast_project_arcs, broadcast_project_change_arcs, feature_mutation_response,
-    filter_project, prune_orphan_bindings, sidebar_project_list, with_mutation_meta,
-    with_projects_list, MutationField, ProjectParams,
+    broadcast_project_arcs, broadcast_project_change_arcs,
+    broadcast_project_change_arcs_excluding_source, feature_mutation_response, filter_project,
+    filter_project_without_enzymes, prune_orphan_bindings, sidebar_project_list,
+    with_mutation_meta, with_projects_list, MutationField, ProjectParams,
 };
 use crate::state::{
     new_memory_project_id, normalize_project_path, validate_user_path, AgentTabs,
@@ -489,6 +490,7 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
     agent_tabs: &AgentTabs,
     source: Option<&str>,
     project_id: &str,
+    exclude_source_payload: bool,
 ) -> Result<(), String> {
     loop {
         let (project_clone, expected_revision) = {
@@ -551,7 +553,14 @@ pub(crate) async fn recompute_after_sequence_change<R: Runtime>(
         }
     }
 
-    broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
+    if exclude_source_payload {
+        broadcast_project_change_arcs_excluding_source(
+            app_handle, pm, agent_tabs, project_id, source,
+        )
+        .await;
+    } else {
+        broadcast_project_change_arcs(app_handle, pm, agent_tabs, project_id, source).await;
+    }
     Ok(())
 }
 
@@ -572,8 +581,9 @@ async fn update_sequence_inner<R: Runtime>(
     primers: Option<Vec<Primer>>,
     expected_sequence: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    {
+    let sequence_changed = {
         let mut pm = pm.write().await;
+        let mut changed = false;
         if let Some(p) = pm.get_project_mut_by_id(&project_id) {
             if let Some(expected) = expected_sequence {
                 if p.sequence != expected {
@@ -583,6 +593,7 @@ async fn update_sequence_inner<R: Runtime>(
                     );
                 }
             }
+            changed = p.sequence != sequence;
             p.sequence = sequence;
             p.length = p.sequence.len() as i64;
             if let Some(primers) = primers {
@@ -591,9 +602,10 @@ async fn update_sequence_inner<R: Runtime>(
             pm.bump_template_revision(&project_id);
             pm.mark_dirty(&project_id);
         }
-    }
+        changed
+    };
 
-    recompute_after_sequence_change(app_handle, pm, agent_tabs, source, &project_id).await?;
+    recompute_after_sequence_change(app_handle, pm, agent_tabs, source, &project_id, true).await?;
 
     let result = {
         let pm = pm.read().await;
@@ -605,9 +617,9 @@ async fn update_sequence_inner<R: Runtime>(
         };
         let data = pm
             .get_project_by_id(&project_id)
-            .map(|p| filter_project(p, &params))
-            .unwrap_or(serde_json::json!({"error": "Project not found after update"}));
-        with_mutation_meta(
+            .map(|p| filter_project_without_enzymes(p, &params))
+            .unwrap_or_else(|| serde_json::json!({"error": "Project not found after update"}));
+        let mut result = with_mutation_meta(
             data,
             &pm,
             &project_id,
@@ -615,12 +627,18 @@ async fn update_sequence_inner<R: Runtime>(
                 MutationField::Sequence,
                 MutationField::Features,
                 MutationField::Primers,
-                MutationField::Enzymes,
                 MutationField::Alignments,
                 MutationField::TextColorsTop,
                 MutationField::TextColorsBottom,
             ],
-        )
+        );
+        if let Some(map) = result.as_object_mut() {
+            map.insert(
+                "enzymesStale".to_string(),
+                serde_json::json!(sequence_changed),
+            );
+        }
+        result
     };
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
 
@@ -664,6 +682,25 @@ pub(crate) async fn do_update_sequence_if_unchanged<R: Runtime>(
         Some(expected_sequence),
     )
     .await
+}
+
+/// Refresh only the derived enzyme list. The sequence-edit response omits it,
+/// so the editor asks for the authoritative copy here once it has painted the
+/// edit with its locally adjusted sites.
+pub(crate) async fn do_get_enzymes(
+    pm: &Arc<RwLock<ProjectManager>>,
+    project_id: &str,
+) -> Result<serde_json::Value, String> {
+    let pm = pm.read().await;
+    let Some(project) = pm.get_project_by_id(project_id) else {
+        return Ok(serde_json::json!({"error": "Project not found"}));
+    };
+    Ok(serde_json::json!({
+        "projectId": project_id,
+        "revision": pm.revision(project_id),
+        "enzymeCount": project.derived.enzymes.len(),
+        "enzymes": &project.derived.enzymes,
+    }))
 }
 
 pub(crate) async fn do_activate_project(
@@ -1292,7 +1329,7 @@ pub(crate) async fn do_set_topology<R: Runtime>(
         }
     }
 
-    recompute_after_sequence_change(app_handle, pm, agent_tabs, source, project_id).await?;
+    recompute_after_sequence_change(app_handle, pm, agent_tabs, source, project_id, false).await?;
 
     let result = {
         let pm = pm.read().await;
@@ -1907,6 +1944,80 @@ mod tests {
     use crate::commands::primers::compute_primer_alignment_sync;
     use crate::payload::resolve_project_id;
     use crate::state::{AgentTabs, AppState, TEXT_EXPORT_EXTS};
+
+    #[tokio::test]
+    async fn sequence_update_omits_enzymes_and_flags_the_refresh() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let pm = Arc::new(RwLock::new(ProjectManager::new()));
+        pm.write()
+            .await
+            .load(
+                "p",
+                ProjectData {
+                    sequence: "GAATTCGGATCC".to_string(),
+                    length: 12,
+                    topology: "circular".to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        app.manage(AppState {
+            pm: pm.clone(),
+            agent_tabs: Arc::new(RwLock::new(HashMap::new())),
+            workspace: Arc::new(RwLock::new(Vec::new())),
+            session_edit_log: Arc::new(RwLock::new(Default::default())),
+            pending_opens: Arc::new(std::sync::Mutex::new(Vec::new())),
+            tray_status: Arc::new(std::sync::Mutex::new(None)),
+        });
+        let state = app.state::<AppState>();
+
+        let data = do_update_sequence(
+            app.handle(),
+            &pm,
+            &state.agent_tabs,
+            Some("main"),
+            "p".to_string(),
+            "GAATTAGGATCC".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            data.get("enzymes").is_none(),
+            "enzymes must stay off the wire"
+        );
+        assert_eq!(data["enzymesStale"], serde_json::json!(true));
+        let changed = data["changedFields"].as_array().unwrap();
+        assert!(!changed.iter().any(|field| field == "enzymes"));
+
+        let enzymes = do_get_enzymes(&pm, "p").await.unwrap();
+        assert_eq!(enzymes["projectId"], serde_json::json!("p"));
+        assert!(enzymes["revision"].as_u64().unwrap() >= 1);
+        let list = enzymes["enzymes"].as_array().unwrap();
+        assert_eq!(
+            list.len(),
+            enzymes["enzymeCount"].as_u64().unwrap() as usize
+        );
+        assert!(!list.iter().any(|e| e["name"] == "EcoRI"));
+
+        // An identical sequence leaves the enzyme list valid: no refresh.
+        let again = do_update_sequence(
+            app.handle(),
+            &pm,
+            &state.agent_tabs,
+            Some("main"),
+            "p".to_string(),
+            "GAATTAGGATCC".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(again["enzymesStale"], serde_json::json!(false));
+    }
 
     #[test]
     fn primer_alignment_rev_tail_at_circular_end() {

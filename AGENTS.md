@@ -63,7 +63,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 ### 后端（Rust）
 
 - **锁顺序**：`session_edit_log` 可在持有 `pm` 时获取，但持日志锁时不得再取 `pm`；`agent_tabs`/`workspace` 锁不得与 `pm` 同时持有（取前先 drop guard）。
-- 重计算（酶/引物/比对）放 `spawn_blocking`；所有 mutation 命令调用 `broadcast_project()` 同步单窗口中的工作区。
+- 重计算（酶/引物/比对）放 `spawn_blocking`；所有 mutation 命令调用 `broadcast_project()` 同步单窗口中的工作区；`update_sequence` 路径的广播不再向发起窗口回传整份工程（命令响应已携带），且广播载荷中 `data` 与 `projectData[active]` 不再重复同一份工程。
 - 环状序列 region 用 `wrap_template_region` 拼接（`% tlen` 可能为 0 导致空切片）。
 
 ### 单窗口与多项目

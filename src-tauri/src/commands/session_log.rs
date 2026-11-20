@@ -65,6 +65,7 @@ async fn rollback_session_edit_impl<R: Runtime>(
         &state.agent_tabs,
         Some(SESSION_ROLLBACK_SOURCE),
         &project_id,
+        false,
     )
     .await?;
 
@@ -159,6 +160,7 @@ pub(crate) async fn restore_project_history<R: Runtime>(
         &state.agent_tabs,
         Some(SESSION_ROLLBACK_SOURCE),
         &project_id,
+        false,
     )
     .await?;
     {

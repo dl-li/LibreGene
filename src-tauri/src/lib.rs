@@ -133,6 +133,7 @@ pub fn run() {
             commands::session_log::redo_project_edit,
             commands::default_app::set_default_file_associations,
             commands::seqedit::update_sequence,
+            commands::seqedit::get_enzymes,
             commands::seqedit::set_text_colors,
             commands::seqedit::set_roi,
             commands::seqedit::clear_roi,

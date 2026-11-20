@@ -212,6 +212,26 @@ pub(crate) async fn feature_mutation_response(
 
 /// Filter enzymes according to the same logic as routes.rs::filter_project.
 pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> serde_json::Value {
+    filter_project_inner(project, params, true)
+}
+
+/// Sequence-edit response: the recomputed enzyme list is the single heaviest
+/// part of the payload (~1.5–4 MB for a typical plasmid) and the editor keeps
+/// its own locally adjusted copy until the follow-up `get_enzymes` refresh
+/// lands, so the response omits it and flags the client instead of blocking
+/// the visual update on the whole list.
+pub(crate) fn filter_project_without_enzymes(
+    project: &ProjectData,
+    params: &ProjectParams,
+) -> serde_json::Value {
+    filter_project_inner(project, params, false)
+}
+
+fn filter_project_inner(
+    project: &ProjectData,
+    params: &ProjectParams,
+    include_enzymes: bool,
+) -> serde_json::Value {
     let filter = params.enzyme_filter.as_deref().unwrap_or("unique");
     let cpl = params.cpl.unwrap_or(DEFAULT_CPL).max(1);
     let row_start = params.row_start.map(|rs| rs.max(0));
@@ -227,34 +247,8 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
         _ => None,
     };
 
-    let enzymes: Vec<&libregene_core::models::Enzyme> = if filter == "all" {
-        let all: Vec<_> = project.derived.enzymes.iter().collect();
-        if let Some((idx_s, idx_e)) = row_window {
-            all.into_iter()
-                .filter(|e| e.cut_index >= idx_s && e.cut_index <= idx_e)
-                .collect()
-        } else {
-            all
-        }
-    } else {
-        let mut seen: HashMap<&str, Vec<&libregene_core::models::Enzyme>> = HashMap::new();
-        for e in &project.derived.enzymes {
-            seen.entry(&e.name).or_default().push(e);
-        }
-        let mut unique: Vec<&libregene_core::models::Enzyme> = seen
-            .into_values()
-            .filter(|v| v.len() == 1)
-            .map(|v| v[0])
-            .collect();
-        if let Some((idx_s, idx_e)) = row_window {
-            unique.retain(|e| e.cut_index >= idx_s && e.cut_index <= idx_e);
-        }
-        unique.sort_by_key(|e| e.cut_index);
-        unique
-    };
-
     // Build JSON directly — avoid serializing full enzyme list just to overwrite it
-    serde_json::json!({
+    let mut data = serde_json::json!({
         "sequence": &project.sequence,
         "length": project.length,
         "topology": &project.topology,
@@ -274,8 +268,44 @@ pub(crate) fn filter_project(project: &ProjectData, params: &ProjectParams) -> s
         "textColorsBottom": &project.text_colors_bottom,
         "enzymeCount": project.derived.enzymes.len(),
         "enzymeFilter": filter,
-        "enzymes": &enzymes,
-    })
+    });
+    let Some(object) = data.as_object_mut() else {
+        return data;
+    };
+    if include_enzymes {
+        let enzymes: Vec<&libregene_core::models::Enzyme> = if filter == "all" {
+            let all: Vec<_> = project.derived.enzymes.iter().collect();
+            if let Some((idx_s, idx_e)) = row_window {
+                all.into_iter()
+                    .filter(|e| e.cut_index >= idx_s && e.cut_index <= idx_e)
+                    .collect()
+            } else {
+                all
+            }
+        } else {
+            let mut seen: HashMap<&str, Vec<&libregene_core::models::Enzyme>> = HashMap::new();
+            for e in &project.derived.enzymes {
+                seen.entry(&e.name).or_default().push(e);
+            }
+            let mut unique: Vec<&libregene_core::models::Enzyme> = seen
+                .into_values()
+                .filter(|v| v.len() == 1)
+                .map(|v| v[0])
+                .collect();
+            if let Some((idx_s, idx_e)) = row_window {
+                unique.retain(|e| e.cut_index >= idx_s && e.cut_index <= idx_e);
+            }
+            unique.sort_by_key(|e| e.cut_index);
+            unique
+        };
+        object.insert(
+            "enzymes".to_string(),
+            serde_json::to_value(&enzymes).unwrap_or_default(),
+        );
+    } else {
+        object.insert("enzymesStale".to_string(), serde_json::json!(true));
+    }
+    data
 }
 
 /// Emit the current project state + project list as a Tauri event.
@@ -304,7 +334,7 @@ pub(crate) async fn broadcast_project_arcs<R: Runtime>(
     agent_tabs: &AgentTabs,
     source: Option<&str>,
 ) {
-    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, None, source).await;
+    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, None, source, false).await;
 }
 
 /// Mutation synchronization: project summaries stay complete, but only the
@@ -316,7 +346,20 @@ pub(crate) async fn broadcast_project_change_arcs<R: Runtime>(
     project_id: &str,
     source: Option<&str>,
 ) {
-    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, Some(project_id), source).await;
+    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, Some(project_id), source, false).await;
+}
+
+/// Like [`broadcast_project_change_arcs`], but the source window is known to
+/// receive the authoritative data in its command response, so it must not pay
+/// for a second full-project copy over IPC.
+pub(crate) async fn broadcast_project_change_arcs_excluding_source<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    pm: &Arc<RwLock<ProjectManager>>,
+    agent_tabs: &AgentTabs,
+    project_id: &str,
+    source: Option<&str>,
+) {
+    broadcast_project_arcs_impl(app_handle, pm, agent_tabs, Some(project_id), source, true).await;
 }
 
 fn project_data_payload(
@@ -348,6 +391,7 @@ async fn broadcast_project_arcs_impl<R: Runtime>(
     agent_tabs: &AgentTabs,
     changed_project_id: Option<&str>,
     source: Option<&str>,
+    exclude_source: bool,
 ) {
     let (projects, active_id) = sidebar_project_list(pm, agent_tabs).await;
     let pm = pm.read().await;
@@ -359,33 +403,54 @@ async fn broadcast_project_arcs_impl<R: Runtime>(
     });
 
     if !app_handle.webview_windows().is_empty() {
-        if let Some(ref active) = active_id {
-            if changed_project_id.is_none_or(|id| id == active) {
-                if let Some(project) = pm.get_project_by_id(active) {
-                    let params = ProjectParams {
-                        enzyme_filter: Some("all".to_string()),
-                        row_start: None,
-                        row_end: None,
-                        cpl: None,
-                    };
-                    payload["data"] =
-                        with_project_meta(filter_project(project, &params), &pm, active);
+        // The editing window already applied the authoritative data from its
+        // command response; only windows that did not send the mutation need
+        // the project payload. Agent-driven mutations (no source) always do.
+        let deliver_project_data = !exclude_source
+            || app_handle
+                .webview_windows()
+                .keys()
+                .any(|label| Some(label.as_str()) != source);
+        if deliver_project_data {
+            let mut active_in_data = false;
+            if let Some(ref active) = active_id {
+                if changed_project_id.is_none_or(|id| id == active) {
+                    if let Some(project) = pm.get_project_by_id(active) {
+                        let params = ProjectParams {
+                            enzyme_filter: Some("all".to_string()),
+                            row_start: None,
+                            row_end: None,
+                            cpl: None,
+                        };
+                        payload["data"] =
+                            with_project_meta(filter_project(project, &params), &pm, active);
+                        active_in_data = true;
+                    }
                 }
             }
+            let mut wanted: HashSet<String> = if let Some(id) = changed_project_id {
+                HashSet::from([id.to_string()])
+            } else {
+                payload["projects"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|p| p["id"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            // `data` already carries the active project — never ship it twice.
+            if active_in_data {
+                if let Some(active) = active_id.as_ref() {
+                    wanted.remove(active);
+                }
+            }
+            if !wanted.is_empty() {
+                payload["projectData"] =
+                    serde_json::Value::Object(project_data_payload(&pm, &wanted));
+            }
         }
-        let wanted: HashSet<String> = if let Some(id) = changed_project_id {
-            HashSet::from([id.to_string()])
-        } else {
-            payload["projects"]
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|p| p["id"].as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
-        payload["projectData"] = serde_json::Value::Object(project_data_payload(&pm, &wanted));
     }
 
     if let Some(id) = changed_project_id {
@@ -430,6 +495,33 @@ mod tests {
         assert_eq!(payload.len(), 1);
         assert_eq!(payload["a"]["sequence"], "AAAA");
         assert!(!payload.contains_key("b"));
+    }
+
+    #[test]
+    fn lean_payload_flags_stale_enzymes_instead_of_serializing_them() {
+        let mut pm = ProjectManager::new();
+        pm.load(
+            "p",
+            ProjectData {
+                sequence: "GAATTC".to_string(),
+                length: 6,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let project = pm.get_project_by_id("p").unwrap();
+        let params = ProjectParams {
+            enzyme_filter: Some("all".to_string()),
+            row_start: None,
+            row_end: None,
+            cpl: None,
+        };
+        let full = filter_project(project, &params);
+        assert!(full.get("enzymes").is_some());
+        let lean = filter_project_without_enzymes(project, &params);
+        assert!(lean.get("enzymes").is_none());
+        assert_eq!(lean["enzymesStale"], serde_json::json!(true));
+        assert_eq!(lean["sequence"], serde_json::json!("GAATTC"));
     }
 }
 
