@@ -62,6 +62,7 @@ import FoldWatermark from './editor/FoldWatermark';
 import SelectionLengthBadge from './editor/SelectionLengthBadge';
 import { useNavStateNotice } from './components/NavStateNotice';
 import useEditorClipboard from './editor/useEditorClipboard';
+import { isEditTriggerKey } from './editor/editKeys';
 import { showContextMenu } from './contextMenu';
 import {
   collectAnnotations,
@@ -1743,10 +1744,10 @@ const SequenceEditor = React.memo(function SequenceEditor({
         return;
       }
 
-      // --- Edit triggers: letter keys (insert/replace), paste, and Delete/Backspace (delete) ---
+      // --- Edit triggers: letter/bracket keys (insert/replace), paste, and Delete/Backspace (delete) ---
       if (!(e.ctrlKey || e.metaKey || e.altKey)) {
-        // Letter key → replace (any selection) or insert (cursor only)
-        if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key) && onEditRequest) {
+        // Letter or shortcut bracket → replace (any selection) or insert (cursor only)
+        if (isEditTriggerKey(e.key) && onEditRequest) {
           // Translation (codon) selection: replace the covered base range
           if (hasTranslationSelection) {
             const range = translationBaseRange();
