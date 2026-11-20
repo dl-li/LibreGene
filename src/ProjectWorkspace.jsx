@@ -33,7 +33,7 @@ import SessionEditLogDialog from './dialogs/SessionEditLogDialog';
 import WorkspaceDialogs from './workspace/WorkspaceDialogs';
 import { plugins, pluginAvailable } from './plugins';
 import { EMPTY_ARRAY } from './workspace/constants';
-import { readHiddenAlnNames } from './workspace/hiddenAlignments';
+import { copyAlignmentVisibility, readHiddenAlnNames } from './workspace/hiddenAlignments';
 import { createProjectSnapshot, projectSnapshotsEqual } from './workspace/projectSnapshot';
 import { applyProjectMutation } from './workspace/projectMutation';
 import WorkspaceError from './components/WorkspaceError';
@@ -827,6 +827,7 @@ function ProjectWorkspace({
     addAlignmentFiles,
     handleAddAlignment,
     handleAddAlignmentText,
+    handleToggleAlignments,
     handleToggleAlignmentVisible,
     visibleAlignments,
     handleRemoveAlignment,
@@ -860,6 +861,7 @@ function ProjectWorkspace({
     alignmentAlgorithm,
     alignmentEnabled,
     showAlignments,
+    setShowAlignments,
     hiddenAlignIds,
   });
 
@@ -910,6 +912,7 @@ function ProjectWorkspace({
     (result, sourceId, gen, savedSnapshot) => {
       dismissError();
       if (result.rekeyedFrom === sourceId) {
+        copyAlignmentVisibility(sourceId, result.projectId);
         projectIdRef.current = result.projectId;
         onRekey(sourceId, result.projectId);
       }
@@ -1207,7 +1210,7 @@ function ProjectWorkspace({
               }
               mapName={mapName}
               showAlignments={showAlignments}
-              onToggleAlignments={() => setShowAlignments((v) => !v)}
+              onToggleAlignments={handleToggleAlignments}
               hiddenAlignIds={hiddenAlignIds}
               onToggleAlignmentVisible={handleToggleAlignmentVisible}
               onAddAlignmentFile={handleAddAlignment}

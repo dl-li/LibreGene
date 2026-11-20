@@ -973,10 +973,13 @@ export default function EditorNavMenu({
                 : alignments.some((a) => !hiddenAlignIds.includes(a.id))
                   ? toggleState('Show Alignments', showAlignments, onToggleAlignments)
                   : () => {
-                      if (!showAlignments) onToggleAlignments?.();
-                      alignments.forEach((a) => {
-                        if (hiddenAlignIds.includes(a.id)) onToggleAlignmentVisible?.(a.id);
-                      });
+                      if (!showAlignments) {
+                        onToggleAlignments?.();
+                      } else {
+                        alignments.forEach((a) => {
+                          if (hiddenAlignIds.includes(a.id)) onToggleAlignmentVisible?.(a.id);
+                        });
+                      }
                       showNotice('Show Alignments', true);
                     }
             }

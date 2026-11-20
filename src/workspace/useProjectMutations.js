@@ -19,7 +19,7 @@ import {
 } from '../tauriApi';
 import { addMyPrimers, removeMyPrimer, libraryToPrimers } from '../myPrimers';
 import { setMyEnzymes } from '../myEnzymes';
-import { writeHiddenAlnNames } from './hiddenAlignments';
+import { shouldRevealAlignments, writeHiddenAlnNames } from './hiddenAlignments';
 import { EMPTY_ARRAY } from './constants';
 import { applyProjectMutation } from './projectMutation';
 
@@ -59,6 +59,7 @@ export default function useProjectMutations({
   alignmentAlgorithm,
   alignmentEnabled,
   showAlignments,
+  setShowAlignments,
   hiddenAlignIds,
 }) {
   const onErrorRef = useRef(onError);
@@ -434,6 +435,21 @@ export default function useProjectMutations({
     [alignmentAlgorithm, addAlignmentSeq, applyMutation, agentLockedRef, operationGenRef],
   );
 
+  const handleToggleAlignments = useCallback(() => {
+    if (shouldRevealAlignments(showAlignments, alignments, hiddenAlignIds)) {
+      setHiddenAlignIds([]);
+      writeHiddenAlnNames(projectIdRef.current, []);
+    }
+    setShowAlignments(!showAlignments);
+  }, [
+    alignments,
+    hiddenAlignIds,
+    projectIdRef,
+    setHiddenAlignIds,
+    setShowAlignments,
+    showAlignments,
+  ]);
+
   const handleToggleAlignmentVisible = useCallback(
     (alignmentId) => {
       setHiddenAlignIds((prev) => {
@@ -516,6 +532,7 @@ export default function useProjectMutations({
     addAlignmentFiles,
     handleAddAlignment,
     handleAddAlignmentText,
+    handleToggleAlignments,
     handleToggleAlignmentVisible,
     visibleAlignments,
     handleRemoveAlignment,

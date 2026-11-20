@@ -7,7 +7,7 @@ import {
 } from '../tauriApi';
 import { findOrfs } from '../plugins/builtin/orf';
 import { EMPTY_ARRAY } from './constants';
-import { readHiddenAlnNames } from './hiddenAlignments';
+import { readHiddenAlnNames, readShowAlignments, writeShowAlignments } from './hiddenAlignments';
 
 export default function useProjectData({
   projectId,
@@ -47,10 +47,19 @@ export default function useProjectData({
   // Ref mirror so the guard below never disturbs useCallback dep arrays.
   const agentLockedRef = useRef(agentLocked);
   agentLockedRef.current = agentLocked;
+  // Shared with Save As rekeying and backend-facing effects.
+  const projectIdRef = useRef(projectId);
   const handleUnlockAgent = useCallback(() => {
     setAgentTabLocked(projectId, false).catch(() => {});
   }, [projectId]);
-  const [showAlignments, setShowAlignments] = useState(true);
+  const [showAlignments, setShowAlignmentsState] = useState(() => readShowAlignments(projectId));
+  const setShowAlignments = useCallback((update) => {
+    setShowAlignmentsState((prev) => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      writeShowAlignments(projectIdRef.current, next);
+      return next;
+    });
+  }, []);
   const [hiddenAlignIds, setHiddenAlignIds] = useState(() => {
     const names = readHiddenAlnNames(projectId);
     return (initialData?.alignments || EMPTY_ARRAY)
@@ -137,11 +146,6 @@ export default function useProjectData({
       listener.close();
     };
   }, []);
-
-  // Shared with the workspace component (Save As rekeys it in place) and with
-  // the backend-facing effects below; created here because the methylation
-  // sync needs it.
-  const projectIdRef = useRef(projectId);
 
   // Sync methylation settings with the backend when they change.
   // Deferred while hidden; the command always targets this workspace's id.
