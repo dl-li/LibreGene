@@ -34,7 +34,7 @@ function tokenOptions(text, enzymeRecords, random) {
   if (randomMatch) {
     const count = Number(randomMatch[1]);
     if (count <= MAX_RANDOM_BASES) {
-      options.push({ kind: 'random', replacement: randomBases(count, random) });
+      options.push({ kind: 'random', replacement: randomBases(count, random), display: text });
     }
   }
 
@@ -42,11 +42,17 @@ function tokenOptions(text, enzymeRecords, random) {
     (record) => record.name?.toLowerCase() === text.toLowerCase(),
   );
   if (enzyme?.site) {
-    options.push({ kind: 'enzyme', replacement: enzyme.site.toUpperCase() });
+    options.push({
+      kind: 'enzyme',
+      replacement: enzyme.site.toUpperCase(),
+      display: enzyme.name,
+    });
   }
 
   const codons = aminoAcidReplacement(text, random);
-  if (codons) options.push({ kind: 'aminoAcids', replacement: codons });
+  if (codons) {
+    options.push({ kind: 'aminoAcids', replacement: codons, display: text.toUpperCase() });
+  }
   return options;
 }
 

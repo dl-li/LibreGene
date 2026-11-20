@@ -284,7 +284,7 @@ export default function SequenceShortcutInput({
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {shortcuts.tokens.flatMap((token) =>
             token.options.map((option) => {
-              const label = `${token.text} → ${option.replacement}`;
+              const label = `${option.display ?? token.text} → ${option.replacement}`;
               return (
                 <button
                   key={`${token.id}:${option.kind}`}

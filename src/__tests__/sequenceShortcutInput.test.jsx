@@ -25,11 +25,24 @@ describe('SequenceShortcutInput', () => {
     expect(overlayClass).toContain('bg-transparent');
     expect(overlayClass).not.toContain('bg-background');
     expect(overlayClass).toContain('text-transparent');
-    expect(html.match(/aria-label="hhhhhh → /g)).toHaveLength(2);
-    expect(html).toContain('hhhhhh → GGGCCC');
-    expect(html).toContain(`hhhhhh → ${'CAC'.repeat(6)}`);
+    expect(html.match(/aria-label="HHHHHH → /g)).toHaveLength(2);
+    expect(html).toContain('HHHHHH → GGGCCC');
+    expect(html).toContain(`HHHHHH → ${'CAC'.repeat(6)}`);
     expect(html).toContain('Sequence shortcut input');
     expect(html).toContain('data-slot="tooltip-trigger"');
+  });
+
+  it('shows canonical enzyme casing and uppercase amino-acid badges', () => {
+    const value = '[spei]';
+    const shortcuts = {
+      ...parseSequenceShortcuts(value, [{ name: 'SpeI', site: 'ACTAGT' }], () => 0),
+      enabled: true,
+    };
+    const html = renderToString(
+      <SequenceShortcutInput value={value} onChange={() => {}} shortcuts={shortcuts} />,
+    );
+    expect(html).toContain('SpeI → ACTAGT');
+    expect(html).toContain('SPEI → ');
   });
 
   it('underlines the whole shortcut group including its brackets', () => {

@@ -20,16 +20,20 @@ describe('sequence shortcuts', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].valid).toBe(true);
     expect(tokens).toHaveLength(2);
-    expect(tokens[0].options).toEqual([{ kind: 'random', replacement: 'AAAAA' }]);
-    expect(tokens[1].options).toEqual([{ kind: 'enzyme', replacement: 'GAATTC' }]);
+    expect(tokens[0].options).toEqual([{ kind: 'random', replacement: 'AAAAA', display: '5N' }]);
+    expect(tokens[1].options).toEqual([
+      { kind: 'enzyme', replacement: 'GAATTC', display: 'EcoRI' },
+    ]);
     expect(findInvalidSequenceCharacters('[5N, ecori]', iupac, groups)).toEqual([]);
   });
 
   it('uses random synonymous codons for amino acids and supports stop codons', () => {
     const { tokens } = parseSequenceShortcuts('[HHHHHH, *]', enzymes.slice(0, 1), zero);
 
-    expect(tokens[0].options).toEqual([{ kind: 'aminoAcids', replacement: 'CAC'.repeat(6) }]);
-    expect(tokens[1].options).toEqual([{ kind: 'aminoAcids', replacement: 'TAA' }]);
+    expect(tokens[0].options).toEqual([
+      { kind: 'aminoAcids', replacement: 'CAC'.repeat(6), display: 'HHHHHH' },
+    ]);
+    expect(tokens[1].options).toEqual([{ kind: 'aminoAcids', replacement: 'TAA', display: '*' }]);
   });
 
   it('returns both enzyme and amino-acid options for an ambiguous code', () => {
@@ -37,8 +41,8 @@ describe('sequence shortcuts', () => {
 
     expect(tokens).toHaveLength(1);
     expect(tokens[0].options).toEqual([
-      { kind: 'enzyme', replacement: 'GGGCCC' },
-      { kind: 'aminoAcids', replacement: 'CAC'.repeat(6) },
+      { kind: 'enzyme', replacement: 'GGGCCC', display: 'HHHHHH' },
+      { kind: 'aminoAcids', replacement: 'CAC'.repeat(6), display: 'HHHHHH' },
     ]);
   });
 
