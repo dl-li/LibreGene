@@ -470,8 +470,19 @@ mod tests {
 
     #[test]
     fn test_tm_pcr_primer_concentration() {
-        let tm = compute_tm("GTAAAACGACGGCCAGT");
-        assert!((tm - 53.742).abs() < 0.001, "Tm={tm}");
+        let forward = compute_tm("GTAAAACGACGGCCAGT");
+        assert!((forward - 53.742).abs() < 0.001, "Tm={forward}");
+        let reverse = compute_tm("CAGGAAACAGCTATGAC");
+        assert!((reverse - 48.136).abs() < 0.001, "Tm={reverse}");
+    }
+
+    #[test]
+    fn test_tm_reverse_complement_symmetry() {
+        let sequence = "CCGCACAGATGCGTAAGG";
+        let reverse_complement = crate::utils::reverse_complement(sequence);
+        let forward = compute_tm(sequence);
+        let reverse = compute_tm(&reverse_complement);
+        assert!((forward - reverse).abs() < 1e-9, "{forward} != {reverse}");
     }
 
     #[test]

@@ -415,6 +415,26 @@ mod tests {
     }
 
     #[test]
+    fn test_matched_core_ignores_unaligned_five_prime_tail() {
+        let core = b"GGATCCTTACTTGTACAGCTCGTCCA";
+        let primer = b"GTCACTGGATCCTTACTTGTACAGCTCGTCCA";
+        let result = align_3prime_constrained(primer, core).unwrap();
+        let actual = compute_matched_core_tm_from_alignment_with_params(
+            primer,
+            core,
+            &result,
+            false,
+            &TmParams::default(),
+        );
+        let expected = thermodynamics::compute_tm_with_params(
+            std::str::from_utf8(core).unwrap(),
+            &TmParams::default(),
+        );
+
+        assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
+
+    #[test]
     fn test_alignment_mismatch_uses_duplex_thermodynamics() {
         let primer = b"CGTTCCAAAGATGTGGGCATGAGCTTAC";
         let mut template = primer.to_vec();
