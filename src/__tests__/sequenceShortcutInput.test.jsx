@@ -32,6 +32,22 @@ describe('SequenceShortcutInput', () => {
     expect(html).toContain('data-slot="tooltip-trigger"');
   });
 
+  it('underlines only the tokens that resolve to a shortcut', () => {
+    const value = '[5N, XYZ]';
+    const shortcuts = {
+      ...parseSequenceShortcuts(value, [], () => 0),
+      enabled: true,
+    };
+    const html = renderToString(
+      <SequenceShortcutInput value={value} onChange={() => {}} shortcuts={shortcuts} />,
+    );
+    const underlined = [
+      ...html.matchAll(/<span class="([^"]*decoration-amber-700[^"]*)">([^<]*)<\/span>/g),
+    ];
+    expect(underlined).toHaveLength(1);
+    expect(underlined[0][2]).toBe('5N');
+  });
+
   it('highlights every badge of a shortcut unless a single badge is hovered', () => {
     expect(isShortcutBadgeHighlighted(null, '0:0', 'enzyme')).toBe(false);
     expect(isShortcutBadgeHighlighted({ tokenId: '0:0', kind: null }, '0:0', 'enzyme')).toBe(true);

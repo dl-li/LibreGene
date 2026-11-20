@@ -79,8 +79,8 @@ function HighlightedText({ value, tokens, active, setActive, className, scrollRe
       <span
         key={token.id}
         className={cn(
-          'pointer-events-auto rounded-[2px]',
-          active?.tokenId === token.id && 'bg-[#4b2e20] text-white',
+          'pointer-events-auto rounded-[2px] underline decoration-amber-700 decoration-1 underline-offset-2',
+          active?.tokenId === token.id && 'bg-[#4b2e20] text-white decoration-white',
         )}
         onMouseEnter={() => setActive({ tokenId: token.id, kind: null })}
         onMouseLeave={() => setActive(null)}
