@@ -36,5 +36,8 @@ export function applyProjectMutation(data, setters, { defaultDirty, onError } = 
   if (data.projects) setters.onProjectsSync?.(data.projects);
   if (typeof data.dirty === 'boolean') setters.setIsDirty?.(data.dirty);
   else if (typeof defaultDirty === 'boolean') setters.setIsDirty?.(defaultDirty);
+  // The sequence-edit response leaves the (heavy) enzyme list out; fetch it
+  // once the edit has painted instead of blocking on it.
+  if (data.enzymesStale === true) setters.onEnzymesStale?.();
   return true;
 }

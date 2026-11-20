@@ -50,6 +50,32 @@ describe('unified project mutation application', () => {
     expect(latestRevisionRef.current).toBe(5);
   });
 
+  it('requests the omitted enzyme list after a sequence edit', () => {
+    const onEnzymesStale = vi.fn();
+    applyProjectMutation(
+      { revision: 6, changedFields: ['sequence'], sequence: 'AAAA', enzymesStale: true },
+      {
+        latestRevisionRef: { current: 5 },
+        setSequence: () => {},
+        onEnzymesStale,
+      },
+    );
+    expect(onEnzymesStale).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refresh enzymes when the sequence did not change', () => {
+    const onEnzymesStale = vi.fn();
+    applyProjectMutation(
+      { revision: 6, changedFields: ['sequence'], sequence: 'AAAA', enzymesStale: false },
+      {
+        latestRevisionRef: { current: 5 },
+        setSequence: () => {},
+        onEnzymesStale,
+      },
+    );
+    expect(onEnzymesStale).not.toHaveBeenCalled();
+  });
+
   it('rejects stale revisions and reports malformed responses', () => {
     const setSequence = vi.fn();
     const onError = vi.fn();

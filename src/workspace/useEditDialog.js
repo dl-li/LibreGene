@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { addPrimers, updateSequence } from '../tauriApi';
 import { adjustAlignmentsForEdit } from '../alignmentEdit';
+import { adjustEnzymesForEdit, adjustPrimersForEdit } from '../derivedEdit';
 import { adjustTextColorsForEdit } from '../editor/textColors';
 import { EMPTY_ARRAY } from './constants';
 import { applyProjectMutation } from './projectMutation';
@@ -60,6 +61,8 @@ export function restoreEditSnapshot(snapshot, setters) {
   setters.setTextColorsTop(snapshot.textColorsTop || EMPTY_ARRAY);
   setters.setTextColorsBottom(snapshot.textColorsBottom || EMPTY_ARRAY);
   setters.setAlignments(snapshot.alignments || EMPTY_ARRAY);
+  if (snapshot.enzymes) setters.setEnzymes?.(snapshot.enzymes);
+  if (snapshot.primers) setters.setPrimers?.(snapshot.primers);
   setters.setIsDirty(snapshot.isDirty);
   if (snapshot.selection) {
     setters.setRestoreState({
@@ -78,6 +81,8 @@ export default function useEditDialog({
   undoVersionRef,
   sequence,
   features,
+  enzymes,
+  primers,
   alignments,
   textColorsTop,
   textColorsBottom,
@@ -91,6 +96,7 @@ export default function useEditDialog({
   setTextColorsBottom,
   setIsDirty,
   onProjectsSync,
+  onEnzymesStale,
   onError,
   isDna,
 }) {
@@ -308,6 +314,8 @@ export default function useEditDialog({
       // chromatogram riding on them) are drawn from the old model against the
       // new sequence until the backend's recomputed models land.
       setAlignments((prev) => adjustAlignmentsForEdit(prev, editStart, editEnd, oldLen, newLen));
+      setEnzymes((prev) => adjustEnzymesForEdit(prev, editStart, editEnd, oldLen, newLen));
+      setPrimers((prev) => adjustPrimersForEdit(prev, editStart, editEnd, oldLen, newLen));
       setIsDirty(true);
       setRestoreState(
         buildPostEditSelection({
@@ -325,6 +333,8 @@ export default function useEditDialog({
           {
             sequence: currentSeq,
             features,
+            enzymes,
+            primers,
             textColorsTop,
             textColorsBottom,
             alignments,
@@ -346,6 +356,8 @@ export default function useEditDialog({
             setTextColorsTop,
             setTextColorsBottom,
             setAlignments,
+            setEnzymes,
+            setPrimers,
             setIsDirty,
             setRestoreState,
             undoVersionRef,
@@ -378,6 +390,7 @@ export default function useEditDialog({
               setTextColorsBottom,
               setIsDirty,
               onProjectsSync,
+              onEnzymesStale,
             },
             { defaultDirty: true },
           );
@@ -416,6 +429,8 @@ export default function useEditDialog({
       editDialog,
       adjustAnnotations,
       features,
+      enzymes,
+      primers,
       alignments,
       textColorsTop,
       textColorsBottom,
@@ -432,6 +447,7 @@ export default function useEditDialog({
       setFeatures,
       setIsDirty,
       setPrimers,
+      onEnzymesStale,
       setRestoreState,
       setSequence,
       setTextColorsBottom,

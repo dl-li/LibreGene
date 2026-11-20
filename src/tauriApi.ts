@@ -9,6 +9,7 @@ import type {
   Chromatogram,
   CreateMsaArgs,
   CreateProjectArgs,
+  Enzyme,
   Feature,
   HistoryRestoreResponse,
   MoleculeType,
@@ -246,6 +247,20 @@ export async function updateSequence(
     textColorsTop: textColorsTop || null,
     textColorsBottom: textColorsBottom || null,
   });
+}
+
+/**
+ * Authoritative derived enzyme list. `update_sequence` omits it (it dominates
+ * the payload) and flags `enzymesStale`, so the editor refreshes it after the
+ * edit has painted.
+ */
+export async function getEnzymes(projectId: string): Promise<{
+  enzymes?: Enzyme[];
+  revision?: number;
+  enzymeCount?: number;
+  error?: string;
+}> {
+  return tauriInvoke('get_enzymes', { projectId });
 }
 
 // Color the sequence text of [start, end] (0-based inclusive) on one strand

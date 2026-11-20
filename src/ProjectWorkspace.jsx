@@ -6,6 +6,7 @@ import {
   saveFileDialog,
   checkPrimersBinding,
   getChromatogram,
+  getEnzymes,
   listenProjectUpdates,
   listenAgentMutationFocus,
   isTauri,
@@ -214,6 +215,33 @@ function ProjectWorkspace({
   });
   const operationGenRef = useRef(0);
   const latestRevisionRef = useRef(initialData?.revision || 0);
+  // A sequence edit leaves the recomputed enzyme list out of its response (it
+  // dominates the payload). Refresh it once the edit has painted; the debounce
+  // coalesces a burst of edits into one authoritative round trip.
+  const enzymeRefreshTimerRef = useRef(null);
+  const refreshEnzymes = useCallback(() => {
+    if (enzymeRefreshTimerRef.current) clearTimeout(enzymeRefreshTimerRef.current);
+    // A newer edit shifts the optimistic list again; applying this response
+    // would paint the previous edit's sites under the new sequence.
+    const gen = operationGenRef.current;
+    enzymeRefreshTimerRef.current = setTimeout(async () => {
+      enzymeRefreshTimerRef.current = null;
+      const pid = projectIdRef.current;
+      try {
+        const data = await getEnzymes(pid);
+        if (projectIdRef.current !== pid || operationGenRef.current !== gen) return;
+        if (!data || data.error || !Array.isArray(data.enzymes)) return;
+        if (typeof data.revision === 'number' && data.revision < latestRevisionRef.current) return;
+        if (typeof data.revision === 'number') {
+          latestRevisionRef.current = Math.max(latestRevisionRef.current, data.revision);
+        }
+        setEnzymes(data.enzymes);
+      } catch {
+        // a later edit or reload refreshes again
+      }
+    }, 120);
+  }, [operationGenRef, projectIdRef, latestRevisionRef, setEnzymes]);
+  useEffect(() => () => clearTimeout(enzymeRefreshTimerRef.current), []);
   const mainScrollRef = useRef(null);
   // The editor's inner container div (the horizontal scroll host in
   // continuous mode); SequenceEditor merges it with its own containerRef.
@@ -290,6 +318,8 @@ function ProjectWorkspace({
     undoVersionRef,
     sequence,
     features,
+    enzymes,
+    primers,
     alignments,
     textColorsTop,
     textColorsBottom,
@@ -303,6 +333,7 @@ function ProjectWorkspace({
     setTextColorsBottom,
     setIsDirty,
     onProjectsSync,
+    onEnzymesStale: refreshEnzymes,
     onError: reportError,
     isDna,
   });
