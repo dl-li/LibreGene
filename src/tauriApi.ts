@@ -4,7 +4,7 @@
  * Tauri-desktop-only. Uses invoke() for IPC commands and listen() for events.
  */
 
-import { saveFormatLabel } from './saveFormats';
+import { ensureNativeSaveExtension, saveFormatLabel } from './saveFormats';
 import type {
   Chromatogram,
   CreateMsaArgs,
@@ -727,17 +727,15 @@ export async function openAlignmentFileDialog() {
 export async function saveFileDialog(defaultName = 'project.libregene.gbk', ext = 'libregene.gbk') {
   if (!isTauri) return null;
   const label = saveFormatLabel(ext);
-  const suffix = `.${ext}`;
-  const dialogDefaultName =
-    isMac && ext.startsWith('libregene.') && defaultName.toLowerCase().endsWith(suffix)
-      ? defaultName.slice(0, -suffix.length)
-      : defaultName;
   const result = await tauriSave({
     title: `Save ${label} file`,
-    defaultPath: dialogDefaultName,
+    defaultPath: defaultName,
     filters: [{ name: label, extensions: [ext] }],
   });
-  return result;
+  // macOS hides the extension for the selected filter and may return the
+  // chosen name without one; force the native suffix before the backend
+  // validates the path (it rejects an empty extension).
+  return ext.startsWith('libregene.') ? ensureNativeSaveExtension(result, ext) : result;
 }
 
 export async function saveTextDialog(defaultName = 'export.txt') {

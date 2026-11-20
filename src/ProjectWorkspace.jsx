@@ -37,7 +37,7 @@ import { createProjectSnapshot, projectSnapshotsEqual } from './workspace/projec
 import { applyProjectMutation } from './workspace/projectMutation';
 import WorkspaceError from './components/WorkspaceError';
 import { useTranslation } from './i18n';
-import { nativeSaveExtension, nativeSaveFileName } from './saveFormats';
+import { isNativeSavePath, nativeSaveExtension, nativeSaveFileName } from './saveFormats';
 
 function ProjectWorkspace({
   projectId,
@@ -307,13 +307,13 @@ function ProjectWorkspace({
     isDna,
   });
 
-  // Direct Save is only allowed for text GenBank formats; binary sources
-  // (.dna, .rna, .prot, .fasta, .ab1, ...) must be re-exported via Save As.
-  // Protein projects may be re-saved in place as .gpt (protein GenBank).
-  const canDirectSave = useMemo(() => {
-    const ext = (projectId || '').split('.').pop()?.toLowerCase();
-    return ext === 'gbk' || ext === 'gb' || (moleculeType === 'protein' && ext === 'gpt');
-  }, [projectId, moleculeType]);
+  // Direct Save only overwrites files that already carry the native LibreGene
+  // suffix; everything else (legacy .gbk/.gb/.gpt, .dna/.fasta/.ab1, new
+  // projects) is re-exported through Save As, which forces the native suffix.
+  const canDirectSave = useMemo(
+    () => isNativeSavePath(projectId, moleculeType),
+    [projectId, moleculeType],
+  );
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -930,12 +930,7 @@ function ProjectWorkspace({
     }
 
     const filePath = projectIdRef.current;
-    if (!filePath) return handleSaveAs();
-
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    if (ext !== 'gbk' && ext !== 'gb' && !(moleculeType === 'protein' && ext === 'gpt')) {
-      return handleSaveAs();
-    }
+    if (!isNativeSavePath(filePath, moleculeType)) return handleSaveAs();
 
     const gen = operationGenRef.current;
     const savedSnapshot = currentSnapshotRef.current;
