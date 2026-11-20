@@ -206,6 +206,7 @@ pub(crate) async fn compute_primer_alignment(
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
+    tm_algorithm: Option<libregene_core::primer::thermodynamics::TmAlgorithm>,
     project_id: String,
 ) -> Result<serde_json::Value, String> {
     // Clone all needed data while holding the read lock, then drop it before spawn_blocking.
@@ -247,6 +248,7 @@ pub(crate) async fn compute_primer_alignment(
     let is_circular = topology == "circular";
 
     let tm_params = libregene_core::primer::thermodynamics::TmParams {
+        algorithm: tm_algorithm.unwrap_or_default(),
         na_conc: na_conc.unwrap_or(0.050),
         mg_conc: mg_conc.unwrap_or(0.0),
         dntp_conc: dntp_conc.unwrap_or(0.0),
@@ -638,6 +640,7 @@ pub(crate) async fn design_primer_candidates(
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
+    tm_algorithm: Option<libregene_core::primer::thermodynamics::TmAlgorithm>,
 ) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
     do_design_primer_candidates(
         &state.pm,
@@ -660,11 +663,12 @@ pub(crate) async fn design_primer_candidates(
         dntp_conc,
         tris_conc,
         primer_conc,
+        tm_algorithm,
     )
     .await
 }
 
-/// Compute melting temperature using SantaLucia 2004 nearest-neighbour model.
+/// Compute melting temperature using the selected nearest-neighbour model.
 #[tauri::command]
 pub(crate) async fn compute_tm(
     seq: String,
@@ -673,11 +677,13 @@ pub(crate) async fn compute_tm(
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
+    tm_algorithm: Option<libregene_core::primer::thermodynamics::TmAlgorithm>,
 ) -> Result<f64, String> {
     if seq.len() < 2 {
         return Ok(0.0);
     }
     let params = libregene_core::primer::thermodynamics::TmParams {
+        algorithm: tm_algorithm.unwrap_or_default(),
         na_conc: na_conc.unwrap_or(0.050),
         mg_conc: mg_conc.unwrap_or(0.0),
         dntp_conc: dntp_conc.unwrap_or(0.0),

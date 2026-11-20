@@ -27,7 +27,7 @@ import {
   Cog,
 } from 'lucide-react';
 import { T, useTranslation } from '@/i18n';
-import { PRIMER_TM_MODE_OPTIONS } from '@/tmParams';
+import { PRIMER_TM_ALGORITHM_OPTIONS, PRIMER_TM_MODE_OPTIONS } from '@/tmParams';
 
 async function notify(message, options = {}) {
   const dialog = await import('@tauri-apps/plugin-dialog');
@@ -535,6 +535,30 @@ export default function SettingsPage({
                   <span className="text-sm text-muted-foreground">
                     <T>{'bp'}</T>
                   </span>
+                </SettingRow>
+                <SettingRow
+                  label="Primer Tm algorithm"
+                  hint="Choose the thermodynamic model used for primer Tm calculations"
+                >
+                  <Select
+                    value={tmParams.algorithm || 'standard'}
+                    onValueChange={(algorithm) => setTmParams({ ...tmParams, algorithm })}
+                  >
+                    <SelectTrigger className="w-80">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRIMER_TM_ALGORITHM_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          title={option.description ? t(option.description) : undefined}
+                        >
+                          <T>{option.label}</T>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </SettingRow>
                 <SettingRow
                   label="Primer Tm display"

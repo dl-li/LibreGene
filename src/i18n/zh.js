@@ -142,7 +142,16 @@ export const zh = {
   'Methylation blocking': '甲基化阻断',
   'Sites overlapping these methylation systems are marked as blocked':
     '与这些甲基化系统重叠的位点将标记为受阻',
+  'Primer Tm algorithm': '引物 Tm 计算算法',
   'Primer Tm display': '引物 Tm 显示方式',
+  'Choose the thermodynamic model used for primer Tm calculations':
+    '选择用于引物 Tm 计算的热力学模型',
+  'SantaLucia nearest-neighbor (standard)': 'SantaLucia 最近邻（标准）',
+  'SnapGene compatible (perfect-match core)': 'SnapGene 兼容（完全匹配核心）',
+  'SantaLucia 2004 thermodynamics with configurable salt conditions':
+    'SantaLucia 2004 热力学模型，支持自定义盐条件',
+  'SnapGene 7.0.2-compatible core and template dangling ends; unsupported cases use SantaLucia':
+    '兼容 SnapGene 7.0.2 的完全匹配核心与模板悬空末端；不支持的情况使用 SantaLucia 模型',
   'Choose which Tm is shown by default in every primer window':
     '选择所有引物窗口默认显示的 Tm 口径',
   'Tm calculation conditions': 'Tm 计算条件',

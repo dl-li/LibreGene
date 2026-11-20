@@ -1845,6 +1845,7 @@ pub(crate) async fn do_design_primer_candidates(
     dntp_conc: Option<f64>,
     tris_conc: Option<f64>,
     primer_conc: Option<f64>,
+    tm_algorithm: Option<libregene_core::primer::thermodynamics::TmAlgorithm>,
 ) -> Result<Vec<libregene_core::primer::design::PrimerGroup>, String> {
     let (sequence, topology) = {
         let pm = pm.read().await;
@@ -1855,6 +1856,7 @@ pub(crate) async fn do_design_primer_candidates(
     };
 
     let tm_params = libregene_core::primer::thermodynamics::TmParams {
+        algorithm: tm_algorithm.unwrap_or_default(),
         na_conc: na_conc.unwrap_or(0.050),
         mg_conc: mg_conc.unwrap_or(0.0),
         dntp_conc: dntp_conc.unwrap_or(0.0),
@@ -2027,6 +2029,7 @@ mod tests {
         let template: &str = "GCCACCATGGATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCGGAGCAATCACAGGTGAGCAAAAAA";
         let primer = "ccgctcgagTTTTTTGCTCACCTGTGATTGCTCC";
         let tm = libregene_core::primer::thermodynamics::TmParams {
+            algorithm: Default::default(),
             na_conc: 0.050,
             mg_conc: 0.0,
             dntp_conc: 0.0,
@@ -2063,6 +2066,7 @@ mod tests {
         let template: &str = "AATTTCTACTAAGTGTAGATACCGCAGCAGCGCAGTTGCGCTCAATTTCTACTAAGTGTAGATATGCGAATGCTCTGGTCAAAGCAGCTT";
         let primer = "AAGCTGCTTTGACCAGAGCATTCGCATATCTACACTTAGTAGAAATTGAGCGCAACTGCGCTGCTGCGGT";
         let tm = libregene_core::primer::thermodynamics::TmParams {
+            algorithm: Default::default(),
             na_conc: 0.050,
             mg_conc: 0.0,
             dntp_conc: 0.0,
@@ -2119,6 +2123,42 @@ mod tests {
     }
 
     #[test]
+    fn primer_alignment_supports_snapgene_compatible_tm() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("examples/others/BlueScribe-mEGFP.gbk");
+        let project = libregene_core::file_io::parse_file(&path).unwrap();
+        let params = libregene_core::primer::thermodynamics::TmParams {
+            algorithm: libregene_core::primer::thermodynamics::TmAlgorithm::SnapGeneCompatible,
+            ..Default::default()
+        };
+        let template = project.sequence.to_ascii_uppercase();
+        let forward = &template[500..525];
+        let reverse = libregene_core::utils::reverse_complement(forward);
+
+        for (primer, expected) in [
+            (forward.to_string(), 66.7),
+            (format!("GTCACT{forward}"), 66.7),
+            (reverse, 67.0),
+        ] {
+            let res = compute_primer_alignment_sync(
+                &template,
+                project.topology == "circular",
+                "SnapGene-compatible primer",
+                &primer,
+                None,
+                &params,
+            )
+            .unwrap_or_else(|error| panic!("{primer}: {error}"));
+            assert_eq!(
+                res["current"]["tmOptions"]["annealCore"],
+                serde_json::json!(expected)
+            );
+        }
+    }
+
+    #[test]
     fn primer_alignment_gap_disables_alignment_tm_mode() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -2153,6 +2193,7 @@ mod tests {
     #[test]
     fn primer_alignment_includes_all_alternative_sites() {
         let tm = libregene_core::primer::thermodynamics::TmParams {
+            algorithm: Default::default(),
             na_conc: 0.050,
             mg_conc: 0.0,
             dntp_conc: 0.0,

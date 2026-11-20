@@ -65,9 +65,19 @@ const DEFAULT_PRIMER_CONC: f64 = 2.5e-7; // 0.25 μM primer
 // TmParams — configurable PCR conditions
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TmAlgorithm {
+    #[default]
+    Standard,
+    SnapGeneCompatible,
+}
+
 /// Configurable parameters for Tm calculation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmParams {
+    #[serde(default)]
+    pub algorithm: TmAlgorithm,
     /// Monovalent cation concentration in M (K⁺ + Na⁺). Default 0.050.
     pub na_conc: f64,
     /// Mg²⁺ concentration in M. Default 0.
@@ -83,6 +93,7 @@ pub struct TmParams {
 impl Default for TmParams {
     fn default() -> Self {
         Self {
+            algorithm: TmAlgorithm::Standard,
             na_conc: DEFAULT_NA,
             mg_conc: DEFAULT_MG,
             dntp_conc: DEFAULT_DNTP,
@@ -101,6 +112,7 @@ impl TmParams {
     /// DNA-binding domain polymerase buffer (Phusion/Pfu-Sso7d).
     pub fn dbd() -> Self {
         Self {
+            algorithm: TmAlgorithm::Standard,
             na_conc: 0.050,
             mg_conc: 0.0015,
             dntp_conc: 0.0008,
@@ -234,8 +246,8 @@ fn sum_nn_params(seq: &[u8]) -> (f64, f64) {
 // Tm computation
 // ---------------------------------------------------------------------------
 
-/// Compute Tm (°C) using the SantaLucia 2004 nearest-neighbour model with
-/// full salt correction (Na⁺ equivalent + Mg²⁺).
+/// Compute Tm (°C) with the selected nearest-neighbour model. The standard
+/// model applies full salt correction (Na⁺ equivalent + Mg²⁺).
 ///
 /// For sequences shorter than 4 bases, falls back to the Wallace rule
 /// (Tm = 4×GC + 2×AT). For all longer sequences, uses the NN model.
@@ -243,6 +255,12 @@ pub fn compute_tm_with_params(duplex: &str, params: &TmParams) -> f64 {
     let seq = duplex.to_ascii_uppercase();
     let n = seq.len();
     let seq_bytes = seq.as_bytes();
+
+    if super::snapgene::supports_params(params) {
+        if let Some(tm) = super::snapgene::compute_tm(&seq, params) {
+            return tm;
+        }
+    }
 
     // Wallace rule for oligos shorter than 6 bp (NN unreliable at this length).
     if n < 6 {
@@ -548,6 +566,24 @@ mod tests {
         assert!(
             tm_high_mg > tm_low_mg,
             "Higher Mg²⁺ should increase Tm: {tm_low_mg:.1} vs {tm_high_mg:.1}"
+        );
+    }
+
+    #[test]
+    fn test_snapgene_custom_salt_falls_back_to_standard() {
+        let params = TmParams {
+            algorithm: TmAlgorithm::SnapGeneCompatible,
+            mg_conc: 0.001,
+            ..TmParams::default()
+        };
+        let standard = TmParams {
+            algorithm: TmAlgorithm::Standard,
+            ..params.clone()
+        };
+        let seq = "CGTACGTACGTACGTACGTA";
+        assert_eq!(
+            compute_tm_with_params(seq, &params),
+            compute_tm_with_params(seq, &standard)
         );
     }
 

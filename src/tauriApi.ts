@@ -355,6 +355,7 @@ export async function computePrimerAlignment(
     dntpConc: tmParams.dntpConc ?? null,
     trisConc: tmParams.trisConc ?? null,
     primerConc: tmParams.primerConc ?? null,
+    tmAlgorithm: tmParams.algorithm ?? null,
     projectId: projectId ?? null,
   });
 }
@@ -519,6 +520,7 @@ export async function computeTm(seq, tmParams: TmParams = {}) {
     dntpConc: tmParams.dntpConc ?? null,
     trisConc: tmParams.trisConc ?? null,
     primerConc: tmParams.primerConc ?? null,
+    tmAlgorithm: tmParams.algorithm ?? null,
   });
 }
 
@@ -586,7 +588,7 @@ export async function annotateFeatures(projectId) {
  * @param {number} [args.overlapLen] oepcr overlap length
  * @param {number} [args.armLen] mutagenesis homology arm length
  * @param {string} [args.mutSeq] mutagenesis replacement sequence
- * @param {object} [args.tmParams] concentration overrides (naConc/mgConc/dntpConc/trisConc/primerConc)
+ * @param {object} [args.tmParams] algorithm and concentration overrides (naConc/mgConc/dntpConc/trisConc/primerConc)
  */
 export async function designPrimerCandidates(args: any = {}) {
   const tmParams = args.tmParams || {};
@@ -608,6 +610,7 @@ export async function designPrimerCandidates(args: any = {}) {
     dntpConc: tmParams.dntpConc ?? null,
     trisConc: tmParams.trisConc ?? null,
     primerConc: tmParams.primerConc ?? null,
+    tmAlgorithm: tmParams.algorithm ?? null,
   });
 }
 

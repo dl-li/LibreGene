@@ -8,30 +8,57 @@ export const TM_PARAM_DEFAULTS = Object.freeze({
 
 const TM_PARAM_KEYS = Object.keys(TM_PARAM_DEFAULTS);
 
+export const PRIMER_TM_ALGORITHM_DEFAULT = 'standard';
+export const PRIMER_TM_ALGORITHM_OPTIONS = Object.freeze([
+  {
+    value: 'standard',
+    label: 'SantaLucia nearest-neighbor (standard)',
+    description: 'SantaLucia 2004 thermodynamics with configurable salt conditions',
+  },
+  {
+    value: 'snapgeneCompatible',
+    label: 'SnapGene compatible (perfect-match core)',
+    description:
+      'SnapGene 7.0.2-compatible core and template dangling ends; unsupported cases use SantaLucia',
+  },
+]);
+
+export function normalizePrimerTmAlgorithm(algorithm) {
+  return PRIMER_TM_ALGORITHM_OPTIONS.some((option) => option.value === algorithm)
+    ? algorithm
+    : PRIMER_TM_ALGORITHM_DEFAULT;
+}
+
 export function normalizeTmParams(params = {}) {
-  return Object.fromEntries(
-    TM_PARAM_KEYS.map((key) => {
-      const value = params?.[key];
-      return [
-        key,
-        typeof value === 'number' && Number.isFinite(value) && value >= 0
-          ? value
-          : TM_PARAM_DEFAULTS[key],
-      ];
-    }),
-  );
+  return {
+    ...Object.fromEntries(
+      TM_PARAM_KEYS.map((key) => {
+        const value = params?.[key];
+        return [
+          key,
+          typeof value === 'number' && Number.isFinite(value) && value >= 0
+            ? value
+            : TM_PARAM_DEFAULTS[key],
+        ];
+      }),
+    ),
+    algorithm: normalizePrimerTmAlgorithm(params?.algorithm),
+  };
 }
 
 export function isDefaultTmParams(params) {
   const normalized = normalizeTmParams(params);
-  return TM_PARAM_KEYS.every((key) => normalized[key] === TM_PARAM_DEFAULTS[key]);
+  return (
+    TM_PARAM_KEYS.every((key) => normalized[key] === TM_PARAM_DEFAULTS[key]) &&
+    normalized.algorithm === PRIMER_TM_ALGORITHM_DEFAULT
+  );
 }
 
 export function readStoredTmParams(storage = globalThis.localStorage) {
   try {
     return normalizeTmParams(JSON.parse(storage?.getItem('tmParams') || '{}'));
   } catch {
-    return { ...TM_PARAM_DEFAULTS };
+    return normalizeTmParams();
   }
 }
 

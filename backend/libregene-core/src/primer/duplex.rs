@@ -111,7 +111,7 @@ const TMM: &[(&str, f64, f64)] = &[
     ("TT/AG", -3.6, -9.8),
 ];
 
-const DE: &[(&str, f64, f64)] = &[
+pub(crate) const DE: &[(&str, f64, f64)] = &[
     ("AA/.T", 0.2, 2.3),
     ("AC/.G", -6.3, -17.1),
     ("AG/.C", -3.7, -10.0),
@@ -146,7 +146,7 @@ const DE: &[(&str, f64, f64)] = &[
     (".T/TA", -3.8, -12.6),
 ];
 
-fn lookup(table: &[(&str, f64, f64)], key: &str) -> Option<(f64, f64)> {
+pub(crate) fn lookup(table: &[(&str, f64, f64)], key: &str) -> Option<(f64, f64)> {
     table
         .iter()
         .find_map(|(candidate, dh, ds)| (*candidate == key).then_some((*dh, *ds)))
@@ -178,6 +178,11 @@ fn valid_structure(seq: &[u8], cseq: &[u8]) -> bool {
 }
 
 pub fn compute_duplex_tm(seq: &[u8], cseq: &[u8], params: &TmParams) -> Option<f64> {
+    if super::snapgene::supports_params(params) {
+        if let Some(tm) = super::snapgene::compute_duplex_tm(seq, cseq, params) {
+            return Some(tm);
+        }
+    }
     if !valid_structure(seq, cseq) {
         return None;
     }

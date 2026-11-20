@@ -256,6 +256,7 @@ export interface HistoryRestoreResponse extends ProjectMutationResponse {
 }
 
 export interface TmParams {
+  algorithm?: 'standard' | 'snapgeneCompatible';
   naConc?: number;
   mgConc?: number;
   dntpConc?: number;

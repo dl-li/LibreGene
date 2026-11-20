@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isDefaultTmParams,
+  normalizePrimerTmAlgorithm,
   normalizePrimerTmMode,
   normalizeTmParams,
   primerTmForMode,
@@ -17,6 +18,7 @@ describe('Tm parameter conventions', () => {
   it('fills missing and invalid values with compatibility defaults', () => {
     expect(normalizeTmParams({ mgConc: 0.0015, naConc: Number.NaN })).toEqual({
       ...TM_PARAM_DEFAULTS,
+      algorithm: 'standard',
       mgConc: 0.0015,
     });
   });
@@ -34,12 +36,31 @@ describe('Tm parameter conventions', () => {
       setItem: (key, value) => values.set(key, value),
     };
     writeStoredTmParams({ ...TM_PARAM_DEFAULTS, mgConc: 0.0015 }, storage);
-    expect(readStoredTmParams(storage)).toEqual({ ...TM_PARAM_DEFAULTS, mgConc: 0.0015 });
+    expect(readStoredTmParams(storage)).toEqual({
+      ...TM_PARAM_DEFAULTS,
+      algorithm: 'standard',
+      mgConc: 0.0015,
+    });
   });
 
   it('falls back to defaults for malformed stored data', () => {
     const storage = { getItem: () => '{not json' };
-    expect(readStoredTmParams(storage)).toEqual(TM_PARAM_DEFAULTS);
+    expect(readStoredTmParams(storage)).toEqual({
+      ...TM_PARAM_DEFAULTS,
+      algorithm: 'standard',
+    });
+  });
+
+  it('persists the selected algorithm and rejects unknown algorithms', () => {
+    const values = new Map();
+    const storage = {
+      getItem: (key) => values.get(key),
+      setItem: (key, value) => values.set(key, value),
+    };
+    writeStoredTmParams({ ...TM_PARAM_DEFAULTS, algorithm: 'snapgeneCompatible' }, storage);
+    expect(readStoredTmParams(storage).algorithm).toBe('snapgeneCompatible');
+    expect(normalizePrimerTmAlgorithm('invalid')).toBe('standard');
+    expect(isDefaultTmParams({ algorithm: 'snapgeneCompatible' })).toBe(false);
   });
 });
 

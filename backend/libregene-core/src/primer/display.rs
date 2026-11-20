@@ -286,20 +286,99 @@ fn duplex_columns(
         .collect()
 }
 
-fn continuous_core_tm(columns: &[DuplexColumn], params: &TmParams) -> f64 {
-    let core: Vec<u8> = columns
+fn continuous_core_columns(columns: &[DuplexColumn]) -> &[DuplexColumn] {
+    let core_len = columns
         .iter()
         .rev()
         .take_while(|column| column.op == Op::Match && column.primer.is_some())
+        .count();
+    &columns[columns.len() - core_len..]
+}
+
+fn continuous_core_tm(columns: &[DuplexColumn], params: &TmParams) -> f64 {
+    let core: Vec<u8> = continuous_core_columns(columns)
+        .iter()
         .filter_map(|column| column.primer)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
         .collect();
     if core.len() < 2 {
         return 0.0;
     }
     thermodynamics::compute_tm_with_params(std::str::from_utf8(&core).unwrap_or_default(), params)
+}
+
+fn flanked_duplex(
+    columns: &[DuplexColumn],
+    template_region: &[u8],
+    reverse_alignment: bool,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    if columns.is_empty()
+        || !columns
+            .iter()
+            .all(|column| column.primer.is_some() && column.template.is_some())
+    {
+        return None;
+    }
+    let mut seq: Vec<u8> = columns.iter().filter_map(|column| column.primer).collect();
+    let mut cseq: Vec<u8> = columns
+        .iter()
+        .filter_map(|column| column.template)
+        .collect();
+    if let Some(pos) = columns.first().and_then(|column| column.template_pos) {
+        let dangling = if reverse_alignment {
+            pos.checked_add(1).filter(|&p| p < template_region.len())
+        } else {
+            pos.checked_sub(1)
+        };
+        if let Some(p) = dangling {
+            let base = template_region[p].to_ascii_uppercase();
+            seq.insert(0, b'.');
+            cseq.insert(
+                0,
+                if reverse_alignment {
+                    base
+                } else {
+                    crate::utils::complement_char(base as char) as u8
+                },
+            );
+        }
+    }
+    if let Some(pos) = columns.last().and_then(|column| column.template_pos) {
+        let dangling = if reverse_alignment {
+            pos.checked_sub(1)
+        } else {
+            pos.checked_add(1).filter(|&p| p < template_region.len())
+        };
+        if let Some(p) = dangling {
+            let base = template_region[p].to_ascii_uppercase();
+            seq.push(b'.');
+            cseq.push(if reverse_alignment {
+                base
+            } else {
+                crate::utils::complement_char(base as char) as u8
+            });
+        }
+    }
+    Some((seq, cseq))
+}
+
+fn continuous_core_tm_from_alignment(
+    columns: &[DuplexColumn],
+    template_region: &[u8],
+    reverse_alignment: bool,
+    params: &TmParams,
+) -> f64 {
+    if super::snapgene::supports_params(params) {
+        if let Some((seq, cseq)) = flanked_duplex(
+            continuous_core_columns(columns),
+            template_region,
+            reverse_alignment,
+        ) {
+            if let Some(tm) = super::snapgene::compute_duplex_tm(&seq, &cseq, params) {
+                return tm;
+            }
+        }
+    }
+    continuous_core_tm(columns, params)
 }
 
 pub fn compute_matched_core_tm_from_alignment_with_params(
@@ -310,7 +389,7 @@ pub fn compute_matched_core_tm_from_alignment_with_params(
     params: &TmParams,
 ) -> f64 {
     let columns = duplex_columns(primer_seq, template_region, result, reverse_alignment);
-    continuous_core_tm(&columns, params)
+    continuous_core_tm_from_alignment(&columns, template_region, reverse_alignment, params)
 }
 
 pub fn compute_tm_from_alignment_with_params(
@@ -321,50 +400,7 @@ pub fn compute_tm_from_alignment_with_params(
     params: &TmParams,
 ) -> AlignmentTm {
     let columns = duplex_columns(primer_seq, template_region, result, reverse_alignment);
-    let gap_free = columns
-        .iter()
-        .all(|column| column.primer.is_some() && column.template.is_some());
-    if gap_free && !columns.is_empty() {
-        let mut seq: Vec<u8> = columns.iter().filter_map(|column| column.primer).collect();
-        let mut cseq: Vec<u8> = columns
-            .iter()
-            .filter_map(|column| column.template)
-            .collect();
-        if let Some(pos) = columns.first().and_then(|column| column.template_pos) {
-            let dangling = if reverse_alignment {
-                pos.checked_add(1).filter(|&p| p < template_region.len())
-            } else {
-                pos.checked_sub(1)
-            };
-            if let Some(p) = dangling {
-                let base = template_region[p].to_ascii_uppercase();
-                seq.insert(0, b'.');
-                cseq.insert(
-                    0,
-                    if reverse_alignment {
-                        base
-                    } else {
-                        crate::utils::complement_char(base as char) as u8
-                    },
-                );
-            }
-        }
-        if let Some(pos) = columns.last().and_then(|column| column.template_pos) {
-            let dangling = if reverse_alignment {
-                pos.checked_sub(1)
-            } else {
-                pos.checked_add(1).filter(|&p| p < template_region.len())
-            };
-            if let Some(p) = dangling {
-                let base = template_region[p].to_ascii_uppercase();
-                seq.push(b'.');
-                cseq.push(if reverse_alignment {
-                    base
-                } else {
-                    crate::utils::complement_char(base as char) as u8
-                });
-            }
-        }
+    if let Some((seq, cseq)) = flanked_duplex(&columns, template_region, reverse_alignment) {
         if let Some(tm) = super::duplex::compute_duplex_tm(&seq, &cseq, params) {
             return AlignmentTm {
                 tm,
@@ -373,7 +409,7 @@ pub fn compute_tm_from_alignment_with_params(
         }
     }
     AlignmentTm {
-        tm: continuous_core_tm(&columns, params),
+        tm: continuous_core_tm_from_alignment(&columns, template_region, reverse_alignment, params),
         scope: TmScope::MatchedCore,
     }
 }
@@ -447,6 +483,23 @@ mod tests {
             false,
             &TmParams::default(),
         );
+
+        assert_eq!(actual.scope, TmScope::FullDuplex);
+        assert!((actual.tm - 58.620).abs() < 0.001, "Tm={}", actual.tm);
+    }
+
+    #[test]
+    fn test_snapgene_mismatch_falls_back_to_standard_duplex() {
+        let primer = b"CGTTCCAAAGATGTGGGCATGAGCTTAC";
+        let mut template = primer.to_vec();
+        template[6] = b'G';
+        let result = align_3prime_constrained(primer, &template).unwrap();
+        let params = TmParams {
+            algorithm: thermodynamics::TmAlgorithm::SnapGeneCompatible,
+            ..TmParams::default()
+        };
+        let actual =
+            compute_tm_from_alignment_with_params(primer, &template, &result, false, &params);
 
         assert_eq!(actual.scope, TmScope::FullDuplex);
         assert!((actual.tm - 58.620).abs() < 0.001, "Tm={}", actual.tm);

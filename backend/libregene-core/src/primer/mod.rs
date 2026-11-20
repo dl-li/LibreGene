@@ -19,6 +19,7 @@ pub mod gbk;
 pub mod iupac;
 pub mod matcher;
 pub mod screening;
+pub mod snapgene;
 pub mod thermodynamics;
 pub mod tm;
 
