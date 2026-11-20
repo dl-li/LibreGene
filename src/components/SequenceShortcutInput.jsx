@@ -69,26 +69,42 @@ export function isShortcutBadgeHighlighted(active, tokenId, kind) {
   return active.kind === null || active.kind === kind;
 }
 
-function HighlightedText({ value, tokens, active, setActive, className, scrollRef }) {
+function HighlightedText({ value, tokens, groups, active, setActive, className, scrollRef }) {
   const segments = [];
   let cursor = 0;
-  for (const token of tokens) {
-    if (token.start < cursor) continue;
-    if (token.start > cursor) segments.push(value.slice(cursor, token.start));
+  for (const group of groups) {
+    if (!group.valid || group.start < cursor) continue;
+    if (group.start > cursor) segments.push(value.slice(cursor, group.start));
+    const inner = [];
+    let innerCursor = group.start;
+    for (const token of tokens) {
+      if (token.group !== group) continue;
+      if (token.start > innerCursor) inner.push(value.slice(innerCursor, token.start));
+      inner.push(
+        <span
+          key={token.id}
+          className={cn(
+            'pointer-events-auto rounded-[2px]',
+            active?.tokenId === token.id && 'bg-[#4b2e20] text-white underline decoration-white',
+          )}
+          onMouseEnter={() => setActive({ tokenId: token.id, kind: null })}
+          onMouseLeave={() => setActive(null)}
+        >
+          {value.slice(token.start, token.end)}
+        </span>,
+      );
+      innerCursor = token.end;
+    }
+    inner.push(value.slice(innerCursor, group.end));
     segments.push(
       <span
-        key={token.id}
-        className={cn(
-          'pointer-events-auto rounded-[2px] underline decoration-amber-700 decoration-1 underline-offset-2',
-          active?.tokenId === token.id && 'bg-[#4b2e20] text-white decoration-white',
-        )}
-        onMouseEnter={() => setActive({ tokenId: token.id, kind: null })}
-        onMouseLeave={() => setActive(null)}
+        key={`group:${group.id}`}
+        className="underline decoration-black decoration-1 underline-offset-2"
       >
-        {value.slice(token.start, token.end)}
+        {inner}
       </span>,
     );
-    cursor = token.end;
+    cursor = group.end;
   }
   segments.push(value.slice(cursor));
 
@@ -252,6 +268,7 @@ export default function SequenceShortcutInput({
           <HighlightedText
             value={value}
             tokens={shortcuts.tokens}
+            groups={shortcuts.groups}
             active={active}
             setActive={setActive}
             className={cn(

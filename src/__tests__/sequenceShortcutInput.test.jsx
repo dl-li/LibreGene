@@ -32,7 +32,21 @@ describe('SequenceShortcutInput', () => {
     expect(html).toContain('data-slot="tooltip-trigger"');
   });
 
-  it('underlines only the tokens that resolve to a shortcut', () => {
+  it('underlines the whole shortcut group including its brackets', () => {
+    const value = '[5N, EcoRI] [HHHHHH]';
+    const shortcuts = {
+      ...parseSequenceShortcuts(value, [{ name: 'EcoRI', site: 'GAATTC' }], () => 0),
+      enabled: true,
+    };
+    const html = renderToString(
+      <SequenceShortcutInput value={value} onChange={() => {}} shortcuts={shortcuts} />,
+    );
+    expect(html.match(/decoration-black/g)).toHaveLength(2);
+    expect(html.match(/<span class="[^"]*decoration-black[^"]*">\[/g)).toHaveLength(2);
+    expect(html).toContain(']</span>');
+  });
+
+  it('does not underline a shortcut group with unresolved tokens', () => {
     const value = '[5N, XYZ]';
     const shortcuts = {
       ...parseSequenceShortcuts(value, [], () => 0),
@@ -41,11 +55,7 @@ describe('SequenceShortcutInput', () => {
     const html = renderToString(
       <SequenceShortcutInput value={value} onChange={() => {}} shortcuts={shortcuts} />,
     );
-    const underlined = [
-      ...html.matchAll(/<span class="([^"]*decoration-amber-700[^"]*)">([^<]*)<\/span>/g),
-    ];
-    expect(underlined).toHaveLength(1);
-    expect(underlined[0][2]).toBe('5N');
+    expect(html).not.toContain('decoration-black');
   });
 
   it('highlights every badge of a shortcut unless a single badge is hovered', () => {
