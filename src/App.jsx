@@ -939,7 +939,7 @@ export default function App() {
           </div>
         </div>
 
-        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} updater={updater} />
 
         <SettingsPage
           open={settingsOpen}
@@ -968,7 +968,6 @@ export default function App() {
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
-          updater={updater}
         />
 
         <AppDialogs

@@ -28,8 +28,10 @@ function renderSidebar(updateAvailable) {
 }
 
 describe('sidebar update notification', () => {
-  it('shows the settings badge only when an update is available', () => {
-    expect(renderSidebar(true)).toContain('bg-red-500');
+  it('shows the About badge only when an update is available', () => {
+    const html = renderSidebar(true);
+    expect(html).toContain('bg-red-500');
+    expect(html.indexOf('bg-red-500')).toBeGreaterThan(html.indexOf('lucide-info'));
     expect(renderSidebar(false)).not.toContain('bg-red-500');
   });
 });

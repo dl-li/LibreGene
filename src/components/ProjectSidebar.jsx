@@ -314,16 +314,11 @@ export default function ProjectSidebar({
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => openSettings(updateAvailable ? 'updates' : null)}
-                  tooltip={updateAvailable ? t('Update available') : t('Settings')}
+                  onClick={() => openSettings()}
+                  tooltip={t('Settings')}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  <span className="relative flex size-4 shrink-0 items-center justify-center">
-                    <Settings className="size-4" />
-                    {updateAvailable && (
-                      <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500 ring-2 ring-sidebar" />
-                    )}
-                  </span>
+                  <Settings className="size-4" />
                   <span>
                     <T>{'Settings'}</T>
                   </span>
@@ -332,10 +327,15 @@ export default function ProjectSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => setAboutOpen(true)}
-                  tooltip={t('About LibreGene')}
+                  tooltip={updateAvailable ? t('Update available') : t('About LibreGene')}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  <Info className="size-4" />
+                  <span className="relative flex size-4 shrink-0 items-center justify-center">
+                    <Info className="size-4" />
+                    {updateAvailable && (
+                      <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500 ring-2 ring-sidebar" />
+                    )}
+                  </span>
                   <span>
                     <T>{'About'}</T>
                   </span>

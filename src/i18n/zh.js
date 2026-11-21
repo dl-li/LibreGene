@@ -781,14 +781,9 @@ export const zh = {
   'Language, file associations and settings backup': '语言、文件关联与设置备份',
   Updates: '更新',
   'Update available': '有可用更新',
-  'Check for and install new LibreGene versions': '检查并安装 LibreGene 新版本',
-  'Current version': '当前版本',
   'Automatically check for updates': '自动检查更新',
-  'Check at startup and once every 24 hours; never install automatically':
-    '启动时及每 24 小时检查一次，不会自动安装',
-  'Update availability': '更新状态',
-  'Updates are downloaded from libregene.donglin.li and verified before installation':
-    '更新从 libregene.donglin.li 下载，并在安装前验证签名',
+  'Check at startup and daily': '启动时及每天检查',
+  Feedback: '反馈',
   'Check for updates': '检查更新',
   'LibreGene is up to date.': 'LibreGene 已是最新版本。',
   'Version {version} is available': '发现新版本 {version}',
