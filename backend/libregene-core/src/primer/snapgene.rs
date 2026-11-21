@@ -214,7 +214,7 @@ mod tests {
     }
 
     fn template() -> String {
-        let gbk = include_str!("../../../../examples/others/BlueScribe-mEGFP.gbk");
+        let gbk = include_str!("../../../../examples/BlueScribe-mEGFP.gbk");
         gbk.split("ORIGIN")
             .nth(1)
             .unwrap()

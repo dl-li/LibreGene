@@ -2091,7 +2091,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
-            .join("examples/others/BlueScribe-mEGFP.gbk");
+            .join("examples/BlueScribe-mEGFP.gbk");
         let project = libregene_core::file_io::parse_file(&path).unwrap();
         let params = libregene_core::primer::thermodynamics::TmParams {
             algorithm: libregene_core::primer::thermodynamics::TmAlgorithm::SnapGeneCompatible,
