@@ -109,8 +109,9 @@ pub(crate) struct SequenceRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OpenProjectRequest {
-    /// Sequence file to open (.gbk/.gb/.genbank, .dna/.rna/.prot, .gpt,
-    /// .fa/.fasta, .ab1, ...). The project id IS this path.
+    /// Sequence file to open (native .libregene.gbk/.libregene.gpt, legacy
+    /// .gbk/.gb/.genbank/.gpt, .dna/.rna/.prot, .fa/.fasta, .ab1, ...).
+    /// The project id IS this path.
     pub(crate) path: String,
 }
 
@@ -119,7 +120,9 @@ pub(crate) struct OpenProjectRequest {
 pub(crate) struct SaveFileRequest {
     /// Required: the project to save (see list_workspace).
     pub(crate) project_id: String,
-    /// Output path (.gbk/.gb/.genbank for DNA/RNA, .gpt for protein).
+    /// Output path. Whole-project saves require .libregene.gbk (DNA/RNA) or
+    /// .libregene.gpt (protein); region exports accept plain .gbk/.gb/.genbank
+    /// or .gpt, matching the molecule type.
     pub(crate) path: String,
     /// Optional: export only a region instead of the whole molecule (exactly
     /// one selector inside — see RegionSpec). The export is always linear and

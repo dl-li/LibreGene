@@ -779,8 +779,66 @@ async fn save_file_region_rejects_bad_requests() {
 }
 
 #[tokio::test]
+async fn save_file_whole_project_requires_native_suffix() {
+    for (name, molecule_type, sequence, legacy_suffix, native_suffix) in [
+        ("dna", "dna", "ATGGTGAGCTAA", ".gbk", ".libregene.gbk"),
+        ("protein", "protein", "MVS", ".gpt", ".libregene.gpt"),
+    ] {
+        let project = ProjectData {
+            name: format!("native_save_{name}"),
+            sequence: sequence.to_string(),
+            length: sequence.len() as i64,
+            topology: "linear".to_string(),
+            molecule_type: molecule_type.to_string(),
+            ..Default::default()
+        };
+        let server = handler_with_project(project).await;
+        let dir = std::env::temp_dir().join(format!(
+            "libregene-mcp-native-save-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let legacy = dir.join(format!("legacy{legacy_suffix}"));
+        let out = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: format!("native_save_{name}"),
+                path: legacy.to_string_lossy().into_owned(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(out["ok"], false, "{out}");
+        assert!(
+            out["message"].as_str().unwrap().contains(native_suffix),
+            "{out}"
+        );
+        assert!(!legacy.exists());
+
+        let native = dir.join(format!("native{native_suffix}"));
+        let out = server
+            .save_file(Parameters(SaveFileRequest {
+                project_id: format!("native_save_{name}"),
+                path: native.to_string_lossy().into_owned(),
+                ..Default::default()
+            }))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(out["ok"], true, "{out}");
+        assert_eq!(
+            libregene_core::file_io::parse_file(&native)
+                .unwrap()
+                .molecule_type,
+            molecule_type
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[tokio::test]
 async fn save_file_overwrite_rules() {
-    let (dir, path) = write_temp_gbk("save-overwrite", "existing.gbk");
+    let (dir, path) = write_temp_gbk("save-overwrite", "existing.libregene.gbk");
     let server = test_handler();
     // Open the real file; its project id IS the path.
     let out = server
@@ -805,7 +863,7 @@ async fn save_file_overwrite_rules() {
     assert!(out.0["bytesWritten"].as_u64().unwrap() > 0, "{}", out.0);
 
     // Saving to a DIFFERENT existing path requires overwrite: true.
-    let other = dir.join("other.gbk");
+    let other = dir.join("other.libregene.gbk");
     let mut other_project = edit_test_project();
     other_project.name = "other".to_string();
     libregene_core::file_io::gbk::write_gbk(&other_project, &other).unwrap();
@@ -838,7 +896,7 @@ async fn save_file_overwrite_rules() {
 
 #[tokio::test]
 async fn save_file_whole_project_marks_clean() {
-    let (dir, path) = write_temp_gbk("save-clean", "clean.gbk");
+    let (dir, path) = write_temp_gbk("save-clean", "clean.libregene.gbk");
     let server = test_handler();
     server
         .open_project(Parameters(OpenProjectRequest {
@@ -895,7 +953,7 @@ async fn save_file_export_to_new_path_preserves_source_dirty_state() {
         .await
         .unwrap();
     assert!(server.pm.read().await.is_dirty(&id));
-    let export = dir.join("copy.gbk");
+    let export = dir.join("copy.libregene.gbk");
     let out = server
         .save_file(Parameters(SaveFileRequest {
             project_id: id.clone(),
@@ -1212,7 +1270,7 @@ async fn save_file_refreshes_stale_translation_before_writing() {
     };
     let server = handler_with_project(project).await;
     let path = std::env::temp_dir().join(format!(
-        "libregene-mcp-translation-save-{}.gbk",
+        "libregene-mcp-translation-save-{}.libregene.gbk",
         std::process::id()
     ));
     let out = server

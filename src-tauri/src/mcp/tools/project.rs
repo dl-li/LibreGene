@@ -517,6 +517,19 @@ impl<R: Runtime> LibreGeneMcp<R> {
             insert_seq_hashes(&mut v, &seq_hashes);
             Json(v)
         };
+        if request.region.is_none() {
+            let native_suffix = if project.molecule_type == "protein" {
+                ".libregene.gpt"
+            } else {
+                ".libregene.gbk"
+            };
+            if !request.path.to_ascii_lowercase().ends_with(native_suffix) {
+                return Ok(fail(format!(
+                    "Whole-project {} saves must use the native suffix '{}'; use convert_sequence or a region export for plain GenBank/GenPept output",
+                    project.molecule_type, native_suffix
+                )));
+            }
+        }
         let path = crate::normalize_project_path(&request.path)
             .map_err(|e| ErrorData::invalid_params(format!("invalid path: {}", e), None))?;
         // Overwrite rule: a pre-existing target that is not the project's own
