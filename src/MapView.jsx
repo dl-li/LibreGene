@@ -179,51 +179,46 @@ export function tipBuried(f, features, len) {
   );
 }
 
-// SnapGene-style label layout: split labels into right/left halves by angle,
-// stack each half vertically along a label circle with a minimum gap, and
-// connect each label to its feature with an elbow (radial + bent) polyline.
 // Layout space is centered at (0,0); the viewBox is sized to fit everything.
-function layoutCircularLabels(features, length, R, half) {
+export function layoutCircularLabels(features, length, R, half) {
   const labelR = R + 40;
   const GAP = 17;
   const items = features.map((f) => {
-    // Midpoint along the unwrapped span: origin-crossing features unwrap to a
-    // coordinate line past len, so the midpoint lands on the feature's actual
-    // arc instead of the opposite side of the circle.
     const runs = unwrapRuns(f, length);
     const mid = ((runs[0].start + runs[runs.length - 1].end + 1) / 2) % length;
     const th = (mid / length) * TWO_PI;
-    return { f, th, w: featLabelW(f.name) };
+    return { f, th, w: featLabelW(f.name), ny: -labelR * Math.cos(th) };
   });
   for (const sign of [1, -1]) {
     const arr = items
       .filter((it) => (Math.sin(it.th) >= 0 ? 1 : -1) === sign)
-      .sort((a, b) => -Math.cos(a.th) + Math.cos(b.th));
-    for (const it of arr) it.ly = -labelR * Math.cos(it.th);
-    for (let i = 1; i < arr.length; i++) arr[i].ly = Math.max(arr[i].ly, arr[i - 1].ly + GAP);
-    // Recenter the stack within the label circle as far as possible; labels that
-    // still overflow go into a vertical side column instead of collapsing onto
-    // the vertical centerline (which crosses the circle and looks broken)
-    if (arr.length) {
-      const overBottom = arr[arr.length - 1].ly - labelR;
-      if (overBottom > 0) {
-        const headroom = arr[0].ly + labelR;
-        const shift = -Math.min(overBottom, Math.max(headroom, 0));
-        for (const it of arr) it.ly += shift;
-      }
-      const overTop = -labelR - arr[0].ly;
-      if (overTop > 0) {
-        const headroom = labelR - arr[arr.length - 1].ly;
-        const shift = Math.min(overTop, Math.max(headroom, 0));
-        for (const it of arr) it.ly += shift;
+      .sort((a, b) => a.ny - b.ny);
+    const firstBottom = arr.findIndex((it) => it.ny >= 0);
+    const split = firstBottom < 0 ? arr.length : firstBottom;
+    if (split > 0) {
+      arr[split - 1].ly = arr[split - 1].ny;
+      for (let i = split - 2; i >= 0; i--) {
+        arr[i].ly = Math.min(arr[i].ny, arr[i + 1].ly - GAP);
       }
     }
+    if (split < arr.length) {
+      arr[split].ly = arr[split].ny;
+      for (let i = split + 1; i < arr.length; i++) {
+        arr[i].ly = Math.max(arr[i].ny, arr[i - 1].ly + GAP);
+      }
+    }
+    if (split > 0 && split < arr.length) {
+      const deficit = GAP - (arr[split].ly - arr[split - 1].ly);
+      if (deficit > 0) {
+        for (let i = 0; i < split; i++) arr[i].ly -= deficit / 2;
+        for (let i = split; i < arr.length; i++) arr[i].ly += deficit / 2;
+      }
+    }
+    const crowded = arr.some((it) => Math.abs(it.ly) > labelR + 1e-6);
     for (const it of arr) {
-      const ay = Math.abs(it.ly);
-      // Labels within ~37° of the top/bottom centerline join the side column,
-      // so the column and the circle positions blend into one continuous line
-      it.lx =
-        ay <= labelR * 0.8 ? sign * Math.sqrt(labelR * labelR - ay * ay) : sign * labelR * 0.85;
+      it.lx = crowded
+        ? sign * labelR * (0.85 + 0.15 * Math.abs(Math.sin(it.th)))
+        : sign * Math.sqrt(Math.max(0, labelR * labelR - it.ly * it.ly));
       it.side = sign;
     }
   }
@@ -830,7 +825,7 @@ export default function MapView({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={`flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 [&>button]:top-1 [&>button]:right-2 ${view === 'linear' ? 'sm:max-w-[720px]' : 'sm:max-w-[560px]'}`}
+        className={`flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 [&>button]:top-1 [&>button]:right-2 ${view === 'linear' ? 'sm:max-w-[720px]' : 'sm:max-w-[680px]'}`}
       >
         <DialogHeader className="border-b border-border px-4 py-2.5">
           <DialogTitle>{name}</DialogTitle>

@@ -298,38 +298,37 @@ fn circular_labels(features: &[Feature], length: i64, radius: f64) -> Vec<Circul
                 label_side == sign
             })
             .collect();
-        side.sort_by(|a, b| {
-            (-a.theta.cos())
-                .partial_cmp(&(-b.theta.cos()))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        for i in 1..side.len() {
+        side.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal));
+        let split = side
+            .iter()
+            .position(|label| label.y >= 0.0)
+            .unwrap_or(side.len());
+        for i in (0..split.saturating_sub(1)).rev() {
+            side[i].y = side[i].y.min(side[i + 1].y - 17.0);
+        }
+        for i in split + 1..side.len() {
             side[i].y = side[i].y.max(side[i - 1].y + 17.0);
         }
-        if let (Some(first), Some(last)) = (side.first(), side.last()) {
-            let over_bottom = last.y - label_radius;
-            if over_bottom > 0.0 {
-                let shift = -over_bottom.min((first.y + label_radius).max(0.0));
-                for label in &mut side {
-                    label.y += shift;
+        if split > 0 && split < side.len() {
+            let deficit = 17.0 - (side[split].y - side[split - 1].y);
+            if deficit > 0.0 {
+                for label in &mut side[..split] {
+                    label.y -= deficit / 2.0;
+                }
+                for label in &mut side[split..] {
+                    label.y += deficit / 2.0;
                 }
             }
         }
-        if let (Some(first), Some(last)) = (side.first(), side.last()) {
-            let over_top = -label_radius - first.y;
-            if over_top > 0.0 {
-                let shift = over_top.min((label_radius - last.y).max(0.0));
-                for label in &mut side {
-                    label.y += shift;
-                }
-            }
-        }
+        let crowded = side.iter().any(|label| label.y.abs() > label_radius + 1e-6);
         for label in &mut side {
-            let ay = label.y.abs();
-            label.x = if ay <= label_radius * 0.8 {
-                sign as f64 * (label_radius * label_radius - ay * ay).sqrt()
+            label.x = if crowded {
+                sign as f64 * label_radius * (0.85 + 0.15 * label.theta.sin().abs())
             } else {
-                sign as f64 * label_radius * 0.85
+                sign as f64
+                    * (label_radius * label_radius - label.y * label.y)
+                        .max(0.0)
+                        .sqrt()
             };
         }
         labels.extend(side);
@@ -712,6 +711,35 @@ mod tests {
         assert!(image.svg.contains("100 bp"));
         assert!(!image.svg.contains("NaN"));
         assert!(image.svg.contains("<polyline"));
+    }
+
+    #[test]
+    fn circular_labels_expand_dense_quadrants_without_overlap() {
+        let mut dense = project("circular");
+        dense.length = 360;
+        dense.sequence = "ACGT".repeat(90);
+        let template = dense.features[0].clone();
+        dense.features = (0..48)
+            .map(|i| Feature {
+                id: format!("dense-{i}"),
+                name: format!("Dense feature {i}"),
+                start: i,
+                end: i,
+                segments: Vec::new(),
+                ..template.clone()
+            })
+            .collect();
+        let mut labels = circular_labels(&dense.features, dense.length, 150.0);
+        labels.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+        for pair in labels.windows(2) {
+            assert!(pair[1].y - pair[0].y >= 17.0 - 1e-8);
+        }
+        assert!(labels.first().unwrap().y < -190.0);
+        for label in labels {
+            let radius = (label.x * label.x + label.y * label.y).sqrt();
+            assert!(radius >= 190.0 - 1e-8);
+            assert!(label.x.abs() <= 190.0 + 1e-8);
+        }
     }
 
     #[test]
