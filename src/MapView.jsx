@@ -217,7 +217,7 @@ export function layoutCircularLabels(features, length, R, half) {
     const crowded = arr.some((it) => Math.abs(it.ly) > labelR + 1e-6);
     for (const it of arr) {
       it.lx = crowded
-        ? sign * labelR * (0.85 + 0.15 * Math.abs(Math.sin(it.th)))
+        ? sign * labelR * (0.25 + 0.75 * Math.abs(Math.sin(it.th)) ** 1.5)
         : sign * Math.sqrt(Math.max(0, labelR * labelR - it.ly * it.ly));
       it.side = sign;
     }

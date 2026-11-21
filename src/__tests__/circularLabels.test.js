@@ -72,9 +72,11 @@ describe('circular map feature labels', () => {
       }
     }
     const topRight = labels.filter((label) => label.side === 1 && label.ly < 0);
-    expect(Math.min(...topRight.map((label) => label.ly))).toBeLessThan(-LABEL_R);
+    const farthestTop = topRight.reduce((a, b) => (a.ly < b.ly ? a : b));
+    expect(farthestTop.ly).toBeLessThan(-LABEL_R);
+    expect(Math.abs(farthestTop.lx)).toBeLessThan(LABEL_R * 0.6);
     for (const label of labels) {
-      expect(Math.hypot(label.lx, label.ly)).toBeGreaterThanOrEqual(LABEL_R - 1e-8);
+      expect(Math.hypot(label.lx, label.ly)).toBeGreaterThanOrEqual(LABEL_R - 12 - 1e-8);
       expect(Math.abs(label.lx)).toBeLessThanOrEqual(LABEL_R + 1e-8);
     }
     expect(leaderPairs(labels)).toEqual([]);

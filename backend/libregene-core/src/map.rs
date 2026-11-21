@@ -323,7 +323,7 @@ fn circular_labels(features: &[Feature], length: i64, radius: f64) -> Vec<Circul
         let crowded = side.iter().any(|label| label.y.abs() > label_radius + 1e-6);
         for label in &mut side {
             label.x = if crowded {
-                sign as f64 * label_radius * (0.85 + 0.15 * label.theta.sin().abs())
+                sign as f64 * label_radius * (0.25 + 0.75 * label.theta.sin().abs().powf(1.5))
             } else {
                 sign as f64
                     * (label_radius * label_radius - label.y * label.y)
@@ -735,9 +735,10 @@ mod tests {
             assert!(pair[1].y - pair[0].y >= 17.0 - 1e-8);
         }
         assert!(labels.first().unwrap().y < -190.0);
+        assert!(labels.first().unwrap().x.abs() < 190.0 * 0.6);
         for label in labels {
             let radius = (label.x * label.x + label.y * label.y).sqrt();
-            assert!(radius >= 190.0 - 1e-8);
+            assert!(radius >= 178.0 - 1e-8);
             assert!(label.x.abs() <= 190.0 + 1e-8);
         }
     }
