@@ -32,7 +32,7 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 发布后 `homebrew-tap` job 用本仓库 `homebrew/libregene.rb` 模板（唯一事实来源，勿直接改 tap 仓库）更新 `dl-li/homebrew-libregene`（需 secret `HOMEBREW_TAP_TOKEN`）。
 
-新 Release 创建后，`cloudflare-publish` job 将全部安装包和 Tauri updater 签名上传到 R2 bucket `libregene-releases` 的 `releases/v<version>/`，最后更新 `https://libregene.donglin.li/latest.json`，HTTPS 校验成功后清理其他版本目录；GitHub 历史 Release 不删除。需要 secrets `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_R2_ACCESS_KEY_ID`、`CLOUDFLARE_R2_SECRET_ACCESS_KEY`、`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。外部 fork PR 不生成 updater 产物，正式发布必须包含全部签名。发布脚本为 `scripts/publish-cloudflare.mjs`，不得在清单更新和校验前清理旧版本。
+新 Release 创建后，`cloudflare-publish` job 将全部安装包和 Tauri updater 签名上传到 R2 bucket `libregene-releases` 的 `releases/v<version>/`，最后更新 `https://libregene.donglin.li/latest.json`，HTTPS 校验成功后清理其他版本目录；GitHub 历史 Release 不删除。需要 secrets `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_R2_ACCESS_KEY_ID`、`CLOUDFLARE_R2_SECRET_ACCESS_KEY`、`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。外部 fork PR 不生成 updater 产物，正式发布必须包含全部签名。发布脚本为 `scripts/publish-cloudflare.mjs`，不得在清单更新和校验前清理旧版本。需要补发已存在的 Release 时，可手动运行 Build workflow（`workflow_dispatch`）并输入与 `package.json` 版本一致的 tag；只有 Cloudflare 发布 job 会执行。
 
 **每次 release 后在本地跑 `cargo sweep --time 7`**（分别于 `src-tauri/` 和 `backend/` 目录执行）：`tauri dev` 反复重编译会在 `target/debug/deps/` 累积大量陈旧 `.rcgu.o` 中间文件和旧 hash 产物（曾积到 50G+），weekly release 是固定的清理时机。
 

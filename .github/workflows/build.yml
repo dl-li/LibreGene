@@ -5,6 +5,12 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to Cloudflare R2
+        required: true
+        type: string
 
 jobs:
   # Fast feedback: lint + type-check + Rust compile-check.
@@ -294,7 +300,7 @@ jobs:
   cloudflare-publish:
     name: Publish updates to Cloudflare R2
     needs: release
-    if: github.event_name == 'push' && needs.release.outputs.released == 'true'
+    if: ${{ always() && ((github.event_name == 'push' && needs.release.outputs.released == 'true') || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -309,8 +315,14 @@ jobs:
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v${{ needs.release.outputs.tag }}
-        run: gh release download "$TAG" --dir release-files
+          TAG: ${{ needs.release.outputs.tag || inputs.tag }}
+        run: |
+          EXPECTED="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "::error::Tag $TAG does not match package.json ($EXPECTED)"
+            exit 1
+          fi
+          gh release download "$TAG" --dir release-files
 
       - name: Publish installers and update manifest
         env:
