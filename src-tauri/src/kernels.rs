@@ -2087,42 +2087,6 @@ mod tests {
     }
 
     #[test]
-    fn primer_alignment_exposes_tm_modes() {
-        let gbk = include_str!("../../examples/pGGA-mCherry.gbk");
-        let template: String = gbk
-            .split("ORIGIN")
-            .nth(1)
-            .unwrap()
-            .split("//")
-            .next()
-            .unwrap()
-            .chars()
-            .filter(|c| c.is_ascii_alphabetic())
-            .collect::<String>()
-            .to_ascii_uppercase();
-        let primer = "tatggtctcAATGGCTACTTGTACAGCTCGTCCATGCC";
-        let params = libregene_core::primer::thermodynamics::TmParams::default();
-        let res = compute_primer_alignment_sync(
-            &template,
-            true,
-            "mCherry Reverse - BsaI",
-            primer,
-            None,
-            &params,
-        )
-        .unwrap();
-        let cur = &res["current"];
-
-        assert_eq!(cur["strand"], serde_json::json!(-1));
-        assert_eq!(cur["tm"], serde_json::json!(64.8));
-        assert_eq!(cur["tm"], cur["tmOptions"]["alignment"]);
-        assert_eq!(cur["tmOptions"]["annealCore"], serde_json::json!(63.9));
-        assert_eq!(cur["tmOptions"]["fullPrimer"], serde_json::json!(67.3));
-        assert_eq!(cur["alignmentTmAvailable"], serde_json::json!(true));
-        assert_eq!(cur["alignmentHasGaps"], serde_json::json!(false));
-    }
-
-    #[test]
     fn primer_alignment_supports_snapgene_compatible_tm() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

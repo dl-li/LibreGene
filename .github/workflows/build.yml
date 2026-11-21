@@ -136,10 +136,17 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --lib --locked -- -D warnings
 
+      - name: Disable updater artifacts for fork builds
+        if: github.event.pull_request.head.repo.fork
+        run: |
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle.createUpdaterArtifacts=false;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # Linux skips Tauri bundling entirely; the binary is packaged as a
           # Flatpak below. macOS/Windows keep the default "all" targets.
@@ -183,10 +190,15 @@ jobs:
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
             src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi.sig
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.exe.sig
             src-tauri/target/aarch64-pc-windows-msvc/release/bundle/msi/*.msi
+            src-tauri/target/aarch64-pc-windows-msvc/release/bundle/msi/*.msi.sig
             src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe.sig
             flatpak-out/*.flatpak
           if-no-files-found: error
 
@@ -205,6 +217,7 @@ jobs:
     concurrency: release
     outputs:
       released: ${{ steps.version.outputs.released }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
 
@@ -277,6 +290,36 @@ jobs:
             echo "::warning::${NOTES} not found; using auto-generated notes"
             gh release create "$TAG" release-files/* --target "$SHA" --title "$TAG" --generate-notes
           fi
+
+  cloudflare-publish:
+    name: Publish updates to Cloudflare R2
+    needs: release
+    if: github.event_name == 'push' && needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.release.outputs.tag }}
+        run: gh release download "$TAG" --dir release-files
+
+      - name: Publish installers and update manifest
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          node scripts/publish-cloudflare.mjs "$VERSION" release-files "release-notes/v${VERSION}.md"
 
   # After a new GitHub Release is created, update the Homebrew cask in the
   # dl-li/homebrew-libregene tap. The cask template lives in homebrew/ in

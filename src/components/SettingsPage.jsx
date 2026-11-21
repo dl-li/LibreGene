@@ -25,6 +25,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cog,
+  RefreshCw,
 } from 'lucide-react';
 import { T, useTranslation } from '@/i18n';
 import { PRIMER_TM_ALGORITHM_OPTIONS, PRIMER_TM_MODE_OPTIONS } from '@/tmParams';
@@ -135,11 +136,16 @@ export default function SettingsPage({
   disabledPlugins = [],
   onTogglePlugin,
   focusSection,
+  updater = {},
 }) {
   const { t, locale, setLocale } = useTranslation();
   const [section, setSection] = useState('general');
   const [showBuiltinPlugins, setShowBuiltinPlugins] = useState(false);
   const [busy, setBusy] = useState('');
+  const updateBusy = ['checking', 'downloading', 'installing'].includes(updater.status);
+  const downloadPercent = updater.total
+    ? Math.min(100, Math.round((updater.downloaded / updater.total) * 100))
+    : null;
 
   const handleSetDefaultApp = async () => {
     setBusy('default');
@@ -204,6 +210,12 @@ export default function SettingsPage({
       description: 'Language, file associations and settings backup',
     },
     {
+      id: 'updates',
+      label: 'Updates',
+      icon: RefreshCw,
+      description: 'Check for and install new LibreGene versions',
+    },
+    {
       id: 'sequence',
       label: 'Sequence',
       icon: Dna,
@@ -246,7 +258,7 @@ export default function SettingsPage({
   // Re-open on the requested section (sidebar "Plugins" entry → plugins).
   useEffect(() => {
     if (!open) return;
-    if (focusSection === 'plugins') setSection('plugins');
+    if (focusSection === 'plugins' || focusSection === 'updates') setSection(focusSection);
     else setSection('general');
   }, [open, focusSection]);
 
@@ -368,6 +380,122 @@ export default function SettingsPage({
                     {busy === 'export' ? <T>{'Exporting…'}</T> : <T>{'Export…'}</T>}
                   </Button>
                 </SettingRow>
+              </div>
+            )}
+
+            {activeSection.id === 'updates' && (
+              <div className="divide-y divide-border/60">
+                <SettingRow label="Current version">
+                  <span className="font-mono text-sm text-muted-foreground">
+                    {updater.currentVersion ? `v${updater.currentVersion}` : '…'}
+                  </span>
+                </SettingRow>
+                <SettingRow
+                  label="Automatically check for updates"
+                  hint="Check at startup and once every 24 hours; never install automatically"
+                >
+                  <Checkbox
+                    checked={updater.autoCheck !== false}
+                    onCheckedChange={(value) => updater.setAutoCheck?.(!!value)}
+                    aria-label={t('Automatically check for updates')}
+                  />
+                </SettingRow>
+                <SettingRow
+                  label="Update availability"
+                  hint="Updates are downloaded from libregene.donglin.li and verified before installation"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={updateBusy}
+                    onClick={() => updater.checkForUpdates?.()}
+                  >
+                    {updater.status === 'checking' ? (
+                      <T>{'Checking…'}</T>
+                    ) : (
+                      <T>{'Check for updates'}</T>
+                    )}
+                  </Button>
+                </SettingRow>
+                <div className="space-y-3 py-3" aria-live="polite">
+                  {updater.status === 'latest' && (
+                    <p className="text-[13px] text-muted-foreground">
+                      <T>{'LibreGene is up to date.'}</T>
+                    </p>
+                  )}
+                  {updater.update && (
+                    <>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-[13px] font-medium">
+                            {t('Version {version} is available', {
+                              version: updater.update.version,
+                            })}
+                          </p>
+                          {updater.isLinux && (
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                              <T>
+                                {'Use Flatpak to install the update, or open the latest release.'}
+                              </T>
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={updateBusy}
+                          onClick={() => updater.downloadAndInstall?.()}
+                        >
+                          {updater.isLinux ? (
+                            <T>{'Open latest release'}</T>
+                          ) : (
+                            <T>{'Download & install'}</T>
+                          )}
+                        </Button>
+                      </div>
+                      {updater.update.body && (
+                        <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 p-3 font-sans text-xs leading-relaxed text-muted-foreground">
+                          {updater.update.body}
+                        </pre>
+                      )}
+                    </>
+                  )}
+                  {(updater.status === 'downloading' || updater.status === 'installing') && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>
+                          {updater.status === 'installing' ? (
+                            <T>{'Installing update…'}</T>
+                          ) : (
+                            <T>{'Downloading update…'}</T>
+                          )}
+                        </span>
+                        {downloadPercent !== null && <span>{downloadPercent}%</span>}
+                      </div>
+                      <div
+                        className="h-1.5 overflow-hidden rounded-full bg-muted"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={downloadPercent ?? 0}
+                      >
+                        <div
+                          className={cn(
+                            'h-full rounded-full bg-primary transition-[width]',
+                            downloadPercent === null && 'w-1/3 animate-pulse',
+                          )}
+                          style={
+                            downloadPercent === null ? undefined : { width: `${downloadPercent}%` }
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {updater.error && (
+                    <p className="text-xs leading-relaxed text-destructive">
+                      <T>{updater.error}</T>
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

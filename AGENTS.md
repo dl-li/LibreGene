@@ -32,6 +32,8 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 
 发布后 `homebrew-tap` job 用本仓库 `homebrew/libregene.rb` 模板（唯一事实来源，勿直接改 tap 仓库）更新 `dl-li/homebrew-libregene`（需 secret `HOMEBREW_TAP_TOKEN`）。
 
+新 Release 创建后，`cloudflare-publish` job 将全部安装包和 Tauri updater 签名上传到 R2 bucket `libregene-releases` 的 `releases/v<version>/`，最后更新 `https://libregene.donglin.li/latest.json`，HTTPS 校验成功后清理其他版本目录；GitHub 历史 Release 不删除。需要 secrets `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_R2_ACCESS_KEY_ID`、`CLOUDFLARE_R2_SECRET_ACCESS_KEY`、`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。外部 fork PR 不生成 updater 产物，正式发布必须包含全部签名。发布脚本为 `scripts/publish-cloudflare.mjs`，不得在清单更新和校验前清理旧版本。
+
 **每次 release 后在本地跑 `cargo sweep --time 7`**（分别于 `src-tauri/` 和 `backend/` 目录执行）：`tauri dev` 反复重编译会在 `target/debug/deps/` 累积大量陈旧 `.rcgu.o` 中间文件和旧 hash 产物（曾积到 50G+），weekly release 是固定的清理时机。
 
 ## 编码准则
@@ -130,3 +132,4 @@ push 到 master 时 CI（`.github/workflows/build.yml`）检查 `package.json` v
 - 设为默认应用（`set_default_file_associations`）、用户配置/数据导入导出（`read_text_file` + `src/settingsTransfer.js`）：OS 集成与纯前端配置迁移
 - 多序列比对项目（`projectKind: "msa"`，`src/msa/` 与 `commands/msa.rs`）：首版仅接入桌面 UI，独立行模型与 MUSCLE 子进程尚未映射到现有单序列 MCP 工具契约
 - 统一 undo/redo（Tauri command `undo_project_edit`/`redo_project_edit`）：桌面历史操作，未暴露 MCP 工具；Agent 修改已进入同一 Session Log，可经 UI 回退
+- 应用更新（Tauri updater、自动检查设置、侧边栏提醒）：应用分发与桌面 UI 状态，不属于项目数据操作

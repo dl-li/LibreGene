@@ -30,7 +30,7 @@
     "security": {
       "csp": {
         "default-src": "'self' customprotocol: asset:",
-        "connect-src": "ipc: http://ipc.localhost",
+        "connect-src": "ipc: http://ipc.localhost https://libregene.donglin.li",
         "img-src": "'self' asset: http://asset.localhost data:",
         "style-src": "'self' 'unsafe-inline'",
         "style-src-elem": "'self' 'unsafe-inline'"
@@ -39,6 +39,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "externalBin": ["binaries/muscle"],
     "icon": [
@@ -48,9 +49,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../assets/Fonts/*"
-    ],
+    "resources": ["../assets/Fonts/*"],
     "fileAssociations": [
       {
         "ext": ["gbk", "gb", "genbank", "gbf", "gbff"],
@@ -89,5 +88,15 @@
         "role": "Editor"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI1QkE3RDIyRjQxMkFDNEEKUldSS3JCTDBJbjI2dFYxNzE0TXdsbXJZUTdEUEZ1dTh1MC96cGJSTDlPdjFMKzRPREhHYTZDM0cK",
+      "endpoints": ["https://libregene.donglin.li/latest.json"],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

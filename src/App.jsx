@@ -27,6 +27,7 @@ import useSettings from './hooks/useSettings';
 import useProjects from './hooks/useProjects';
 import useTabDrag from './hooks/useTabDrag';
 import useTauriEvents from './hooks/useTauriEvents';
+import useUpdater from './hooks/useUpdater';
 import { useWheelContainment } from './hooks/useWheelContainment';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
@@ -288,6 +289,7 @@ export default function App() {
 
   // --- beforeunload: warn on close with unsaved changes in any workspace ---
   const anyDirty = Object.values(dirtyById).some(Boolean);
+  const updater = useUpdater({ hasUnsavedProjects: anyDirty });
   useEffect(() => {
     const handler = (e) => {
       if (anyDirty) {
@@ -812,6 +814,7 @@ export default function App() {
       sidebarTargetId={sidebarTargetId}
       setMcpGuideOpen={setMcpGuideOpen}
       openSettings={openSettings}
+      updateAvailable={!!updater.update}
       setAboutOpen={setAboutOpen}
     />
   );
@@ -965,6 +968,7 @@ export default function App() {
           plugins={plugins}
           disabledPlugins={disabledPlugins}
           onTogglePlugin={handleTogglePlugin}
+          updater={updater}
         />
 
         <AppDialogs
